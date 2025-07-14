@@ -3,12 +3,17 @@ import torch
 
 from sc_flow.backends.torch.probability_paths._probability_paths import (
     BaseProbabilityPath,
-    DiracProbabilityPath,
+    LinearDiracProbabilityPath,
     LinearGaussianProbabilityPath,
     SchrodingerBridgeProbabilityPath,
-    VariancePreservingProbabilityPath,
+    VariancePreservingDiracProbabilityPath,
 )
-from sc_flow.backends.torch.random._prng import TorchPRNGKey
+
+batch_size = 8
+num_feats = 16
+num_channels = 3
+height = 32
+width = 64
 
 
 class TestProbabilityPaths:
@@ -17,8 +22,8 @@ class TestProbabilityPaths:
         [
             LinearGaussianProbabilityPath,
             SchrodingerBridgeProbabilityPath,
-            DiracProbabilityPath,
-            VariancePreservingProbabilityPath,
+            LinearDiracProbabilityPath,
+            VariancePreservingDiracProbabilityPath,
         ],
     )
     def test_probability_path_init(
@@ -29,24 +34,19 @@ class TestProbabilityPaths:
         if not probability_path_cls.is_deterministic:
             # initialize with negative sigma
             with pytest.raises(ValueError, match=r"Argument sigma should be a positive float"):
-                probability_path = probability_path_cls(-1.0, prng_key=TorchPRNGKey())
-                return None
-
-            # initialize without prng
-            with pytest.raises(ValueError, match=r"requires a PRNG"):
-                probability_path = probability_path_cls(1.0, prng_key=None)
+                probability_path = probability_path_cls(-1.0, prng=torch.random.default_generator)
                 return None
 
             # initialize with prng
-            probability_path = probability_path_cls(1.0, prng_key=TorchPRNGKey())
+            probability_path = probability_path_cls(1.0, prng=torch.random.default_generator)
             assert not probability_path.is_deterministic
         else:
             # initialize with prng (should only raise a warning)
-            probability_path = probability_path_cls(prng_key=TorchPRNGKey())
+            probability_path = probability_path_cls(prng=torch.random.default_generator)
             assert probability_path.is_deterministic
 
             # initialize without prng
-            probability_path = probability_path_cls(prng_key=None)
+            probability_path = probability_path_cls(prng=None)
             assert probability_path.is_deterministic
 
     @pytest.mark.parametrize(
@@ -54,8 +54,8 @@ class TestProbabilityPaths:
         [
             LinearGaussianProbabilityPath,
             SchrodingerBridgeProbabilityPath,
-            DiracProbabilityPath,
-            VariancePreservingProbabilityPath,
+            LinearDiracProbabilityPath,
+            VariancePreservingDiracProbabilityPath,
         ],
     )
     @pytest.mark.parametrize("method", ["compute_xt", "compute_mu_t", "compute_ut"])
@@ -64,16 +64,9 @@ class TestProbabilityPaths:
         probability_path_cls: BaseProbabilityPath,
         method: str,
     ) -> None:
-        # defining variables for shape
-        batch_size = 8
-        num_feats = 16
-        num_channels = 3
-        height = 32
-        width = 64
-
         # initialize probability path and retrieving method to test
         probability_path = probability_path_cls(
-            1.0, prng_key=None if probability_path_cls.is_deterministic else TorchPRNGKey()
+            1.0, prng=None if probability_path_cls.is_deterministic else torch.random.default_generator
         )
         tested_method = getattr(probability_path, method)
 

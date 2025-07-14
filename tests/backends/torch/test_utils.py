@@ -104,3 +104,8 @@ class TestTorchBackendUtils:
             input_tensor = torch.zeros((batch_size, 1, 1, 1, 1))
             input_tensor = broadcast_to_target_shape(input_tensor, target_shape3d)
             return None
+
+    def test_make_concatenation_possible(
+        self,
+    ) -> None:
+        pass

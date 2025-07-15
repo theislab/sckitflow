@@ -14,7 +14,6 @@ from sc_flow.backends.torch.probability_paths._probability_paths import (
 )
 from sc_flow.backends.torch.probability_paths._utils import (
     get_probability_path,
-    verify_probability_path_dictionary,
 )
 
 from .utils import verify_method_output
@@ -108,19 +107,19 @@ class TestProbabilityPathUtils:
     ) -> None:
         if probability_path_id == invalid_key:
             with pytest.raises(ValueError, match=r"Probability path .* not supported\."):
-                probability_path = get_probability_path(probability_path_id, sigma)
+                probability_path = get_probability_path(sigma, probability_path_id)
             return None
 
         if probability_path_id in non_deterministic_probability_path_ids and sigma == 0.0:
             with pytest.raises(
                 ValueError,
-                match=r"Argument sigma should be a positive float",
+                match=r"",
             ):
-                probability_path = get_probability_path(probability_path_id, sigma)
+                probability_path = get_probability_path(sigma, probability_path_id)
             return None
-        probability_path = get_probability_path(probability_path_id, sigma)
+        probability_path = get_probability_path(sigma, probability_path_id)
 
-        if probability_path in ["constant-noise-linear-gaussian", "cnlg-pp"]:
+        if probability_path_id in ["constant-noise-linear-gaussian", "cnlg-pp"]:
             assert isinstance(probability_path, LinearGaussianProbabilityPath)
         if probability_path_id in ["schrodinger-bridge", "sb-pp"]:
             assert isinstance(probability_path, SchrodingerBridgeProbabilityPath)
@@ -168,11 +167,13 @@ class TestProbabilityPathUtils:
     )
     @pytest.mark.parametrize("sigma", [0.0, 1.0])
     @pytest.mark.parametrize("require_prng", [True, False])
+    @pytest.mark.parametrize("method", ["compute_xt", "compute_mu_t", "compute_ut"])
     def test_get_probability_path_with_dict(
         self,
         probability_path_dict: dict[str, Callable],
         sigma: float,
         require_prng: bool,
+        method: str,
     ) -> None:
         # missing keys (KeyError)
         if MU_T_FN_KEY not in probability_path_dict.keys():
@@ -180,21 +181,21 @@ class TestProbabilityPathUtils:
                 KeyError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         if U_T_FN_KEY not in probability_path_dict.keys():
             with pytest.raises(
                 KeyError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         if require_prng and SIGMA_T_FN_KEY not in probability_path_dict.keys():
             with pytest.raises(
                 KeyError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         # wrong function signature (TypeError)
         if ["t", "x0", "x1"] != list(get_fn_args_names_and_types(probability_path_dict[MU_T_FN_KEY]).keys()):
@@ -202,7 +203,7 @@ class TestProbabilityPathUtils:
                 TypeError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         if ["t", "xt", "x0", "x1"] != list(get_fn_args_names_and_types(probability_path_dict[U_T_FN_KEY]).keys()):
             print(list(get_fn_args_names_and_types(probability_path_dict[U_T_FN_KEY]).keys()))
@@ -210,7 +211,7 @@ class TestProbabilityPathUtils:
                 TypeError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         if require_prng and [
             "t",
@@ -219,7 +220,7 @@ class TestProbabilityPathUtils:
                 TypeError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         # wrong sigma value (ValueError)
         if require_prng and sigma == 0.0:
@@ -227,142 +228,135 @@ class TestProbabilityPathUtils:
                 ValueError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
-        probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+        probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
         assert isinstance(probability_path, BaseProbabilityPath)
+        verify_method_output(
+            probability_path,
+            method,
+            batch_size,
+            num_feats,
+            num_channels,
+            height,
+            width,
+        )
 
-    @pytest.mark.parametrize(
-        "probability_path_dict",
-        [
-            {
-                MU_T_FN_KEY: valid_compute_mu_t_fn,
-                U_T_FN_KEY: valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: valid_compute_sigma_t_fn,
-            },
-            {
-                U_T_FN_KEY: valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: valid_compute_mu_t_fn,
-                SIGMA_T_FN_KEY: valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: valid_compute_mu_t_fn,
-                U_T_FN_KEY: valid_compute_ut_fn,
-            },
-            {
-                MU_T_FN_KEY: invalid_compute_mu_t_fn,
-                U_T_FN_KEY: valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: valid_compute_mu_t_fn,
-                U_T_FN_KEY: invalid_compute_ut_fn,
-                SIGMA_T_FN_KEY: valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: valid_compute_mu_t_fn,
-                U_T_FN_KEY: valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: invalid_compute_sigma_t_fn,
-            },
-        ],
-    )
+    @pytest.mark.parametrize("compute_mu_t_fn", [None, valid_compute_mu_t_fn, invalid_compute_mu_t_fn])
+    @pytest.mark.parametrize("compute_ut_fn", [None, valid_compute_ut_fn, invalid_compute_ut_fn])
+    @pytest.mark.parametrize("compute_sigma_t_fn", [None, valid_compute_sigma_t_fn, invalid_compute_sigma_t_fn])
+    @pytest.mark.parametrize("sigma", [0.0, 1.0])
     @pytest.mark.parametrize("require_prng", [True, False])
-    def test_verify_probability_path_dict(
+    @pytest.mark.parametrize("method", ["compute_xt", "compute_mu_t", "compute_ut"])
+    def test_get_probability_path_with_fn(
         self,
-        probability_path_dict: dict[str, Callable],
+        compute_mu_t_fn: Callable | None,
+        compute_ut_fn: Callable | None,
+        compute_sigma_t_fn: Callable | None,
+        sigma: float,
         require_prng: bool,
+        method: str,
     ) -> None:
-        # missing keys (KeyError)
-        if MU_T_FN_KEY not in probability_path_dict.keys():
-            with pytest.raises(
-                KeyError,
-                match=r"",
-            ):
-                verify_probability_path_dictionary(
-                    probability_path_dict,
-                    require_prng,
-                    compute_mu_t_kwargs,
-                    compute_ut_kwargs,
-                    compute_sigma_t_kwargs,
+        # missing arguments (ValueError)
+        if compute_mu_t_fn is None:
+            with pytest.raises(ValueError, match=r""):
+                probability_path = get_probability_path(
+                    sigma,
+                    compute_mu_t_fn=compute_mu_t_fn,
+                    compute_ut_fn=compute_ut_fn,
+                    compute_sigma_t_fn=compute_sigma_t_fn,
+                    require_prng=require_prng,
                 )
             return None
-        if U_T_FN_KEY not in probability_path_dict.keys():
-            with pytest.raises(
-                KeyError,
-                match=r"",
-            ):
-                verify_probability_path_dictionary(
-                    probability_path_dict,
-                    require_prng,
-                    compute_mu_t_kwargs,
-                    compute_ut_kwargs,
-                    compute_sigma_t_kwargs,
+        if compute_ut_fn is None:
+            with pytest.raises(ValueError, match=r""):
+                probability_path = get_probability_path(
+                    sigma,
+                    compute_mu_t_fn=compute_mu_t_fn,
+                    compute_ut_fn=compute_ut_fn,
+                    compute_sigma_t_fn=compute_sigma_t_fn,
+                    require_prng=require_prng,
                 )
             return None
-        if require_prng and SIGMA_T_FN_KEY not in probability_path_dict.keys():
-            with pytest.raises(
-                KeyError,
-                match=r"",
-            ):
-                verify_probability_path_dictionary(
-                    probability_path_dict,
-                    require_prng,
-                    compute_mu_t_kwargs,
-                    compute_ut_kwargs,
-                    compute_sigma_t_kwargs,
+        if compute_sigma_t_fn is None and require_prng:
+            with pytest.raises(ValueError, match=r""):
+                probability_path = get_probability_path(
+                    sigma,
+                    compute_mu_t_fn=compute_mu_t_fn,
+                    compute_ut_fn=compute_ut_fn,
+                    compute_sigma_t_fn=compute_sigma_t_fn,
+                    require_prng=require_prng,
                 )
             return None
         # wrong function signature (TypeError)
-        if ["t", "x0", "x1"] != list(get_fn_args_names_and_types(probability_path_dict[MU_T_FN_KEY]).keys()):
+        if ["t", "x0", "x1"] != list(get_fn_args_names_and_types(compute_mu_t_fn).keys()):
             with pytest.raises(
                 TypeError,
                 match=r"",
             ):
-                verify_probability_path_dictionary(
-                    probability_path_dict,
-                    require_prng,
-                    compute_mu_t_kwargs,
-                    compute_ut_kwargs,
-                    compute_sigma_t_kwargs,
+                probability_path = get_probability_path(
+                    sigma,
+                    compute_mu_t_fn=compute_mu_t_fn,
+                    compute_ut_fn=compute_ut_fn,
+                    compute_sigma_t_fn=compute_sigma_t_fn,
+                    require_prng=require_prng,
                 )
             return None
-        if ["t", "xt", "x0", "x1"] != list(get_fn_args_names_and_types(probability_path_dict[U_T_FN_KEY]).keys()):
+        if ["t", "xt", "x0", "x1"] != list(get_fn_args_names_and_types(compute_ut_fn).keys()):
             with pytest.raises(
                 TypeError,
                 match=r"",
             ):
-                verify_probability_path_dictionary(
-                    probability_path_dict,
-                    require_prng,
-                    compute_mu_t_kwargs,
-                    compute_ut_kwargs,
-                    compute_sigma_t_kwargs,
+                probability_path = get_probability_path(
+                    sigma,
+                    compute_mu_t_fn=compute_mu_t_fn,
+                    compute_ut_fn=compute_ut_fn,
+                    compute_sigma_t_fn=compute_sigma_t_fn,
+                    require_prng=require_prng,
                 )
             return None
         if require_prng and [
             "t",
-        ] != list(get_fn_args_names_and_types(probability_path_dict[SIGMA_T_FN_KEY]).keys()):
+        ] != list(get_fn_args_names_and_types(compute_sigma_t_fn).keys()):
             with pytest.raises(
                 TypeError,
                 match=r"",
             ):
-                verify_probability_path_dictionary(
-                    probability_path_dict,
-                    require_prng,
-                    compute_mu_t_kwargs,
-                    compute_ut_kwargs,
-                    compute_sigma_t_kwargs,
+                probability_path = get_probability_path(
+                    sigma,
+                    compute_mu_t_fn=compute_mu_t_fn,
+                    compute_ut_fn=compute_ut_fn,
+                    compute_sigma_t_fn=compute_sigma_t_fn,
+                    require_prng=require_prng,
                 )
             return None
-        verify_probability_path_dictionary(
-            probability_path_dict,
-            require_prng,
-            compute_mu_t_kwargs,
-            compute_ut_kwargs,
-            compute_sigma_t_kwargs,
+        # wrong sigma value (ValueError)
+        if sigma == 0.0 and require_prng:
+            with pytest.raises(ValueError, match=r""):
+                probability_path = get_probability_path(
+                    sigma,
+                    compute_mu_t_fn=compute_mu_t_fn,
+                    compute_ut_fn=compute_ut_fn,
+                    compute_sigma_t_fn=compute_sigma_t_fn,
+                    require_prng=require_prng,
+                )
+            return None
+        probability_path = get_probability_path(
+            sigma,
+            compute_mu_t_fn=compute_mu_t_fn,
+            compute_ut_fn=compute_ut_fn,
+            compute_sigma_t_fn=compute_sigma_t_fn,
+            require_prng=require_prng,
+        )
+        assert isinstance(probability_path, BaseProbabilityPath)
+        verify_method_output(
+            probability_path,
+            method,
+            batch_size,
+            num_feats,
+            num_channels,
+            height,
+            width,
         )
 
     @pytest.mark.parametrize("compute_mu_t_fn", [valid_compute_mu_t_fn, invalid_compute_mu_t_fn])
@@ -384,9 +378,9 @@ class TestProbabilityPathUtils:
 
         # initializing custom probability path
         probability_path_dict = {
-            MU_T_FN_KEY: valid_compute_mu_t_fn,
-            U_T_FN_KEY: valid_compute_ut_fn,
-            SIGMA_T_FN_KEY: valid_compute_sigma_t_fn,
+            MU_T_FN_KEY: compute_mu_t_fn,
+            U_T_FN_KEY: compute_ut_fn,
+            SIGMA_T_FN_KEY: compute_sigma_t_fn,
         }
 
         # missing keys (KeyError)
@@ -395,21 +389,29 @@ class TestProbabilityPathUtils:
                 KeyError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         if U_T_FN_KEY not in probability_path_dict.keys():
             with pytest.raises(
                 KeyError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         if require_prng and SIGMA_T_FN_KEY not in probability_path_dict.keys():
             with pytest.raises(
                 KeyError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
+            return None
+        # sigma function none and required_prng True (ValueError)
+        if require_prng and probability_path_dict[SIGMA_T_FN_KEY] is None:
+            with pytest.raises(
+                ValueError,
+                match=r"",
+            ):
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         # wrong function signature (TypeError)
         if ["t", "x0", "x1"] != list(get_fn_args_names_and_types(probability_path_dict[MU_T_FN_KEY]).keys()):
@@ -417,14 +419,14 @@ class TestProbabilityPathUtils:
                 TypeError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         if ["t", "xt", "x0", "x1"] != list(get_fn_args_names_and_types(probability_path_dict[U_T_FN_KEY]).keys()):
             with pytest.raises(
                 TypeError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         if require_prng and [
             "t",
@@ -433,7 +435,7 @@ class TestProbabilityPathUtils:
                 TypeError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
         # wrong sigma value (ValueError)
         if require_prng and sigma == 0.0:
@@ -441,9 +443,9 @@ class TestProbabilityPathUtils:
                 ValueError,
                 match=r"",
             ):
-                probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
             return None
-        probability_path = get_probability_path(probability_path_dict, sigma, require_prng=require_prng)
+        probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
         verify_method_output(
             probability_path,
             method,

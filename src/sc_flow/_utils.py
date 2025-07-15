@@ -87,7 +87,7 @@ def verify_fn_args(
     positional_args = get_fn_args_names_and_types(fn, omitted_args=omitted_args)
     if len(positional_args) != len(input_types):
         msg = (
-            f"The input function {fn}and the reference template {Tfn} have different number of"
+            f"The input function {fn} and the reference template {Tfn} have different number of"
             f"positional arguments. Found {len(positional_args)}, expected {len(input_types)}"
         )
         raise TypeError(msg)

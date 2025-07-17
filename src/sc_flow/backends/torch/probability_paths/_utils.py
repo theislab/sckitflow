@@ -8,10 +8,10 @@ from sc_flow._constants import (
     SIGMA_T_FN_KEY,
     U_T_FN_KEY,
 )
+from sc_flow._types import ProbabilityPathId
 from sc_flow._utils import verify_fn_signature
 from sc_flow.backends.torch._types import (
     ProbabilityPathDict,
-    ProbabilityPathId,
     TDriftFn,
     TMeanFn,
     TSigmaFn,

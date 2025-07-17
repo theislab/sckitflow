@@ -22,8 +22,8 @@ class BaseProbabilityPath(abc.ABC):
 
     :param _require_prng: Whether a Pseudo-Random Numbers Generator is required for the probability path.
         Pseudo-Random Numbers Generators are required for non-deterministic probability paths and should be instances of
-        :class: `torch.Generator`. For non-deterministic probability paths a :class: `ValueError`
-        is thrown otherwise.
+        :class: `torch.Generator`. For non-deterministic probability paths a :class: `ValueError` it is set to the
+        output of :constant: `torch.random.default_generator`.
     :type _require_prng: class: `bool`
     """
 
@@ -36,11 +36,12 @@ class BaseProbabilityPath(abc.ABC):
     ) -> None:
         r"""Initializes the probability path.
 
-        Raises :class: `ValueError` when :attr: `self._require_prng` is `True` and :param: `prng` is `None`.
+        Raises :class: `ValueError` when :attr: `self._require_prng` is `True` and :param: `sigma` is not positive.
 
         :param sigma: Positive scalar for the noise strength of the probability path.
             This will determine the factor :math: `\sigma` by which the time-dependent standard deviation
             :math: `\sigma_t` of the conditional probability path will be scaled.
+            For non-deterministic probability paths, this has to be a positive scalar. A :class: `ValueError` is thrown otherwise.
         :type sigma: class: `float`
 
         :param prng: Pseudo-Random Numbers Generator used to generate random numbers. Only needed for

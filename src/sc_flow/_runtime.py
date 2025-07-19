@@ -1,0 +1,40 @@
+from sc_flow._constants import DEFAULT_BACKEND
+from sc_flow._types import BackendId
+
+BACKEND = DEFAULT_BACKEND
+
+
+TORCH_IMPORT_FAILED = False
+JAX_IMPORT_FAILED = False
+
+
+def set_backend(backend: BackendId):
+    global BACKEND
+    if backend not in ["torch", "jax"]:
+        raise_runtime_error_on_backend_not_supported(backend)
+    BACKEND = backend
+
+
+def set_torch_import_failed(failed: bool):
+    global TORCH_IMPORT_FAILED
+    TORCH_IMPORT_FAILED = failed
+
+
+def set_jax_import_failed(failed: bool):
+    global TORCH_IMPORT_FAILED
+    TORCH_IMPORT_FAILED = failed
+
+
+def raise_runtime_error_on_backend_not_supported(backend: str):
+    msg = f'{backend} not supported, possible choices are `["torch", "jax"]`'
+    raise RuntimeError(msg)
+
+
+def raise_runtime_error_on_backend_failed_import():
+    global BACKEND, TORCH_IMPORT_FAILED, JAX_IMPORT_FAILED
+    if BACKEND == "torch" and TORCH_IMPORT_FAILED:
+        msg = "Failed to import torch backend."
+        raise RuntimeError(msg)
+    if BACKEND == "jax" and JAX_IMPORT_FAILED:
+        msg = "Failed to import jax backend."
+        raise RuntimeError(msg)

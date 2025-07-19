@@ -1,29 +1,83 @@
 from functools import partial
 from typing import Any
 
-import torch
-
 from sc_flow._constants import (
     MU_T_FN_KEY,
     SIGMA_T_FN_KEY,
     U_T_FN_KEY,
 )
+from sc_flow._runtime import (
+    JAX_IMPORT_FAILED,
+    TORCH_IMPORT_FAILED,
+    raise_runtime_error_on_backend_failed_import,
+    raise_runtime_error_on_backend_not_supported,
+    set_jax_import_failed,
+    set_torch_import_failed,
+)
 from sc_flow._types import ProbabilityPathId
 from sc_flow._utils import verify_fn_signature
-from sc_flow.backends.torch._types import (
-    ProbabilityPathDict,
-    TDriftFn,
-    TMeanFn,
-    TSigmaFn,
-)
-from sc_flow.backends.torch._utils import broadcast_to_target_shape
-from sc_flow.backends.torch.probability_paths._probability_paths import (
-    BaseProbabilityPath,
-    LinearDiracProbabilityPath,
-    LinearGaussianProbabilityPath,
-    SchrodingerBridgeProbabilityPath,
-    VariancePreservingDiracProbabilityPath,
-)
+
+try:
+    from torch import Generator
+
+    from sc_flow.backends.torch._types import (
+        ProbabilityPathDict as TorchProbabilityDict,
+    )
+    from sc_flow.backends.torch._types import (
+        TDriftFn as TorchTDriftFn,
+    )
+    from sc_flow.backends.torch._types import (
+        TMeanFn as TorchTMeanFn,
+    )
+    from sc_flow.backends.torch._types import (
+        TSigmaFn as TorchTSigmaFn,
+    )
+    from sc_flow.backends.torch.probability_paths._probability_paths import (
+        BaseProbabilityPath as TorchBaseProbabilityPath,
+    )
+except (ImportError, ModuleNotFoundError):
+    set_torch_import_failed(True)
+    Generator = None
+
+try:
+    from sc_flow.backends.jax._types import (
+        ProbabilityPathDict as JaxProbabilityDict,
+    )
+    from sc_flow.backends.jax._types import (
+        TDriftFn as JaxTDriftFn,
+    )
+    from sc_flow.backends.jax._types import (
+        TMeanFn as JaxTMeanFn,
+    )
+    from sc_flow.backends.jax._types import (
+        TSigmaFn as JaxTSigmaFn,
+    )
+    from sc_flow.backends.jax.probability_paths._probability_paths import BaseProbabilityPath as JaxBaseProbabilityPath
+except (ImportError, ModuleNotFoundError):
+    set_jax_import_failed(True)
+
+if (not TORCH_IMPORT_FAILED) and (not JAX_IMPORT_FAILED):
+    BaseProbabilityPath = TorchBaseProbabilityPath | JaxBaseProbabilityPath
+    ProbabilityPathDict = TorchProbabilityDict | JaxProbabilityDict
+    TDriftFn = TorchTDriftFn | JaxTDriftFn
+    TMeanFn = TorchTMeanFn | JaxTMeanFn
+    TSigmaFn = TorchTSigmaFn | JaxTSigmaFn
+elif (not TORCH_IMPORT_FAILED) and JAX_IMPORT_FAILED:
+    BaseProbabilityPath = TorchBaseProbabilityPath
+    ProbabilityPathDict = TorchProbabilityDict
+    TDriftFn = TorchTDriftFn
+    TMeanFn = TorchTMeanFn
+    TSigmaFn = TorchTSigmaFn
+elif TORCH_IMPORT_FAILED and (not JAX_IMPORT_FAILED):
+    BaseProbabilityPath = JaxBaseProbabilityPath
+    ProbabilityPathDict = JaxProbabilityDict
+    TDriftFn = JaxTDriftFn
+    TMeanFn = JaxTMeanFn
+    TSigmaFn = JaxTSigmaFn
+else:
+    msg = "Both torch and jax backends import failed."
+    raise RuntimeError(msg)
+
 
 __all__ = [
     "get_probability_path",
@@ -38,7 +92,7 @@ def get_probability_path(
     compute_ut_fn: TDriftFn | None = None,
     compute_sigma_t_fn: TSigmaFn | None = None,
     require_prng: bool = True,
-    prng: torch.Generator | None = None,
+    prng: Generator | None = None,
     compute_mu_t_kwargs: dict[str, Any] | None = None,
     compute_ut_kwargs: dict[str, Any] | None = None,
     compute_sigma_t_kwargs: dict[str, Any] | None = None,
@@ -130,14 +184,66 @@ def get_probability_path(
     :return: Returns the instantiated conditional probability path.
     :type: class: `BaseProbabilityPath`
     """
+    from sc_flow._runtime import BACKEND
+
     if probability_path_id_or_dict in ["constant-noise-linear-gaussian", "cnlg-pp"]:
-        return LinearGaussianProbabilityPath(sigma, prng=prng)
+        if BACKEND == "torch":
+            raise_runtime_error_on_backend_failed_import()
+            from sc_flow.backends.torch.probability_paths._probability_paths import LinearGaussianProbabilityPath
+
+            return LinearGaussianProbabilityPath(sigma, prng=prng)
+        elif BACKEND == "jax":
+            raise_runtime_error_on_backend_failed_import()
+            from sc_flow.backends.jax.probability_paths._probability_paths import LinearGaussianProbabilityPath
+
+            return LinearGaussianProbabilityPath(sigma)
+        else:
+            raise_runtime_error_on_backend_not_supported(BACKEND)
+
     elif probability_path_id_or_dict in ["schrodinger-bridge-gaussian", "sbg-pp"]:
-        return SchrodingerBridgeProbabilityPath(sigma, prng=prng)
+        if BACKEND == "torch":
+            raise_runtime_error_on_backend_failed_import()
+            from sc_flow.backends.torch.probability_paths._probability_paths import SchrodingerBridgeProbabilityPath
+
+            return SchrodingerBridgeProbabilityPath(sigma, prng=prng)
+        elif BACKEND == "jax":
+            raise_runtime_error_on_backend_failed_import()
+            from sc_flow.backends.jax.probability_paths._probability_paths import SchrodingerBridgeProbabilityPath
+
+            return SchrodingerBridgeProbabilityPath(sigma)
+        else:
+            raise_runtime_error_on_backend_not_supported(BACKEND)
+
     elif probability_path_id_or_dict in ["variance-preserving-dirac", "vpd-pp"]:
-        return VariancePreservingDiracProbabilityPath(sigma, prng=prng)
+        if BACKEND == "torch":
+            raise_runtime_error_on_backend_failed_import()
+            from sc_flow.backends.torch.probability_paths._probability_paths import (
+                VariancePreservingDiracProbabilityPath,
+            )
+
+            return VariancePreservingDiracProbabilityPath(sigma, prng=prng)
+        elif BACKEND == "jax":
+            raise_runtime_error_on_backend_failed_import()
+            from sc_flow.backends.jax.probability_paths._probability_paths import VariancePreservingDiracProbabilityPath
+
+            return VariancePreservingDiracProbabilityPath(sigma)
+        else:
+            raise_runtime_error_on_backend_not_supported(BACKEND)
+
     elif probability_path_id_or_dict in ["linear-dirac", "ld-pp"]:
-        return LinearDiracProbabilityPath(sigma, prng=prng)
+        if BACKEND == "torch":
+            raise_runtime_error_on_backend_failed_import()
+            from sc_flow.backends.torch.probability_paths._probability_paths import LinearDiracProbabilityPath
+
+            return LinearDiracProbabilityPath(sigma, prng=prng)
+        elif BACKEND == "jax":
+            raise_runtime_error_on_backend_failed_import()
+            from sc_flow.backends.jax.probability_paths._probability_paths import LinearDiracProbabilityPath
+
+            return LinearDiracProbabilityPath(sigma)
+        else:
+            raise_runtime_error_on_backend_not_supported(BACKEND)
+
     elif isinstance(probability_path_id_or_dict, dict):
         if MU_T_FN_KEY not in probability_path_id_or_dict.keys():
             msg = f"Key {MU_T_FN_KEY} not found in probability path dictionary."
@@ -159,6 +265,7 @@ def get_probability_path(
             compute_ut_kwargs=compute_ut_kwargs,
             compute_sigma_t_kwargs=compute_sigma_t_kwargs,
         )
+
     elif probability_path_id_or_dict is None:
         return make_custom_probability_path(
             sigma,
@@ -171,6 +278,7 @@ def get_probability_path(
             compute_ut_kwargs=compute_ut_kwargs,
             compute_sigma_t_kwargs=compute_sigma_t_kwargs,
         )
+
     else:
         msg = (
             f"Probability path {probability_path_id_or_dict} not supported. It should be either"
@@ -188,7 +296,7 @@ def make_custom_probability_path(
     compute_ut_fn: TDriftFn,
     compute_sigma_t_fn: TSigmaFn | None,
     require_prng: bool = True,
-    prng: torch.Generator | None = None,
+    prng: Generator | None = None,
     compute_mu_t_kwargs: dict[str, Any] | None = None,
     compute_ut_kwargs: dict[str, Any] | None = None,
     compute_sigma_t_kwargs: dict[str, Any] | None = None,
@@ -245,6 +353,29 @@ def make_custom_probability_path(
     :return: Returns the instantiated custom conditional probability path.
     :type: class: `BaseProbabilityPath`
     """
+    from sc_flow._runtime import BACKEND
+
+    if BACKEND == "torch":
+        try:
+            from torch import zeros_like
+
+            from sc_flow.backends.torch._utils import broadcast_to_target_shape
+        except (ImportError, ModuleNotFoundError) as err:
+            set_torch_import_failed(True)
+            msg = ""
+            raise ImportError(msg) from err
+    elif BACKEND == "jax":
+        try:
+            from jax.numpy import zeros_like
+
+            from sc_flow.backends.jax._utils import broadcast_to_target_shape
+        except (ImportError, ModuleNotFoundError) as err:
+            set_jax_import_failed(True)
+            msg = ""
+            raise ImportError(msg) from err
+    else:
+        raise_runtime_error_on_backend_not_supported(BACKEND)
+
     if compute_mu_t_fn is None:
         msg = "When probability_path_id_or_dict is `None`, you need to pass a correct `compute_mu_t_fn` as argument, found `None`."
         raise ValueError(msg)
@@ -257,14 +388,17 @@ def make_custom_probability_path(
             "when initializing custom non-deterministic conditional probability paths, found `None`."
         )
         raise ValueError(msg)
+
     compute_mu_t_kwargs = {} if compute_mu_t_kwargs is None else compute_mu_t_kwargs
     compute_ut_kwargs = {} if compute_ut_kwargs is None else compute_ut_kwargs
     compute_sigma_t_kwargs = {} if compute_sigma_t_kwargs is None else compute_sigma_t_kwargs
 
     verify_fn_signature(compute_mu_t_fn, TMeanFn, compute_mu_t_kwargs)
     compute_mu_t_fn = partial(compute_mu_t_fn, **compute_mu_t_kwargs)
+
     verify_fn_signature(compute_ut_fn, TDriftFn, compute_ut_kwargs)
     compute_ut_fn = partial(compute_ut_fn, **compute_ut_kwargs)
+
     if require_prng:
         verify_fn_signature(compute_sigma_t_fn, TSigmaFn, compute_sigma_t_kwargs)
         compute_sigma_t_fn = partial(compute_sigma_t_fn, **compute_sigma_t_kwargs)
@@ -285,22 +419,24 @@ def make_custom_probability_path(
 
         def __init__(
             self,
-            sigma: float,
-            prng: torch.Generator | None = None,
+            sigma,
+            prng,
         ) -> None:
             """"""  # noqa
-
-            super().__init__(sigma=sigma, prng=prng)
+            if BACKEND == "torch":
+                super().__init__(sigma=sigma, prng=prng)
+            else:
+                super().__init__(sigma=sigma)
             self._compute_mu_t_fn = compute_mu_t_fn
             self._compute_ut_fn = compute_ut_fn
             self._compute_sigma_t_fn = compute_sigma_t_fn
 
         def compute_mu_t(
             self,
-            t: torch.Tensor,
-            x0: torch.Tensor,
-            x1: torch.Tensor,
-        ) -> torch.Tensor:
+            t,
+            x0,
+            x1,
+        ):
             """"""  # noqa
 
             t = broadcast_to_target_shape(t, x0.shape)
@@ -310,21 +446,21 @@ def make_custom_probability_path(
 
         def compute_sigma_t(
             self,
-            t: torch.Tensor,
-        ) -> torch.Tensor:
+            t,
+        ):
             """"""  # noqa
 
             if require_prng:
                 return self._compute_sigma_t_fn(t) * self._sigma
-            return torch.zeros_like(t)
+            return zeros_like(t)
 
         def compute_ut(
             self,
-            t: torch.Tensor,
-            xt: torch.Tensor,
-            x0: torch.Tensor,
-            x1: torch.Tensor,
-        ) -> torch.Tensor:
+            t,
+            xt,
+            x0,
+            x1,
+        ):
             """"""  # noqa
 
             t = broadcast_to_target_shape(t, x0.shape)

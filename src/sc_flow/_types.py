@@ -1,5 +1,6 @@
 from typing import Literal
 
+BackendId = Literal["torch", "jax"]
 ProbabilityPathId = Literal[
     "constant-noise-linear-gaussian",
     "cnlg-pp",

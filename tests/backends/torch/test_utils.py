@@ -1,6 +1,7 @@
 import pytest
 import torch
 
+from sc_flow._runtime import set_backend
 from sc_flow.backends.torch._utils import broadcast_to_target_shape
 
 
@@ -8,6 +9,7 @@ class TestTorchBackendUtils:
     def test_broadcast_to_target_shape(
         self,
     ) -> None:
+        set_backend("torch")
         # defining variables
         batch_size = 8
         num_feats = 16

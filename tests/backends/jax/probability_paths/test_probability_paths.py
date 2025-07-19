@@ -1,8 +1,7 @@
 import pytest
-import torch
 
 from sc_flow._runtime import set_backend
-from sc_flow.backends.torch.probability_paths._probability_paths import (
+from sc_flow.backends.jax.probability_paths._probability_paths import (
     BaseProbabilityPath,
     LinearDiracProbabilityPath,
     LinearGaussianProbabilityPath,
@@ -33,25 +32,20 @@ class TestProbabilityPaths:
         self,
         probability_path_cls: type[BaseProbabilityPath],
     ) -> None:
-        set_backend("torch")
+        set_backend("jax")
 
-        # non deterministic probability paths
         if not probability_path_cls.is_deterministic:
-            # initialize with negative sigma
             with pytest.raises(ValueError, match=r"Argument sigma should be a positive float"):
-                probability_path = probability_path_cls(-1.0, prng=torch.random.default_generator)
+                probability_path = probability_path_cls(-1.0)
                 return None
 
-            # initialize with prng
-            probability_path = probability_path_cls(1.0, prng=torch.random.default_generator)
+            probability_path = probability_path_cls(1.0)
             assert not probability_path.is_deterministic
         else:
-            # initialize with prng (should only raise a warning)
-            probability_path = probability_path_cls(prng=torch.random.default_generator)
+            probability_path = probability_path_cls()
             assert probability_path.is_deterministic
 
-            # initialize without prng
-            probability_path = probability_path_cls(prng=None)
+            probability_path = probability_path_cls()
             assert probability_path.is_deterministic
 
     @pytest.mark.parametrize(
@@ -69,12 +63,8 @@ class TestProbabilityPaths:
         probability_path_cls: BaseProbabilityPath,
         method: str,
     ) -> None:
-        set_backend("torch")
-
-        # initialize probability path and retrieving method to test
-        probability_path = probability_path_cls(
-            1.0, prng=None if probability_path_cls.is_deterministic else torch.random.default_generator
-        )
+        set_backend("jax")
+        probability_path = probability_path_cls(1.0)
         verify_method_output(
             probability_path,
             method,

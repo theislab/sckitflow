@@ -360,19 +360,17 @@ def make_custom_probability_path(
             from torch import zeros_like
 
             from sc_flow.backends.torch._utils import broadcast_to_target_shape
-        except (ImportError, ModuleNotFoundError) as err:
+        except (ImportError, ModuleNotFoundError):
             set_torch_import_failed(True)
-            msg = ""
-            raise ImportError(msg) from err
+            raise_runtime_error_on_backend_failed_import()
     elif BACKEND == "jax":
         try:
             from jax.numpy import zeros_like
 
             from sc_flow.backends.jax._utils import broadcast_to_target_shape
-        except (ImportError, ModuleNotFoundError) as err:
+        except (ImportError, ModuleNotFoundError):
             set_jax_import_failed(True)
-            msg = ""
-            raise ImportError(msg) from err
+            raise_runtime_error_on_backend_failed_import()
     else:
         raise_runtime_error_on_backend_not_supported(BACKEND)
 

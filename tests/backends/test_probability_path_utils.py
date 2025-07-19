@@ -71,7 +71,7 @@ elif TORCH_IMPORT_FAILED and (not JAX_IMPORT_FAILED):
     SchrodingerBridgeProbabilityPath = JaxSchrodingerBridgeProbabilityPath
     VariancePreservingDiracProbabilityPath = JaxVariancePreservingDiracProbabilityPath
 else:
-    msg = ""
+    msg = "Could not import neither `torch` nor `jax` as backend. Please import one of them before proceeding."
     raise RuntimeError
 
 from sc_flow.backends._probability_path_utils import (

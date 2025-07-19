@@ -5,6 +5,7 @@ import pytest
 
 from sc_flow._constants import MU_T_FN_KEY, SIGMA_T_FN_KEY, U_T_FN_KEY
 from sc_flow._runtime import (
+    raise_runtime_error_on_backend_failed_import,
     raise_runtime_error_on_backend_not_supported,
     set_jax_import_failed,
     set_torch_import_failed,
@@ -32,18 +33,16 @@ def verify_method_output(
     if BACKEND == "torch":
         try:
             from torch import zeros
-        except (ImportError, ModuleNotFoundError) as err:
+        except (ImportError, ModuleNotFoundError):
             set_torch_import_failed(True)
-            msg = ""
-            raise ImportError(msg) from err
+            raise_runtime_error_on_backend_failed_import()
     elif BACKEND == "jax":
         try:
             from jax.numpy import zeros
             from jax.random import PRNGKey
-        except (ImportError, ModuleNotFoundError) as err:
+        except (ImportError, ModuleNotFoundError):
             set_jax_import_failed(True)
-            msg = ""
-            raise ImportError(msg) from err
+            raise_runtime_error_on_backend_failed_import()
     else:
         raise_runtime_error_on_backend_not_supported(BACKEND)
 

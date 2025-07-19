@@ -153,7 +153,7 @@ class BaseProbabilityPath(abc.ABC):
         # sampling noise
         if self._require_prng:
             if prng is None:
-                msg = ""
+                msg = "Non Deterministic probability path require the `prng` argument when calling `self.compute_xt`, found `None`."
                 raise ValueError(msg)
             sigma_t = self.compute_sigma_t(t)
             noise = jax.random.normal(prng, shape=x0.shape)

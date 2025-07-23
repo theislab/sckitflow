@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from functools import partial
 from typing import Any
 
@@ -7,8 +8,6 @@ from sc_flow._constants import (
     U_T_FN_KEY,
 )
 from sc_flow._runtime import (
-    JAX_IMPORT_FAILED,
-    TORCH_IMPORT_FAILED,
     raise_runtime_error_on_backend_failed_import,
     raise_runtime_error_on_backend_not_supported,
     set_jax_import_failed,
@@ -23,60 +22,24 @@ try:
     from sc_flow.backends.torch._types import (
         ProbabilityPathDict as TorchProbabilityDict,
     )
-    from sc_flow.backends.torch._types import (
-        TDriftFn as TorchTDriftFn,
-    )
-    from sc_flow.backends.torch._types import (
-        TMeanFn as TorchTMeanFn,
-    )
-    from sc_flow.backends.torch._types import (
-        TSigmaFn as TorchTSigmaFn,
-    )
     from sc_flow.backends.torch.probability_paths._probability_paths import (
         BaseProbabilityPath as TorchBaseProbabilityPath,
     )
 except (ImportError, ModuleNotFoundError):
     set_torch_import_failed(True)
     Generator = None
+    TorchProbabilityDict = None
+    TorchBaseProbabilityPath = None
 
 try:
     from sc_flow.backends.jax._types import (
         ProbabilityPathDict as JaxProbabilityDict,
     )
-    from sc_flow.backends.jax._types import (
-        TDriftFn as JaxTDriftFn,
-    )
-    from sc_flow.backends.jax._types import (
-        TMeanFn as JaxTMeanFn,
-    )
-    from sc_flow.backends.jax._types import (
-        TSigmaFn as JaxTSigmaFn,
-    )
     from sc_flow.backends.jax.probability_paths._probability_paths import BaseProbabilityPath as JaxBaseProbabilityPath
 except (ImportError, ModuleNotFoundError):
     set_jax_import_failed(True)
-
-if (not TORCH_IMPORT_FAILED) and (not JAX_IMPORT_FAILED):
-    BaseProbabilityPath = TorchBaseProbabilityPath | JaxBaseProbabilityPath
-    ProbabilityPathDict = TorchProbabilityDict | JaxProbabilityDict
-    TDriftFn = TorchTDriftFn | JaxTDriftFn
-    TMeanFn = TorchTMeanFn | JaxTMeanFn
-    TSigmaFn = TorchTSigmaFn | JaxTSigmaFn
-elif (not TORCH_IMPORT_FAILED) and JAX_IMPORT_FAILED:
-    BaseProbabilityPath = TorchBaseProbabilityPath
-    ProbabilityPathDict = TorchProbabilityDict
-    TDriftFn = TorchTDriftFn
-    TMeanFn = TorchTMeanFn
-    TSigmaFn = TorchTSigmaFn
-elif TORCH_IMPORT_FAILED and (not JAX_IMPORT_FAILED):
-    BaseProbabilityPath = JaxBaseProbabilityPath
-    ProbabilityPathDict = JaxProbabilityDict
-    TDriftFn = JaxTDriftFn
-    TMeanFn = JaxTMeanFn
-    TSigmaFn = JaxTSigmaFn
-else:
-    msg = "Both torch and jax backends import failed."
-    raise RuntimeError(msg)
+    JaxProbabilityDict = None
+    JaxBaseProbabilityPath = None
 
 
 __all__ = [
@@ -87,38 +50,39 @@ __all__ = [
 
 def get_probability_path(
     sigma: float,
-    probability_path_id_or_dict: ProbabilityPathId | ProbabilityPathDict | None = None,
-    compute_mu_t_fn: TMeanFn | None = None,
-    compute_ut_fn: TDriftFn | None = None,
-    compute_sigma_t_fn: TSigmaFn | None = None,
+    probability_path_id_or_dict: ProbabilityPathId | JaxProbabilityDict | TorchProbabilityDict | None = None,
+    compute_mu_t_fn: Callable | None = None,
+    compute_ut_fn: Callable | None = None,
+    compute_sigma_t_fn: Callable | None = None,
     require_prng: bool = True,
     prng: Generator | None = None,
     compute_mu_t_kwargs: dict[str, Any] | None = None,
     compute_ut_kwargs: dict[str, Any] | None = None,
     compute_sigma_t_kwargs: dict[str, Any] | None = None,
-) -> BaseProbabilityPath:
+) -> TorchBaseProbabilityPath | JaxBaseProbabilityPath:
     r"""Retrieves an instance of :class: `BaseProbabilityPath` from the given settings.
 
     Probability Paths can be instantiated in three ways:
         * Either by using a string identifier, in which case one will have to specify
             a correct identifier for the pre-defined probability paths. The pre-defined probability paths
             currently supported are:
-             * Constant Noise Gaussian Probability Path, instantiated with :param: `probability_path` set to either `"constant-noise-linear-gaussian"` or `"cnlg-pp"`.
-             * Schrodinger Bridge Gaussian Probability Path, instantiated with :param: `probability_path` set to either `"schrodinger-bridge-gaussian"` or `"sbg-pp"`.
-             * Variance Preserving Dirac Probability Path, instantiated with :param: `probability_path` set to either `"variance-preserving-dirac"` or `"vpd-pp"`.
-             * Linear Dirac Probability Path, instantiated with :param: `probability_path` set to either `"linear-dirac"` or `"ld-pp"`.
+             * Constant Noise Gaussian Probability Path, instantiated with :param: `probability_path_id_or_dict` set to either `"constant-noise-linear-gaussian"` or `"cnlg-pp"`.
+             * Schrodinger Bridge Gaussian Probability Path, instantiated with :param: `probability_path_id_or_dict` set to either `"schrodinger-bridge-gaussian"` or `"sbg-pp"`.
+             * Variance Preserving Dirac Probability Path, instantiated with :param: `probability_path_id_or_dict` set to either `"variance-preserving-dirac"` or `"vpd-pp"`.
+             * Linear Dirac Probability Path, instantiated with :param: `probability_path_id_or_dict` set to either `"linear-dirac"` or `"ld-pp"`.
 
         * It is also possible to instantiate custom probability paths by passing a dictionary containing the following key-value pairs:
-            * `"compute_mu_t"`, mapping to a function taking as input :class: `torch.Tensor`s `t`, `x0` and `x1`
-                used to compute the mean of the condiyional probability path at each time step.
-            * `"compute_ut"`, mapping to a function taking as input :class: `torch.Tensor`s `t`, `xt`, `x0` and `x1`
+            * `"compute_mu_t"`, mapping to a function taking as input `t`, `x0` and `x1`
+                used to compute the mean of the conditional probability path at each time step.
+            * `"compute_ut"`, mapping to a function taking as input `t`, `xt`, `x0` and `x1`
                 used to compute the velocity field generating the conditional probability path at each time step.
-            * `"compute_sigma_t"`, mapping to a function taking as input :class: `torch.Tensor` `t`
+            * `"compute_sigma_t"`, mapping to a function taking as input `t`
                 used to compute the noise strength of the probability path at each time step. Optional,
                 as it is only required when instantiating non-deterministic custom probability paths (i.e.: :param: `require_prng` is set to `True`).
+            Such functions need to accept their input as either :class: `torch.Tensor` or :class: `jax.Array` depending on the chosen backend.
 
         * Alternatively, one can also pass the needed functions as the :param: `compute_mu_t_fn`, :param: `compute_ut_fn` and :param: `compute_sigma_t_fn`,
-            which then will be used to compute the conditional probability path.
+            which then will be used to compute the conditional probability path. These will have to satisfy the aforementioned requisites too.
 
     :param sigma: Positive scalar for the noise strength of the probability path.
         This will determine the factor :math: `\sigma` by which the time-dependent standard deviation
@@ -186,14 +150,14 @@ def get_probability_path(
     """
     from sc_flow._runtime import BACKEND
 
+    raise_runtime_error_on_backend_failed_import()
+
     if probability_path_id_or_dict in ["constant-noise-linear-gaussian", "cnlg-pp"]:
         if BACKEND == "torch":
-            raise_runtime_error_on_backend_failed_import()
             from sc_flow.backends.torch.probability_paths._probability_paths import LinearGaussianProbabilityPath
 
             return LinearGaussianProbabilityPath(sigma, prng=prng)
         elif BACKEND == "jax":
-            raise_runtime_error_on_backend_failed_import()
             from sc_flow.backends.jax.probability_paths._probability_paths import LinearGaussianProbabilityPath
 
             return LinearGaussianProbabilityPath(sigma)
@@ -202,12 +166,10 @@ def get_probability_path(
 
     elif probability_path_id_or_dict in ["schrodinger-bridge-gaussian", "sbg-pp"]:
         if BACKEND == "torch":
-            raise_runtime_error_on_backend_failed_import()
             from sc_flow.backends.torch.probability_paths._probability_paths import SchrodingerBridgeProbabilityPath
 
             return SchrodingerBridgeProbabilityPath(sigma, prng=prng)
         elif BACKEND == "jax":
-            raise_runtime_error_on_backend_failed_import()
             from sc_flow.backends.jax.probability_paths._probability_paths import SchrodingerBridgeProbabilityPath
 
             return SchrodingerBridgeProbabilityPath(sigma)
@@ -216,14 +178,12 @@ def get_probability_path(
 
     elif probability_path_id_or_dict in ["variance-preserving-dirac", "vpd-pp"]:
         if BACKEND == "torch":
-            raise_runtime_error_on_backend_failed_import()
             from sc_flow.backends.torch.probability_paths._probability_paths import (
                 VariancePreservingDiracProbabilityPath,
             )
 
             return VariancePreservingDiracProbabilityPath(sigma, prng=prng)
         elif BACKEND == "jax":
-            raise_runtime_error_on_backend_failed_import()
             from sc_flow.backends.jax.probability_paths._probability_paths import VariancePreservingDiracProbabilityPath
 
             return VariancePreservingDiracProbabilityPath(sigma)
@@ -232,12 +192,10 @@ def get_probability_path(
 
     elif probability_path_id_or_dict in ["linear-dirac", "ld-pp"]:
         if BACKEND == "torch":
-            raise_runtime_error_on_backend_failed_import()
             from sc_flow.backends.torch.probability_paths._probability_paths import LinearDiracProbabilityPath
 
             return LinearDiracProbabilityPath(sigma, prng=prng)
         elif BACKEND == "jax":
-            raise_runtime_error_on_backend_failed_import()
             from sc_flow.backends.jax.probability_paths._probability_paths import LinearDiracProbabilityPath
 
             return LinearDiracProbabilityPath(sigma)
@@ -292,16 +250,16 @@ def get_probability_path(
 
 def make_custom_probability_path(
     sigma: float,
-    compute_mu_t_fn: TMeanFn,
-    compute_ut_fn: TDriftFn,
-    compute_sigma_t_fn: TSigmaFn | None,
+    compute_mu_t_fn: Callable,
+    compute_ut_fn: Callable,
+    compute_sigma_t_fn: Callable | None,
     require_prng: bool = True,
     prng: Generator | None = None,
     compute_mu_t_kwargs: dict[str, Any] | None = None,
     compute_ut_kwargs: dict[str, Any] | None = None,
     compute_sigma_t_kwargs: dict[str, Any] | None = None,
-) -> type[BaseProbabilityPath]:
-    r"""Returns an instance of the custom probability path specified by :param: `probability_path_dict`.
+) -> TorchBaseProbabilityPath | JaxBaseProbabilityPath:
+    r"""Returns an instance of the custom probability path specified by functions passed as argument.
 
     This is done by defining a nested class inheriting from :class: `BaseProbabilityPath`, needed to wrap
     around the two or three functions (depending on whether the conditional probability path is deterministic
@@ -359,7 +317,10 @@ def make_custom_probability_path(
         try:
             from torch import zeros_like
 
+            from sc_flow.backends.torch._types import TDriftFn, TMeanFn, TSigmaFn
             from sc_flow.backends.torch._utils import broadcast_to_target_shape
+
+            BaseProbabilityPath = TorchBaseProbabilityPath
         except (ImportError, ModuleNotFoundError):
             set_torch_import_failed(True)
             raise_runtime_error_on_backend_failed_import()
@@ -367,7 +328,10 @@ def make_custom_probability_path(
         try:
             from jax.numpy import zeros_like
 
+            from sc_flow.backends.jax._types import TDriftFn, TMeanFn, TSigmaFn
             from sc_flow.backends.jax._utils import broadcast_to_target_shape
+
+            BaseProbabilityPath = JaxBaseProbabilityPath
         except (ImportError, ModuleNotFoundError):
             set_jax_import_failed(True)
             raise_runtime_error_on_backend_failed_import()

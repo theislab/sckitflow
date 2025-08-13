@@ -367,13 +367,6 @@ def make_custom_probability_path(
     else:
         compute_sigma_t_fn = None
 
-    if require_prng and compute_sigma_t_fn is None:
-        msg = (
-            "When probability_path_id_or_dict is `None`, you need to pass a correct `compute_sigma_t_fn` as argument"
-            "when initializing custom non-deterministic conditional probability paths, found `None`."
-        )
-        raise ValueError(msg)
-
     class CustomProbabilityPath(BaseProbabilityPath):
         """"""  # noqa
 

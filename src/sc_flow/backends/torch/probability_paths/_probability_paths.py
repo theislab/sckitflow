@@ -10,6 +10,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "BaseProbabilityPath",
+    "LinearProbabilityPath",
     "LinearGaussianProbabilityPath",
     "SchrodingerBridgeProbabilityPath",
     "LinearDiracProbabilityPath",
@@ -21,8 +22,8 @@ class BaseProbabilityPath(abc.ABC):
     r"""Base Class for Conditional Probability Paths :math: `p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)`.
 
     :param _require_prng: Whether a Pseudo-Random Numbers Generator is required for the probability path.
-        Pseudo-Random Numbers Generators are required for non-deterministic probability paths and should be instances of
-        :class: `torch.Generator`. For non-deterministic probability paths a :class: `ValueError` it is set to the
+        Pseudo-Random Numbers Generators are required for reproducibility of non-deterministic probability paths and should be instances of
+        :class: `torch.Generator`, when provided. For non-deterministic probability paths a warning is displayed and it is set to the
         output of :constant: `torch.random.default_generator`.
     :type _require_prng: class: `bool`
     """
@@ -35,8 +36,6 @@ class BaseProbabilityPath(abc.ABC):
         prng: torch.Generator | None = None,
     ) -> None:
         r"""Initializes the probability path.
-
-        Raises :class: `ValueError` when :attr: `self._require_prng` is `True` and :param: `sigma` is not positive.
 
         :param sigma: Positive scalar for the noise strength of the probability path.
             This will determine the factor :math: `\sigma` by which the time-dependent standard deviation
@@ -196,7 +195,64 @@ class BaseProbabilityPath(abc.ABC):
         return not cls._require_prng
 
 
-class LinearGaussianProbabilityPath(BaseProbabilityPath):
+class LinearProbabilityPath(BaseProbabilityPath, abc.ABC):
+    r"""Class implementing Probability Paths with interpolation linear in time.
+
+    Where the mean \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) is computed as:
+
+        .. math::
+            \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) = (1 - t)\boldsymbol{x}_0 + t\boldsymbol{x}_1
+
+    :param _require_prng: Whether a Pseudo-Random Numbers Generator is required for the probability path.
+        Pseudo-Random Numbers Generators are required for non-deterministic probability paths.
+    :type _require_prng: class: `bool`
+    """
+
+    _require_prng: bool
+
+    def __init__(
+        self,
+        sigma: float,
+        prng: torch.Generator | None = None,
+    ) -> None:
+        r"""Initializes the probability path.
+
+        :param sigma: Positive scalar for the noise strength of the probability path.
+            This will determine the factor :math: `\sigma` by which the time-dependent standard deviation
+            :math: `\sigma_t` of the conditional probability path will be scaled.
+        :type sigma: class: `float`
+
+        :param prng: Pseudo-Random Numbers Generator used to generate random numbers, defaults to `None`.
+        :type prng: class: `None`
+        """
+        super().__init__(sigma=sigma, prng=prng)
+
+    def compute_mu_t(
+        self,
+        t: torch.Tensor,
+        x0: torch.Tensor,
+        x1: torch.Tensor,
+    ) -> torch.Tensor:
+        r"""Computes the mean :math: `\mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1)` of the probability path.
+
+        :param t: The current time index.
+        :type t: class: `torch.Tensor`
+
+        :param x0: The source state.
+        :type x0: class: `torch.Tensor`
+
+        :param x1: The target state.
+        :type x1: class: `torch.Tensor`
+        """
+        # handling shapes
+        t = broadcast_to_target_shape(t, x0.shape)
+        self._verify_shapes(x0, x1)
+        self._verify_shapes(t, x1)
+
+        return (1 - t) * x0 + t * x1
+
+
+class LinearGaussianProbabilityPath(LinearProbabilityPath):
     r"""Class implementing Constant Noise Gaussian Probability Paths with linear interpolation.
 
     The Constant Noise Gaussian Probability Path is defined as:
@@ -237,30 +293,6 @@ class LinearGaussianProbabilityPath(BaseProbabilityPath):
         """
         super().__init__(sigma=sigma, prng=prng)
 
-    def compute_mu_t(
-        self,
-        t: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the mean :math: `\mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1)` of the probability path.
-
-        :param t: The current time index.
-        :type t: class: `torch.Tensor`
-
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
-        """
-        # handling shapes
-        t = broadcast_to_target_shape(t, x0.shape)
-        self._verify_shapes(x0, x1)
-        self._verify_shapes(t, x1)
-
-        return (1 - t) * x0 + t * x1
-
     def compute_sigma_t(
         self,
         t: torch.Tensor,
@@ -299,7 +331,7 @@ class LinearGaussianProbabilityPath(BaseProbabilityPath):
         return x1 - x0
 
 
-class SchrodingerBridgeProbabilityPath(LinearGaussianProbabilityPath):
+class SchrodingerBridgeProbabilityPath(LinearProbabilityPath):
     r"""Class implementing Schrodinger Bridge Probability Paths with linear interpolation.
 
     Subclasses :class: `LinearGaussianProbabilityPath` and overrides its :method: `.compute_sigma_t` and :method: `.compute_ut` methods.
@@ -327,6 +359,8 @@ class SchrodingerBridgeProbabilityPath(LinearGaussianProbabilityPath):
 
     This class requires a Pseudo-Random Numbers Generator to be instantiated (i.e.: :attr: `self._require_prng` is `True`).
     """
+
+    _require_prng: bool = True
 
     def __init__(self, sigma: float, prng: torch.Generator | None = None, eps: float = 1e-35) -> None:
         r"""Initializes the gaussian probability path probability paths.
@@ -386,7 +420,7 @@ class SchrodingerBridgeProbabilityPath(LinearGaussianProbabilityPath):
         return (1 - 2 * t) / (2 * t * (1 - t) + self._eps) * (xt - mu_t) + x1 - x0
 
 
-class LinearDiracProbabilityPath(BaseProbabilityPath):
+class LinearDiracProbabilityPath(LinearProbabilityPath):
     r"""Class implementing Deterministic Dirac Probability Paths.
 
     The Deterministic Dirac Probability Paths is defined as:
@@ -417,30 +451,6 @@ class LinearDiracProbabilityPath(BaseProbabilityPath):
         prng: torch.Generator | None = None,
     ) -> None:
         super().__init__(sigma=sigma, prng=prng)
-
-    def compute_mu_t(
-        self,
-        t: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the mean :math: `\mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1)` of the probability path.
-
-        :param t: The current time index.
-        :type t: class: `torch.Tensor`
-
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
-        """
-        # handling shapes
-        t = broadcast_to_target_shape(t, x0.shape)
-        self._verify_shapes(x0, x1)
-        self._verify_shapes(t, x1)
-
-        return (1 - t) * x0 + t * x1
 
     def compute_sigma_t(
         self,

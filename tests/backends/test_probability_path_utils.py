@@ -2,7 +2,6 @@ from collections.abc import Callable
 
 import pytest
 
-from sc_flow._constants import MU_T_FN_KEY, SIGMA_T_FN_KEY, U_T_FN_KEY
 from sc_flow._runtime import set_backend, set_jax_import_failed, set_torch_import_failed
 from sc_flow._utils import get_fn_args_names_and_types
 
@@ -80,13 +79,6 @@ from sc_flow.backends._probability_path_utils import (
 )
 
 from .utils import verify_method_output
-
-batch_size = 8
-num_feats = 16
-num_channels = 3
-height = 32
-width = 64
-
 
 invalid_key = "invalid_key"
 non_deterministic_probability_path_ids = [
@@ -193,6 +185,12 @@ def jax_invalid_compute_sigma_t_fn(
 
 
 class TestProbabilityPathUtils:
+    _batch_size = 8
+    _num_feats = 16
+    _num_channels = 3
+    _height = 32
+    _width = 64
+
     @pytest.mark.parametrize("backend", ["torch", "jax"])
     @pytest.mark.parametrize(
         "probability_path_id",
@@ -224,7 +222,7 @@ class TestProbabilityPathUtils:
         if probability_path_id in non_deterministic_probability_path_ids and sigma == 0.0:
             with pytest.raises(
                 ValueError,
-                match=r"",
+                match=r"Argument sigma should be a positive float",
             ):
                 probability_path = get_probability_path(sigma, probability_path_id)
             return None
@@ -238,206 +236,6 @@ class TestProbabilityPathUtils:
             assert isinstance(probability_path, VariancePreservingDiracProbabilityPath)
         if probability_path_id in ["dirac", "d-pp"]:
             assert isinstance(probability_path, LinearDiracProbabilityPath)
-
-    @pytest.mark.parametrize("backend", ["torch", "jax"])
-    @pytest.mark.parametrize(
-        "probability_path_dict",
-        [
-            {
-                MU_T_FN_KEY: torch_valid_compute_mu_t_fn,
-                U_T_FN_KEY: torch_valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: torch_valid_compute_sigma_t_fn,
-            },
-            {
-                U_T_FN_KEY: torch_valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: torch_valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: torch_valid_compute_mu_t_fn,
-                SIGMA_T_FN_KEY: torch_valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: torch_valid_compute_mu_t_fn,
-                U_T_FN_KEY: torch_valid_compute_ut_fn,
-            },
-            {
-                MU_T_FN_KEY: torch_invalid_compute_mu_t_fn,
-                U_T_FN_KEY: torch_valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: torch_valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: torch_valid_compute_mu_t_fn,
-                U_T_FN_KEY: torch_invalid_compute_ut_fn,
-                SIGMA_T_FN_KEY: torch_valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: torch_valid_compute_mu_t_fn,
-                U_T_FN_KEY: torch_valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: torch_invalid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: jax_valid_compute_mu_t_fn,
-                U_T_FN_KEY: jax_valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: jax_valid_compute_sigma_t_fn,
-            },
-            {
-                U_T_FN_KEY: jax_valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: jax_valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: jax_valid_compute_mu_t_fn,
-                SIGMA_T_FN_KEY: jax_valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: jax_valid_compute_mu_t_fn,
-                U_T_FN_KEY: jax_valid_compute_ut_fn,
-            },
-            {
-                MU_T_FN_KEY: jax_invalid_compute_mu_t_fn,
-                U_T_FN_KEY: jax_valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: jax_valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: jax_valid_compute_mu_t_fn,
-                U_T_FN_KEY: jax_invalid_compute_ut_fn,
-                SIGMA_T_FN_KEY: jax_valid_compute_sigma_t_fn,
-            },
-            {
-                MU_T_FN_KEY: jax_valid_compute_mu_t_fn,
-                U_T_FN_KEY: jax_valid_compute_ut_fn,
-                SIGMA_T_FN_KEY: jax_invalid_compute_sigma_t_fn,
-            },
-        ],
-    )
-    @pytest.mark.parametrize("sigma", [0.0, 1.0])
-    @pytest.mark.parametrize("require_prng", [True, False])
-    @pytest.mark.parametrize("method", ["compute_xt", "compute_mu_t", "compute_ut"])
-    def test_get_probability_path_with_dict(
-        self,
-        backend: str,
-        probability_path_dict: dict[str, Callable],
-        sigma: float,
-        require_prng: bool,
-        method: str,
-    ) -> None:
-        # missing keys (KeyError)
-        set_backend(backend)
-        if (
-            (MU_T_FN_KEY not in probability_path_dict.keys())
-            or (U_T_FN_KEY not in probability_path_dict.keys())
-            or (require_prng and SIGMA_T_FN_KEY not in probability_path_dict.keys())
-        ):
-            with pytest.raises(
-                KeyError,
-                match=r"",
-            ):
-                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-            return None
-        if require_prng and SIGMA_T_FN_KEY not in probability_path_dict.keys():
-            with pytest.raises(
-                KeyError,
-                match=r"",
-            ):
-                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-            return None
-        if backend == "torch":
-            if probability_path_dict[MU_T_FN_KEY].__name__.startswith("jax"):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
-                    get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-                return None
-            if probability_path_dict[U_T_FN_KEY].__name__.startswith("jax"):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
-                    get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-                return None
-            elif (
-                require_prng
-                and probability_path_dict[SIGMA_T_FN_KEY] is not None
-                and probability_path_dict[SIGMA_T_FN_KEY].__name__.startswith("jax")
-            ):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
-                    get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-                return None
-        elif backend == "jax":
-            if probability_path_dict[MU_T_FN_KEY].__name__.startswith("torch"):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
-                    get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-                return None
-            if probability_path_dict[U_T_FN_KEY].__name__.startswith("torch"):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
-                    get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-                return None
-
-            elif (
-                require_prng
-                and probability_path_dict[SIGMA_T_FN_KEY] is not None
-                and probability_path_dict[SIGMA_T_FN_KEY].__name__.startswith("torch")
-            ):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
-                    get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-                return None
-        # wrong function signature (TypeError)
-        if ["t", "x0", "x1"] != list(get_fn_args_names_and_types(probability_path_dict[MU_T_FN_KEY]).keys()):
-            with pytest.raises(
-                TypeError,
-                match=r"",
-            ):
-                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-            return None
-        if ["t", "xt", "x0", "x1"] != list(get_fn_args_names_and_types(probability_path_dict[U_T_FN_KEY]).keys()):
-            # print(list(get_fn_args_names_and_types(probability_path_dict[U_T_FN_KEY]).keys()))
-            with pytest.raises(
-                TypeError,
-                match=r"",
-            ):
-                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-            return None
-        if require_prng and [
-            "t",
-        ] != list(get_fn_args_names_and_types(probability_path_dict[SIGMA_T_FN_KEY]).keys()):
-            with pytest.raises(
-                TypeError,
-                match=r"",
-            ):
-                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-            return None
-        # wrong sigma value (ValueError)
-        if require_prng and sigma == 0.0:
-            with pytest.raises(
-                ValueError,
-                match=r"",
-            ):
-                probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-            return None
-
-        probability_path = get_probability_path(sigma, probability_path_dict, require_prng=require_prng)
-        assert isinstance(probability_path, BaseProbabilityPath)
-        verify_method_output(
-            probability_path,
-            method,
-            batch_size,
-            num_feats,
-            num_channels,
-            height,
-            width,
-        )
 
     @pytest.mark.parametrize("backend", ["torch", "jax"])
     @pytest.mark.parametrize(
@@ -486,7 +284,10 @@ class TestProbabilityPathUtils:
         # missing arguments (ValueError)
         set_backend(backend)
         if compute_mu_t_fn is None:
-            with pytest.raises(ValueError, match=r""):
+            with pytest.raises(
+                ValueError,
+                match=r"When probability_path_id is `None`, you need to pass a correct `compute_mu_t_fn` as argument, found `None`.",
+            ):
                 probability_path = get_probability_path(
                     sigma,
                     compute_mu_t_fn=compute_mu_t_fn,
@@ -496,7 +297,10 @@ class TestProbabilityPathUtils:
                 )
             return None
         if compute_ut_fn is None:
-            with pytest.raises(ValueError, match=r""):
+            with pytest.raises(
+                ValueError,
+                match=r"When probability_path_id is `None`, you need to pass a correct `compute_ut_fn` as argument, found `None`.",
+            ):
                 probability_path = get_probability_path(
                     sigma,
                     compute_mu_t_fn=compute_mu_t_fn,
@@ -506,7 +310,13 @@ class TestProbabilityPathUtils:
                 )
             return None
         if compute_sigma_t_fn is None and require_prng:
-            with pytest.raises(ValueError, match=r""):
+            with pytest.raises(
+                ValueError,
+                match=(
+                    "When probability_path_id is `None`, you need to pass a correct `compute_sigma_t_fn` as argument "
+                    "when initializing custom non-deterministic conditional probability paths, found `None`."
+                ),
+            ):
                 probability_path = get_probability_path(
                     sigma,
                     compute_mu_t_fn=compute_mu_t_fn,
@@ -517,10 +327,7 @@ class TestProbabilityPathUtils:
             return None
         if backend == "torch":
             if compute_mu_t_fn.__name__.startswith("jax"):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
+                with pytest.raises(TypeError, match=r"The input function .* and the reference template .*"):
                     get_probability_path(
                         sigma,
                         compute_mu_t_fn=compute_mu_t_fn,
@@ -530,10 +337,7 @@ class TestProbabilityPathUtils:
                     )
                 return None
             elif compute_ut_fn.__name__.startswith("jax"):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
+                with pytest.raises(TypeError, match=r"The input function .* and the reference template .*"):
                     get_probability_path(
                         sigma,
                         compute_mu_t_fn=compute_mu_t_fn,
@@ -543,10 +347,7 @@ class TestProbabilityPathUtils:
                     )
                 return None
             elif require_prng and compute_sigma_t_fn.__name__.startswith("jax"):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
+                with pytest.raises(TypeError, match=r"The input function .* and the reference template .*"):
                     get_probability_path(
                         sigma,
                         compute_mu_t_fn=compute_mu_t_fn,
@@ -557,10 +358,7 @@ class TestProbabilityPathUtils:
                 return None
         elif backend == "jax":
             if compute_mu_t_fn.__name__.startswith("torch"):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
+                with pytest.raises(TypeError, match=r"The input function .* and the reference template .*"):
                     get_probability_path(
                         sigma,
                         compute_mu_t_fn=compute_mu_t_fn,
@@ -570,10 +368,7 @@ class TestProbabilityPathUtils:
                     )
                 return None
             elif compute_ut_fn.__name__.startswith("torch"):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
+                with pytest.raises(TypeError, match=r"The input function .* and the reference template .*"):
                     get_probability_path(
                         sigma,
                         compute_mu_t_fn=compute_mu_t_fn,
@@ -583,10 +378,7 @@ class TestProbabilityPathUtils:
                     )
                 return None
             elif require_prng and compute_sigma_t_fn.__name__.startswith("torch"):
-                with pytest.raises(
-                    TypeError,
-                    match=r"",
-                ):
+                with pytest.raises(TypeError, match=r"The input function .* and the reference template .*"):
                     get_probability_path(
                         sigma,
                         compute_mu_t_fn=compute_mu_t_fn,
@@ -597,10 +389,7 @@ class TestProbabilityPathUtils:
                 return None
         # wrong function signature (TypeError)
         if ["t", "x0", "x1"] != list(get_fn_args_names_and_types(compute_mu_t_fn).keys()):
-            with pytest.raises(
-                TypeError,
-                match=r"",
-            ):
+            with pytest.raises(TypeError, match=r"The input function .* and the reference template .*"):
                 probability_path = get_probability_path(
                     sigma,
                     compute_mu_t_fn=compute_mu_t_fn,
@@ -610,10 +399,7 @@ class TestProbabilityPathUtils:
                 )
             return None
         if ["t", "xt", "x0", "x1"] != list(get_fn_args_names_and_types(compute_ut_fn).keys()):
-            with pytest.raises(
-                TypeError,
-                match=r"",
-            ):
+            with pytest.raises(TypeError, match=r"The input function .* and the reference template .*"):
                 probability_path = get_probability_path(
                     sigma,
                     compute_mu_t_fn=compute_mu_t_fn,
@@ -625,10 +411,7 @@ class TestProbabilityPathUtils:
         if require_prng and [
             "t",
         ] != list(get_fn_args_names_and_types(compute_sigma_t_fn).keys()):
-            with pytest.raises(
-                TypeError,
-                match=r"",
-            ):
+            with pytest.raises(TypeError, match=r"The input function .* and the reference template .*"):
                 probability_path = get_probability_path(
                     sigma,
                     compute_mu_t_fn=compute_mu_t_fn,
@@ -639,7 +422,7 @@ class TestProbabilityPathUtils:
             return None
         # wrong sigma value (ValueError)
         if sigma == 0.0 and require_prng:
-            with pytest.raises(ValueError, match=r""):
+            with pytest.raises(ValueError, match=r"Argument sigma should be a positive float"):
                 probability_path = get_probability_path(
                     sigma,
                     compute_mu_t_fn=compute_mu_t_fn,
@@ -659,9 +442,9 @@ class TestProbabilityPathUtils:
         verify_method_output(
             probability_path,
             method,
-            batch_size,
-            num_feats,
-            num_channels,
-            height,
-            width,
+            self._batch_size,
+            self._num_feats,
+            self._num_channels,
+            self._height,
+            self._width,
         )

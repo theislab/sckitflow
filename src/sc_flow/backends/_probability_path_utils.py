@@ -2,11 +2,6 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-from sc_flow._constants import (
-    MU_T_FN_KEY,
-    SIGMA_T_FN_KEY,
-    U_T_FN_KEY,
-)
 from sc_flow._runtime import (
     raise_runtime_error_on_backend_failed_import,
     raise_runtime_error_on_backend_not_supported,
@@ -19,9 +14,6 @@ from sc_flow._utils import verify_fn_signature
 try:
     from torch import Generator
 
-    from sc_flow.backends.torch._types import (
-        ProbabilityPathDict as TorchProbabilityDict,
-    )
     from sc_flow.backends.torch.probability_paths._probability_paths import (
         BaseProbabilityPath as TorchBaseProbabilityPath,
     )
@@ -32,9 +24,6 @@ except (ImportError, ModuleNotFoundError):
     TorchBaseProbabilityPath = None
 
 try:
-    from sc_flow.backends.jax._types import (
-        ProbabilityPathDict as JaxProbabilityDict,
-    )
     from sc_flow.backends.jax.probability_paths._probability_paths import BaseProbabilityPath as JaxBaseProbabilityPath
 except (ImportError, ModuleNotFoundError):
     set_jax_import_failed(True)
@@ -50,7 +39,7 @@ __all__ = [
 
 def get_probability_path(
     sigma: float,
-    probability_path_id_or_dict: ProbabilityPathId | JaxProbabilityDict | TorchProbabilityDict | None = None,
+    probability_path_id: ProbabilityPathId | None = None,
     compute_mu_t_fn: Callable | None = None,
     compute_ut_fn: Callable | None = None,
     compute_sigma_t_fn: Callable | None = None,
@@ -66,23 +55,21 @@ def get_probability_path(
         * Either by using a string identifier, in which case one will have to specify
             a correct identifier for the pre-defined probability paths. The pre-defined probability paths
             currently supported are:
-             * Constant Noise Gaussian Probability Path, instantiated with :param: `probability_path_id_or_dict` set to either `"constant-noise-linear-gaussian"` or `"cnlg-pp"`.
-             * Schrodinger Bridge Gaussian Probability Path, instantiated with :param: `probability_path_id_or_dict` set to either `"schrodinger-bridge-gaussian"` or `"sbg-pp"`.
-             * Variance Preserving Dirac Probability Path, instantiated with :param: `probability_path_id_or_dict` set to either `"variance-preserving-dirac"` or `"vpd-pp"`.
-             * Linear Dirac Probability Path, instantiated with :param: `probability_path_id_or_dict` set to either `"linear-dirac"` or `"ld-pp"`.
+             * Constant Noise Gaussian Probability Path, instantiated with :param: `probability_path_id` set to either `"constant-noise-linear-gaussian"` or `"cnlg-pp"`.
+             * Schrodinger Bridge Gaussian Probability Path, instantiated with :param: `probability_path_id` set to either `"schrodinger-bridge-gaussian"` or `"sbg-pp"`.
+             * Variance Preserving Dirac Probability Path, instantiated with :param: `probability_path_id` set to either `"variance-preserving-dirac"` or `"vpd-pp"`.
+             * Linear Dirac Probability Path, instantiated with :param: `probability_path_id` set to either `"linear-dirac"` or `"ld-pp"`.
 
-        * It is also possible to instantiate custom probability paths by passing a dictionary containing the following key-value pairs:
-            * `"compute_mu_t"`, mapping to a function taking as input `t`, `x0` and `x1`
+        * Alternatively, one can also pass the needed functions as the :param: `compute_mu_t_fn`, :param: `compute_ut_fn` and :param: `compute_sigma_t_fn`,
+            which then will be used to compute the conditional probability path. These will have to satisfy the following requisites:
+            * `compute_mu_t_fn`, must be a function taking as input `t`, `x0` and `x1`
                 used to compute the mean of the conditional probability path at each time step.
-            * `"compute_ut"`, mapping to a function taking as input `t`, `xt`, `x0` and `x1`
+            * `compute_ut_fn`, must be a function taking as input `t`, `xt`, `x0` and `x1`
                 used to compute the velocity field generating the conditional probability path at each time step.
-            * `"compute_sigma_t"`, mapping to a function taking as input `t`
+            * `compute_sigma_t_fn`, must be a function taking as input `t`
                 used to compute the noise strength of the probability path at each time step. Optional,
                 as it is only required when instantiating non-deterministic custom probability paths (i.e.: :param: `require_prng` is set to `True`).
             Such functions need to accept their input as either :class: `torch.Tensor` or :class: `jax.Array` depending on the chosen backend.
-
-        * Alternatively, one can also pass the needed functions as the :param: `compute_mu_t_fn`, :param: `compute_ut_fn` and :param: `compute_sigma_t_fn`,
-            which then will be used to compute the conditional probability path. These will have to satisfy the aforementioned requisites too.
 
     :param sigma: Positive scalar for the noise strength of the probability path.
         This will determine the factor :math: `\sigma` by which the time-dependent standard deviation
@@ -90,57 +77,56 @@ def get_probability_path(
         Only used when instantiating non-determinististic probability paths (i.e.: :param: `require_prng` is set to `True`).
     :type sigma: class: `float`
 
-    :param probability_path_id_or_dict: Either a string identifier among the supported ones (i.e.: check :class: `ProbabilityPathId`) or a
-        dictionary with the functions needed for the definition of custom conditional probability paths (i.e.: check :class: `ProbabilityPathDict`).
+    :param probability_path_id: A string identifier among the supported ones (i.e.: check :class: `ProbabilityPathId`)
         When `None`, you need to pass the functions as arguments in :param: `compute_mu_t_fn`, :param: `compute_ut_fn` and :param: `compute_sigma_t_fn`.
-        A :class: `ValueError` is thrown otherwise. Setting the probability path with :param: `probability_path_id_or_dict` has priority over
+        A :class: `ValueError` is thrown otherwise. Setting the probability path with :param: `probability_path_id` has priority over
         doing it with the individual functions in :param: `compute_mu_t_fn`, :param: `compute_ut_fn` and :param: `compute_sigma_t_fn`,
         which are ignored otherwise. Defaults to `None`.
-    :type probability_path_id_or_dict: class: `ProbabilityPathId | ProbabilityPathDict | None`
+    :type probability_path_id: class: `ProbabilityPathId | ProbabilityPathDict | None`
 
     :param compute_mu_t_fn: The function for computing the mean of the conditional probability path.
-        Only used for custom probability paths when :param: `probability_path_id_or_dict` is `None`
+        Only used for custom probability paths when :param: `probability_path_id` is `None`
         and is ignored otherwise. When passed, it has to match the template defined in :class: `sc_flow.backends.torch._types.TMeanFn`. Defaults to `None`.
     :type compute_mu_t_fn: class: `TMeanFn | None`
 
     :param compute_ut_fn: The function for computing the velocity field generating the conditional probability path.
-        Only used for custom probability paths when :param: `probability_path_id_or_dict` is `None`
+        Only used for custom probability paths when :param: `probability_path_id` is `None`
         and is ignored otherwise. When passed, it has to match the template defined in :class: `sc_flow.backends.torch._types.TDriftFn`. Defaults to `None`.
     :type compute_mu_t_fn: class: `TDriftFn | None`
 
     :param compute_sigma_t_fn: The function for computing the noise scale for the conditional probability path.
-        Only used for custom probability paths when :param: `probability_path_id_or_dict` is `None` and :param: `require_prng` is `True`
+        Only used for custom probability paths when :param: `probability_path_id` is `None` and :param: `require_prng` is `True`
         and is ignored otherwise. When passed, it has to match the template defined in :class: `sc_flow.backends.torch._types.TSigmaFn`. Defaults to `None`.
     :type compute_mu_t_fn: class: `TSigmaFn | None`
 
     :param require_prng: Whether a Pseudo-Random Numbers Generator is required for the probability path.
         Pseudo-Random Numbers Generators are required for non-deterministic probability paths and should be instances of
         :class: `torch.Generator`. Only used for custom probability paths retrieved with a
-        :class: `ProbabilityPathDict` as :param: `probability_path_id_or_dict`. Defaults to `True`.
+        :class: `ProbabilityPathDict` as :param: `probability_path_id`. Defaults to `True`.
     :type require_prng: class: `bool`
 
     :param prng: Pseudo-Random Numbers Generator used to generate random numbers. Only needed for
         non deterministic probability paths. Only used for custom probability paths retrieved
-        with a :class: `ProbabilityPathDict` as :param: `probability_path_id_or_dict` or by setting
+        with a :class: `ProbabilityPathDict` as :param: `probability_path_id` or by setting
         the :param: `compute_mu_t_fn`, :param: `compute_ut_fn` and :param: `compute_sigma_t_fn` arguments. Defaults to `None`.
     :type prng: class: `torch.Generator | None`
 
     :param compute_mu_t_kwargs: Optional key-word arguments to be passed to the function for computing
         the mean of the conditional probability path. Only used for custom probability paths retrieved
-        with a :class: `ProbabilityPathDict` as :param: `probability_path_id_or_dict` or by setting
+        with a :class: `ProbabilityPathDict` as :param: `probability_path_id` or by setting
         the :param: `compute_mu_t_fn`, :param: `compute_ut_fn` and :param: `compute_sigma_t_fn` arguments. Defaults to `None`.
     :type compute_mu_t_kwargs: class: `dict[str, Any] | None`
 
     :param compute_ut_kwargs: Optional key-word arguments to be passed to the function for computing
         the velocity field generating the conditional probability path.
-        Only used for custom probability paths retrieved with a :class: `ProbabilityPathDict` as :param: `probability_path_id_or_dict` or by setting
+        Only used for custom probability paths retrieved with a :class: `ProbabilityPathDict` as :param: `probability_path_id` or by setting
         the :param: `compute_mu_t_fn`, :param: `compute_ut_fn` and :param: `compute_sigma_t_fn` arguments.
         Defaults to `None`.
     :type compute_ut_kwargs: class: `dict[str, Any] | None`
 
     :param compute_sigma_t_kwargs: Optional key-word arguments to be passed to the function for computing
         the noise strength of the conditional probability path.
-        Only used for custom probability paths retrieved with a :class: `ProbabilityPathDict` as :param: `probability_path_id_or_dict` or by setting
+        Only used for custom probability paths retrieved with a :class: `ProbabilityPathDict` as :param: `probability_path_id` or by setting
         the :param: `compute_mu_t_fn`, :param: `compute_ut_fn` and :param: `compute_sigma_t_fn` arguments,
         when :param: `require_prng` is set to `True`. Defaults to `None`.
     :type compute_sigma_t_kwargs: class: `dict[str, Any] | None`
@@ -152,7 +138,7 @@ def get_probability_path(
 
     raise_runtime_error_on_backend_failed_import()
 
-    if probability_path_id_or_dict in ["constant-noise-linear-gaussian", "cnlg-pp"]:
+    if probability_path_id in ["constant-noise-linear-gaussian", "cnlg-pp"]:
         if BACKEND == "torch":
             from sc_flow.backends.torch.probability_paths._probability_paths import LinearGaussianProbabilityPath
 
@@ -164,7 +150,7 @@ def get_probability_path(
         else:
             raise_runtime_error_on_backend_not_supported(BACKEND)
 
-    elif probability_path_id_or_dict in ["schrodinger-bridge-gaussian", "sbg-pp"]:
+    elif probability_path_id in ["schrodinger-bridge-gaussian", "sbg-pp"]:
         if BACKEND == "torch":
             from sc_flow.backends.torch.probability_paths._probability_paths import SchrodingerBridgeProbabilityPath
 
@@ -176,7 +162,7 @@ def get_probability_path(
         else:
             raise_runtime_error_on_backend_not_supported(BACKEND)
 
-    elif probability_path_id_or_dict in ["variance-preserving-dirac", "vpd-pp"]:
+    elif probability_path_id in ["variance-preserving-dirac", "vpd-pp"]:
         if BACKEND == "torch":
             from sc_flow.backends.torch.probability_paths._probability_paths import (
                 VariancePreservingDiracProbabilityPath,
@@ -190,7 +176,7 @@ def get_probability_path(
         else:
             raise_runtime_error_on_backend_not_supported(BACKEND)
 
-    elif probability_path_id_or_dict in ["linear-dirac", "ld-pp"]:
+    elif probability_path_id in ["linear-dirac", "ld-pp"]:
         if BACKEND == "torch":
             from sc_flow.backends.torch.probability_paths._probability_paths import LinearDiracProbabilityPath
 
@@ -202,29 +188,7 @@ def get_probability_path(
         else:
             raise_runtime_error_on_backend_not_supported(BACKEND)
 
-    elif isinstance(probability_path_id_or_dict, dict):
-        if MU_T_FN_KEY not in probability_path_id_or_dict.keys():
-            msg = f"Key {MU_T_FN_KEY} not found in probability path dictionary."
-            raise KeyError(msg)
-        if U_T_FN_KEY not in probability_path_id_or_dict.keys():
-            msg = f"Key {U_T_FN_KEY} not found in probability path dictionary."
-            raise KeyError(msg)
-        if SIGMA_T_FN_KEY not in probability_path_id_or_dict.keys() and require_prng:
-            msg = f"Key {SIGMA_T_FN_KEY} not found in probability path dictionary and needed when {require_prng=}."
-            raise KeyError(msg)
-        return make_custom_probability_path(
-            sigma,
-            probability_path_id_or_dict.get(MU_T_FN_KEY),
-            probability_path_id_or_dict.get(U_T_FN_KEY),
-            probability_path_id_or_dict.get(SIGMA_T_FN_KEY, None),
-            require_prng=require_prng,
-            prng=prng,
-            compute_mu_t_kwargs=compute_mu_t_kwargs,
-            compute_ut_kwargs=compute_ut_kwargs,
-            compute_sigma_t_kwargs=compute_sigma_t_kwargs,
-        )
-
-    elif probability_path_id_or_dict is None:
+    elif probability_path_id is None:
         return make_custom_probability_path(
             sigma,
             compute_mu_t_fn,
@@ -239,7 +203,7 @@ def get_probability_path(
 
     else:
         msg = (
-            f"Probability path {probability_path_id_or_dict} not supported. It should be either"
+            f"Probability path {probability_path_id} not supported. It should be either"
             'a string identifier in `["constant-noise-linear-gaussian", "cnlg-pp"'
             '"schrodinger-bridge-gaussian", "sbg-pp", "variance-preserving-dirac", "vpd-pp"'
             '"linear-dirac", "ld-pp"]` or a dictionary in the format determined by'
@@ -288,12 +252,12 @@ def make_custom_probability_path(
     :param require_prng: Whether a Pseudo-Random Numbers Generator is required for the probability path.
         Pseudo-Random Numbers Generators are required for non-deterministic probability paths and should be instances of
         :class: `torch.Generator`. Only used for custom probability paths retrieved with a
-        :class: `ProbabilityPathDict` as :param: `probability_path_id_or_dict`. Defaults to `True`.
+        :class: `ProbabilityPathDict` as :param: `probability_path_id`. Defaults to `True`.
     :type require_prng: class: `bool`
 
     :param prng: Pseudo-Random Numbers Generator used to generate random numbers. Only needed for
         non deterministic probability paths. Only used for custom probability paths retrieved
-        with a :class: `ProbabilityPathDict` as :param: `probability_path_id_or_dict`Defaults to `None`.
+        with a :class: `ProbabilityPathDict` as :param: `probability_path_id`Defaults to `None`.
     :type prng: class: `torch.Generator | None`
 
     :param compute_mu_t_kwargs: Optional key-word arguments to be passed to the function for computing
@@ -339,14 +303,16 @@ def make_custom_probability_path(
         raise_runtime_error_on_backend_not_supported(BACKEND)
 
     if compute_mu_t_fn is None:
-        msg = "When probability_path_id_or_dict is `None`, you need to pass a correct `compute_mu_t_fn` as argument, found `None`."
+        msg = "When probability_path_id is `None`, you need to pass a correct `compute_mu_t_fn` as argument, found `None`."
         raise ValueError(msg)
     if compute_ut_fn is None:
-        msg = "When probability_path_id_or_dict is `None`, you need to pass a correct `compute_ut_fn` as argument, found `None`."
+        msg = (
+            "When probability_path_id is `None`, you need to pass a correct `compute_ut_fn` as argument, found `None`."
+        )
         raise ValueError(msg)
     if require_prng and compute_sigma_t_fn is None:
         msg = (
-            "When probability_path_id_or_dict is `None`, you need to pass a correct `compute_sigma_t_fn` as argument "
+            "When probability_path_id is `None`, you need to pass a correct `compute_sigma_t_fn` as argument "
             "when initializing custom non-deterministic conditional probability paths, found `None`."
         )
         raise ValueError(msg)

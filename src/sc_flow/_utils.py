@@ -1,6 +1,6 @@
 import inspect
 from collections.abc import Callable, Sequence
-from typing import Any, get_args
+from typing import Any, get_args, get_origin
 
 __all__ = [
     "get_fn_args_names_and_types",
@@ -9,6 +9,27 @@ __all__ = [
     "verify_fn_kwargs_dictionary",
     "verify_fn_signature",
 ]
+
+
+def check_type_against_generic(
+    input_type: type,
+    target_type: type,
+) -> bool:
+    """Checks whether the input type matches the target type, generic or union.
+
+    :param input_type: The input type to be verified.
+    :type input_type: class: `type`
+
+    :param target_type: The target type, generic or union which to verify against.
+    :type target_type: class: `type`
+    """
+    origin = get_origin(target_type)
+    args = get_args(target_type)
+    if origin is not None:
+        return any(check_type_against_generic(input_type, t) for t in args)
+    if origin:
+        return input_type is origin
+    return input_type is target_type
 
 
 def get_fn_args_names_and_types(
@@ -92,7 +113,7 @@ def verify_fn_args(
         )
         raise TypeError(msg)
     for idx, (arg_name, arg_type) in enumerate(positional_args.items()):
-        if arg_type != input_types[idx]:
+        if not check_type_against_generic(arg_type, input_types[idx]):
             msg = (
                 f"The input function {fn} and the reference template {Tfn} have a different annotation for"
                 f"argument {arg_name}. Found {arg_type}, expected {input_types[idx]}"

@@ -7,6 +7,15 @@ from sc_flow._constants import PI
 from sc_flow.backends.jax._types import ArrayLike
 from sc_flow.backends.jax._utils import broadcast_to_target_shape
 
+__all__ = [
+    "BaseProbabilityPath",
+    "LinearProbabilityPath",
+    "LinearGaussianProbabilityPath",
+    "SchrodingerBridgeProbabilityPath",
+    "LinearDiracProbabilityPath",
+    "VariancePreservingDiracProbabilityPath",
+]
+
 
 class BaseProbabilityPath(abc.ABC):
     r"""Base Class for Conditional Probability Paths :math: `p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)`.

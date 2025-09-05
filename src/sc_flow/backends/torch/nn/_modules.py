@@ -242,7 +242,7 @@ class MLP(BaseModule):
         layers = []
         input_dim = self._input_dim
         layer_id = 0
-        for layer_id, output_dim in enumerate(self._hidden_dims):
+        for output_dim in self._hidden_dims:
             layers.append(
                 (
                     f"layer_{layer_id}",

@@ -6,6 +6,7 @@ from typing import Any
 import torch
 
 __all__ = [
+    "BaseModule",
     "MLP",
     "Resnet1d",
 ]

@@ -1,6 +1,7 @@
 import abc
 from collections.abc import Callable, Sequence
 from typing import Any
+from flax.typing import Initializer, Axes
 
 import jax
 import jax.numpy as jnp
@@ -43,6 +44,8 @@ class MLP(BaseModule):
     
     Parameters
     ----------
+        input_dim
+            The input dimensionality for the MLP.
         output_dim
             The output dimensionality for the MLP.
         :param hidden_dims
@@ -56,18 +59,29 @@ class MLP(BaseModule):
             When not provided, it will be initialized as identity, defaults to :obj:`None`.
         use_batchnorm
             (Optional) Whether to use batch normalization after the affine/linear transformation, defaults to `False`.
-        batchnorm_epsilon
-            (Optional) The :math: `\epsilon` parameter for the denominator of the normalization for numerical stability.
-            Only used when :param: `use_batchnorm` is set to :obj:`True`, ignored otherwise. Sets the :attr: `epsilon` attribute
-            of :class:`flax.linen.BatchNorm`. Defaults to :math: `10^{-3}`.
         batchnorm_momentum
             (Optional) The value used for the computation of the running statistics for batch normalization.
             Only used when :param: `use_batchnorm` is set to `True`, ignored otherwise. Sets the :attr: `momentum` attribute
             of :class: `flax.linen.BatchNorm`. Defaults to :math: `10^{-2}`.
-        batchnorm_use_running_stats
-            Whether to use running statistics or simply compute them on each given batch.
-            Only used when :param: `use_batchnorm` is set to `True`, ignored otherwise. Sets the :attr: `use_running_stats` attribute
-            of :class: `flax.linen.BatchNorm`. Defaults to `True`.
+        batchnorm_epsilon
+            (Optional) The :math: `\epsilon` parameter for the denominator of the normalization for numerical stability.
+            Only used when :param: `use_batchnorm` is set to :obj:`True`, ignored otherwise. Sets the :attr: `epsilon` attribute
+            of :class:`flax.linen.BatchNorm`. Defaults to :math: `10^{-3}`.
+        batchnorm_bias
+            (Optional) Whether to learn a bias term for the affine transformations. Only used when :param: `use_batchnorm`
+            is set to `True`, ignored otherwise. Sets the :attr: `use_bias` of :class: `flax.linen.BatchNorm`.
+            Defaults to `True`.
+        batchnorm_scale
+            (Optional) Whether to learn a scale term for the affine transformations. Only used when :param: `use_batchnorm`
+            is set to `True`, ignored otherwise. Sets the :attr: `use_scale` of :class: `flax.linen.BatchNorm`.
+        batchnorm_bias_init
+            (Optional) Initialization function for the bias term of the affine transformations. Only used when :param: `use_batchnorm`
+            and :param: `batchnorm_bias` are both set to `True`, ignored otherwise. Sets the :attr: `bias_init` of :class: `flax.linen.BatchNorm`.
+            Defaults to :class: `flax.linen.initializers.zeros`.
+        batchnorm_scale_init
+            (Optional) Initialization function for the scale term of the affine transformations. Only used when :   param: `use_batchnorm`
+            and :param: `batchnorm_scale` are both set to `True`, ignored otherwise. Sets the :attr: `scale_init` of :class: `flax.linen.BatchNorm`.
+            Defaults to :class: `flax.linen.initializers.ones`.
         use_layernorm
             (Optional) Whether to use layer normalization after the affine/linear transformation and optional batch normalization, defaults to `False`.
         layernorm_epsilon
@@ -76,8 +90,28 @@ class MLP(BaseModule):
             of :class: `flax.linen.LayerNorm`. Defaults to :math: `10^{-5}`.
         layernorm_bias
             (Optional) Whether to learn a bias term for the element-wise affine transformations. Only used when :param: `use_layernorm`
-            and :param: `layernorm_elementwise_affine` are both set to `True`, ignored otherwise. Sets the :attr: `bias` of :class: `flax.linen.LayerNorm`.
-            Defaults to `False`.
+            is set to `True`, ignored otherwise. Sets the :attr: `use_bias` of :class: `flax.linen.LayerNorm`.
+            Defaults to `True`.
+        layernorm_scale
+            (Optional) Whether to learn a scale term for the element-wise affine transformations. Only used when :param: `use_layernorm`
+            is set to `True`, ignored otherwise. Sets the :attr: `use_scale` of :class: `flax.linen.LayerNorm`.
+            Defaults to `True`.
+        layernorm_bias_init
+            (Optional) Initialization function for the bias term of the element-wise affine transformations. Only used when :param: `use_layernorm`
+            and :param: `layernorm_bias` are both set to `True`, ignored otherwise. Sets the :attr: `bias_init` of :class: `flax.linen.LayerNorm`.
+            Defaults to :class: `flax.linen.initializers.zeros`.
+        layernorm_scale_init
+            (Optional) Initialization function for the scale term of the element-wise affine transformations. Only used when :param: `use_layernorm`
+            and :param: `layernorm_scale` are both set to `True`, ignored otherwise. Sets the :attr: `scale_init` of :class: `flax.linen.LayerNorm`.
+            Defaults to :class: `flax.linen.initializers.ones`.
+        layernorm_reduction_axes
+            (Optional) The axes over which to compute the mean and variance for layer normalization.
+            Only used when :param: `use_layernorm` is set to `True`, ignored otherwise. Sets the :attr: `reduction_axis` of :class: `flax.linen.LayerNorm`.
+            Defaults to `-1`, which normalizes over the last dimension.
+        layernorm_feature_axis
+            (Optional) The axes used for learned bias and scaling.
+            Only used when :param: `use_layernorm` is set to `True`, ignored otherwise. Sets the :attr: `feature_axis` of :class: `flax.linen.LayerNorm`.
+            Defaults to `-1`, which indicates that the last dimension contains the features.
         dropout_p
             (Optional) The probability for the dropout layer. When positive, a dropout module will be places after each non-linearity.
             Defaults to :math: `0.0`, with no dropout.
@@ -91,23 +125,29 @@ class MLP(BaseModule):
             (Optional) Key-word arguments for the activation function of the output layer of the MLP. When not provided, it will be initialized to
             an empty dictionary. Defaults to `None`.
         bias
-        (Optional) Whether to learn a bias term in the linear transformation. Defaults to `True`.
+            (Optional) Whether to learn a bias term in the linear transformation. Defaults to `True`.
     """
 
-    # input_dim: int
+    input_dim: int
     output_dim: int
     hidden_dims: Sequence[int] | None = None
     activation_cls: Callable | None = None
     final_activation_cls: Callable = None
     use_batchnorm: bool = False
-    batchnorm_epsilon: float = 1e-3
     batchnorm_momentum: float = 1e-2
-    # batchnorm_affine: bool = True
-    batchnorm_use_running_stats: bool = True # SAME AS DROPOUT
+    batchnorm_epsilon: float = 1e-3
+    batchnorm_bias: bool = True
+    batchnorm_scale: bool = True
+    batchnorm_bias_init: Initializer = nn.initializers.zeros
+    batchnorm_scale_init: Initializer = nn.initializers.ones
     use_layernorm: bool = False
     layernorm_epsilon: float = 1e-5
-    # layernorm_elementwise_affine: bool = False
-    layernorm_bias: bool = False
+    layernorm_bias: bool = True
+    layernorm_scale: bool = True
+    layernorm_bias_init: Initializer = nn.initializers.zeros
+    layernorm_scale_init: Initializer = nn.initializers.ones
+    layernorm_reduction_axes: Axes = -1
+    layernorm_feature_axes: Axes = -1    
     dropout_p: float = 0.0
     dropout_inplace: bool = False
     activation_cls_kwargs: dict[str, Any] | None = None
@@ -117,21 +157,8 @@ class MLP(BaseModule):
     def setup(self):
         self._hidden_dims = () if self.hidden_dims is None else self.hidden_dims
         self._activation_cls = nn.relu if self.activation_cls is None else self.activation_cls
-        # self._final_activation_cls = torch.nn.Identity if final_activation_cls is None else final_activation_cls
-        # self._use_batchnorm = use_batchnorm
-        # self._use_layernorm = use_layernorm
-        # self._batchnorm_eps = batchnorm_eps
-        # self._batchnorm_momentum = batchnorm_momentum
-        # self._batchnorm_affine = batchnorm_affine
-        # self._batchnorm_track_running_stats = batchnorm_track_running_stats
-        # self._layernorm_eps = layernorm_eps
-        # self._layernorm_elementwise_affine = layernorm_elementwise_affine
-        # self._layernorm_bias = layernorm_bias
-        # self._dropout_p = dropout_p
-        # self._dropout_inplace = dropout_inplace
         self._activation_cls_kwargs = {} if self.activation_cls_kwargs is None else self.activation_cls_kwargs
         self._final_activation_cls_kwargs = {} if self.final_activation_cls_kwargs is None else self.final_activation_cls_kwargs
-        # self._bias = bias
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, train: bool = False) -> jnp.ndarray:
@@ -142,14 +169,20 @@ class MLP(BaseModule):
                     use_running_average=not train,
                     momentum=self.batchnorm_momentum,
                     epsilon=self.batchnorm_epsilon,
-                    use_bias=True,
-                    use_scale=True,
+                    use_bias=self.batchnorm_bias,
+                    use_scale=self.batchnorm_scale,
+                    bias_init=self.batchnorm_bias_init,
+                    scale_init=self.batchnorm_scale_init,
                 )(x)
             if self.use_layernorm:
                 x = nn.LayerNorm(
                     epsilon=self.layernorm_epsilon,
                     use_bias=self.layernorm_bias,
-                    use_scale=True,
+                    use_scale=self.layernorm_scale,
+                    bias_init=self.layernorm_bias_init,
+                    scale_init=self.layernorm_scale_init,
+                    reduction_axis=self.layernorm_reduction_axes,
+                    feature_axis=self.layernorm_feature_axes,
                 )(x)
             x = self._activation_cls(x, **self._activation_cls_kwargs)
             if self.dropout_p > 0.0:
@@ -250,14 +283,20 @@ class Resnet1d(BaseModule):
     activation_cls: Callable | None = None
     embedding_dim: int = 32
     use_batchnorm: bool = False
-    batchnorm_epsilon: float = 1e-3
     batchnorm_momentum: float = 1e-2
-    # batchnorm_affine: bool = True
-    batchnorm_use_running_stats: bool = True # SAME AS DROPOUT
+    batchnorm_epsilon: float = 1e-3
+    batchnorm_bias: bool = True
+    batchnorm_scale: bool = True
+    batchnorm_bias_init: Initializer = nn.initializers.zeros
+    batchnorm_scale_init: Initializer = nn.initializers.ones
     use_layernorm: bool = False
     layernorm_epsilon: float = 1e-5
-    # layernorm_elementwise_affine: bool = False
-    layernorm_bias: bool = False
+    layernorm_bias: bool = True
+    layernorm_scale: bool = True
+    layernorm_bias_init: Initializer = nn.initializers.zeros
+    layernorm_scale_init: Initializer = nn.initializers.ones
+    layernorm_reduction_axes: Axes = -1
+    layernorm_feature_axes: Axes = -1    
     dropout_p: float = 0.0
     dropout_inplace: bool = False
     activation_cls_kwargs: dict[str, Any] | None = None

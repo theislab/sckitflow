@@ -1,5 +1,6 @@
 import abc
 from collections.abc import Callable, Sequence
+from dataclasses import field as dc_field
 from typing import Any
 from flax.typing import Initializer, Axes
 
@@ -17,10 +18,10 @@ __all__ = [
 class BaseModule(abc.ABC, nn.Module):
     """Base class for Neural Networks."""
 
-    @abc.abstractmethod
-    def setup(self) -> None:
-        """Initialize the module."""
-        pass
+    # @abc.abstractmethod
+    # def setup(self) -> None:
+    #     """Initialize the module."""
+    #     pass
 
     @abc.abstractmethod
     def __call__(
@@ -108,7 +109,7 @@ class MLP(BaseModule):
             (Optional) The axes over which to compute the mean and variance for layer normalization.
             Only used when :param: `use_layernorm` is set to `True`, ignored otherwise. Sets the :attr: `reduction_axis` of :class: `flax.linen.LayerNorm`.
             Defaults to `-1`, which normalizes over the last dimension.
-        layernorm_feature_axis
+        layernorm_feature_axes
             (Optional) The axes used for learned bias and scaling.
             Only used when :param: `use_layernorm` is set to `True`, ignored otherwise. Sets the :attr: `feature_axis` of :class: `flax.linen.LayerNorm`.
             Defaults to `-1`, which indicates that the last dimension contains the features.
@@ -130,8 +131,8 @@ class MLP(BaseModule):
 
     input_dim: int
     output_dim: int
-    hidden_dims: Sequence[int] | None = None
-    activation_cls: Callable | None = None
+    hidden_dims: Sequence[int]  = ()
+    activation_cls: Callable = nn.relu
     final_activation_cls: Callable = None
     use_batchnorm: bool = False
     batchnorm_momentum: float = 1e-2
@@ -150,19 +151,13 @@ class MLP(BaseModule):
     layernorm_feature_axes: Axes = -1    
     dropout_p: float = 0.0
     dropout_inplace: bool = False
-    activation_cls_kwargs: dict[str, Any] | None = None
-    final_activation_cls_kwargs: dict[str, Any] | None = None
+    activation_cls_kwargs: dict[str, Any] = dc_field(default_factory=dict)
+    final_activation_cls_kwargs: dict[str, Any] = dc_field(default_factory=dict)
     bias: bool = True
-
-    def setup(self):
-        self._hidden_dims = () if self.hidden_dims is None else self.hidden_dims
-        self._activation_cls = nn.relu if self.activation_cls is None else self.activation_cls
-        self._activation_cls_kwargs = {} if self.activation_cls_kwargs is None else self.activation_cls_kwargs
-        self._final_activation_cls_kwargs = {} if self.final_activation_cls_kwargs is None else self.final_activation_cls_kwargs
 
     @nn.compact
     def __call__(self, x: jnp.ndarray, train: bool = False) -> jnp.ndarray:
-        for hidden_dim in self._hidden_dims:
+        for hidden_dim in self.hidden_dims:
             x = nn.Dense(features=hidden_dim, use_bias=self.bias)(x)
             if self.use_batchnorm:
                 x = nn.BatchNorm(
@@ -181,15 +176,15 @@ class MLP(BaseModule):
                     use_scale=self.layernorm_scale,
                     bias_init=self.layernorm_bias_init,
                     scale_init=self.layernorm_scale_init,
-                    reduction_axis=self.layernorm_reduction_axes,
-                    feature_axis=self.layernorm_feature_axes,
+                    reduction_axes=self.layernorm_reduction_axes,
+                    feature_axes=self.layernorm_feature_axes,
                 )(x)
-            x = self._activation_cls(x, **self._activation_cls_kwargs)
+            x = self.activation_cls(x, **self.activation_cls_kwargs)
             if self.dropout_p > 0.0:
                 x = nn.Dropout(rate=self.dropout_p, deterministic=not train)(x)
         x = nn.Dense(features=self.output_dim, use_bias=self.bias)(x)
         if self.final_activation_cls is not None:
-            x = self.final_activation_cls(x, **self._final_activation_cls_kwargs)
+            x = self.final_activation_cls(x, **self.final_activation_cls_kwargs)
         return x
     
 class Resnet1d(BaseModule):
@@ -228,7 +223,6 @@ class Resnet1d(BaseModule):
             The input dimensionality for the Residual Network.
         output_dim
             The dimensionality of the image space where to project the inputs.
-            When not provided, it will be automatically set to :param: `input_dim`. Defaults to `None`.
         num_resnet_layers
             The number of Residual Layers to be stacked in the module.
         hidden_dims
@@ -280,7 +274,7 @@ class Resnet1d(BaseModule):
     input_dim: int
     output_dim: int
     num_resnet_layers: int
-    activation_cls: Callable | None = None
+    activation_cls: Callable = nn.relu
     embedding_dim: int = 32
     use_batchnorm: bool = False
     batchnorm_momentum: float = 1e-2
@@ -299,15 +293,9 @@ class Resnet1d(BaseModule):
     layernorm_feature_axes: Axes = -1    
     dropout_p: float = 0.0
     dropout_inplace: bool = False
-    activation_cls_kwargs: dict[str, Any] | None = None
-    final_activation_cls_kwargs: dict[str, Any] | None = None
+    activation_cls_kwargs: dict[str, Any] = dc_field(default_factory=dict)
+    final_activation_cls_kwargs: dict[str, Any] = dc_field(default_factory=dict)
     bias: bool = True
-
-    def setup(self):
-        # self.output_dim = self.input_dim if self.output_dim is None else self.output_dim
-        self._activation_cls = nn.relu if self.activation_cls is None else self.activation_cls
-        self._activation_cls_kwargs = {} if self.activation_cls_kwargs is None else self.activation_cls_kwargs
-        self._final_activation_cls_kwargs = {} if self.final_activation_cls_kwargs is None else self.final_activation_cls_kwargs
 
     def _apply_block(
         self,
@@ -319,16 +307,22 @@ class Resnet1d(BaseModule):
                 use_running_average=not train,
                 momentum=self.batchnorm_momentum,
                 epsilon=self.batchnorm_epsilon,
-                use_bias=True,
-                use_scale=True,
+                use_bias=self.batchnorm_bias,
+                use_scale=self.batchnorm_scale,
+                bias_init=self.batchnorm_bias_init,
+                scale_init=self.batchnorm_scale_init,
             )(x)
         if self.use_layernorm:
             x = nn.LayerNorm(
                 epsilon=self.layernorm_epsilon,
                 use_bias=self.layernorm_bias,
-                use_scale=True,
+                use_scale=self.layernorm_scale,
+                bias_init=self.layernorm_bias_init,
+                scale_init=self.layernorm_scale_init,
+                reduction_axes=self.layernorm_reduction_axes,
+                feature_axes=self.layernorm_feature_axes,
             )(x)
-        x = self._activation_cls(x, **self._activation_cls_kwargs)
+        x = self.activation_cls(x, **self.activation_cls_kwargs)
         if self.dropout_p > 0.0:
             x = nn.Dropout(rate=self.dropout_p, deterministic=not train)(x)
         x = nn.Dense(features=self.output_dim, use_bias=self.bias)(x)
@@ -357,7 +351,7 @@ class Resnet1d(BaseModule):
 
         for _ in range(self.num_resnet_layers):
             h = self._apply_block(x, train)
-            cond_h = nn.Dense(self.output_dim, use_bias=self.bias)(self._activation_cls(cond))
+            cond_h = nn.Dense(self.output_dim, use_bias=self.bias)(self.activation_cls(cond))
             h = h + cond_h
             h = self._apply_block(h, train)
 
@@ -369,4 +363,66 @@ class Resnet1d(BaseModule):
             x = x_proj + h
 
         return x
+
+def main():
+    """Basic functionality test for MLP and Resnet1d classes."""
+    # Initialize random key
+    key = jax.random.PRNGKey(0)
     
+    # Test parameters
+    batch_size = 8
+    input_dim = 16
+    output_dim = 32
+    embedding_dim = 4
+
+    print("\nTesting MLP...")
+    # Test MLP
+    mlp = MLP(
+        input_dim=input_dim,
+        output_dim=output_dim,
+        hidden_dims=(64, 32),
+        use_batchnorm=True,
+        use_layernorm=True,
+        dropout_p=0.1
+    )
+
+    # Create sample input
+    x = jax.random.normal(key, (batch_size, input_dim))
+    
+    # Initialize and run
+    variables = mlp.init(key, x, train=True)
+    output = mlp.apply(variables, x, train=False)
+    
+    print(f"MLP input shape: {x.shape}")
+    print(f"MLP output shape: {output.shape}")
+    print("MLP test passed!" if output.shape == (batch_size, output_dim) else "MLP test failed!")
+
+    print("\nTesting Resnet1d...")
+    # Test Resnet1d
+    resnet = Resnet1d(
+        input_dim=input_dim,
+        output_dim=output_dim,
+        num_resnet_layers=2,
+        embedding_dim=embedding_dim,
+        use_batchnorm=True,
+        use_layernorm=True,
+        dropout_p=0.1
+    )
+
+    # Create sample inputs
+    x = jax.random.normal(key, (batch_size, input_dim))
+    cond = jax.random.normal(key, (batch_size, embedding_dim))
+    
+    # Initialize and run
+    variables = resnet.init(key, x, cond, train=True)
+    output = resnet.apply(variables, x, cond, train=False)
+    
+    print(f"Resnet1d input shape: {x.shape}")
+    print(f"Resnet1d conditioning shape: {cond.shape}")
+    print(f"Resnet1d output shape: {output.shape}")
+    print("Resnet1d test passed!" if output.shape == (batch_size, output_dim) else "Resnet1d test failed!")
+
+if __name__ == "__main__":
+    main()
+
+

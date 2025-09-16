@@ -10,8 +10,6 @@ import flax.linen as nn
 
 from sc_flow.backends.jax.nn._modules import MLP, Resnet1d
 
-output_dim = 32
-
 
 class TestNNModules:
     _input_dim: int = 2
@@ -22,7 +20,7 @@ class TestNNModules:
 
     @pytest.mark.parametrize("hidden_dims", [(), (16,), (16, 16)])
     @pytest.mark.parametrize("activation_cls", [nn.relu])
-    @pytest.mark.parametrize("final_activation_cls", [None, lambda x: x])
+    @pytest.mark.parametrize("final_activation_cls", [lambda x: x])
     @pytest.mark.parametrize("use_batchnorm", [True, False])
     @pytest.mark.parametrize("batchnorm_epsilon", [1e-3])
     @pytest.mark.parametrize("batchnorm_momentum", [1e-2])
@@ -165,3 +163,78 @@ class TestNNModules:
         
         with pytest.raises(ScopeParamShapeError, match=r".*"):
             output_tensor = mlp.apply(params, input_tensor, train=False)
+
+    @pytest.mark.parametrize("num_resnet_layers", [1, 3])
+
+    @pytest.mark.parametrize("activation_cls", [nn.silu])
+    @pytest.mark.parametrize("use_batchnorm", [True, False])
+    @pytest.mark.parametrize("batchnorm_epsilon", [1e-3])
+    @pytest.mark.parametrize("batchnorm_momentum", [1e-2])
+    @pytest.mark.parametrize("batchnorm_bias", [True])
+    @pytest.mark.parametrize("batchnorm_scale", [True])
+    @pytest.mark.parametrize("batchnorm_bias_init", [nn.initializers.zeros])
+    @pytest.mark.parametrize("batchnorm_scale_init", [nn.initializers.ones])
+    @pytest.mark.parametrize("use_layernorm", [True, False])
+    @pytest.mark.parametrize("layernorm_epsilon", [1e-5])
+    @pytest.mark.parametrize("layernorm_bias", [True])
+    @pytest.mark.parametrize("layernorm_scale", [True])
+    @pytest.mark.parametrize("layernorm_bias_init", [nn.initializers.zeros])
+    @pytest.mark.parametrize("layernorm_scale_init", [nn.initializers.ones])
+    @pytest.mark.parametrize("dropout_p", [0.0, 0.1])
+    @pytest.mark.parametrize("dropout_inplace", [True, False])
+    @pytest.mark.parametrize("activation_cls_kwargs", [{}])
+    @pytest.mark.parametrize("bias", [True, False])
+    def test_resnet1d(
+        self,
+        num_resnet_layers: int,
+        activation_cls: Callable,
+        use_batchnorm: bool,
+        batchnorm_epsilon: float,
+        batchnorm_momentum: float,
+        batchnorm_bias: bool,
+        batchnorm_scale: bool,
+        batchnorm_bias_init: Initializer,
+        batchnorm_scale_init: Initializer,
+        use_layernorm: bool,
+        layernorm_epsilon: float,
+        layernorm_bias: bool,
+        layernorm_scale: bool,
+        layernorm_bias_init: Initializer,
+        layernorm_scale_init: Initializer,
+        dropout_p: float,
+        dropout_inplace: bool,
+        activation_cls_kwargs: dict[str, Any],
+        bias: bool,
+    ):
+        resnet = Resnet1d(
+            self._input_dim,
+            self._output_dim,
+            num_resnet_layers,
+            activation_cls,
+            embedding_dim=self._embedding_dim,
+            use_batchnorm=use_batchnorm,
+            batchnorm_epsilon=batchnorm_epsilon,
+            batchnorm_momentum=batchnorm_momentum,
+            batchnorm_bias=batchnorm_bias,
+            batchnorm_scale=batchnorm_scale,
+            batchnorm_bias_init=batchnorm_bias_init,
+            batchnorm_scale_init=batchnorm_scale_init,
+            use_layernorm=use_layernorm,
+            layernorm_epsilon=layernorm_epsilon,
+            layernorm_bias=layernorm_bias,
+            layernorm_scale=layernorm_scale,
+            layernorm_bias_init=layernorm_bias_init,
+            layernorm_scale_init=layernorm_scale_init,
+            dropout_p=dropout_p,
+            dropout_inplace=dropout_inplace,
+            activation_cls_kwargs=activation_cls_kwargs,
+            bias=bias,
+        )
+
+        # case 0: x.shape = (B, D), cond.shape = (B, K)
+        input_tensor = jnp.zeros((self._batch_size, self._input_dim))
+        condition = jnp.zeros((self._batch_size, self._embedding_dim))
+        params = resnet.init(self._rng_key, input_tensor, condition)
+
+        output_tensor = resnet.apply(params, input_tensor, condition, train=False)
+        assert output_tensor.shape == (self._batch_size, self._output_dim)

@@ -18,11 +18,6 @@ __all__ = [
 class BaseModule(abc.ABC, nn.Module):
     """Base class for Neural Networks."""
 
-    # @abc.abstractmethod
-    # def setup(self) -> None:
-    #     """Initialize the module."""
-    #     pass
-
     @abc.abstractmethod
     def __call__(
         self,
@@ -121,10 +116,10 @@ class MLP(BaseModule):
             Defaults to `False`.
         activation_cls_kwargs
             (Optional) Key-word arguments for the activation function of the hidden layer of the MLP. When not provided, it will be initialized to
-            an empty dictionary. Defaults to `None`.
+            an empty dictionary. Defaults to an empty dictionary.
         final_activation_cls_kwargs
             (Optional) Key-word arguments for the activation function of the output layer of the MLP. When not provided, it will be initialized to
-            an empty dictionary. Defaults to `None`.
+            an empty dictionary. Defaults to an empty dictionary.
         bias
             (Optional) Whether to learn a bias term in the linear transformation. Defaults to `True`.
     """
@@ -363,66 +358,3 @@ class Resnet1d(BaseModule):
             x = x_proj + h
 
         return x
-
-def main():
-    """Basic functionality test for MLP and Resnet1d classes."""
-    # Initialize random key
-    key = jax.random.PRNGKey(0)
-    
-    # Test parameters
-    batch_size = 8
-    input_dim = 16
-    output_dim = 32
-    embedding_dim = 4
-
-    print("\nTesting MLP...")
-    # Test MLP
-    mlp = MLP(
-        input_dim=input_dim,
-        output_dim=output_dim,
-        hidden_dims=(64, 32),
-        use_batchnorm=True,
-        use_layernorm=True,
-        dropout_p=0.1
-    )
-
-    # Create sample input
-    x = jax.random.normal(key, (batch_size, input_dim))
-    
-    # Initialize and run
-    variables = mlp.init(key, x, train=True)
-    output = mlp.apply(variables, x, train=False)
-    
-    print(f"MLP input shape: {x.shape}")
-    print(f"MLP output shape: {output.shape}")
-    print("MLP test passed!" if output.shape == (batch_size, output_dim) else "MLP test failed!")
-
-    print("\nTesting Resnet1d...")
-    # Test Resnet1d
-    resnet = Resnet1d(
-        input_dim=input_dim,
-        output_dim=output_dim,
-        num_resnet_layers=2,
-        embedding_dim=embedding_dim,
-        use_batchnorm=True,
-        use_layernorm=True,
-        dropout_p=0.1
-    )
-
-    # Create sample inputs
-    x = jax.random.normal(key, (batch_size, input_dim))
-    cond = jax.random.normal(key, (batch_size, embedding_dim))
-    
-    # Initialize and run
-    variables = resnet.init(key, x, cond, train=True)
-    output = resnet.apply(variables, x, cond, train=False)
-    
-    print(f"Resnet1d input shape: {x.shape}")
-    print(f"Resnet1d conditioning shape: {cond.shape}")
-    print(f"Resnet1d output shape: {output.shape}")
-    print("Resnet1d test passed!" if output.shape == (batch_size, output_dim) else "Resnet1d test failed!")
-
-if __name__ == "__main__":
-    main()
-
-

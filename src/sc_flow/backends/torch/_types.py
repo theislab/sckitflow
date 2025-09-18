@@ -6,7 +6,7 @@ ShapeLike = Sequence[int] | torch.Size
 
 VfFunction = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
-TTimeFeatursFn = Callable[
+TTimeFeaturesFn = Callable[
     [
         torch.Tensor,
     ],

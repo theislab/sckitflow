@@ -461,7 +461,6 @@ class Resnet1d(BaseModule):
                 (
                     "batchnorm",
                     torch.nn.BatchNorm1d(
-                        # output_dim,
                         input_dim,
                         eps=self._batchnorm_eps,
                         momentum=self._batchnorm_momentum,
@@ -475,7 +474,6 @@ class Resnet1d(BaseModule):
                 (
                     "layernorm",
                     torch.nn.LayerNorm(
-                        # output_dim,
                         input_dim,
                         eps=self._layernorm_eps,
                         elementwise_affine=self._layernorm_elementwise_affine,

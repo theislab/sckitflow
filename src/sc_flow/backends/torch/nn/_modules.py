@@ -461,7 +461,8 @@ class Resnet1d(BaseModule):
                 (
                     "batchnorm",
                     torch.nn.BatchNorm1d(
-                        output_dim,
+                        # output_dim,
+                        input_dim,
                         eps=self._batchnorm_eps,
                         momentum=self._batchnorm_momentum,
                         affine=self._batchnorm_affine,
@@ -474,7 +475,8 @@ class Resnet1d(BaseModule):
                 (
                     "layernorm",
                     torch.nn.LayerNorm(
-                        output_dim,
+                        # output_dim,
+                        input_dim,
                         eps=self._layernorm_eps,
                         elementwise_affine=self._layernorm_elementwise_affine,
                         bias=self._layernorm_bias,
@@ -506,29 +508,31 @@ class Resnet1d(BaseModule):
 
     def _make_resnet_layer(
         self,
+        input_dim: int,
+        output_dim: int,
     ) -> torch.nn.Module:
         """Initializes a Residual Layer."""
         return torch.nn.ModuleDict(
             [
-                ("net1", self._make_block(self._input_dim, self._output_dim)),
+                ("net1", self._make_block(input_dim, output_dim)),
                 (
                     "cond_proj",
                     torch.nn.Sequential(
                         self._activation_cls(**self._activation_cls_kwargs),
-                        torch.nn.Linear(self._embedding_dim, self._output_dim, bias=self._bias),
+                        torch.nn.Linear(self._embedding_dim, output_dim, bias=self._bias),
                     ),
                 ),
                 (
                     "net2",
                     self._make_block(
-                        self._output_dim,
-                        self._output_dim,
+                        output_dim,
+                        output_dim,
                     ),
                 ),
                 (
                     "skip_proj",
-                    torch.nn.Linear(self._input_dim, self._output_dim)
-                    if self._input_dim != self._output_dim
+                    torch.nn.Linear(input_dim, output_dim)
+                    if input_dim != output_dim
                     else torch.nn.Identity(),
                 ),
             ]
@@ -540,7 +544,10 @@ class Resnet1d(BaseModule):
         """Initializes the stack of Residual Layers."""
         return torch.nn.Sequential(
             OrderedDict(
-                [(f"layer_{layer_id}", self._make_resnet_layer()) for layer_id in range(self._num_resnet_layers)]
+                [
+                    (f"layer_{layer_id}", self._make_resnet_layer(self._input_dim, self._output_dim)) if layer_id == 0
+                        else (f"layer_{layer_id}", self._make_resnet_layer(self._output_dim, self._output_dim))
+                    for layer_id in range(self._num_resnet_layers)]
             )
         )
 

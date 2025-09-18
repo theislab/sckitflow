@@ -173,8 +173,36 @@ class TestNNModules:
             activation_cls_kwargs=activation_cls_kwargs,
             bias=bias,
         )
+        print(resnet)
 
-        # case 0: x.shape = (B, D), cond.shape = (B, K)
+        # case 0: x.shape = (1, D), cond.shape = (1, K)
+        input_tensor = torch.zeros((1, self._input_dim))
+        condition = torch.zeros((1, self._embedding_dim))
+        if use_batchnorm:
+            with pytest.raises(ValueError, match=r"more than 1 value per channel"):
+                output_tensor = resnet(input_tensor, condition)
+        else:
+            output_tensor = resnet(input_tensor, condition)
+            if output_dim is None:
+                assert output_tensor.shape == (1, self._input_dim)
+            else:
+                assert output_tensor.shape == (1, output_dim)
+
+        # case 1: x.shape = (D), cond.shape = (K)
+        input_tensor = torch.zeros((self._input_dim,))
+        condition = torch.zeros((self._embedding_dim,))
+        if use_batchnorm:
+            with pytest.raises(ValueError, match=r".*"):
+                output_tensor = resnet(input_tensor, condition)
+                return None
+        else:
+            output_tensor = resnet(input_tensor, condition)
+            if output_dim is None:
+                assert output_tensor.shape == (self._input_dim, )
+            else:
+                assert output_tensor.shape == (output_dim, )
+
+        # case 2: x.shape = (B, D), cond.shape = (B, K)
         input_tensor = torch.zeros((self._batch_size, self._input_dim))
         condition = torch.zeros((self._batch_size, self._embedding_dim))
         output_tensor = resnet(input_tensor, condition)
@@ -182,3 +210,42 @@ class TestNNModules:
             assert output_tensor.shape == (self._batch_size, self._input_dim)
         else:
             assert output_tensor.shape == (self._batch_size, output_dim)
+
+        # case 3: (1, B, D)
+        input_tensor = torch.zeros((1, self._batch_size, self._input_dim))
+        condition = torch.zeros((self._batch_size, self._embedding_dim))
+        if use_batchnorm and (batchnorm_track_running_stats or batchnorm_affine):
+            with pytest.raises(RuntimeError, match=r"should contain"):
+                output_tensor = resnet(input_tensor, condition)
+                return None
+        else:
+            output_tensor = resnet(input_tensor, condition)
+            if output_dim is None:
+                assert output_tensor.shape == (1, self._batch_size, self._input_dim)
+            else:
+                assert output_tensor.shape == (1, self._batch_size, output_dim)
+
+        # case 4: x.shape = (B, D + 1), cond.shape = (B, K)
+        input_tensor = torch.zeros((self._batch_size, self._input_dim + 1))
+        condition = torch.zeros((self._batch_size, self._embedding_dim))
+        if use_batchnorm:
+            with pytest.raises(RuntimeError, match=r"(cannot be multiplied)|(should contain)|(Given normalized_shape)"):
+                output_tensor = resnet(input_tensor, condition)
+                return None
+        else:
+            with pytest.raises(
+                RuntimeError,
+                match=r"(cannot be multiplied)|(Given normalized_shape)",
+            ):
+                output_tensor = resnet(input_tensor, condition)
+                return None
+
+        # case 5: x.shape = (B, D), cond.shape = (B + 1, K)
+        input_tensor = torch.zeros((self._batch_size, self._input_dim))
+        condition = torch.zeros((self._batch_size + 1, self._embedding_dim))
+        with pytest.raises(
+            RuntimeError,
+            #match=r"Shape mismatch between hidden condition and state projection\."
+        ):
+            output_tensor = resnet(input_tensor, condition)
+            return None

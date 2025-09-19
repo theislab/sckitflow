@@ -100,14 +100,8 @@ class TestNNModules:
 
         # case 3: (1, B, D)
         input_tensor = torch.zeros((1, self._batch_size, self._input_dim))
-        if use_batchnorm and (batchnorm_track_running_stats or batchnorm_affine):
-            # if use_batchnorm:
-            with pytest.raises(RuntimeError, match=r"should contain"):
-                output_tensor = mlp(input_tensor)
-                return None
-        else:
-            output_tensor = mlp(input_tensor)
-            assert output_tensor.shape == (1, self._batch_size, self._output_dim)
+        output_tensor = mlp(input_tensor)
+        assert output_tensor.shape == (1, self._batch_size, self._output_dim)
 
         # case 4: (B, D + 1) Error
         input_tensor = torch.zeros((self._batch_size, self._input_dim + 1))
@@ -173,7 +167,6 @@ class TestNNModules:
             activation_cls_kwargs=activation_cls_kwargs,
             bias=bias,
         )
-        print(resnet)
 
         # case 0: x.shape = (1, D), cond.shape = (1, K)
         input_tensor = torch.zeros((1, self._input_dim))
@@ -214,16 +207,11 @@ class TestNNModules:
         # case 3: (1, B, D)
         input_tensor = torch.zeros((1, self._batch_size, self._input_dim))
         condition = torch.zeros((self._batch_size, self._embedding_dim))
-        if use_batchnorm and (batchnorm_track_running_stats or batchnorm_affine):
-            with pytest.raises(RuntimeError, match=r"should contain"):
-                output_tensor = resnet(input_tensor, condition)
-                return None
+        output_tensor = resnet(input_tensor, condition)
+        if output_dim is None:
+            assert output_tensor.shape == (1, self._batch_size, self._input_dim)
         else:
-            output_tensor = resnet(input_tensor, condition)
-            if output_dim is None:
-                assert output_tensor.shape == (1, self._batch_size, self._input_dim)
-            else:
-                assert output_tensor.shape == (1, self._batch_size, output_dim)
+            assert output_tensor.shape == (1, self._batch_size, output_dim)
 
         # case 4: x.shape = (B, D + 1), cond.shape = (B, K)
         input_tensor = torch.zeros((self._batch_size, self._input_dim + 1))

@@ -285,7 +285,10 @@ class MLP(BaseModule):
             as the input and :math: `D_{Output}` denotes the output dimensionality set in :attr: `self._output_dim`.
         :rtype: class: `torch.Tensor`
         """
-        return self._mlp(x)
+        original_shape = x.shape[:-1]
+        x = x.reshape(-1, x.shape[-1])
+        y = self._mlp(x)
+        return y.reshape(*original_shape, -1)
 
 
 class Resnet1d(BaseModule):
@@ -562,6 +565,8 @@ class Resnet1d(BaseModule):
         :param cond: The conditioning vector.
         :type cond: class: `torch.Tensor`
         """
+        original_shape = x.shape[:-1]
+        x = x.reshape(-1, x.shape[-1])
         for layer in self._resnet:
             h = layer["net1"](x)
             h = h + layer["cond_proj"](cond)
@@ -573,4 +578,4 @@ class Resnet1d(BaseModule):
                 msg = f"Shape mismatch between hidden condition and state projection. Found {h.shape=} and {x_proj.shape=}"
                 raise RuntimeError(msg)
             x = x_proj + h
-        return x
+        return x.reshape(*original_shape, -1)

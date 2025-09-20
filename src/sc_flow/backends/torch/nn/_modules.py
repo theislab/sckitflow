@@ -5,6 +5,8 @@ from typing import Any
 
 import torch
 
+from sc_flow._constants import DEFAULT_NUM_RESNET_LAYERS
+
 __all__ = [
     "BaseModule",
     "MLP",
@@ -325,10 +327,10 @@ class Resnet1d(BaseModule):
     def __init__(
         self,
         input_dim: int,
-        num_resnet_layers: int,
+        embedding_dim: int,
+        num_resnet_layers: int | None = None,
         output_dim: int | None = None,
         activation_cls: type[torch.nn.Module] | None = None,
-        embedding_dim: int = 32,
         use_batchnorm: bool = False,
         batchnorm_eps: float = 1e-3,
         batchnorm_momentum: float = 1e-2,
@@ -348,6 +350,10 @@ class Resnet1d(BaseModule):
         :param input_dim: The input dimensionality for the Residual Network.
         :type input_dim: class: `int`
 
+        :param embedding_dim: The dimensionality of the conditional embedding vector. This embedding is projected and added to the hidden
+            state in each residual layer.
+        :type embedding_dim: class: `int`
+
         :param num_resnet_layers: The number of Residual Layers to be stacked in the module.
         :type num_resnet_layers: class: `int`
 
@@ -358,10 +364,6 @@ class Resnet1d(BaseModule):
         :param activation_cls: (Optional) :class: `torch.nn.Module` used as non-linearity for the Residual Block.
             When not provided, it will be initialized to :class: `torch.nn.SiLU`, defaults to `None`.
         :type activation_cls: class: `type[torch.nn.Module]`
-
-        :param embedding_dim: The dimensionality of the conditional embedding vector. This embedding is projected and added to the hidden
-            state in each residual layer. Defaults to ``32``.
-        :type embedding_dim: class: `int`
 
         :param use_batchnorm: (Optional) Whether to use batch normalization before the affine/linear transformation in the residual block, defaults to `False`.
         :type use_batchnorm: class: `bool`
@@ -421,10 +423,10 @@ class Resnet1d(BaseModule):
         """
         super().__init__()
         self._input_dim = input_dim
-        self._num_resnet_layers = num_resnet_layers
+        self._embedding_dim = embedding_dim
+        self._num_resnet_layers = DEFAULT_NUM_RESNET_LAYERS if num_resnet_layers is None else num_resnet_layers
         self._output_dim = input_dim if output_dim is None else output_dim
         self._activation_cls = torch.nn.SiLU if activation_cls is None else activation_cls
-        self._embedding_dim = embedding_dim
         self._use_batchnorm = use_batchnorm
         self._use_layernorm = use_layernorm
         self._batchnorm_eps = batchnorm_eps

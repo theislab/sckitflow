@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import Union
 
 import numpy as np
 
@@ -11,8 +12,9 @@ except (ImportError, TypeError):
 
 from jax import Array as JaxArray
 
-ArrayLike = NumpyArray | JaxArray
+ArrayLike = Union[NDArray, JaxArray]
 
+TTimeFeaturesFn = Callable[[ArrayLike, int], ArrayLike]
 
 TMeanFn = Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]
 TDriftFn = Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], ArrayLike]

@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -7,8 +7,7 @@ import torch
 from sc_flow._types import TimeFeaturesId
 from sc_flow.backends.torch._types import TTimeFeaturesFn
 from sc_flow.backends.torch.nn._vf import (
-    VanillaMLPVelocityField,
-    ResnetMLPVelocityField,
+    MLPUnconditionalVF,
 )
 
 batch_size = 32
@@ -101,6 +100,9 @@ class TestVF:
             }
         ]
     )
+    @pytest.mark.parametrize("conditioning_id", [None, "concat", "resnet1d"])
+    @pytest.mark.parametrize("conditioning_fn", [None])
+    @pytest.mark.parametrize("conditioning_kwargs", [None])
     def test_vanilla_mlp_vf_forward(
         self,
         encode_state: bool,
@@ -114,8 +116,11 @@ class TestVF:
         state_encoder_mlp_kwargs: dict[str, Any] | None,
         time_encoder_mlp_kwargs: dict[str, Any] | None,
         vf_decoder_mlp_kwargs: dict[str, Any] | None,
+        conditioning_id: str | None,
+        conditioning_fn: Callable | None,
+        conditioning_kwargs: dict[str, Any],
     ):
-        vf = VanillaMLPVelocityField(
+        vf = MLPUnconditionalVF(
             state_dim,
             encode_state=encode_state,
             encode_time=encode_time,
@@ -128,6 +133,9 @@ class TestVF:
             state_encoder_mlp_kwargs=state_encoder_mlp_kwargs,
             time_encoder_mlp_kwargs=time_encoder_mlp_kwargs,
             vf_decoder_mlp_kwargs=vf_decoder_mlp_kwargs,
+            conditioning_id=conditioning_id,
+            conditioning_fn=conditioning_fn,
+            conditioning_kwargs=conditioning_kwargs,
         )
 
         # case 0: x: (B, D) t: (B, 1)
@@ -145,16 +153,12 @@ class TestVF:
         # case 2: x: (B, N, D) t: (B, 1)
         vf.eval()
         x = torch.zeros((batch_size, n_samples, state_dim))
-        # x = torch.zeros((n_samples, batch_size, state_dim))
         t = torch.zeros((batch_size, 1))
         vt = vf(t, x)
         assert vt.shape == (batch_size, n_samples, state_dim)
-        # assert vt.shape == (n_samples, batch_size, state_dim)
 
         # case 2: x: (B, N, D) t: (B, )
         x = torch.zeros((batch_size, n_samples, state_dim))
-        # x = torch.zeros((n_samples, batch_size, state_dim))
         t = torch.zeros((batch_size, ))
         vt = vf(t, x)
         assert vt.shape == (batch_size, n_samples, state_dim)
-        # assert vt.shape == (n_samples, batch_size, state_dim)

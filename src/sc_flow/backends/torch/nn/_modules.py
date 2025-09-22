@@ -1,6 +1,6 @@
 import abc
 from collections import OrderedDict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from typing import Any
 
 import torch
@@ -9,6 +9,7 @@ from sc_flow._constants import DEFAULT_NUM_RESNET_LAYERS
 
 __all__ = [
     "BaseModule",
+    "FunctionalModule",
     "MLP",
     "Resnet1d",
 ]
@@ -38,6 +39,32 @@ class BaseModule(abc.ABC, torch.nn.Module):
         :return: The output of the forward computation pass.
         :rtype: class: `torch.nn.Module`
         """
+
+
+class FunctionalModule(BaseModule):
+    """Class for wrapping :class: `torch.nn.Modules` around callables."""
+
+    def __init__(
+        self,
+        fn: Callable[[torch.Tensor], torch.Tensor]
+    ) -> None:
+        """"""
+
+        super().__init__()
+        self.fn = fn
+
+        self._identity = self._make_modules()
+
+    def _make_modules(self):
+        """"""
+        
+        return torch.nn.Identity() 
+
+    def forward(self, x, *args, **kwargs):
+        """"""
+
+        out = self.fn(x, *args, **kwargs)
+        return self._identity(out)
 
 
 class MLP(BaseModule):
@@ -569,6 +596,7 @@ class Resnet1d(BaseModule):
         """
         original_shape = x.shape[:-1]
         x = x.reshape(-1, x.shape[-1])
+        cond = cond.reshape(-1, cond.shape[-1])
         for layer in self._resnet:
             h = layer["net1"](x)
             h = h + layer["cond_proj"](cond)
@@ -581,3 +609,11 @@ class Resnet1d(BaseModule):
                 raise RuntimeError(msg)
             x = x_proj + h
         return x.reshape(*original_shape, -1)
+    
+    @property
+    def output_dim(
+        self,
+    ) -> int:
+        """"""
+
+        return self._output_dim

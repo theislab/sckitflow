@@ -12,7 +12,7 @@ except (ImportError, TypeError):
 
 from jax import Array as JaxArray
 
-ArrayLike = Union[NDArray, JaxArray]
+ArrayLike = NumpyArray | JaxArray
 
 TTimeFeaturesFn = Callable[[ArrayLike, int], ArrayLike]
 

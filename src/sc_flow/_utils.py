@@ -22,23 +22,13 @@ def check_type_against_generic(
     :param target_type: The target type, generic or union which to verify against.
     :type target_type: class: `type`
     """
-    input_origin = get_origin(input_type)
-    target_origin = get_origin(target_type)
-
-    if input_origin is not None and target_origin is not None:
-        input_args = get_args(input_type)
-        target_args = get_args(target_type)
-        return all(any(check_type_against_generic(i, t) for t in target_args) for i in input_args)
-
-    elif target_origin is not None:
-        target_args = get_args(target_type)
-        return any(check_type_against_generic(input_type, t) for t in target_args)
-    
-    elif input_origin is not None:
-        input_args = get_args(input_type)
-        return any(check_type_against_generic(t, target_type) for t in input_args)
-
-    return input_type == target_type
+    origin = get_origin(target_type)
+    args = get_args(target_type)
+    if origin is not None:
+        return any(check_type_against_generic(input_type, t) for t in args)
+    if origin:
+        return input_type is origin
+    return input_type is target_type
 
 def get_fn_args_names_and_types(
     fn: Callable,

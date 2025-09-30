@@ -12,3 +12,5 @@ ProbabilityPathId = Literal[
     "ld-pp",
 ]
 TimeFeaturesId = Literal["ott-jax", "torch-cfm"]
+
+ConditioningLayersId = Literal["concat", "resnet1d"]

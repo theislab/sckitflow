@@ -5,15 +5,15 @@ import torch
 
 from sc_flow._constants import (
     DEFAULT_NUM_TIME_FEATURES,
+    DEFAULT_TIME_FEATURES_MAX_PERIOD,
     DEFAULT_VF_LATENT_STATE_DIM,
     DEFAULT_VF_LATENT_TIME_DIM,
-    DEFAULT_TIME_FEATURES_MAX_PERIOD,
 )
-from sc_flow._types import TimeFeaturesId, ConditioningLayersId
+from sc_flow._types import ConditioningLayersId, TimeFeaturesId
 from sc_flow._utils import verify_fn_kwargs_dictionary
-from sc_flow.backends.torch._types import TTimeFeaturesFn, VfFunction, TConditioningFn
+from sc_flow.backends.torch._types import TConditioningFn, TTimeFeaturesFn, VfFunction
 from sc_flow.backends.torch.nn._conditioning_layers import BaseConditioningLayer, get_conditioning_layer
-from sc_flow.backends.torch.nn._modules import BaseModule, FunctionalModule, MLP
+from sc_flow.backends.torch.nn._modules import MLP, BaseModule, FunctionalModule
 from sc_flow.backends.torch.nn._time_features import get_time_features_fn
 
 __all__ = [
@@ -40,7 +40,7 @@ class BaseVelocityField(abc.ABC, torch.nn.Module):
         **kwargs,
     ) -> torch.Tensor:
         """Performs a forward computation pass on the neural velocity field.
-        
+
         :param t: The current time index at which the velocity field is computed.
         :type t: class: `torch.Tensor`
 
@@ -62,7 +62,7 @@ class BaseVelocityField(abc.ABC, torch.nn.Module):
 
 class MLPUnconditionalVF(BaseVelocityField):
     """Class for MLP-base unconditional neural velocity fields.
-    
+
     The architecture of unconditional velocity fields is defined as follows:
         * (Optional) Time Featurization. An identity mapping is instantiated otherwise.
         * (Optional) Time MLP Encoder. An identity mapping is instantiated otherwise.
@@ -91,7 +91,7 @@ class MLPUnconditionalVF(BaseVelocityField):
         conditioning_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Initializes the velocity field with the given settings.
-        
+
         :param state_dim: The dimensionality of the state space where the
             dynamics is defined.
         :type state_dim: class: `int`
@@ -159,7 +159,7 @@ class MLPUnconditionalVF(BaseVelocityField):
             defined directly in :class: `MLP`. Defaults to `None`.
         :type vf_decoder_mlp_kwargs: class: `dict[str, Any] | None`
 
-        :param conditioning_id: (Optional) String identifier indicating the type of conditioning applied to the states. 
+        :param conditioning_id: (Optional) String identifier indicating the type of conditioning applied to the states.
             For unconditional velocity fields, the conditioning is only done with respect to the time index.
             Could be set to any of the string identifiers for predefined time features, specified in :class: `ConditioningLayersId`.
             Ignored when :param: `conditioning_fn` is passed as well. When not provided, it will be set to
@@ -176,7 +176,6 @@ class MLPUnconditionalVF(BaseVelocityField):
             raise :class: `TypeError` otherwise. Defaults to `None`.
         :type conditioning_kwargs: class: `dict[str, Any]`
         """
-
         super().__init__()
         self._state_dim = state_dim
         self._encode_state = encode_state
@@ -206,23 +205,21 @@ class MLPUnconditionalVF(BaseVelocityField):
         self,
     ) -> bool:
         """Boolean flag indicating whether time featurization is used for the current velocity field.
-        
+
         This is the case when either :param: `time_features_id` or :param: `time_features_fn`
         are passed during initialization.
         """
-
         return (self._time_features_id is not None) or (self._time_features_fn is not None)
 
     def _get_num_time_features(
         self,
     ) -> int:
         """Returns the number of time features.
-        
+
         If no time featurization is used, it will return simply 1 (i.e.: scalar time)
         Otherwise, when the number of time feature is not provided, it will fall back to the default defined in
         :constant: `sc_flow._constants.DEFAULT_NUM_TIME_FEATURES`.
         """
-
         if not self._use_time_features:
             return 1
         else:
@@ -234,11 +231,10 @@ class MLPUnconditionalVF(BaseVelocityField):
         self,
     ) -> FunctionalModule:
         """Initializes the time features.
-        
-        Wraps a :class: `FunctionalModule` around the function used to compute the time features for
-        compatibility with `pytorch`'s `torch.nn.ModuleDict`. 
-        """
 
+        Wraps a :class: `FunctionalModule` around the function used to compute the time features for
+        compatibility with `pytorch`'s `torch.nn.ModuleDict`.
+        """
         time_features_fn = get_time_features_fn(
             num_time_features=self._get_num_time_features(),
             time_features_id=self._time_features_id,
@@ -252,11 +248,10 @@ class MLPUnconditionalVF(BaseVelocityField):
         self,
     ) -> BaseModule | torch.nn.Identity:
         """Initializes the optional time encoder.
-        
+
         When :param: `encode_time` is set to `True` it will initialize a :class: `MLP` with the configurations
         specified in :param: `time_encoder_mlp_kwargs`. Returns an instance of :class: `torch.nn.Identity` otherwise.
         """
-
         if self._encode_time:
             verify_fn_kwargs_dictionary(MLP.__init__, self._time_encoder_mlp_kwargs)
             return MLP(
@@ -270,11 +265,10 @@ class MLPUnconditionalVF(BaseVelocityField):
         self,
     ) -> BaseModule | torch.nn.Identity:
         """Initializes the optional state encoder.
-        
+
         When :param: `encode_state` is set to `True` it will initialize a :class: `MLP` with the configurations
         specified in :param: `state_encoder_mlp_kwargs`. Returns an instance of :class: `torch.nn.Identity` otherwise.
         """
-
         if self._encode_state:
             verify_fn_kwargs_dictionary(MLP.__init__, self._state_encoder_mlp_kwargs)
             return MLP(
@@ -288,10 +282,10 @@ class MLPUnconditionalVF(BaseVelocityField):
         self,
     ) -> BaseConditioningLayer:
         """Initializes the conditioning layer according to the configurations specified during initialization."""
-        
         return get_conditioning_layer(
             self._state_encoder_output_dim if self._encode_state else self._state_dim,
             self._time_encoder_output_dim if self._encode_time else self._get_num_time_features(),
+            latent_condition_dim=None,  # unconditional for the moment
             conditioning_id=self._conditioning_id,
             conditioning_fn=self._conditioning_fn,
             conditioning_kwargs=self._conditioning_kwargs,
@@ -300,12 +294,11 @@ class MLPUnconditionalVF(BaseVelocityField):
     def _make_vf_decoder(
         self,
         decoder_input_dim: int,
-    ) -> BaseModule:        
+    ) -> BaseModule:
         """Initializes the velocity field decoder.
-        
+
         It will initialize a :class: `MLP` with the configurations specified in :param: `vf_decoder_mlp_kwargs`.
         """
-
         verify_fn_kwargs_dictionary(MLP.__init__, self._vf_decoder_mlp_kwargs)
         return MLP(
             decoder_input_dim,
@@ -317,10 +310,9 @@ class MLPUnconditionalVF(BaseVelocityField):
         self,
     ) -> torch.nn.Module:
         """Initializes the neural components of the velocity field.
-        
+
         This is done by calling the `self._make_*` methods defined above.
         """
-
         modules = {
             "time_features": self._make_time_features(),
             "time_encoder": self._make_time_encoder(),
@@ -338,14 +330,13 @@ class MLPUnconditionalVF(BaseVelocityField):
         x: torch.Tensor,
     ) -> torch.Tensor:
         """Performs a forward computation pass on the neural velocity field.
-        
+
         :param t: The current time index at which the velocity field is computed.
         :type t: class: `torch.Tensor`
 
         :param x: The current state at which the velocity field is computed.
         :type x: class: `torch.Tensor`
         """
-
         encoded_xt = self._vf["state_encoder"](x)
 
         encoded_t = self._vf["time_features"](t)

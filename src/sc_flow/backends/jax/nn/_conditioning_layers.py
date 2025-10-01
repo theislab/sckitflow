@@ -192,8 +192,9 @@ class Resnet1dConditioning(BaseConditioningLayer):
         verify_fn_kwargs_dictionary(Resnet1d.__init__, resnet_kwargs)
 
         self.resnet = Resnet1d(
-            self.latent_state_dim,
-            self.embedding_dim,
+            input_dim=self.latent_state_dim,
+            output_dim=self.latent_state_dim,
+            embedding_dim=self.embedding_dim,
             **resnet_kwargs,
         )
 
@@ -240,7 +241,7 @@ class Resnet1dConditioning(BaseConditioningLayer):
         self,
     ) -> int:
         """Return the dimensionality of the conditioned output."""
-        return self.resnet.output_dim
+        return self.latent_state_dim
 
     @property
     def embedding_dim(

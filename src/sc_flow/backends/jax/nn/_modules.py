@@ -8,6 +8,8 @@ import jax
 import jax.numpy as jnp
 import flax.linen as nn
 
+from sc_flow._constants import DEFAULT_NUM_RESNET_LAYERS
+
 __all__ = [
     "BaseModule",
     "MLP",
@@ -268,7 +270,8 @@ class Resnet1d(BaseModule):
 
     input_dim: int
     output_dim: int
-    num_resnet_layers: int
+    embedding_dim: int
+    num_resnet_layers: int = DEFAULT_NUM_RESNET_LAYERS
     activation_cls: Callable = nn.relu
     embedding_dim: int = 32
     use_batchnorm: bool = False

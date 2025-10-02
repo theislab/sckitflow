@@ -112,7 +112,7 @@ class TestNNModules:
             output_tensor = mlp(input_tensor)
             return None
 
-    @pytest.mark.parametrize("num_resnet_layers", [1, 3])
+    @pytest.mark.parametrize("num_resnet_layers", [None, 5])
     @pytest.mark.parametrize("output_dim", [None, output_dim])
     @pytest.mark.parametrize("activation_cls", [None, torch.nn.SiLU])
     @pytest.mark.parametrize("use_batchnorm", [True, False])
@@ -149,10 +149,10 @@ class TestNNModules:
     ):
         resnet = Resnet1d(
             self._input_dim,
+            self._embedding_dim,
             num_resnet_layers,
             output_dim=output_dim,
             activation_cls=activation_cls,
-            embedding_dim=self._embedding_dim,
             use_batchnorm=use_batchnorm,
             batchnorm_eps=batchnorm_eps,
             batchnorm_momentum=batchnorm_momentum,

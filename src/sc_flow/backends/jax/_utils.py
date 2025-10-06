@@ -4,6 +4,11 @@ import jax.numpy as jnp
 
 from sc_flow.backends.jax._types import ArrayLike
 
+__all__ = [
+    "broadcast_to_target_shape",
+    "ensure_2d_tensor_with_singleton_trailing_dim",
+    "make_concatenation_possible",
+]
 
 def broadcast_to_target_shape(
     input_array: ArrayLike,
@@ -19,10 +24,10 @@ def broadcast_to_target_shape(
             expanded to match the corresponding target dimension. In case of mismatch a :class: `ValueError` is raised.
 
     :param input_array: The input tensor whose to broadcast.
-    :type input_array: class: `torch.Tensor`
+    :type input_array: :class:`~sc_flow.backends.jax._types.ArrayLike`
 
     :param target_shape: The target shape which we want to broadcast the input to.
-    :type target_shape: class: `ShapeLike`
+    :type target_shape: Sequence[int]
     """
     # tensor already in the correct shape, do nothing
     if input_array.shape == target_shape:
@@ -69,3 +74,13 @@ def make_concatenation_possible(
         if idx + 1 > input_array.ndim - len(dims_to_retain):
             input_array = jnp.expand_dims(input_array, idx)
     return broadcast_to_target_shape(input_array, dims_to_match + dims_to_retain)
+
+
+def ensure_2d_tensor_with_singleton_trailing_dim(
+    input_tensor: ArrayLike,
+):
+    """"""  # noqa
+
+    if len(input_tensor.shape) == 0:
+        input_tensor = jnp.expand_dims(input_tensor, axis=0)
+    return broadcast_to_target_shape(input_tensor, (input_tensor.shape[0], 1))

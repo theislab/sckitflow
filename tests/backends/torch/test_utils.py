@@ -4,9 +4,8 @@ import torch
 from sc_flow.backends.torch._utils import (
     broadcast_to_target_shape,
     ensure_2d_tensor_with_singleton_trailing_dim,
-    make_concatenation_possible
+    make_concatenation_possible,
 )
-
 
 # defining variables
 batch_size = 8
@@ -22,7 +21,6 @@ class TestTorchBackendUtils:
     def test_broadcast_to_target_shape(
         self,
     ) -> None:
-
         # defining target shapes for each case
         target_shape2d = (batch_size, num_feats)
         target_shape3d = (batch_size, num_channels, height, width)
@@ -116,35 +114,32 @@ class TestTorchBackendUtils:
     def test_ensure_2d_tensor_with_singleton_trailing_dim(
         self,
     ) -> None:
-        
         # case 0: t: () x: (B, D)
         t = torch.zeros(())
         t = ensure_2d_tensor_with_singleton_trailing_dim(t)
         assert t.shape == (1, 1)
 
         # case 0: t: () x: (B, D)
-        t = torch.zeros((batch_size, ))
+        t = torch.zeros((batch_size,))
         t = ensure_2d_tensor_with_singleton_trailing_dim(t)
         assert t.shape == (batch_size, 1)
-        
+
         # case 0: t: () x: (B, D)
         t = torch.zeros((batch_size, 1))
         t = ensure_2d_tensor_with_singleton_trailing_dim(t)
         assert t.shape == (batch_size, 1)
 
-
     def test_make_concatenation_on_trailing_dim_possible(
         self,
     ) -> None:
-        
         # case 0: t: () x: (B, D)
         t = torch.zeros(())
         x = torch.zeros((batch_size, num_feats))
         t = make_concatenation_possible(t, x, -1)
-        assert t.shape == ((batch_size, ))
+        assert t.shape == ((batch_size,))
 
         # case 1: t: (num_feats, ) x: (B, D)
-        t = torch.zeros((num_time_feats, ))
+        t = torch.zeros((num_time_feats,))
         x = torch.zeros((batch_size, num_feats))
         t = make_concatenation_possible(t, x, -1)
         assert t.shape == ((batch_size, num_time_feats))
@@ -159,10 +154,15 @@ class TestTorchBackendUtils:
         t = torch.zeros(())
         x = torch.zeros((batch_size, num_samples, num_feats))
         t = make_concatenation_possible(t, x, -1)
-        assert t.shape == ((batch_size, num_samples, ))
+        assert t.shape == (
+            (
+                batch_size,
+                num_samples,
+            )
+        )
 
         # case 1: t: (num_feats, ) x: (B, D)
-        t = torch.zeros((num_time_feats, ))
+        t = torch.zeros((num_time_feats,))
         x = torch.zeros((batch_size, num_samples, num_feats))
         t = make_concatenation_possible(t, x, -1)
         assert t.shape == ((batch_size, num_samples, num_time_feats))

@@ -1,12 +1,12 @@
 from collections.abc import Callable, Sequence
 from typing import Any
-from flax.typing import Initializer
-from flax.errors import ScopeParamShapeError
 
-import pytest
+import flax.linen as nn
 import jax
 import jax.numpy as jnp
-import flax.linen as nn
+import pytest
+from flax.errors import ScopeParamShapeError
+from flax.typing import Initializer
 
 from sc_flow.backends.jax.nn._modules import MLP, Resnet1d
 
@@ -92,60 +92,52 @@ class TestNNModules:
         # case 0: (1, D)
         params = mlp.init(self._rng_key, jnp.zeros((1, self._input_dim)))
         input_tensor = jnp.zeros((1, self._input_dim))
-        
+
         # Test evaluation mode
         output_tensor = mlp.apply(params, input_tensor, train=False)
         assert output_tensor.shape == (1, self._output_dim)
-        
+
         # Test training mode
         if dropout_p > 0.0:
             rng_key = jax.random.PRNGKey(123)
             if use_batchnorm:
                 output_tensor, _ = mlp.apply(
-                    params, input_tensor, train=True, rngs={'dropout': rng_key}, 
-                    mutable=['batch_stats']
+                    params, input_tensor, train=True, rngs={"dropout": rng_key}, mutable=["batch_stats"]
                 )
             else:
-                output_tensor = mlp.apply(params, input_tensor, train=True, rngs={'dropout': rng_key})
+                output_tensor = mlp.apply(params, input_tensor, train=True, rngs={"dropout": rng_key})
         else:
             if use_batchnorm:
-                output_tensor, _ = mlp.apply(
-                    params, input_tensor, train=True, 
-                    mutable=['batch_stats']
-                )
+                output_tensor, _ = mlp.apply(params, input_tensor, train=True, mutable=["batch_stats"])
             else:
                 output_tensor = mlp.apply(params, input_tensor, train=True)
         assert output_tensor.shape == (1, self._output_dim)
         # case 1: (D)
-        params = mlp.init(self._rng_key, jnp.zeros((self._input_dim)))
+        params = mlp.init(self._rng_key, jnp.zeros(self._input_dim))
         input_tensor = jnp.zeros(self._input_dim)
-        
+
         output_tensor = mlp.apply(params, input_tensor, train=False)
         assert output_tensor.shape == (self._output_dim,)
 
         # case 2: (B, D)
         params = mlp.init(self._rng_key, jnp.zeros((self._batch_size, self._input_dim)))
         input_tensor = jnp.zeros((self._batch_size, self._input_dim))
-        
+
         output_tensor = mlp.apply(params, input_tensor, train=False)
         assert output_tensor.shape == (self._batch_size, self._output_dim)
-        
+
         # Test training mode with batch
         if dropout_p > 0.0:
             rng_key = jax.random.PRNGKey(456)
             if use_batchnorm:
                 output_tensor, _ = mlp.apply(
-                    params, input_tensor, train=True, rngs={'dropout': rng_key}, 
-                    mutable=['batch_stats']
+                    params, input_tensor, train=True, rngs={"dropout": rng_key}, mutable=["batch_stats"]
                 )
             else:
-                output_tensor = mlp.apply(params, input_tensor, train=True, rngs={'dropout': rng_key})
+                output_tensor = mlp.apply(params, input_tensor, train=True, rngs={"dropout": rng_key})
         else:
             if use_batchnorm:
-                output_tensor, _ = mlp.apply(
-                    params, input_tensor, train=True, 
-                    mutable=['batch_stats']
-                )
+                output_tensor, _ = mlp.apply(params, input_tensor, train=True, mutable=["batch_stats"])
             else:
                 output_tensor = mlp.apply(params, input_tensor, train=True)
         assert output_tensor.shape == (self._batch_size, self._output_dim)
@@ -153,19 +145,18 @@ class TestNNModules:
         # case 3: (1, B, D)
         params = mlp.init(self._rng_key, jnp.zeros((1, self._batch_size, self._input_dim)))
         input_tensor = jnp.zeros((1, self._batch_size, self._input_dim))
-        
+
         output_tensor = mlp.apply(params, input_tensor, train=False)
         assert output_tensor.shape == (1, self._batch_size, self._output_dim)
 
         # case 4: (B, D + 1) Error
         params = mlp.init(self._rng_key, jnp.zeros((self._batch_size, self._input_dim)))
         input_tensor = jnp.zeros((self._batch_size, self._input_dim + 1))
-        
+
         with pytest.raises(ScopeParamShapeError, match=r".*"):
             output_tensor = mlp.apply(params, input_tensor, train=False)
 
     @pytest.mark.parametrize("num_resnet_layers", [1, 3])
-
     @pytest.mark.parametrize("activation_cls", [nn.silu])
     @pytest.mark.parametrize("use_batchnorm", [True, False])
     @pytest.mark.parametrize("batchnorm_epsilon", [1e-3])
@@ -209,9 +200,9 @@ class TestNNModules:
         resnet = Resnet1d(
             self._input_dim,
             self._output_dim,
-            num_resnet_layers,
-            activation_cls,
-            embedding_dim=self._embedding_dim,
+            self._embedding_dim,
+            num_resnet_layers=num_resnet_layers,
+            activation_cls=activation_cls,
             use_batchnorm=use_batchnorm,
             batchnorm_epsilon=batchnorm_epsilon,
             batchnorm_momentum=batchnorm_momentum,

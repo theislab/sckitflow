@@ -1,4 +1,3 @@
-from collections.abc import Sequence
 from typing import Any, Literal
 
 import torch
@@ -21,7 +20,6 @@ class SetEncoder(BaseModule):
         output_dim: int,
         pooling_mode: Literal["mean", "sum"] = "mean",
         pooling_kwargs: dict[str, Any] | None = None,
-        covariates_not_pooled: Sequence[str] | None = None,
         output_layers_kwargs: LayersDict | None = None,
     ) -> None:
         """Initializes the set encoder.
@@ -41,19 +39,15 @@ class SetEncoder(BaseModule):
             Ignored when pooling is `"mean"` or `"sum"`, defaults to `None`.
         :type pooling_kwargs: class: `dict[str, Any]`
 
-        :param covariates_not_pooled: Optional sequence of the perturbation covariate
-            identifiers for which the pooling should not be applied. Defaults to `None`.
-        :class covariates_not_pooled: class: `Sequence[str] | None`
-
         :param output_layers_kwargs: Dictionary containing the configurations for the output layer.
             Defaults to `None`.
         :type output_layers_kwargs: class: `LayersDict | None`
         """
+        super().__init__()
         self._input_layers = input_layers
         self._output_dim = output_dim
         self._pooling_mode = pooling_mode
         self._pooling_kwargs = {} if pooling_kwargs is None else pooling_kwargs
-        self._covariates_not_pooled = () if covariates_not_pooled is None else covariates_not_pooled
         self._output_layers_kwargs = {} if output_layers_kwargs is None else output_layers_kwargs
 
         self._condition_encoder = self._make_modules()
@@ -121,13 +115,14 @@ class SetEncoder(BaseModule):
         :type not_pooled_covariates: class: `torch.Tensor`
         """
         if (not_pooled_covariates is not None) and (pooled_covariates is not None):
-            return torch.concatenate(
+            concat_covariates = torch.concatenate(
                 (pooled_covariates, make_concatenation_possible(not_pooled_covariates, pooled_covariates, -1)), dim=-1
             )
+            return self._condition_encoder["pooling_layer"](concat_covariates)
         elif not_pooled_covariates is None:
-            return pooled_covariates
+            return self._condition_encoder["pooling_layer"](pooled_covariates)
         elif pooled_covariates is None:
-            return not_pooled_covariates
+            return not_pooled_covariates[..., 0, :]  # take first sequence element
         else:
             msg = "All covariates are None."
             raise RuntimeError(msg)
@@ -151,45 +146,9 @@ class SetEncoder(BaseModule):
                 raise KeyError(msg)
             encoded_covariates[covariate_id] = self._condition_encoder[covariate_id](covariate_data)
 
-        # pooled covariates
-        if len(self.covariates_to_pool) > 0:
-            pooled_covariates = torch.stack(
-                [
-                    covariate_data
-                    for covariate_id, covariate_data in encoded_covariates.items()
-                    if covariate_id in self.covariates_to_pool
-                ],
-                dim=-2,
-            )
-            pooled_covariates = self._condition_encoder["pooling_layer"](pooled_covariates)
-        else:
-            pooled_covariates = None
-
-        # not pooled covariates
-        if len(self._covariates_not_pooled) > 0:
-            not_pooled_covariates = torch.concatenate(
-                [
-                    covariate_data
-                    for covariate_id, covariate_data in encoded_covariates.items()
-                    if covariate_id in self._covariates_not_pooled
-                ],
-                dim=-1,
-            )
-        else:
-            not_pooled_covariates = None
-
-        # handling input for decoder
-        decoder_input = self._get_decoder_input(pooled_covariates, not_pooled_covariates)
-
-        # decoder
-        return self._condition_encoder["output_layer"](decoder_input)
-
-    @property
-    def covariates_to_pool(
-        self,
-    ) -> Sequence[str]:
-        """Retrieves the identifiers of covariate to pool."""
-        return [covariate for covariate in self._input_layers.keys() if covariate not in self._covariates_not_pooled]
+        pooled_covariates = torch.concatenate(tuple(encoded_covariates.values()), dim=-1)
+        pooled_covariates = self._condition_encoder["pooling_layer"](pooled_covariates)
+        return self._condition_encoder["output_layer"](pooled_covariates)
 
     @property
     def decoder_input_dim(
@@ -197,13 +156,5 @@ class SetEncoder(BaseModule):
     ) -> int:
         """Retrieves the input dimensionality for the output decoder."""
         # summing up all the dimensions of non pooled covariates
-        decoder_input_dim = sum(
-            layer_dict["output_dim"]
-            for covariate_id, layer_dict in self._input_layers.items()
-            if covariate_id in self._covariates_not_pooled
-        )
-
-        # retrieving the dimension of the pooled covariates (only one since they are pooled)
-        if len(self.covariates_to_pool) > 0:
-            decoder_input_dim = decoder_input_dim + self._input_layers[self.covariates_to_pool[0]]["output_dim"]
+        decoder_input_dim = sum(layer_dict["output_dim"] for layer_dict in self._input_layers.values())
         return decoder_input_dim

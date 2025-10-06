@@ -29,6 +29,9 @@ def init_module_from_dict(
     :param output_dim: (Optional) Output dimension for the module.
     :type output_dim: class: `int | None`
     """
+    # copying the layers dictionary to preserve it
+    layers_dict = layers_dict.copy()
+
     # retrieving layer type
     layer_type = layers_dict.pop("layer_type", "mlp")
 

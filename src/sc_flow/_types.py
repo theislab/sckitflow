@@ -1,4 +1,4 @@
-from typing import Literal
+from typing import Any, Literal
 
 BackendId = Literal["torch", "jax"]
 ProbabilityPathId = Literal[
@@ -14,3 +14,6 @@ ProbabilityPathId = Literal[
 TimeFeaturesId = Literal["ott-jax", "torch-cfm"]
 
 ConditioningLayersId = Literal["concat", "resnet1d"]
+
+LayersDict = dict[str, Any]
+NestedLayersDict = dict[str, LayersDict]

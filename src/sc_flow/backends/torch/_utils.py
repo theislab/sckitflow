@@ -4,6 +4,7 @@ from sc_flow.backends.torch._types import ShapeLike
 
 __all__ = [
     "broadcast_to_target_shape",
+    "ensure_2d_tensor_with_singleton_trailing_dim",
     "make_concatenation_possible",
 ]
 
@@ -58,11 +59,26 @@ def broadcast_to_target_shape(
     return input_tensor.expand(*dims_to_expand)
 
 
+def ensure_2d_tensor_with_singleton_trailing_dim(
+    input_tensor: torch.Tensor,
+):
+    """"""  # noqa
+
+    if len(input_tensor.shape) == 0:
+        input_tensor = input_tensor.unsqueeze(0)
+    return broadcast_to_target_shape(input_tensor, (input_tensor.shape[0], 1))
+
+
 def make_concatenation_possible(
     input_tensor: torch.Tensor,
     target_tensor: torch.Tensor,
-    concat_dim: int = -1,
+    concat_dims: int = -1,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """"""  # noqa
 
-    raise NotImplementedError
+    dims_to_match = [d for d in target_tensor.shape[:concat_dims]]
+    dims_to_retain = [d for d in input_tensor.shape[concat_dims: ]]
+    for idx in range(len(dims_to_match)):
+        if idx + 1 > input_tensor.ndim - len(dims_to_retain):
+            input_tensor = input_tensor.unsqueeze(idx)
+    return broadcast_to_target_shape(input_tensor, dims_to_match + dims_to_retain)

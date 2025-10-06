@@ -13,6 +13,7 @@ from sc_flow._constants import (
 )
 from sc_flow._types import ConditioningLayersId, LayersDict, NestedLayersDict, TimeFeaturesId
 from sc_flow.backends.torch._types import MappedTensor, TConditioningFn, TTimeFeaturesFn, TVfFn
+from sc_flow.backends.torch._utils import make_concatenation_possible
 from sc_flow.backends.torch.nn._conditioning_layers import BaseConditioningLayer, get_conditioning_layer
 from sc_flow.backends.torch.nn._modules import BaseModule, FunctionalModule
 from sc_flow.backends.torch.nn._set_encoder import SetEncoder
@@ -344,7 +345,9 @@ class MLPUnconditionalVF(BaseVelocityField):
     ) -> torch.Tensor | None:
         """Retrieves the condition input for the conditioning layers."""
         if encoded_condition is not None and encoded_source is not None:
-            return torch.concatenate((encoded_condition, encoded_source), dim=-1)
+            return torch.concatenate(
+                (make_concatenation_possible(encoded_condition, encoded_source, -1), encoded_source), dim=-1
+            )
         elif encoded_condition is None and encoded_source is not None:
             return encoded_source
         elif encoded_condition is not None and encoded_source is None:

@@ -46,6 +46,7 @@ condition_dict = {
 class TestVF:
     @staticmethod
     def verify_output(
+        source_encoder_mlp_kwargs: LayersDict,
         vf: BaseVelocityField,
         t: torch.Tensor,
         x: torch.Tensor,
@@ -60,9 +61,18 @@ class TestVF:
             with pytest.raises(TypeError):
                 vt = vf(t, x, condition_dict=condition_dict, source=source)
             return None
-        else:
-            vt = vf(t, x, condition_dict=condition_dict, source=source)
-        assert vt.shape == (batch_size, state_dim)
+        elif vf.use_source_encoder and "input_dim" not in source_encoder_mlp_kwargs:
+            if source.shape[-1] != x.shape[-1]:
+                with pytest.raises(RuntimeError):
+                    vt = vf(t, x, condition_dict=condition_dict, source=source)
+                return None
+        elif vf.use_source_encoder and "input_dim" in source_encoder_mlp_kwargs:
+            if source.shape[-1] != source_encoder_mlp_kwargs["input_dim"]:
+                with pytest.raises(RuntimeError):
+                    vt = vf(t, x, condition_dict=condition_dict, source=source)
+                return None
+        vt = vf(t, x, condition_dict=condition_dict, source=source)
+        assert vt.shape == x.shape
 
     @pytest.mark.parametrize("condition_dict", [None, condition_dict])
     @pytest.mark.parametrize("encode_state", [True, False])
@@ -130,21 +140,28 @@ class TestVF:
         # case 0: x: (B, D) t: (B, 1)
         x = torch.zeros((batch_size, state_dim))
         t = torch.zeros((batch_size, 1))
-        source_state = ...
-        self.verify_output(vf, t, x, condition_dict, source_state)
+        source_cases = [None, torch.zeros_like(x), torch.zeros(batch_size, source_input_dim)]
+        for source_state in source_cases:
+            self.verify_output(source_encoder_mlp_kwargs, vf, t, x, condition_dict, source_state)
 
         # case 1: x: (B, D) t: (B, )
         x = torch.zeros((batch_size, state_dim))
         t = torch.zeros((batch_size,))
-        self.verify_output(vf, t, x, condition_dict, source_state)
+        source_cases = [None, torch.zeros_like(x), torch.zeros(batch_size, source_input_dim)]
+        for source_state in source_cases:
+            self.verify_output(source_encoder_mlp_kwargs, vf, t, x, condition_dict, source_state)
 
         # case 2: x: (B, N, D) t: (B, 1)
         vf.eval()
         x = torch.zeros((batch_size, n_samples, state_dim))
         t = torch.zeros((batch_size, 1))
-        self.verify_output(vf, t, x, condition_dict, source_state)
+        source_cases = [None, torch.zeros_like(x), torch.zeros(batch_size, n_samples, source_input_dim)]
+        for source_state in source_cases:
+            self.verify_output(source_encoder_mlp_kwargs, vf, t, x, condition_dict, source_state)
 
         # case 2: x: (B, N, D) t: (B, )
         x = torch.zeros((batch_size, n_samples, state_dim))
         t = torch.zeros((batch_size,))
-        self.verify_output(vf, t, x, condition_dict, source_state)
+        source_cases = [None, torch.zeros_like(x), torch.zeros(batch_size, n_samples, source_input_dim)]
+        for source_state in source_cases:
+            self.verify_output(source_encoder_mlp_kwargs, vf, t, x, condition_dict, source_state)

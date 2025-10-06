@@ -6,12 +6,14 @@ import torch
 from sc_flow._constants import (
     DEFAULT_CONDITION_ENCODER_OUTPUT_DIM,
     DEFAULT_NUM_TIME_FEATURES,
+    DEFAULT_SOURCE_ENCODER_OUTPUT_DIM,
     DEFAULT_TIME_FEATURES_MAX_PERIOD,
     DEFAULT_VF_LATENT_STATE_DIM,
     DEFAULT_VF_LATENT_TIME_DIM,
 )
 from sc_flow._types import ConditioningLayersId, LayersDict, NestedLayersDict, TimeFeaturesId
 from sc_flow.backends.torch._types import MappedTensor, TConditioningFn, TTimeFeaturesFn, TVfFn
+from sc_flow.backends.torch._utils import make_concatenation_possible
 from sc_flow.backends.torch.nn._conditioning_layers import BaseConditioningLayer, get_conditioning_layer
 from sc_flow.backends.torch.nn._modules import BaseModule, FunctionalModule
 from sc_flow.backends.torch.nn._set_encoder import SetEncoder
@@ -85,9 +87,9 @@ class MLPUnconditionalVF(BaseVelocityField):
         time_features_kwargs: dict[str, Any] | None = None,
         state_encoder_output_dim: int | None = None,
         time_encoder_output_dim: int | None = None,
-        state_encoder_mlp_kwargs: dict[str, Any] | None = None,
-        time_encoder_mlp_kwargs: dict[str, Any] | None = None,
-        vf_decoder_mlp_kwargs: dict[str, Any] | None = None,
+        state_encoder_mlp_kwargs: LayersDict | None = None,
+        time_encoder_mlp_kwargs: LayersDict | None = None,
+        vf_decoder_mlp_kwargs: LayersDict | None = None,
         conditioning_id: ConditioningLayersId | None = None,
         conditioning_fn: TConditioningFn | None = None,
         conditioning_kwargs: dict[str, Any] | None = None,
@@ -96,6 +98,8 @@ class MLPUnconditionalVF(BaseVelocityField):
         condition_encoder_pooling_mode: Literal["mean", "sum"] = "mean",
         condition_encoder_pooling_kwargs: dict[str, Any] | None = None,
         condition_encoder_output_layers_kwargs: LayersDict | None = None,
+        source_encoder_mlp_kwargs: LayersDict | None = None,
+        source_encoder_output_dim: int | None = None,
     ) -> None:
         """Initializes the velocity field with the given settings.
 
@@ -205,6 +209,16 @@ class MLPUnconditionalVF(BaseVelocityField):
         :param condition_encoder_output_layers_kwargs: Dictionary containing the configurations for the output layer.
             Defaults to `None`.
         :type condition_encoder_output_layers_kwargs: class: `LayersDict | None`
+
+        :param source_encoder_mlp_kwargs: (Optional) Keyword arguments used to initialize
+            source state encoders when provided. This is needed to retain the information about the
+            source states when interpolating between noise and samples from the target distribution.
+            Defaults to `None`, in which case no source encoder will be initialized.
+        :type source_encoder_mlp_kwargs: class: `LayersDict`
+
+        :param source_encoder_output_dim: (Optional) Output dimensionality for the source state encoder.
+            Only used when encoding source states. Defaults to `None`.
+        :type source_encoder_output_dim: class: `int`
         """
         super().__init__()
         self._state_dim = state_dim
@@ -236,6 +250,10 @@ class MLPUnconditionalVF(BaseVelocityField):
         self._condition_encoder_pooling_mode = condition_encoder_pooling_mode
         self._condition_encoder_pooling_kwargs = condition_encoder_pooling_kwargs
         self._condition_encoder_output_layers_kwargs = condition_encoder_output_layers_kwargs
+        self._source_encoder_mlp_kwargs = source_encoder_mlp_kwargs
+        self._source_encoder_output_dim = (
+            DEFAULT_SOURCE_ENCODER_OUTPUT_DIM if source_encoder_output_dim is None else source_encoder_output_dim
+        )
 
         self._vf = self._make_vf()
 
@@ -249,6 +267,38 @@ class MLPUnconditionalVF(BaseVelocityField):
         are passed during initialization.
         """
         return (self._time_features_id is not None) or (self._time_features_fn is not None)
+
+    @property
+    def use_source_encoder(
+        self,
+    ) -> bool:
+        """Boolean flag indicating whether an MLP should be initialized to encode source states."""
+        return self._source_encoder_mlp_kwargs is not None
+
+    @property
+    def _source_encoder_input_dim(self) -> int:
+        """Returns the input dimensionality for the source encoder.
+
+        When not explicitly specified in :attr: `self._source_encoder_mlp_kwargs`, it will be
+        automatically retrieved from :attr: `self._state_dim`
+        """
+        input_dim = self._source_encoder_mlp_kwargs.get("input_dim", None)
+        if input_dim is None:
+            return self._state_dim
+        return input_dim
+
+    @property
+    def _conditioning_dim(
+        self,
+    ) -> int | None:
+        """Returns the dimensionality for the condition input of the conditioning layers."""
+        if self.is_conditional and self.use_source_encoder:
+            return self._condition_encoder_output_dim + self._source_encoder_output_dim
+        elif self.is_conditional and (not self.use_source_encoder):
+            return self._condition_encoder_output_dim
+        elif self.use_source_encoder:
+            return self._source_encoder_output_dim
+        return None
 
     def _get_num_time_features(
         self,
@@ -265,6 +315,44 @@ class MLPUnconditionalVF(BaseVelocityField):
             if self._num_time_features is None:
                 return DEFAULT_NUM_TIME_FEATURES
             return self._num_time_features
+
+    def _get_encoded_conditions(
+        self,
+        condition_dict: MappedTensor | None,
+    ) -> torch.Tensor | None:
+        """Retrieves the encoded conditions."""
+        if self.is_conditional:
+            if condition_dict is None:
+                msg = "Conditional VFs should take a condition as input, found `None`."
+                raise TypeError(msg)
+            return self._vf["condition_encoder"](condition_dict)
+        return None
+
+    def _get_encoded_source(
+        self,
+        source: torch.Tensor | None,
+    ) -> torch.Tensor | None:
+        """Retrieves the encoded source states."""
+        if self.use_source_encoder:
+            if source is None:
+                msg = "When using source encoder a source state should be passed, found `None`."
+                raise TypeError(msg)
+            return self._vf["source_encoder"](source)
+        return None
+
+    def _get_conditioning_input(
+        self, encoded_condition: torch.Tensor, encoded_source: torch.tensor
+    ) -> torch.Tensor | None:
+        """Retrieves the condition input for the conditioning layers."""
+        if encoded_condition is not None and encoded_source is not None:
+            return torch.concatenate(
+                (make_concatenation_possible(encoded_condition, encoded_source, -1), encoded_source), dim=-1
+            )
+        elif encoded_condition is None and encoded_source is not None:
+            return encoded_source
+        elif encoded_condition is not None and encoded_source is None:
+            return encoded_source
+        return None
 
     def _make_time_features(
         self,
@@ -322,7 +410,7 @@ class MLPUnconditionalVF(BaseVelocityField):
         return get_conditioning_layer(
             self._state_encoder_output_dim if self._encode_state else self._state_dim,
             self._time_encoder_output_dim if self._encode_time else self._get_num_time_features(),
-            latent_condition_dim=None,  # unconditional for the moment
+            latent_condition_dim=self._conditioning_dim,
             conditioning_id=self._conditioning_id,
             conditioning_fn=self._conditioning_fn,
             conditioning_kwargs=self._conditioning_kwargs,
@@ -360,6 +448,23 @@ class MLPUnconditionalVF(BaseVelocityField):
             output_dim=self._state_dim,
         )
 
+    def _make_source_encoder(
+        self,
+    ) -> BaseModule:
+        """Initializes the source state encoder when the required settings are passed."""
+        if not self.use_source_encoder:
+            msg = (
+                "To initialize the source encoder you have to pass"
+                "the `source_encoder_mlp_kwargs` argument, `None` found."
+            )
+            raise TypeError(msg)
+
+        return init_module_from_dict(
+            self._source_encoder_mlp_kwargs,
+            input_dim=self._source_encoder_input_dim,
+            output_dim=self._source_encoder_output_dim,
+        )
+
     def _make_vf(
         self,
     ) -> torch.nn.Module:
@@ -373,11 +478,13 @@ class MLPUnconditionalVF(BaseVelocityField):
             "state_encoder": self._make_state_encoder(),
             "conditioning_layer": self._make_conditioning_layer(),
         }
+        if self.is_conditional:
+            modules["condition_encoder"] = self._make_condition_encoder()
+        if self.use_source_encoder:
+            modules["source_encoder"] = self._make_source_encoder()
         modules["vf_decoder"] = self._make_vf_decoder(
             modules["conditioning_layer"].output_dim,
         )
-        if self.is_conditional:
-            modules["condition_encoder"] = self._make_condition_encoder()
         return torch.nn.ModuleDict(modules)
 
     def forward(
@@ -385,6 +492,7 @@ class MLPUnconditionalVF(BaseVelocityField):
         t: torch.Tensor,
         x: torch.Tensor,
         condition_dict: MappedTensor | None = None,
+        source: torch.Tensor | None = None,
     ) -> torch.Tensor:
         """Performs a forward computation pass on the neural velocity field.
 
@@ -403,25 +511,23 @@ class MLPUnconditionalVF(BaseVelocityField):
         encoded_t = self._vf["time_features"](t)
         encoded_t = self._vf["time_encoder"](encoded_t)
 
-        if self.is_conditional:
-            if condition_dict is None:
-                msg = "Conditional VFs should take a condition as input, found `None`."
-                raise TypeError(msg)
-            encoded_condition = self._vf["condition_encoder"](condition_dict)
-        else:
-            encoded_condition = None
+        encoded_condition = self._get_encoded_conditions(condition_dict)
+        encoded_source = self._get_encoded_source(source)
 
-        encoded_concat = self._vf["conditioning_layer"](encoded_t, encoded_xt, encoded_condition=encoded_condition)
+        encoded_concat = self._vf["conditioning_layer"](
+            encoded_t, encoded_xt, encoded_condition=self._get_conditioning_input(encoded_condition, encoded_source)
+        )
         return self._vf["vf_decoder"](encoded_concat)
 
     def get_vf_fn(
         self,
         condition_dict: MappedTensor | None = None,
+        source: torch.Tensor | None = None,
     ) -> TVfFn:
         """Compiles the velocity field function to be fed to external solvers."""
 
         def _vf_fn(t: torch.Tensor, x: torch.Tensor):
-            return self.forward(t, x, condition_dict=condition_dict)
+            return self.forward(t, x, condition_dict=condition_dict, source=source)
 
         return _vf_fn
 

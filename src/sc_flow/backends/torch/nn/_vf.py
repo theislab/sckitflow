@@ -1,5 +1,4 @@
 import abc
-from collections.abc import Sequence
 from typing import Any, Literal
 
 import torch
@@ -96,7 +95,6 @@ class MLPUnconditionalVF(BaseVelocityField):
         condition_encoder_output_dim: int | None = None,
         condition_encoder_pooling_mode: Literal["mean", "sum"] = "mean",
         condition_encoder_pooling_kwargs: dict[str, Any] | None = None,
-        condition_encoder_covariates_not_pooled: Sequence[str] | None = None,
         condition_encoder_output_layers_kwargs: LayersDict | None = None,
     ) -> None:
         """Initializes the velocity field with the given settings.
@@ -237,7 +235,6 @@ class MLPUnconditionalVF(BaseVelocityField):
         )
         self._condition_encoder_pooling_mode = condition_encoder_pooling_mode
         self._condition_encoder_pooling_kwargs = condition_encoder_pooling_kwargs
-        self._condition_encoder_covariates_not_pooled = condition_encoder_covariates_not_pooled
         self._condition_encoder_output_layers_kwargs = condition_encoder_output_layers_kwargs
 
         self._vf = self._make_vf()
@@ -346,7 +343,6 @@ class MLPUnconditionalVF(BaseVelocityField):
             self._condition_encoder_output_dim,
             pooling_mode=self._condition_encoder_pooling_mode,
             pooling_kwargs=self._condition_encoder_pooling_kwargs,
-            covariates_not_pooled=self._condition_encoder_covariates_not_pooled,
             output_layers_kwargs=self._condition_encoder_output_layers_kwargs,
         )
 

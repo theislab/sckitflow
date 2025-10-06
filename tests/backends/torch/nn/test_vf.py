@@ -19,7 +19,6 @@ time_encoder_output_dim = 4
 
 
 class TestVF:
-
     @pytest.mark.parametrize("encode_state", [True, False])
     @pytest.mark.parametrize("encode_time", [True, False])
     @pytest.mark.parametrize("time_features_id", ["ott-jax", "torch-cfm", None])
@@ -28,7 +27,9 @@ class TestVF:
     @pytest.mark.parametrize("time_features_kwargs", [None])
     @pytest.mark.parametrize("state_encoder_output_dim", [None, state_encoder_output_dim])
     @pytest.mark.parametrize("time_encoder_output_dim", [None, time_encoder_output_dim])
-    @pytest.mark.parametrize("state_encoder_mlp_kwargs", [
+    @pytest.mark.parametrize(
+        "state_encoder_mlp_kwargs",
+        [
             None,
             {
                 "use_batchnorm": True,
@@ -49,11 +50,13 @@ class TestVF:
                 "use_batchnorm": True,
                 "batchnorm_affine": False,
                 "batchnorm_track_running_stats": False,
-            }
-        ]
+            },
+        ],
     )
-    @pytest.mark.parametrize("time_encoder_mlp_kwargs", [
-        None,
+    @pytest.mark.parametrize(
+        "time_encoder_mlp_kwargs",
+        [
+            None,
             {
                 "use_batchnorm": True,
                 "batchnorm_affine": True,
@@ -73,11 +76,13 @@ class TestVF:
                 "use_batchnorm": True,
                 "batchnorm_affine": False,
                 "batchnorm_track_running_stats": False,
-            }
-        ]
+            },
+        ],
     )
-    @pytest.mark.parametrize("vf_decoder_mlp_kwargs", [
-        None,
+    @pytest.mark.parametrize(
+        "vf_decoder_mlp_kwargs",
+        [
+            None,
             {
                 "use_batchnorm": True,
                 "batchnorm_affine": True,
@@ -97,8 +102,8 @@ class TestVF:
                 "use_batchnorm": True,
                 "batchnorm_affine": False,
                 "batchnorm_track_running_stats": False,
-            }
-        ]
+            },
+        ],
     )
     @pytest.mark.parametrize("conditioning_id", [None, "concat", "resnet1d"])
     @pytest.mark.parametrize("conditioning_fn", [None])
@@ -110,7 +115,7 @@ class TestVF:
         time_features_id: TimeFeaturesId | None,
         time_features_fn: TTimeFeaturesFn | None,
         num_time_features: int | None,
-        time_features_kwargs: dict[str, Any] | None ,
+        time_features_kwargs: dict[str, Any] | None,
         state_encoder_output_dim: int | None,
         time_encoder_output_dim: int | None,
         state_encoder_mlp_kwargs: dict[str, Any] | None,
@@ -146,7 +151,7 @@ class TestVF:
 
         # case 1: x: (B, D) t: (B, )
         x = torch.zeros((batch_size, state_dim))
-        t = torch.zeros((batch_size, ))
+        t = torch.zeros((batch_size,))
         vt = vf(t, x)
         assert vt.shape == (batch_size, state_dim)
 
@@ -159,6 +164,6 @@ class TestVF:
 
         # case 2: x: (B, N, D) t: (B, )
         x = torch.zeros((batch_size, n_samples, state_dim))
-        t = torch.zeros((batch_size, ))
+        t = torch.zeros((batch_size,))
         vt = vf(t, x)
         assert vt.shape == (batch_size, n_samples, state_dim)

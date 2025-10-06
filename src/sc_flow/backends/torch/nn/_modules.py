@@ -44,10 +44,7 @@ class BaseModule(abc.ABC, torch.nn.Module):
 class FunctionalModule(BaseModule):
     """Class for wrapping :class: `torch.nn.Modules` around callables."""
 
-    def __init__(
-        self,
-        fn: Callable[[torch.Tensor], torch.Tensor]
-    ) -> None:
+    def __init__(self, fn: Callable[[torch.Tensor], torch.Tensor]) -> None:
         """"""
 
         super().__init__()
@@ -57,8 +54,8 @@ class FunctionalModule(BaseModule):
 
     def _make_modules(self):
         """"""
-        
-        return torch.nn.Identity() 
+
+        return torch.nn.Identity()
 
     def forward(self, x, *args, **kwargs):
         """"""
@@ -561,9 +558,7 @@ class Resnet1d(BaseModule):
                 ),
                 (
                     "skip_proj",
-                    torch.nn.Linear(input_dim, output_dim)
-                    if input_dim != output_dim
-                    else torch.nn.Identity(),
+                    torch.nn.Linear(input_dim, output_dim) if input_dim != output_dim else torch.nn.Identity(),
                 ),
             ]
         )
@@ -575,9 +570,11 @@ class Resnet1d(BaseModule):
         return torch.nn.Sequential(
             OrderedDict(
                 [
-                    (f"layer_{layer_id}", self._make_resnet_layer(self._input_dim, self._output_dim)) if layer_id == 0
-                        else (f"layer_{layer_id}", self._make_resnet_layer(self._output_dim, self._output_dim))
-                    for layer_id in range(self._num_resnet_layers)]
+                    (f"layer_{layer_id}", self._make_resnet_layer(self._input_dim, self._output_dim))
+                    if layer_id == 0
+                    else (f"layer_{layer_id}", self._make_resnet_layer(self._output_dim, self._output_dim))
+                    for layer_id in range(self._num_resnet_layers)
+                ]
             )
         )
 
@@ -609,7 +606,7 @@ class Resnet1d(BaseModule):
                 raise RuntimeError(msg)
             x = x_proj + h
         return x.reshape(*original_shape, -1)
-    
+
     @property
     def output_dim(
         self,

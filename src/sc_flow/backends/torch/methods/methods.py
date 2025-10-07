@@ -4,12 +4,16 @@ __all__ = ["FlowMatching", "OTFlowMatching", "GENOT"]
 
 
 class FlowMatching(basemethods.FlowMatching):
+    """TODO."""
+
     pass
 
 
 class OTFlowMatching(basemethods.OTFlowMatching):
-    pass
+    """TODO."""
 
 
 class GENOT(basemethods.GENOT):
+    """TODO."""
+
     pass

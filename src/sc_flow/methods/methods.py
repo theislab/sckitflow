@@ -10,6 +10,8 @@ __all__ = ["BaseMethod", "FlowMatching", "OTFlowMatching", "GENOT"]
 
 
 class BaseMethod(abc.ABC):
+    """TODO."""
+
     @abc.abstractmethod
     def __init__(self, *args, ema: int = 1, **kwargs):
         self.ema = ema
@@ -17,10 +19,12 @@ class BaseMethod(abc.ABC):
 
     @abc.abstractmethod
     def __call__(self, num_iterations: int, *args: Any, **kwargs: Any) -> Any:
+        """TODO."""
         pass
 
     @abc.abstractmethod
     def step_fn(self, *args: Any, **kwargs: Any) -> Any:
+        """TODO."""
         pass
 
     @property
@@ -35,6 +39,8 @@ class BaseMethod(abc.ABC):
 
 
 class FlowMatching(BaseMethod):
+    """TODO."""
+
     def __init__(
         self,
         vf: Any,  # TODO: adapt once rebased
@@ -49,15 +55,20 @@ class FlowMatching(BaseMethod):
 
 
 class OTFlowMatching(FlowMatching):
+    """TODO."""
+
     @abc.abstractmethod
     def match_data(self, src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-        """"""
+        """TODO."""
         pass
 
 
 class GENOT(BaseMethod):
+    """TODO."""
+
     def __init__(self, *args, **kwargs):
         pass
 
     def match_data(self, src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        """TODO."""
         pass

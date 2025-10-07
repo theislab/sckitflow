@@ -45,21 +45,18 @@ class FunctionalModule(BaseModule):
     """Class for wrapping :class: `torch.nn.Modules` around callables."""
 
     def __init__(self, fn: Callable[[torch.Tensor], torch.Tensor]) -> None:
-        """"""
-
+        """TODO."""
         super().__init__()
         self.fn = fn
 
         self._identity = self._make_modules()
 
     def _make_modules(self):
-        """"""
-
+        """TODO."""
         return torch.nn.Identity()
 
     def forward(self, x, *args, **kwargs):
-        """"""
-
+        """TODO."""
         out = self.fn(x, *args, **kwargs)
         return self._identity(out)
 
@@ -611,6 +608,5 @@ class Resnet1d(BaseModule):
     def output_dim(
         self,
     ) -> int:
-        """"""
-
+        """TODO."""
         return self._output_dim

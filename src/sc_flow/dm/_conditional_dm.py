@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Sequence
 from typing import NewType
 
@@ -81,8 +82,26 @@ class ConditionalDataManager(UnconditionalDataManager):
         self._coupling_reps = {} if coupling_reps is None else coupling_reps
         self._conditions = conditions
         self._conditions_reps = conditions_reps
-        self._conditions_continuous_covariates = conditions_covariates
+        self._conditions_covariates = conditions_covariates
         self._split_covariates = split_covariates
+
+    @property
+    def _all_condition_categories(
+        self,
+    ) -> Sequence[str]:
+        """"""  # noqa
+        return tuple(cat for condition in self._conditions.values() for cat in condition)
+
+    @property
+    def _condition_category_to_realm(
+        self,
+    ) -> dict[str, str]:
+        """"""  # noqa
+        cat2realm = {}
+        for condition, condition_cats in self._conditions.items():
+            for cat in condition_cats:
+                cat2realm[cat] = condition
+        return cat2realm
 
     def _validate_coupling_reps(
         self,
@@ -94,7 +113,7 @@ class ConditionalDataManager(UnconditionalDataManager):
         :type adata: class: `AnnData`
         """
         for term_rep in self._coupling_reps.values():
-            self._check_key_found(adata, term_rep, "obsm")
+            self._check_key_found_in_adata_field(adata, term_rep, "obsm")
 
     def _validate_conditions(
         self,
@@ -107,7 +126,7 @@ class ConditionalDataManager(UnconditionalDataManager):
         """
         for conditions in self._conditions.values():
             for condition in conditions:
-                self._check_key_found(adata, condition, "obs")
+                self._check_key_found_in_adata_field(adata, condition, "obs")
 
     def _validate_conditions_reps(
         self,
@@ -118,8 +137,11 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        for condition_rep in self._conditions.values():
-            self._check_key_found(adata, condition_rep, "uns")
+        for condition_id, condition_rep in self._conditions.values():
+            if condition_id not in self._conditions:
+                msg = f"Condition {condition_id} not found."
+                raise ValueError(msg)
+            self._check_key_found_in_adata_field(adata, condition_rep, "uns")
 
     def _validate_conditions_covariates(
         self,
@@ -130,9 +152,12 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        for covariates in self._conditions_continuous_covariates.values():
+        for condition_cat, covariates in self._conditions_continuous_covariates.values():
+            if condition_cat not in self._all_condition_categories:
+                msg = f"Condition category {condition_cat} not found."
+                raise KeyError(msg)
             for covariate in covariates:
-                self._check_key_found(adata, covariate, "obsm")
+                self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
     def _validate_split_covariates(
         self,
@@ -146,7 +171,7 @@ class ConditionalDataManager(UnconditionalDataManager):
         if self._split_covariates is not None and self.has_controls:
             # sanity check
             for covariate in self._split_covariates:
-                self._check_key_found(adata, covariate, "obs")
+                self._check_key_found_in_adata_field(adata, covariate, "obs")
 
             # retrieving unique source split values
             source_splits = adata[adata.obs[self._control_key]].obs[self._split_covariates].drop_duplicates()
@@ -159,17 +184,30 @@ class ConditionalDataManager(UnconditionalDataManager):
             # check that all source populations have corresponding target
             n_unmatched_source_splits = set(source_splits) - set(target_splits)
             if n_unmatched_source_splits > 0:
-                msg = ""
+                msg = f"There are {n_unmatched_source_splits} source "
                 raise ValueError(msg)
 
-    def _get_condition_reps(
+    def _get_conditions_reps(
         self,
         adata: AnnData,
     ) -> MappedArray:
         """"""  # noqa
-        # data = {}
-        # for condition_id, conditions in self._conditions.items():
-        #     ...
+        return {condition_id: adata.uns[condition_rep] for condition_id, condition_rep in self._conditions_reps.items()}
+
+    def _get_conditions_covariates(
+        self,
+        adata: AnnData,
+    ) -> MappedArray:
+        """"""  # noqa
+        data_dict = defaultdict(list)
+        for condition_cat, condition_covariates in self._conditions_covariates.items():
+            realm = self._condition_category_to_realm[condition_cat]
+            current_cat_covariate_data = np.concatenate(
+                [adata.obsm[covariate] for covariate in condition_covariates], axis=-1
+            )
+            data_dict[realm].append(current_cat_covariate_data)
+        data_dict = {realm: np.stack(cat_covariates, axis=-2) for realm, cat_covariates in data_dict.items()}
+        return data_dict
 
     def get_coupling_data(
         self,
@@ -180,6 +218,15 @@ class ConditionalDataManager(UnconditionalDataManager):
             return None
         self._validate_coupling_reps(adata)
         return CouplingData({k: adata.obsm[v] for k, v in self._coupling_reps})
+
+    def get_condition_data(
+        self,
+        adata: AnnData,
+    ) -> None:
+        """"""  # noqa
+        # reps_dict = self._get_conditions_reps(adata)
+        # covs_dict = self._get_conditions_covariates(adata)
+        raise NotImplementedError
 
     @property
     def has_controls(

@@ -58,7 +58,7 @@ class UnconditionalDataManager:
         self._categorical_target_encoders: dict[str, LabelEncoder | OneHotEncoder] = {}
 
     @staticmethod
-    def _check_key_found(
+    def _check_key_found_in_adata_field(
         adata: AnnData,
         identifier: str,
         adata_field_key: Literal["obs", "uns", "obsm"],
@@ -138,7 +138,7 @@ class UnconditionalDataManager:
         """
         # when we provide the sample rep key it should appear in `self.adata.obsm`
         if self._sample_rep is not None:
-            self._check_key_found(adata, self._sample_rep, "obsm")
+            self._check_key_found_in_adata_field(adata, self._sample_rep, "obsm")
 
     def _validate_categorical_target_covariates(
         self,
@@ -152,7 +152,7 @@ class UnconditionalDataManager:
         if self._categorical_target_covariates is None:
             return None
         for target_covariate, encoder_id in self._categorical_target_covariates.items():
-            self._check_key_found(adata, target_covariate, "obs")
+            self._check_key_found_in_adata_field(adata, target_covariate, "obs")
             if encoder_id not in ["label", "one-hot"]:
                 msg = (
                     f"Encoder identifier {encoder_id} for target covariate encoding is not supported."
@@ -172,7 +172,7 @@ class UnconditionalDataManager:
         if self._continuous_target_covariates is None:
             return None
         for target_covariate in self._continuous_target_covariates:
-            self._check_key_found(adata, target_covariate, "obs")
+            self._check_key_found_in_adata_field(adata, target_covariate, "obs")
 
     def _get_categorical_target_data(
         self,

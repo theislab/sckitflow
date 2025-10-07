@@ -37,6 +37,11 @@ class BaseMethod(abc.ABC):
         """TODO."""
         pass
 
+    @abc.abstractmethod
+    def predict(self, *args: Any, **kwargs: Any) -> Any:
+        """TODO."""
+        pass
+
     @property
     def is_trained(self) -> bool:
         """Whether the model is trained."""

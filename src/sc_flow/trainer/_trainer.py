@@ -140,10 +140,10 @@ class FlowTrainer:
 
     def fit(
             self,
-            batch: dict, #train_dataloader: DataLoader=None,
+            train_dataloader: DataLoader,
             num_iterations: int,
             valid_freq: int,
-            validation_dataloader: DataLoader,
+            validation_dataloader: DataLoader | None = None,
             prng:  PRNG | None = None, #noqa
     ) -> None:
         """
@@ -201,11 +201,8 @@ class FlowTrainer:
                 prng, prng_step_fn = random.split(prng, 2)
             else:
                 prng_step_fn = prng
-            #batch = train_dataloader.sample(prng_data)
+            batch = train_dataloader.sample(prng_data)
             loss = self._train_step(batch, prng_step_fn)
-            self._training_logs["loss"].append(
-                loss
-            )
             
             self.__update_logs({"loss": loss})
 

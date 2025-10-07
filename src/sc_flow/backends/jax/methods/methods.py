@@ -21,11 +21,7 @@ GENOTDataMatchFn = Callable[[LinTerm], jnp.ndarray] | Callable[[QuadTerm], jnp.n
 
 class FlowMatching(basemethods.OTFlowMatching):
     """TODO."""
-
-    def __init__(self, match_fn: Callable[[jnp.ndarray, jnp.ndarray], jnp.ndarray] | None = None, **kwargs):
-        super().__init__(**kwargs)
-        self.match_fn = match_fn
-
+        
     def step_fn(
         self,
         rng: jnp.ndarray,

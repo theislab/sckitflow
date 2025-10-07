@@ -4,7 +4,7 @@ from typing import Any
 
 import numpy as np
 
-from sc_flow._types import ProbabilityPathId
+from sc_flow import _types
 
 __all__ = ["BaseMethod", "FlowMatching", "OTFlowMatching", "GENOT"]
 
@@ -12,10 +12,20 @@ __all__ = ["BaseMethod", "FlowMatching", "OTFlowMatching", "GENOT"]
 class BaseMethod(abc.ABC):
     """TODO."""
 
-    @abc.abstractmethod
-    def __init__(self, *args, ema: int = 1, **kwargs):
+    def __init__(
+        self,
+        vf: Any,  # TODO: adapt type
+        probability_path: _types.ProbabilityPathId,
+        time_sampler: Callable[[np.ndarray, int], np.ndarray],
+        ema: int = 1,
+    ):
+        self.vf = vf
+        self.probability_path = probability_path
+        self.time_sampler = time_sampler
         self.ema = ema
         # TODO: add cfg
+
+        self._is_trained = False
 
     @abc.abstractmethod
     def __call__(self, num_iterations: int, *args: Any, **kwargs: Any) -> Any:
@@ -38,24 +48,18 @@ class BaseMethod(abc.ABC):
         self._is_trained = value
 
 
-class FlowMatching(BaseMethod):
+class FlowMatching(BaseMethod, abc.ABC):
     """TODO."""
 
-    def __init__(
-        self,
-        vf: Any,  # TODO: adapt once rebased
-        probability_path: ProbabilityPathId,
-        time_sampler: Callable[[np.ndarray, int], np.ndarray],
-        ema: int,
-    ):
-        super().__init__(ema=ema)
-        self.vf = vf
-        self.probability_path = probability_path
-        self.time_sampler = time_sampler
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
 
 
-class OTFlowMatching(FlowMatching):
+class OTFlowMatching(FlowMatching, abc.ABC):
     """TODO."""
+
+    def __init__(self, *args: Any, **kwargs: Any):
+        super().__init__(*args, **kwargs)
 
     @abc.abstractmethod
     def match_data(self, src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -63,12 +67,13 @@ class OTFlowMatching(FlowMatching):
         pass
 
 
-class GENOT(BaseMethod):
+class GENOT(BaseMethod, abc.ABC):
     """TODO."""
 
     def __init__(self, *args, **kwargs):
         pass
 
+    @abc.abstractmethod
     def match_data(self, src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """TODO."""
         pass

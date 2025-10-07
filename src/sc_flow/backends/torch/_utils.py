@@ -74,10 +74,10 @@ def make_concatenation_possible(
     target_tensor: torch.Tensor,
     concat_dims: int = -1,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """"""  # noqa
+    """TODO."""  # noqa
 
-    dims_to_match = [d for d in target_tensor.shape[:concat_dims]]
-    dims_to_retain = [d for d in input_tensor.shape[concat_dims:]]
+    dims_to_match = list(target_tensor.shape[:concat_dims])
+    dims_to_retain = list(input_tensor.shape[concat_dims:])
     for idx in range(len(dims_to_match)):
         if idx + 1 > input_tensor.ndim - len(dims_to_retain):
             input_tensor = input_tensor.unsqueeze(idx)

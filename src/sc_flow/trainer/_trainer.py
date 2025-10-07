@@ -7,28 +7,29 @@ import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from tqdm import tqdm
+
 from sc_flow._runtime import (
+    raise_runtime_error_on_backend_not_supported,
     set_jax_import_failed,
     set_torch_import_failed,
-    raise_runtime_error_on_backend_not_supported,
-    BACKEND
 )
 
 try:
     from torch import Generator, Tensor
-    PRNG = NewType('PRNG', Generator) 
+
+    PRNG = NewType("PRNG", Generator)
 except (ImportError, ModuleNotFoundError):
-    set_torch_import_failed(True) 
+    set_torch_import_failed(True)
     Tensor = None
 
 try:
     from jax import Array
-    PRNG = NewType('PRNG', Array) 
+
+    PRNG = NewType("PRNG", Array)
 except (ImportError, ModuleNotFoundError):
     set_jax_import_failed(True)
     Array = None
 
-from sc_flow._runtime import TORCH_IMPORT_FAILED, JAX_IMPORT_FAILED
 
 MethodClass = NewType("MethodClass", None)
 Callbacks = NewType("Callbacks", None)
@@ -38,13 +39,12 @@ logger = logging.getLogger(__name__)
 
 
 class FlowTrainer:
-    """
-    Abstract trainer for the supported methods.
+    """Abstract trainer for the supported methods.
 
-    :param method: Method class 
+    :param method: Method class
     :type method: class:
 
-    :param callbacks: Callbacks class 
+    :param callbacks: Callbacks class
     :type callbacks: class:
 
     :param _require_prng: Whether a Pseudo-Random Numbers Generator is required for the probability path.
@@ -52,83 +52,81 @@ class FlowTrainer:
         :class: `torch.Generator`, when provided. For non-deterministic probability paths a warning is displayed and it is set to the
         output of :constant: `torch.random.default_generator`.
     :type _require_prng: class: `bool`
-
     """
-    
-    def __init__(self,
-                 method: MethodClass,
-                 require_prng: bool,
-                 callbacks: Callbacks | None = None,
-                 ) -> None:
-        
+
+    def __init__(
+        self,
+        method: MethodClass,
+        require_prng: bool,
+        callbacks: Callbacks | None = None,
+    ) -> None:
         self._method = method
         self._require_prng = require_prng
         self._callbacks = callbacks
         self._training_logs = {"loss": []}
 
-    def __validation_step(
+    def _validation_step_on_single_condition(
         self,
-        validation_batch: dict[str, Tensor | Array] #noqa
-
+        validation_batch: dict[str, Tensor | Array],
     ) -> dict:
-        """
-        :param validation_batch: Validation batch containing one condition on which to perform a validation step
-        :type validation_batch: 
+        """Run validation on a single condition
 
-        Returns:
+        :param validation_batch: Validation batch containing one condition on which to perform a validation step
+        :type validation_batch:
+
+        Returns
+        -------
             dict: The dictionary of matched predictions and targets to compute validation on
         """
-        self._method.eval()
         prediction = self._method.validation_step(validation_batch)
         target = validation_batch["target"]
-        return {"target": target,
-                "prediction": prediction}
+        return {"target": target, "prediction": prediction}
 
     def _validation_step(
         self,
-        validation_data: dict[str, dict]
+        validation_data: dict[str, dict],
     ) -> dict:
-        """
-        :param validation_data: Validation dat with all the conditions on which to perform a validation
-        :type validation_data: 
+        """Run validation on all conditions
 
-        Returns:
+        :param validation_data: Validation dat with all the conditions on which to perform a validation
+        :type validation_data:
+
+        Returns
+        -------
             dict: The dictionary of metrics computed on the all validation conditions
         """
-        self._method.eval()
         metrics = {}
         for condition, validation_batch in validation_data.items():
-            validation_dict = self.__validation_step(validation_batch=validation_batch)
+            validation_dict = self._validation_step_on_single_condition(validation_batch=validation_batch)
             metrics.update(self._callbacks.run_on_valid_step(validation_dict, condition=condition))
         return metrics
-    
+
     def _train_step(
         self,
-        batch: dict[str, Tensor | Array], #noqa
-        prng_step_fn: PRNG | None = None, #noqa
+        batch: dict[str, Tensor | Array],
+        prng_step_fn: PRNG | None = None,
     ) -> float:
-        """
-        Method that performs a training step 
+        """Method that performs a training step
 
-        :param batch: 
-        :type batch: 
+        :param batch:
+        :type batch:
 
-        :param prng_step_fn: 
-        :type prng_step_fn: 
+        :param prng_step_fn:
+        :type prng_step_fn:
 
-        Returns:
+        Returns
+        -------
             float: The value of the loss computed on a batch
         """
         self._method.train()
         loss = self._method.train_step(batch, prng_step_fn)
         return loss
-        
-    def __update_logs(
+
+    def _update_logs(
         self,
         metrics: dict[str, float],
     ) -> None:
-        """
-        Update training logs.
+        """Update training logs.
 
         :param metrics: Dictionary of metrics values to log
         :type metrics:
@@ -139,15 +137,14 @@ class FlowTrainer:
             self._training_logs[metric_id].append(metric_val)
 
     def fit(
-            self,
-            train_dataloader: DataLoader,
-            num_iterations: int,
-            valid_freq: int,
-            validation_dataloader: DataLoader | None = None,
-            prng:  PRNG | None = None, #noqa
+        self,
+        train_dataloader: DataLoader,
+        num_iterations: int,
+        valid_freq: int,
+        validation_dataloader: DataLoader | None = None,
+        prng: PRNG | None = None,
     ) -> None:
-        """
-        Trains the model.
+        """Trains the model.
 
         :param train_dataloader: The train dataloader prepared by `model.prepare_train_data()`.
         :type train_batchtrain_dataloader_size: class:`DataLoader`
@@ -155,46 +152,51 @@ class FlowTrainer:
         :param num_iterations: The number of steps which to train the model on.
         :type num_iterations: class:`int`
 
-        :param valid_freq: The number of gradient steps after which to perform a validation step, 
+        :param valid_freq: The number of gradient steps after which to perform a validation step,
             in case the validation data was prepared with `model.prerare_validation_data()`.
         :type valid_freq: class:`int | None`
 
         :param validation_dataloader: The validation dataloader prepared by `model.prepare_validation_data()`.
         :type validation_dataloader: class:`DataLoader`
         """
-
         from sc_flow._runtime import BACKEND
+
         if BACKEND == "torch":
             from torch import random
-        elif BACKEND == "jax":   
+        elif BACKEND == "jax":
             from jax import random
         else:
             random = None
             raise_runtime_error_on_backend_not_supported(BACKEND)
-        
+
         # sanity check when we require the prng
         if self._require_prng and (BACKEND == "torch") and (not isinstance(prng, PRNG)):
             msg = (
-                f"The probability path  {self.__class__.__name__} requires a PRNG. Please provide an instance of `Generator`"
+                f"The trainer {self.__class__.__name__} requires a PRNG. Please provide an instance of `Generator`"
                 r"for reproducible results. Setting it to \`torch.random.default_generator\` by default."
             )
             logger.warning(msg)
-            prng = random.default_generator #noqa
+            prng = random.default_generator
         elif self._require_prng and (BACKEND == "jax") and (not isinstance(prng, PRNG)):
             msg = (
-                f"The probability path  {self.__class__.__name__} requires a PRNG. Please provide an instance of `Generator`"
+                f"The trainer {self.__class__.__name__} requires a PRNG. Please provide an instance of `jax.Array`"
                 r"for reproducible results. Setting it to \`torch.random.default_generator\` by default."
             )
             logger.warning(msg)
-            prng = random.PRNGKey(0) #noqa
+            prng = random.PRNGKey(0)
         elif (not self._require_prng) and (prng is not None):
             msg = f"PRNG provided to {self.__class__.__name__}, which is deterministic. Setting it to `None`."
             logger.warning(msg)
             prng = None
-        
 
         pbar = tqdm(range(num_iterations))
         prng_data = np.random.default_rng(0)
+
+        do_validation = True
+        if validation_dataloader is None:
+            msg = "Validation step requires validation data. Please prepare validation data with `model.prepare_validation_data()` method."
+            logger.warning(msg)
+            do_validation = False
 
         for i in pbar:
             if BACKEND == "jax":
@@ -203,31 +205,21 @@ class FlowTrainer:
                 prng_step_fn = prng
             batch = train_dataloader.sample(prng_data)
             loss = self._train_step(batch, prng_step_fn)
-            
-            self.__update_logs({"loss": loss})
 
-            if validation_dataloader is None:
-                msg = (
-                    f"Validation step requires validation data. Please prepare validation data with `model.prepare_validation_data()` method."
-                )
-                logger.warning(msg)
-                continue
+            self._update_logs({"loss": loss})
 
-            if (i + 1) % valid_freq == 0 and i > 0:
+            if ((i + 1) % valid_freq == 0) and (i > 0) and do_validation:
                 validation_batch = validation_dataloader.sample(prng_data)
                 metrics = self._validation_step(validation_batch)
-                self.__update_logs(metrics)
-        
-
+                self._update_logs(metrics)
 
     def plot_training_logs(
-            self,
+        self,
         figsize: Sequence[int] = (3, 3),
         keys_to_plot: str | Sequence[str] = "loss",
         show: bool = False,
     ) -> tuple[Figure, Axes]:
-        """
-        Method that plots the training logs.
+        """Method that plots the training logs.
 
         :param figsize: The output figure size.
         :type figsize: class:`Sequence[int]`
@@ -240,10 +232,10 @@ class FlowTrainer:
         """
         # handling keys to plot
         if isinstance(keys_to_plot, str):
-            keys_to_plot = (keys_to_plot, )
+            keys_to_plot = (keys_to_plot,)
         # sanity checks
         for key in keys_to_plot:
-            msg = f""
+            msg = ""
             assert key in self._training_logs.keys(), msg
         # retrieving the logs we want to plot
         logs_to_plot = {log_id: log_data for log_id, log_data in self._training_logs.items() if log_id in keys_to_plot}

@@ -10,6 +10,7 @@ __all__ = [
     "verify_fn_signature",
 ]
 
+
 def check_type_against_generic(
     input_type: type,
     target_type: type,
@@ -29,6 +30,7 @@ def check_type_against_generic(
     if origin:
         return input_type is origin
     return input_type is target_type
+
 
 def get_fn_args_names_and_types(
     fn: Callable,

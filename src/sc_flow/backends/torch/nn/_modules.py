@@ -44,25 +44,19 @@ class BaseModule(abc.ABC, torch.nn.Module):
 class FunctionalModule(BaseModule):
     """Class for wrapping :class: `torch.nn.Modules` around callables."""
 
-    def __init__(
-        self,
-        fn: Callable[[torch.Tensor], torch.Tensor]
-    ) -> None:
-        """"""
-
+    def __init__(self, fn: Callable[[torch.Tensor], torch.Tensor]) -> None:
+        """TODO."""
         super().__init__()
         self.fn = fn
 
         self._identity = self._make_modules()
 
     def _make_modules(self):
-        """"""
-        
-        return torch.nn.Identity() 
+        """TODO."""
+        return torch.nn.Identity()
 
     def forward(self, x, *args, **kwargs):
-        """"""
-
+        """TODO."""
         out = self.fn(x, *args, **kwargs)
         return self._identity(out)
 
@@ -561,9 +555,7 @@ class Resnet1d(BaseModule):
                 ),
                 (
                     "skip_proj",
-                    torch.nn.Linear(input_dim, output_dim)
-                    if input_dim != output_dim
-                    else torch.nn.Identity(),
+                    torch.nn.Linear(input_dim, output_dim) if input_dim != output_dim else torch.nn.Identity(),
                 ),
             ]
         )
@@ -575,9 +567,11 @@ class Resnet1d(BaseModule):
         return torch.nn.Sequential(
             OrderedDict(
                 [
-                    (f"layer_{layer_id}", self._make_resnet_layer(self._input_dim, self._output_dim)) if layer_id == 0
-                        else (f"layer_{layer_id}", self._make_resnet_layer(self._output_dim, self._output_dim))
-                    for layer_id in range(self._num_resnet_layers)]
+                    (f"layer_{layer_id}", self._make_resnet_layer(self._input_dim, self._output_dim))
+                    if layer_id == 0
+                    else (f"layer_{layer_id}", self._make_resnet_layer(self._output_dim, self._output_dim))
+                    for layer_id in range(self._num_resnet_layers)
+                ]
             )
         )
 
@@ -609,11 +603,10 @@ class Resnet1d(BaseModule):
                 raise RuntimeError(msg)
             x = x_proj + h
         return x.reshape(*original_shape, -1)
-    
+
     @property
     def output_dim(
         self,
     ) -> int:
-        """"""
-
+        """TODO."""
         return self._output_dim

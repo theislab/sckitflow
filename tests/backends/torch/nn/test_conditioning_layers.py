@@ -4,11 +4,7 @@ import torch
 from sc_flow.backends.torch.nn._conditioning_layers import (
     ConcatConditioning,
     Resnet1dConditioning,
-    make_custom_conditioning_layer,
-    get_conditioning_layer,
 )
-
-
 
 # defining variables
 batch_size = 8
@@ -19,14 +15,8 @@ num_cond_feats = 8
 
 
 class TestConditioningLayers:
-
-
     @pytest.mark.parametrize("concat_condition", [True, False])
-    def test_concat_conditioning(
-        self,
-        concat_condition: bool
-    ) -> None:
-        
+    def test_concat_conditioning(self, concat_condition: bool) -> None:
         if concat_condition:
             conditioning = ConcatConditioning(
                 num_feats,
@@ -40,8 +30,8 @@ class TestConditioningLayers:
             )
 
         # case 0
-        t = torch.zeros((num_time_feats, ))
-        cond = torch.zeros((num_cond_feats, ))
+        t = torch.zeros((num_time_feats,))
+        cond = torch.zeros((num_cond_feats,))
         x = torch.zeros((batch_size, num_feats))
         if concat_condition:
             out = conditioning(t, x, cond)
@@ -79,8 +69,8 @@ class TestConditioningLayers:
             assert out.shape[-1] == conditioning.output_dim
 
         # case 3
-        t = torch.zeros((num_time_feats, ))
-        cond = torch.zeros((num_cond_feats, ))
+        t = torch.zeros((num_time_feats,))
+        cond = torch.zeros((num_cond_feats,))
         x = torch.zeros((batch_size, num_samples, num_feats))
         if concat_condition:
             out = conditioning(t, x, cond)
@@ -131,10 +121,7 @@ class TestConditioningLayers:
             assert out.shape[-1] == conditioning.output_dim
 
     @pytest.mark.parametrize("concat_condition", [True, False])
-    def test_resnet1d_conditioning(
-        self,
-        concat_condition: bool
-    ) -> None:
+    def test_resnet1d_conditioning(self, concat_condition: bool) -> None:
         # initializing conditioning layers
         if concat_condition:
             conditioning = Resnet1dConditioning(
@@ -149,8 +136,8 @@ class TestConditioningLayers:
             )
 
         # case 0
-        t = torch.zeros((num_time_feats, ))
-        cond = torch.zeros((num_cond_feats, ))
+        t = torch.zeros((num_time_feats,))
+        cond = torch.zeros((num_cond_feats,))
         x = torch.zeros((batch_size, num_feats))
         if concat_condition:
             out = conditioning(t, x, cond)
@@ -188,8 +175,8 @@ class TestConditioningLayers:
             assert out.shape[-1] == conditioning.output_dim
 
         # case 3
-        t = torch.zeros((num_time_feats, ))
-        cond = torch.zeros((num_cond_feats, ))
+        t = torch.zeros((num_time_feats,))
+        cond = torch.zeros((num_cond_feats,))
         x = torch.zeros((batch_size, num_samples, num_feats))
         if concat_condition:
             out = conditioning(t, x, cond)
@@ -241,12 +228,8 @@ class TestConditioningLayers:
 
     def test_make_custom_conditioning_layer(
         self,
-    ) -> None:
-        
-        ...
+    ) -> None: ...
 
     def test_get_conditioning_layer(
         self,
-    ) -> None:
-
-        ...
+    ) -> None: ...

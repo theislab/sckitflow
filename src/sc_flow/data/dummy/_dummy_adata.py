@@ -20,12 +20,14 @@ paired_condition_n_feats = 100
 drug_rep_n_feats = 512
 ko_rep_n_feats = 512
 n_feats_obsm_repr = 200
+continuous_target_dim = 10
 
 
 uns_keys = ["drug", "ko"]
 control_key = "is_control"
 is_control_val = "control"
 repr_obsm_key = "X_repr"
+continuous_target_obsm_key = "target_variable"
 
 obs_columns_to_nunique_and_prefix = {
     "drugA": (nunique_drugs, "drug"),
@@ -56,6 +58,7 @@ obsm_keys_to_dim = {
     "koB_dose": 1,
     "paired_condition": paired_condition_n_feats,
     repr_obsm_key: n_feats_obsm_repr,
+    continuous_target_obsm_key: continuous_target_dim,
 }
 
 uns_keys_to_nunique_prefix_and_dim = {

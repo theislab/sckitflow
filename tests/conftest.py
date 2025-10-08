@@ -1,7 +1,6 @@
 import anndata as ad
 import numpy as np
 import pytest
-import torch
 
 from .utils import get_dummy_network
 
@@ -38,31 +37,76 @@ def dummy_callbacks():
 
 
 @pytest.fixture
-def dummy_trainloader():
-    class DummyTrainLoader:
+def dummy_trainloader_torch():
+    class DummyTrainLoaderTorch:
         def __init__(self):
             self.sample_calls = 0
 
         def sample(self, _):
-            self.sample_calls += 1
-            return {"source": torch.rand((batch_size, output_dim)), "target": torch.rand((batch_size, output_dim))}
+            from torch import rand
 
-    return DummyTrainLoader()
+            self.sample_calls += 1
+            return {"source": rand((batch_size, output_dim)), "target": rand((batch_size, output_dim))}
+
+    return DummyTrainLoaderTorch()
 
 
 @pytest.fixture
-def dummy_valloader():
-    class DummyValLoader:
+def dummy_trainloader_jax():
+    class DummyTrainLoaderJax:
+        def __init__(self):
+            self.sample_calls = 0
+
+        def sample(self, prng, _):
+            from jax import random
+
+            _, prng_step_fn_source, prng_step_fn_target = random.split(prng, 3)
+            self.sample_calls += 1
+            return {
+                "source": random.normal(prng_step_fn_source, (batch_size, output_dim)),
+                "target": random.normal(prng_step_fn_target, (batch_size, output_dim)),
+            }
+
+    return DummyTrainLoaderJax()
+
+
+@pytest.fixture
+def dummy_valloader_torch():
+    class DummyValLoaderTorch:
         def __init__(self):
             self.sample_calls = 0
 
         def sample(self, _):
+            from torch import rand
+
             self.sample_calls += 1
             return {
                 "condA": {
-                    "source": torch.rand((batch_size, output_dim)),
-                    "target": torch.rand((batch_size, output_dim)),
+                    "source": rand((batch_size, output_dim)),
+                    "target": rand((batch_size, output_dim)),
                 }
             }
 
-    return DummyValLoader()
+    return DummyValLoaderTorch()
+
+
+@pytest.fixture
+def dummy_valloader_jax():
+    class DummyValLoaderJax:
+        def __init__(self):
+            self.sample_calls = 0
+
+        def sample(self, prng, _):
+            from jax import random
+
+            _, prng_step_fn_source, prng_step_fn_target = random.split(prng, 3)
+
+            self.sample_calls += 1
+            return {
+                "condA": {
+                    "source": random.normal(prng_step_fn_source, (batch_size, output_dim)),
+                    "target": random.normal(prng_step_fn_target, (batch_size, output_dim)),
+                }
+            }
+
+    return DummyValLoaderJax()

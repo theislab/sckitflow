@@ -1,18 +1,17 @@
 from sc_flow._runtime import (
-    BACKEND,
     raise_runtime_error_on_backend_failed_import,
     raise_runtime_error_on_backend_not_supported,
+    set_backend,
     set_jax_import_failed,
     set_torch_import_failed,
 )
 
 
-def get_dummy_network(
-    input_dim,
-    output_dim,
-    hidden_dims=(None,),
-    sigma=0.5,
-):
+def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5, backend="torch"):
+    set_backend(backend)
+    from sc_flow._runtime import BACKEND
+
+    print(BACKEND)
     if BACKEND == "torch":
         try:
             from sc_flow.backends.torch.nn._modules import MLP
@@ -62,7 +61,7 @@ def get_dummy_network(
                 pass
 
         network = MLP(input_dim=input_dim, output_dim=output_dim, hidden_dims=hidden_dims)
-        network._make_modules()
+        # network._make_modules()
         prob_path = LinearGaussianProbabilityPath(
             sigma=sigma,
         )
@@ -85,6 +84,7 @@ def get_dummy_network(
                 network,
                 prob_path,
                 time_sampler,
+                input_dim,
                 prng,
             ) -> None:
                 super().__init__()
@@ -93,17 +93,19 @@ def get_dummy_network(
                 self.time_sampler = time_sampler
                 self.train_called = False
                 self.eval_called = 0
-                self.prng = prng
+                self._prng = prng
 
             def train_step(self, batch, prng_step_fn=None) -> Array:
-                _, prng_step_fn = random.split(self.prng, 2)
+                _, prng_step_fn = random.split(self._prng, 2)
 
                 target = batch["target"]
                 source = batch["source"]
                 batch_size = target.shape[0]
                 t = self.time_sampler(prng_step_fn, (batch_size, 1))
-                xt = self.prob_path.compute_xt(t, source, target)
-                vt = self.network(xt)
+                xt = self.prob_path.compute_xt(t, source, target, prng=prng_step_fn)
+                params = self.network.init(prng_step_fn, jnp.zeros((batch_size, self.network.input_dim)))
+
+                vt = self.network.apply(params, xt, train=False)
                 ut = self.prob_path.compute_ut(t, xt, source, target)
                 loss = jnp.mean((vt - ut) ** 2)
                 self.train_called = True
@@ -115,11 +117,12 @@ def get_dummy_network(
 
         rng_jax = random.PRNGKey(0)
         network = MLP(input_dim=input_dim, output_dim=output_dim, hidden_dims=hidden_dims)
-        # network._make_modules()
         prob_path = LinearGaussianProbabilityPath(
             sigma=sigma,
         )
         time_sampler = random.normal
-        method = MethodClassJAX(network=network, prob_path=prob_path, time_sampler=time_sampler, prng=rng_jax)
+        method = MethodClassJAX(
+            network=network, prob_path=prob_path, time_sampler=time_sampler, prng=rng_jax, input_dim=input_dim
+        )
 
         return method

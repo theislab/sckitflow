@@ -16,6 +16,14 @@ def n_obs_ctrl() -> int:
 
 
 @pytest.fixture
+def n_obs(
+    n_obs_pert: int,
+    n_obs_ctrl: int,
+) -> int:
+    return n_obs_ctrl + n_obs_pert
+
+
+@pytest.fixture
 def n_genes() -> int:
     return 400
 
@@ -60,9 +68,19 @@ def n_feats_obsm_repr() -> int:
     return 200
 
 
+@pytest.fixture()
+def continuous_target_dim() -> int:
+    return 10
+
+
 @pytest.fixture
 def uns_keys() -> Sequence[str]:
     return ("drug", "ko")
+
+
+@pytest.fixture
+def control_key() -> str:
+    return "is_control"
 
 
 @pytest.fixture
@@ -73,6 +91,11 @@ def is_control_val() -> str:
 @pytest.fixture
 def repr_obsm_key() -> str:
     return "X_repr"
+
+
+@pytest.fixture
+def continuous_target_obsm_key() -> str:
+    return "target_variable"
 
 
 @pytest.fixture
@@ -108,7 +131,9 @@ def obs_columns_to_fixed_val(
 def obsm_keys_to_dim(
     paired_condition_n_feats: int,
     n_feats_obsm_repr: int,
+    continuous_target_dim: int,
     repr_obsm_key: str,
+    continuous_target_obsm_key: str,
 ) -> dict[str, int]:
     return {
         "drugA_time": 1,
@@ -121,6 +146,7 @@ def obsm_keys_to_dim(
         "koB_dose": 1,
         "paired_condition": paired_condition_n_feats,
         repr_obsm_key: n_feats_obsm_repr,
+        continuous_target_obsm_key: continuous_target_dim,
     }
 
 

@@ -60,7 +60,7 @@ class OTFlowMatching(FlowMatching, abc.ABC):
         super().__init__(*args, **kwargs)
 
     @abc.abstractmethod
-    def match_data(self, src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    def match_fn(self, src: np.ndarray, tgt: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
         """TODO."""
         pass
 

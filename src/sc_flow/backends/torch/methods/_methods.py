@@ -31,12 +31,16 @@ class FlowMatching(basemethods.FlowMatching):
         else:
             latent = source
 
+        if isinstance(self, OTFlowMatching):
+            batch = self.match_data(batch)
+
         batch_size = target.shape[0]
         condition = batch.get("condition")
         t = self.time_sampler((batch_size,), device=target.device)
         xt = self.probability_path.compute_xt(t, latent, target)
         ut = self.probability_path.compute_ut(t, latent, target, xt)
         vt = self.vf(t, xt, condition, source=latent)
+        # TODO: add ema
         loss = torch.nn.functional.mse_loss(vt, ut)
         return loss, {"loss": loss.detach().cpu().item()}
 
@@ -47,27 +51,14 @@ class FlowMatching(basemethods.FlowMatching):
 class OTFlowMatching(FlowMatching, basemethods.OTFlowMatching):
     """TODO."""
 
-    def step_fn(self, rng, batch):
-        """Single step function of the solver.
-
-        Parameters
-        ----------
-        rng
-            Random number generator.
-        batch
-            Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
-            ``condition``.
-
-        Returns
-        -------
-        Loss value.
-        """
+    def match_fn(self, batch):
+        """TODO."""
         src, tgt = batch["src_cell_data"], batch["tgt_cell_data"]
         tmat = self.match_fn(src, tgt)
         src_ixs, tgt_ixs = _utils.sample_joint(tmat)
         batch["src_cell_data"], batch["tgt_cell_data"] = src[src_ixs], tgt[tgt_ixs]
 
-        return super().step_fn(rng=rng, batch=batch)
+        return batch
 
 
 class GENOT(basemethods.GENOT):

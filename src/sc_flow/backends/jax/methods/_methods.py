@@ -43,16 +43,23 @@ class FlowMatching(basemethods.OTFlowMatching):
         Loss value.
         """
         source, target = batch[_constants.SOURCE_STATE], batch[_constants.TARGET_STATE]
-        condition = batch.get("condition")
         rng_time, rng_step_fn = jax.random.split(rng, 2)
-        n = source.shape[0]
-        time = self.time_sampler(rng_time, n)
+        
+        if self.generate_from_noise:
+            if source is not None:
+                raise ValueError("If `generate_from_noise` is `True`, `source` must be `None`.")
+            latent = functools.partial(_utils._multivariate_normal, dim=target.shape[1])
+        else:
+            latent = source
 
+        condition = batch.get("condition")
+        time = self.time_sampler(rng_time, latent.shape[0])
+        
         self.vf_state, loss = self.vf_step_fn(
             rng_step_fn,
             self.vf_state,
             time,
-            source,
+            latent,
             target,
             condition,
         )
@@ -71,20 +78,20 @@ class FlowMatching(basemethods.OTFlowMatching):
             rng: jax.Array,
             vf_state: train_state.TrainState,
             time: jnp.ndarray,
-            source: jnp.ndarray,
+            latent: jnp.ndarray,
             target: jnp.ndarray,
             conditions: dict[str, jnp.ndarray],
         ):
             def loss_fn(
                 params: jnp.ndarray,
                 t: jnp.ndarray,
-                source: jnp.ndarray,
+                latent: jnp.ndarray,
                 target: jnp.ndarray,
                 conditions: dict[str, jnp.ndarray],
                 rng: jax.Array,
             ) -> jnp.ndarray:
                 rng_flow, rng_dropout = jax.random.split(rng, 2)
-                x_t = self.probability_path.compute_xt(rng_flow, t, source, target)
+                x_t = self.probability_path.compute_xt(rng_flow, t, latent, target)
                 v_t = vf_state.apply_fn(
                     {"params": params},
                     t,
@@ -92,11 +99,11 @@ class FlowMatching(basemethods.OTFlowMatching):
                     conditions,
                     rngs={"dropout": rng_dropout},
                 )
-                u_t = self.probability_path.compute_ut(t, x_t, source, target)
+                u_t = self.probability_path.compute_ut(t, x_t, latent, target)
                 return jnp.mean((v_t - u_t) ** 2)
 
             grad_fn = jax.value_and_grad(loss_fn)
-            loss, grads = grad_fn(vf_state.params, time, source, target, conditions, rng)
+            loss, grads = grad_fn(vf_state.params, time, latent, target, conditions, rng)
             return vf_state.apply_gradients(grads=grads), loss
 
         return vf_step_fn
@@ -212,7 +219,7 @@ class OTFlowMatching(FlowMatching):
         rng_resample, rng = jax.random.split(rng, 2)
         tmat = self.match_fn(source, target)
         src_ixs, tgt_ixs = solver_utils.sample_joint(rng_resample, tmat)
-        batch["src_cell_data"], batch["tgt_cell_data"] = source[src_ixs], target[tgt_ixs]
+        batch[_constants.SOURCE_STATE], batch[_constants.TARGET_STATE] = source[src_ixs], target[tgt_ixs]
 
         return super().step_fn(rng=rng, batch=batch)
 

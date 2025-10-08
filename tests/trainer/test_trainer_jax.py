@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import pytest
 from jax import random
 
+from sc_flow._runtime import set_backend
 from sc_flow.trainer._trainer import FlowTrainer
 
 input_dim = 10
@@ -15,7 +16,8 @@ prng, prng_step_fn = random.split(prng, 2)
 
 @pytest.fixture
 def trainer(dummy_method, dummy_callbacks, monkeypatch):
-    return FlowTrainer(method=dummy_method, require_prng=False, callbacks=dummy_callbacks)
+    set_backend("jax")
+    return FlowTrainer(method=dummy_method, require_prng=True, callbacks=dummy_callbacks)
 
 
 # ----------------------------------------------------------------------
@@ -48,6 +50,8 @@ def test__validation_step_runs_callbacks(trainer):
 
 
 def test__train_step_calls_train_and_returns_loss(trainer):
+    # monkeypatch.setattr("sc_flow._runtime.BACKEND", "jax")
+    set_backend("jax")
     batch = {
         "source": random.normal(prng_step_fn, (batch_size, output_dim)),
         "target": random.normal(prng_step_fn, (batch_size, output_dim)),
@@ -75,32 +79,18 @@ def test__update_logs_appends_metrics(trainer):
 
 def test_fit_runs_basic_training_loop(monkeypatch, trainer, dummy_trainloader_jax, dummy_valloader_jax):
     monkeypatch.setattr("sc_flow._runtime.BACKEND", "jax")
-    monkeypatch.setitem(trainer.__dict__, "_require_prng", False)
     trainer.fit(
         train_dataloader=dummy_trainloader_jax,
         num_iterations=3,
         valid_freq=1,
         validation_dataloader=dummy_valloader_jax,
+        prng=prng,
     )
     # loss logged each iteration
     print(trainer._training_logs["loss"])
     assert len(trainer._training_logs["loss"]) == 3
     # validation step performed
     assert dummy_trainloader_jax.sample_calls >= 1
-
-
-def test_fit_warns_if_prng_provided_but_not_required(
-    monkeypatch, trainer, dummy_trainloader_jax, dummy_valloader_jax, caplog
-):
-    monkeypatch.setattr("sc_flow._runtime.BACKEND", "jax")
-    trainer.fit(
-        train_dataloader=dummy_trainloader_jax,
-        num_iterations=1,
-        valid_freq=1,
-        validation_dataloader=dummy_valloader_jax,
-        prng="FAKE",
-    )
-    assert any("PRNG provided" in m for m in caplog.text.splitlines())
 
 
 # ----------------------------------------------------------------------

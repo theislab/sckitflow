@@ -3,7 +3,6 @@ from collections.abc import Sequence
 from typing import NewType
 
 import matplotlib.pyplot as plt
-import numpy as np
 from matplotlib.axes import Axes
 from matplotlib.figure import Figure
 from tqdm import tqdm
@@ -118,7 +117,6 @@ class FlowTrainer:
         -------
             float: The value of the loss computed on a batch
         """
-        self._method.train()
         loss = self._method.train_step(batch, prng_step_fn)
         return loss
 
@@ -170,14 +168,14 @@ class FlowTrainer:
             raise_runtime_error_on_backend_not_supported(BACKEND)
 
         # sanity check when we require the prng
-        if self._require_prng and (BACKEND == "torch") and (not isinstance(prng, PRNG)):
+        if self._require_prng and (BACKEND == "torch") and (not isinstance(prng, Array)):
             msg = (
                 f"The trainer {self.__class__.__name__} requires a PRNG. Please provide an instance of `Generator`"
                 r"for reproducible results. Setting it to \`torch.random.default_generator\` by default."
             )
             logger.warning(msg)
             prng = random.default_generator
-        elif self._require_prng and (BACKEND == "jax") and (not isinstance(prng, PRNG)):
+        elif self._require_prng and (BACKEND == "jax") and (not isinstance(prng, Array)):
             msg = (
                 f"The trainer {self.__class__.__name__} requires a PRNG. Please provide an instance of `jax.Array`"
                 r"for reproducible results. Setting it to \`torch.random.default_generator\` by default."
@@ -190,7 +188,7 @@ class FlowTrainer:
             prng = None
 
         pbar = tqdm(range(num_iterations))
-        prng_data = np.random.default_rng(0)
+        # prng_data = np.random.default_rng(0)
 
         do_validation = True
         if validation_dataloader is None:
@@ -200,9 +198,10 @@ class FlowTrainer:
 
         for i in pbar:
             if BACKEND == "jax":
-                prng, prng_step_fn = random.split(prng, 2)
+                prng, prng_step_fn, prng_data = random.split(prng, 3)
             else:
                 prng_step_fn = prng
+                prng_data = prng
             batch = train_dataloader.sample(prng_data)
             loss = self._train_step(batch, prng_step_fn)
 

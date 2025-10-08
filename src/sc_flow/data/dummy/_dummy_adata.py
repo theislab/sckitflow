@@ -30,7 +30,7 @@ obs_columns_to_nunique_and_prefix = {
     "drugB": (nunique_drugs, "drug"),
     "koA": (nunique_kos, "ko"),
     "koB": (nunique_kos, "ko"),
-    "target": (nunique_drugs, "target"),
+    "target": (nunique_targets, "target"),
     "source_split": (nunique_source_splits, "source_split"),
 }
 
@@ -132,7 +132,7 @@ def _get_control_adata(
     n_obs: int = n_obs_ctrl,
     n_genes: int = n_genes,
     obsm_keys_to_dim: dict[str, int] = obsm_keys_to_dim,
-    obs_columns_to_nunique_and_prefix: Sequence[str] = obs_columns_to_nunique_and_prefix,
+    obs_columns_to_nunique_and_prefix: dict[str, tuple[int | str]] = obs_columns_to_nunique_and_prefix,
     uns_keys_to_nunique_prefix_and_dim: dict[str, Any] = uns_keys_to_nunique_prefix_and_dim,
     obs_columns_to_fixed_val: dict[str, str] = obs_columns_to_fixed_val,
     is_control_val: str = is_control_val,

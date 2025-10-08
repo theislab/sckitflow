@@ -55,6 +55,11 @@ def ko_rep_n_feats() -> int:
     return 512
 
 
+@pytest.fixture()
+def n_feats_obsm_repr() -> int:
+    return 200
+
+
 @pytest.fixture
 def uns_keys() -> Sequence[str]:
     return ("drug", "ko")
@@ -63,6 +68,11 @@ def uns_keys() -> Sequence[str]:
 @pytest.fixture
 def is_control_val() -> str:
     return "control"
+
+
+@pytest.fixture
+def repr_obsm_key() -> str:
+    return "X_repr"
 
 
 @pytest.fixture
@@ -97,6 +107,8 @@ def obs_columns_to_fixed_val(
 @pytest.fixture
 def obsm_keys_to_dim(
     paired_condition_n_feats: int,
+    n_feats_obsm_repr: int,
+    repr_obsm_key: str,
 ) -> dict[str, int]:
     return {
         "drugA_time": 1,
@@ -108,6 +120,7 @@ def obsm_keys_to_dim(
         "koB_time": 1,
         "koB_dose": 1,
         "paired_condition": paired_condition_n_feats,
+        repr_obsm_key: n_feats_obsm_repr,
     }
 
 

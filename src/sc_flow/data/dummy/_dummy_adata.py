@@ -19,11 +19,13 @@ nunique_source_splits = 5
 paired_condition_n_feats = 100
 drug_rep_n_feats = 512
 ko_rep_n_feats = 512
+n_feats_obsm_repr = 200
 
 
 uns_keys = ["drug", "ko"]
 control_key = "is_control"
 is_control_val = "control"
+repr_obsm_key = "X_repr"
 
 obs_columns_to_nunique_and_prefix = {
     "drugA": (nunique_drugs, "drug"),
@@ -53,6 +55,7 @@ obsm_keys_to_dim = {
     "koB_time": 1,
     "koB_dose": 1,
     "paired_condition": paired_condition_n_feats,
+    repr_obsm_key: n_feats_obsm_repr,
 }
 
 uns_keys_to_nunique_prefix_and_dim = {

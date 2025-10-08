@@ -57,7 +57,7 @@ def dummy_trainloader_jax():
         def __init__(self):
             self.sample_calls = 0
 
-        def sample(self, prng, _):
+        def sample(self, prng):
             from jax import random
 
             _, prng_step_fn_source, prng_step_fn_target = random.split(prng, 3)
@@ -96,7 +96,7 @@ def dummy_valloader_jax():
         def __init__(self):
             self.sample_calls = 0
 
-        def sample(self, prng, _):
+        def sample(self, prng):
             from jax import random
 
             _, prng_step_fn_source, prng_step_fn_target = random.split(prng, 3)

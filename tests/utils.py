@@ -1,14 +1,13 @@
 from sc_flow._runtime import (
     raise_runtime_error_on_backend_failed_import,
     raise_runtime_error_on_backend_not_supported,
-    set_backend,
     set_jax_import_failed,
     set_torch_import_failed,
 )
 
 
-def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5, backend="torch"):
-    set_backend(backend)
+def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):
+    # set_backend(backend)
     from sc_flow._runtime import BACKEND
 
     print(BACKEND)

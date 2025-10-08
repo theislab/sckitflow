@@ -1,8 +1,9 @@
 import anndata as ad
 import numpy as np
 import pytest
-from .test_utils import get_dummy_network
 import torch
+
+from .utils import get_dummy_network
 
 input_dim = 10
 output_dim = 10
@@ -44,10 +45,10 @@ def dummy_trainloader():
 
         def sample(self, _):
             self.sample_calls += 1
-            return {"source": torch.rand((batch_size, output_dim)), 
-                    "target": torch.rand((batch_size, output_dim))}
+            return {"source": torch.rand((batch_size, output_dim)), "target": torch.rand((batch_size, output_dim))}
 
     return DummyTrainLoader()
+
 
 @pytest.fixture
 def dummy_valloader():
@@ -57,8 +58,11 @@ def dummy_valloader():
 
         def sample(self, _):
             self.sample_calls += 1
-            return {"condA": {"source": torch.rand((batch_size, output_dim)), 
-                    "target": torch.rand((batch_size, output_dim))}}
+            return {
+                "condA": {
+                    "source": torch.rand((batch_size, output_dim)),
+                    "target": torch.rand((batch_size, output_dim)),
+                }
+            }
 
     return DummyValLoader()
-

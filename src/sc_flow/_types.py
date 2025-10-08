@@ -17,3 +17,7 @@ ConditioningLayersId = Literal["concat", "resnet1d"]
 
 LayersDict = dict[str, Any]
 NestedLayersDict = dict[str, LayersDict]
+
+GENOTDataMatchFn = Any  # TODO
+
+TensorLike = Any  # TODO

@@ -2,11 +2,10 @@ import abc
 from collections.abc import Callable, Sequence
 from dataclasses import field as dc_field
 from typing import Any
-from flax.typing import Initializer, Axes
 
-import jax
-import jax.numpy as jnp
 import flax.linen as nn
+import jax.numpy as jnp
+from flax.typing import Axes, Initializer
 
 from sc_flow._constants import DEFAULT_NUM_RESNET_LAYERS
 
@@ -36,10 +35,11 @@ class BaseModule(abc.ABC, nn.Module):
         :rtype: class: `torch.nn.Module`
         """
 
+
 class MLP(BaseModule):
-    """
+    r"""
     Class for Multi-Layered Perceptrons with optional batch normalization, layer normalizations and dropout.
-    
+
     Parameters
     ----------
         input_dim
@@ -128,7 +128,7 @@ class MLP(BaseModule):
 
     input_dim: int
     output_dim: int
-    hidden_dims: Sequence[int]  = ()
+    hidden_dims: Sequence[int] = ()
     activation_cls: Callable = nn.relu
     final_activation_cls: Callable = None
     use_batchnorm: bool = False
@@ -145,7 +145,7 @@ class MLP(BaseModule):
     layernorm_bias_init: Initializer = nn.initializers.zeros
     layernorm_scale_init: Initializer = nn.initializers.ones
     layernorm_reduction_axes: Axes = -1
-    layernorm_feature_axes: Axes = -1    
+    layernorm_feature_axes: Axes = -1
     dropout_p: float = 0.0
     dropout_inplace: bool = False
     activation_cls_kwargs: dict[str, Any] = dc_field(default_factory=dict)
@@ -183,37 +183,38 @@ class MLP(BaseModule):
         if self.final_activation_cls is not None:
             x = self.final_activation_cls(x, **self.final_activation_cls_kwargs)
         return x
-    
+
+
 class Resnet1d(BaseModule):
     """Class for residual connections on 1-dimensional inputs.
 
     The residual network formulation takes the following inputs:
-        * Input States: :math: `\boldsymbol{x} \in \mathbb{R}^{n}`.
-        * Conditioning Vector: :math: `\boldsymbol{y} \in \mathbb{R}^{m}`.
+        * Input States: :math: `\boldsymbol{x} \\in \\mathbb{R}^{n}`.
+        * Conditioning Vector: :math: `\boldsymbol{y} \\in \\mathbb{R}^{m}`.
 
-    We want to map such inputs to conditioned representation :math: `\boldsymbol{x} \in \mathbb{R}^{d}`,
+    We want to map such inputs to conditioned representation :math: `\boldsymbol{x} \\in \\mathbb{R}^{d}`,
     where we often have :math: `d = n`.
 
-    Each residual layer :math: `k\in\{1, ..., K\}`, with :math: `K` the number of residual layers, consists of:
-        * Element-wise non linearity (aka activation function) :math: `f:\R^{D} \rightarrow \R^{D}`.
+    Each residual layer :math: `k\\in\\{1, ..., K\\}`, with :math: `K` the number of residual layers, consists of:
+        * Element-wise non linearity (aka activation function) :math: `f:\\R^{D} \rightarrow \\R^{D}`.
 
-        * Shallow state projection weights :math: `boldsymbol{W}^{(k)}_{\boldsymbol{X}}\in\mathbb{R}^{n\times d}`, that maps
-            state :math: `\boldsymbol{x}^{(k-1)}` to hidden representation :math: `\boldsymbol{h}^{(k)}_{\boldsymbol{X}} = boldsymbol{W}^{(k)}_{\boldsymbol{X}}\cdot f(\boldsymbol{x}^{(k-1)})`.
+        * Shallow state projection weights :math: `boldsymbol{W}^{(k)}_{\boldsymbol{X}}\\in\\mathbb{R}^{n\times d}`, that maps
+            state :math: `\boldsymbol{x}^{(k-1)}` to hidden representation :math: `\boldsymbol{h}^{(k)}_{\boldsymbol{X}} = boldsymbol{W}^{(k)}_{\boldsymbol{X}}\\cdot f(\boldsymbol{x}^{(k-1)})`.
 
-        * Shallow condition projection weights :math: `boldsymbol{W}^{(k)}_{\boldsymbol{Y}}\in\mathbb{R}^{m\times d}`, that maps
-            condition :math: `\boldsymbol{y}` to hidden representation :math: `\boldsymbol{h}^{(k)}_{\boldsymbol{Y}} = boldsymbol{W}^{(k)}_{\boldsymbol{X}}\cdot f(\boldsymbol{y})`.
+        * Shallow condition projection weights :math: `boldsymbol{W}^{(k)}_{\boldsymbol{Y}}\\in\\mathbb{R}^{m\times d}`, that maps
+            condition :math: `\boldsymbol{y}` to hidden representation :math: `\boldsymbol{h}^{(k)}_{\boldsymbol{Y}} = boldsymbol{W}^{(k)}_{\boldsymbol{X}}\\cdot f(\boldsymbol{y})`.
 
         * The state and the condition projections :math: `\boldsymbol{h}_{\boldsymbol{X}}^{(k)}` and :math: `\boldsymbol{h}_{\boldsymbol{Y}}^{(k)}` are then summed to obtain
             the hidden conditioned representation :math: `\boldsymbol{h}^{(k)} = \boldsymbol{h}_{\boldsymbol{X}}^{(k)} + \boldsymbol{h}_{\boldsymbol{Y}}^{(k)}`.
 
-        * Shallow hidden projectiion weight :math: `boldsymbol{W}^{(k)}_{\boldsymbol{H}}\in\mathbb{R}^{d\times d}`, that maps hidden conditioned representation
+        * Shallow hidden projectiion weight :math: `boldsymbol{W}^{(k)}_{\boldsymbol{H}}\\in\\mathbb{R}^{d\times d}`, that maps hidden conditioned representation
             :math: `\boldsymbol{h}^{(k)}` to latent representation :math: `\boldsymbol{z}^{(k)} = boldsymbol{W}^{(k)}_{\boldsymbol{H}}f(\boldsymbol{h}^{(k)})`.
 
-        * Skip projection weights :math: `boldsymbol{W}^{(k)}_{\text{Skip}}\in\mathbb{R}^{n\times d}` that maps state :math: `\boldsymbol{x}^{(k-1)}`
+        * Skip projection weights :math: `boldsymbol{W}^{(k)}_{\text{Skip}}\\in\\mathbb{R}^{n\times d}` that maps state :math: `\boldsymbol{x}^{(k-1)}`
             to residual skip representation :math: `\boldsymbol{r}^{(k)} = \boldsymbol{W}^{(k)}_{\text{Skip}}\boldsymbol{x}^{(k-1)}`.
 
     The output of layer :math: `k` is then computed as :math: `\boldsymbol{x}^{(k)} = \boldsymbol{r}^{(k)} + \boldsymbol{z}^{(k)}`.
-    
+
     Parameters
     ----------
         input_dim
@@ -234,7 +235,7 @@ class Resnet1d(BaseModule):
         use_batchnorm
             (Optional) Whether to use batch normalization after the affine/linear transformation, defaults to `False`.
         batchnorm_epsilon
-            (Optional) The :math: `\epsilon` parameter for the denominator of the normalization for numerical stability.
+            (Optional) The :math: `\\epsilon` parameter for the denominator of the normalization for numerical stability.
             Only used when :param: `use_batchnorm` is set to :obj:`True`, ignored otherwise. Sets the :attr: `epsilon` attribute
             of :class:`flax.linen.BatchNorm`. Defaults to :math: `10^{-3}`.
         batchnorm_momentum
@@ -248,7 +249,7 @@ class Resnet1d(BaseModule):
         use_layernorm
             (Optional) Whether to use layer normalization after the affine/linear transformation and optional batch normalization, defaults to `False`.
         layernorm_epsilon
-            (Optional) The :math: `\epsilon` parameter for the denominator of the normalization for numerical stability.
+            (Optional) The :math: `\\epsilon` parameter for the denominator of the normalization for numerical stability.
             Only used when :param: `use_layernorm` is set to `True`, ignored otherwise. Sets the :attr: `epsilon` attribute
             of :class: `flax.linen.LayerNorm`. Defaults to :math: `10^{-5}`.
         layernorm_bias
@@ -288,18 +289,14 @@ class Resnet1d(BaseModule):
     layernorm_bias_init: Initializer = nn.initializers.zeros
     layernorm_scale_init: Initializer = nn.initializers.ones
     layernorm_reduction_axes: Axes = -1
-    layernorm_feature_axes: Axes = -1    
+    layernorm_feature_axes: Axes = -1
     dropout_p: float = 0.0
     dropout_inplace: bool = False
     activation_cls_kwargs: dict[str, Any] = dc_field(default_factory=dict)
     final_activation_cls_kwargs: dict[str, Any] = dc_field(default_factory=dict)
     bias: bool = True
 
-    def _apply_block(
-        self,
-        x: jnp.ndarray,
-        train: bool = False
-    ) -> jnp.ndarray:
+    def _apply_block(self, x: jnp.ndarray, train: bool = False) -> jnp.ndarray:
         if self.use_batchnorm:
             x = nn.BatchNorm(
                 use_running_average=not train,
@@ -328,15 +325,10 @@ class Resnet1d(BaseModule):
         return x
 
     @nn.compact
-    def __call__(
-            self, 
-            x: jnp.ndarray, 
-            cond: jnp.ndarray, 
-            train: bool = False
-    ) -> jnp.ndarray:
+    def __call__(self, x: jnp.ndarray, cond: jnp.ndarray, train: bool = False) -> jnp.ndarray:
         """Performs a forward computation pass on the Residual Network.
 
-        parameters
+        Parameters
         ----------
         x
             The state which to exert the conditioning on.
@@ -345,8 +337,7 @@ class Resnet1d(BaseModule):
         train
             Whether the model is in training mode or not. This affects the behaviour of batch normalization
             and dropout layers, when used.
-        """         
-
+        """
         for _ in range(self.num_resnet_layers):
             h = self._apply_block(x, train)
             cond_h = nn.Dense(self.output_dim, use_bias=self.bias)(self.activation_cls(cond))

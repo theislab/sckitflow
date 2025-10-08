@@ -1,15 +1,8 @@
-import pytest
-import numpy as np
 import matplotlib.pyplot as plt
-from sc_flow.trainer._trainer import FlowTrainer
+import pytest
 import torch
-from ..test_utils import get_dummy_network
-from ..conftest import (
-    dummy_callbacks, 
-    dummy_method,
-    dummy_trainloader,
-    dummy_valloader
-)
+
+from sc_flow.trainer._trainer import FlowTrainer
 
 input_dim = 10
 output_dim = 10
@@ -26,6 +19,7 @@ def trainer(dummy_method, dummy_callbacks):
 # __validation_step and _validation_step
 # ----------------------------------------------------------------------
 
+
 def test___validation_step_returns_expected_dict(trainer):
     batch = {"target": 1, "input": 2}
     result = trainer._FlowTrainer__validation_step(batch)
@@ -34,8 +28,9 @@ def test___validation_step_returns_expected_dict(trainer):
 
 
 def test__validation_step_runs_callbacks(trainer):
-    val_data = {"condA": {"source": torch.rand((batch_size, output_dim)), 
-                            "target": torch.rand((batch_size, output_dim))}}
+    val_data = {
+        "condA": {"source": torch.rand((batch_size, output_dim)), "target": torch.rand((batch_size, output_dim))}
+    }
     metrics = trainer._validation_step(val_data)
     assert isinstance(metrics, dict)
     assert trainer._callbacks.called_with[0][1] == "condA"
@@ -45,9 +40,9 @@ def test__validation_step_runs_callbacks(trainer):
 # _train_step
 # ----------------------------------------------------------------------
 
+
 def test__train_step_calls_train_and_returns_loss(trainer):
-    batch = {"source": torch.rand((batch_size, output_dim)), 
-                    "target": torch.rand((batch_size, output_dim))}
+    batch = {"source": torch.rand((batch_size, output_dim)), "target": torch.rand((batch_size, output_dim))}
     loss = trainer._train_step(batch)
     assert trainer._method.train_called == 1
     assert isinstance(loss, torch.Tensor)
@@ -56,6 +51,7 @@ def test__train_step_calls_train_and_returns_loss(trainer):
 # ----------------------------------------------------------------------
 # __update_logs
 # ----------------------------------------------------------------------
+
 
 def test___update_logs_appends_metrics(trainer):
     trainer._FlowTrainer__update_logs({"acc": 0.9, "loss": 0.5})
@@ -67,12 +63,14 @@ def test___update_logs_appends_metrics(trainer):
 # fit
 # ----------------------------------------------------------------------
 
-def test_fit_runs_basic_training_loop(monkeypatch, trainer, dummy_trainloader, dummy_valloader):
 
+def test_fit_runs_basic_training_loop(monkeypatch, trainer, dummy_trainloader, dummy_valloader):
     monkeypatch.setattr("sc_flow._runtime.BACKEND", "torch")
 
     monkeypatch.setitem(trainer.__dict__, "_require_prng", False)
-    trainer.fit(train_dataloader=dummy_trainloader, num_iterations=3, valid_freq=1, validation_dataloader=dummy_valloader)
+    trainer.fit(
+        train_dataloader=dummy_trainloader, num_iterations=3, valid_freq=1, validation_dataloader=dummy_valloader
+    )
     # loss logged each iteration
     print(trainer._training_logs["loss"])
     assert len(trainer._training_logs["loss"]) == 3
@@ -82,13 +80,20 @@ def test_fit_runs_basic_training_loop(monkeypatch, trainer, dummy_trainloader, d
 
 def test_fit_warns_if_prng_provided_but_not_required(monkeypatch, trainer, dummy_trainloader, dummy_valloader, caplog):
     monkeypatch.setattr("sc_flow._runtime.BACKEND", "torch")
-    trainer.fit(train_dataloader=dummy_trainloader, num_iterations=1, valid_freq=1, validation_dataloader=dummy_valloader, prng="FAKE")
+    trainer.fit(
+        train_dataloader=dummy_trainloader,
+        num_iterations=1,
+        valid_freq=1,
+        validation_dataloader=dummy_valloader,
+        prng="FAKE",
+    )
     assert any("PRNG provided" in m for m in caplog.text.splitlines())
 
 
 # ----------------------------------------------------------------------
 # plot_training_logs
 # ----------------------------------------------------------------------
+
 
 def test_plot_training_logs_single_key(trainer):
     fig, ax = trainer.plot_training_logs(keys_to_plot="loss")

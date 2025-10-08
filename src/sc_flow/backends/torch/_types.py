@@ -1,8 +1,8 @@
 from collections.abc import Callable, Sequence
 from typing import Protocol
 
-import torch
 import numpy as np
+import torch
 
 ShapeLike = Sequence[int] | torch.Size
 

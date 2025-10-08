@@ -10,6 +10,7 @@ from flax.training import train_state
 from ott.solvers import utils as solver_utils  # TODO: consider implementing this here
 
 import sc_flow.methods as basemethods
+from sc_flow import _constants, _types
 from sc_flow.backends.methods import _utils
 
 __all__ = ["FlowMatching", "OTFlowMatching", "GENOT"]
@@ -21,7 +22,7 @@ GENOTDataMatchFn = Callable[[LinTerm], jnp.ndarray] | Callable[[QuadTerm], jnp.n
 
 class FlowMatching(basemethods.OTFlowMatching):
     """TODO."""
-        
+
     def step_fn(
         self,
         rng: jnp.ndarray,
@@ -41,18 +42,18 @@ class FlowMatching(basemethods.OTFlowMatching):
         -------
         Loss value.
         """
-        src, tgt = batch["src_cell_data"], batch["tgt_cell_data"]
+        source, target = batch[_constants.SOURCE_STATE], batch[_constants.TARGET_STATE]
         condition = batch.get("condition")
         rng_time, rng_step_fn = jax.random.split(rng, 2)
-        n = src.shape[0]
+        n = source.shape[0]
         time = self.time_sampler(rng_time, n)
 
         self.vf_state, loss = self.vf_step_fn(
             rng_step_fn,
             self.vf_state,
             time,
-            src,
-            tgt,
+            source,
+            target,
             condition,
         )
 
@@ -207,11 +208,11 @@ class OTFlowMatching(FlowMatching):
         -------
         Loss value.
         """
-        src, tgt = batch["src_cell_data"], batch["tgt_cell_data"]
+        source, target = batch[_constants.SOURCE_STATE], batch[_constants.TARGET_STATE]
         rng_resample, rng = jax.random.split(rng, 2)
-        tmat = self.match_fn(src, tgt)
+        tmat = self.match_fn(source, target)
         src_ixs, tgt_ixs = solver_utils.sample_joint(rng_resample, tmat)
-        batch["src_cell_data"], batch["tgt_cell_data"] = src[src_ixs], tgt[tgt_ixs]
+        batch["src_cell_data"], batch["tgt_cell_data"] = source[src_ixs], target[tgt_ixs]
 
         return super().step_fn(rng=rng, batch=batch)
 
@@ -251,13 +252,14 @@ class GENOT(basemethods.GENOT):
 
     def __init__(
         self,
-        data_match_fn: GENOTDataMatchFn,
+        data_match_fn: _types.GENOTDataMatchFn,
         *,
         source_dim: int,
         target_dim: int,
         latent_noise_fn: (Callable[[jax.Array, tuple[int, ...]], jnp.ndarray] | None) = None,
         **kwargs: Any,
     ):
+        super().__init__(**kwargs)
         self.data_match_fn = jax.jit(data_match_fn)
         self.source_dim = source_dim
         if latent_noise_fn is None:
@@ -321,19 +323,19 @@ class GENOT(basemethods.GENOT):
         tgt_lin, tgt_quad = batch.get("tgt_cell_data"), batch.get("tgt_cell_data_quad")
 
         if src_quad is None and tgt_quad is None:  # lin
-            src, tgt = src_lin, tgt_lin
+            source, target = src_lin, tgt_lin
             arrs = src_lin, tgt_lin
         elif src_lin is None and tgt_lin is None:  # quad
-            src, tgt = src_quad, tgt_quad
+            source, target = src_quad, tgt_quad
             arrs = src_quad, tgt_quad
         elif all(arr is not None for arr in (src_lin, tgt_lin, src_quad, tgt_quad)):  # fused quad
-            src = jnp.concatenate([src_lin, src_quad], axis=1)
-            tgt = jnp.concatenate([tgt_lin, tgt_quad], axis=1)
+            source = jnp.concatenate([src_lin, src_quad], axis=1)
+            target = jnp.concatenate([tgt_lin, tgt_quad], axis=1)
             arrs = src_quad, tgt_quad, src_lin, tgt_lin
         else:
             raise RuntimeError("Cannot infer OT problem type from data.")
 
-        return (src, tgt), arrs  # type: ignore[return-value]
+        return (source, target), arrs  # type: ignore[return-value]
 
     def step_fn(
         self,
@@ -358,8 +360,8 @@ class GENOT(basemethods.GENOT):
         rng, rng_resample, rng_noise, rng_time, rng_step_fn = rng
 
         condition = batch.get("condition")
-        (src, tgt), matching_data = self._prepare_data(batch)
-        n = src.shape[0]
+        (source, target), matching_data = self._prepare_data(batch)
+        n = source.shape[0]
         time = self.time_sampler(rng_time, n)
         latent = self.latent_noise_fn(rng_noise, (n,))
 
@@ -369,13 +371,13 @@ class GENOT(basemethods.GENOT):
             tmat,
         )
 
-        src, tgt = src[src_ixs], tgt[tgt_ixs]
+        source, target = source[src_ixs], target[tgt_ixs]
         loss, self.vf_state = self.vf_step_fn(
             rng_step_fn,
             self.vf_state,
             time,
-            src,
-            tgt,
+            source,
+            target,
             latent,
             condition,
         )

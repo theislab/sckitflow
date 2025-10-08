@@ -4,8 +4,6 @@ from typing import Any
 
 import numpy as np
 
-from sc_flow import _types
-
 __all__ = ["BaseMethod", "FlowMatching", "OTFlowMatching", "GENOT"]
 
 
@@ -15,7 +13,7 @@ class BaseMethod(abc.ABC):
     def __init__(
         self,
         vf: Any,  # TODO: adapt type
-        probability_path: _types.ProbabilityPathId,
+        probability_path: Any,  # TODO: adapt type
         time_sampler: Callable[[np.ndarray, int], np.ndarray],
         ema: int = 1,
     ):

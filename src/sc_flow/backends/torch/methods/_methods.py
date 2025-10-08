@@ -34,9 +34,9 @@ class FlowMatching(basemethods.FlowMatching):
         batch_size = target.shape[0]
         condition = batch.get("condition")
         t = self.time_sampler((batch_size,), device=target.device)
-        xt = self.flow.compute_x_t(t, latent, target)
-        ut = self.flow.compute_u_t(t, latent, target, xt)
-        vt = self.velocity_field(t, xt, condition, source=latent)
+        xt = self.probability_path.compute_xt(t, latent, target)
+        ut = self.probability_path.compute_ut(t, latent, target, xt)
+        vt = self.vf(t, xt, condition, source=latent)
         loss = torch.nn.functional.mse_loss(vt, ut)
         return loss, {"loss": loss.detach().cpu().item()}
 

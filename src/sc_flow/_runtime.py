@@ -21,8 +21,8 @@ def set_torch_import_failed(failed: bool):
 
 
 def set_jax_import_failed(failed: bool):
-    global TORCH_IMPORT_FAILED
-    TORCH_IMPORT_FAILED = failed
+    global JAX_IMPORT_FAILED
+    JAX_IMPORT_FAILED = failed
 
 
 def raise_runtime_error_on_backend_not_supported(backend: str):

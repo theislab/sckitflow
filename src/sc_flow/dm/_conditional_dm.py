@@ -125,8 +125,8 @@ class ConditionalDataManager(UnconditionalDataManager):
         """
         for conditions in self._conditions.values():
             for condition in conditions:
-                print(f"_validate_conditions::{condition=}")
-                print(f"_validate_conditions::{condition in adata.obs.columns}")
+                # print(f"_validate_conditions::{condition=}")
+                # print(f"_validate_conditions::{condition in adata.obs.columns}")
                 self._check_key_found_in_adata_field(adata, condition, "obs")
 
     def _validate_conditions_reps(

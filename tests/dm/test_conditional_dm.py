@@ -26,19 +26,36 @@ class TestConditionalDM:
         "conditions_covariates",
         [
             None,
-            {"drugA": ("drugA_time", "drugA_dose"), "drugB": ("drugB_time", "drugB_dose")},
-            {"wrong_key": ("drugA_time", "drugA_dose", "wrong_key"), "drugB": ("drugB_time", "drugB_dose")},
-            {"drugA": ("drugA_time", "drugA_dose", "wrong_key"), "drugB": ("drugB_time", "drugB_dose")},
+            {
+                "drugA": ("drugA_time", "drugA_dose"),
+                "drugB": ("drugB_time", "drugB_dose"),
+                "koA": ("koA_time", "koA_dose"),
+                "koB": ("koB_time", "koB_dose"),
+            },
+            {
+                "wrong_key": ("drugA_time", "drugA_dose", "wrong_key"),
+                "drugB": ("drugB_time", "drugB_dose"),
+                "koA": ("koA_time", "koA_dose"),
+                "koB": ("koB_time", "koB_dose"),
+            },
+            {
+                "drugA": ("drugA_time", "drugA_dose", "wrong_key"),
+                "drugB": ("drugB_time", "drugB_dose"),
+                "koA": ("koA_time", "koA_dose"),
+                "koB": ("koB_time", "koB_dose"),
+            },
         ],
     )
-    @pytest.mark.parametrie("split_covariates", [None, "source_split", "wrong_key"])
     def test_dm_get_condition_data(
         self,
         adata: AnnData,
         control_key: str,
+        n_obs: int,
+        drug_rep_n_feats: int,
+        ko_rep_n_feats: int,
         conditions: dict[str, Sequence[str]],
         conditions_reps: dict[str, str],
-        conditions_covariates: dict[str, Sequence[str]],
+        conditions_covariates: dict[str, Sequence[str]] | None,
     ):
         dm = ConditionalDataManager(
             control_key=control_key,
@@ -48,7 +65,6 @@ class TestConditionalDM:
         )
 
         all_cats = tuple(cat for condition in conditions.values() for cat in condition)
-        print(all_cats)
         if "wrong_key" in all_cats:
             with pytest.raises(KeyError):
                 condition_data = dm.get_condition_data(adata)
@@ -75,4 +91,16 @@ class TestConditionalDM:
 
         condition_data = dm.get_condition_data(adata)
 
-        print(condition_data.keys())
+        for cond_realm, cond_reps in condition_data["reps"].items():
+            for reps in cond_reps.values():
+                if cond_realm == "drug":
+                    assert reps.shape == (1, drug_rep_n_feats)
+                if cond_realm == "ko":
+                    assert reps.shape == (1, ko_rep_n_feats)
+
+        if conditions_covariates is not None:
+            for cond_realm, covariates in condition_data["covariates"].items():
+                n_combs = len(conditions[cond_realm])
+                cond_cat = conditions[cond_realm][0]
+                n_feats = len(conditions_covariates[cond_cat])
+                assert covariates.shape == (n_obs, n_combs, n_feats)

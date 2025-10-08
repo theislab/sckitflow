@@ -172,7 +172,7 @@ class UnconditionalDataManager:
         if self._continuous_target_covariates is None:
             return None
         for target_covariate in self._continuous_target_covariates:
-            self._check_key_found_in_adata_field(adata, target_covariate, "obs")
+            self._check_key_found_in_adata_field(adata, target_covariate, "obsm")
 
     def _get_categorical_target_data(
         self,
@@ -185,7 +185,7 @@ class UnconditionalDataManager:
         """
         self._validate_categorical_target_covariates(adata)
         if self._categorical_target_covariates is None:
-            return None
+            return {}
         data = {}
         for covariate_id, covariate_encoder_id in self._categorical_target_covariates.items():
             covariate_data = adata.obs[covariate_id].values
@@ -208,7 +208,7 @@ class UnconditionalDataManager:
         """
         self._validate_continuous_target_covariates(adata)
         if self._continuous_target_covariates is None:
-            return None
+            return {}
         return {covariate: adata.obsm[covariate] for covariate in self._continuous_target_covariates}
 
     def get_state_data(

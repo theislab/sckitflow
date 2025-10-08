@@ -10,7 +10,7 @@ from sc_flow.dm._unconditional_dm import UnconditionalDataManager
 
 ## TODO: remove when felix writes this stuff
 StateData = NewType("StateData", np.array)
-ConditionData = NewType("ConditionData", MappedArray)
+ConditionData = NewType("ConditionData", dict[str, MappedArray])
 TargetData = NewType("TargetData", MappedArray)
 CouplingData = NewType("CouplingData", MappedArray)
 
@@ -24,7 +24,7 @@ class ConditionalDataManager(UnconditionalDataManager):
         coupling_reps: dict[CouplingSpaceReps, str] | None = None,
         categorical_target_covariates: Sequence[str] | None = None,
         continuous_target_covariates: Sequence[str] | None = None,
-        control_key: str | None = None,
+        control_key: str | None = None,  # this key is not being checked
         conditions: dict[str, Sequence[str]] | None = None,
         conditions_reps: dict[str, Sequence[str]] | None = None,
         conditions_covariates: Sequence[str] | None = None,
@@ -74,7 +74,6 @@ class ConditionalDataManager(UnconditionalDataManager):
         """
         super().__init__(
             sample_rep=sample_rep,
-            coupling_reps=coupling_reps,
             categorical_target_covariates=categorical_target_covariates,
             continuous_target_covariates=continuous_target_covariates,
         )
@@ -82,7 +81,7 @@ class ConditionalDataManager(UnconditionalDataManager):
         self._coupling_reps = {} if coupling_reps is None else coupling_reps
         self._conditions = conditions
         self._conditions_reps = conditions_reps
-        self._conditions_covariates = conditions_covariates
+        self._conditions_covariates = {} if conditions_covariates is None else conditions_covariates
         self._split_covariates = split_covariates
 
     @property
@@ -126,6 +125,8 @@ class ConditionalDataManager(UnconditionalDataManager):
         """
         for conditions in self._conditions.values():
             for condition in conditions:
+                print(f"_validate_conditions::{condition=}")
+                print(f"_validate_conditions::{condition in adata.obs.columns}")
                 self._check_key_found_in_adata_field(adata, condition, "obs")
 
     def _validate_conditions_reps(
@@ -137,11 +138,11 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        for condition_id, condition_rep in self._conditions.values():
+        for condition_id in self._conditions.keys():
             if condition_id not in self._conditions:
                 msg = f"Condition {condition_id} not found."
                 raise ValueError(msg)
-            self._check_key_found_in_adata_field(adata, condition_rep, "uns")
+            self._check_key_found_in_adata_field(adata, condition_id, "uns")
 
     def _validate_conditions_covariates(
         self,
@@ -152,7 +153,7 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        for condition_cat, covariates in self._conditions_continuous_covariates.values():
+        for condition_cat, covariates in self._conditions_covariates.items():
             if condition_cat not in self._all_condition_categories:
                 msg = f"Condition category {condition_cat} not found."
                 raise KeyError(msg)
@@ -192,6 +193,7 @@ class ConditionalDataManager(UnconditionalDataManager):
         adata: AnnData,
     ) -> MappedArray:
         """"""  # noqa
+        self._validate_conditions_reps(adata)
         return {condition_id: adata.uns[condition_rep] for condition_id, condition_rep in self._conditions_reps.items()}
 
     def _get_conditions_covariates(
@@ -199,6 +201,7 @@ class ConditionalDataManager(UnconditionalDataManager):
         adata: AnnData,
     ) -> MappedArray:
         """"""  # noqa
+        self._validate_conditions_covariates(adata)
         data_dict = defaultdict(list)
         for condition_cat, condition_covariates in self._conditions_covariates.items():
             realm = self._condition_category_to_realm[condition_cat]
@@ -224,9 +227,10 @@ class ConditionalDataManager(UnconditionalDataManager):
         adata: AnnData,
     ) -> None:
         """"""  # noqa
-        # reps_dict = self._get_conditions_reps(adata)
-        # covs_dict = self._get_conditions_covariates(adata)
-        raise NotImplementedError
+        self._validate_conditions(adata)
+        reps_dict = self._get_conditions_reps(adata)
+        covs_dict = self._get_conditions_covariates(adata)
+        return ConditionData({"reps": reps_dict, "covariates": covs_dict})
 
     @property
     def has_controls(

@@ -61,7 +61,6 @@ def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5, bac
                 pass
 
         network = MLP(input_dim=input_dim, output_dim=output_dim, hidden_dims=hidden_dims)
-        # network._make_modules()
         prob_path = LinearGaussianProbabilityPath(
             sigma=sigma,
         )

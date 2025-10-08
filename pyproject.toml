@@ -24,8 +24,14 @@ classifiers = [
 ]
 dependencies = [
   "anndata",
+  "diffrax",
+  "flax",
+  "jax",
+  "ott-jax",
+
   # for debug logging (referenced from the issue template)
   "session-info2",
+  "torch",
 ]
 optional-dependencies.dev = [
   "pre-commit",

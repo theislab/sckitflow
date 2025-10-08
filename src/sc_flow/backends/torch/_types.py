@@ -1,9 +1,12 @@
 from collections.abc import Callable, Sequence
 from typing import Protocol
 
+import numpy as np
 import torch
 
 ShapeLike = Sequence[int] | torch.Size
+
+TensorLike = torch.Tensor | np.ndarray
 
 MappedTensor = dict[str, torch.Tensor]
 

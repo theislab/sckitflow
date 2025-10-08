@@ -28,11 +28,6 @@ class BaseMethod(abc.ABC):
         self._is_trained = False
 
     @abc.abstractmethod
-    def __call__(self, num_iterations: int, *args: Any, **kwargs: Any) -> Any:
-        """TODO."""
-        pass
-
-    @abc.abstractmethod
     def step_fn(self, *args: Any, **kwargs: Any) -> Any:
         """TODO."""
         pass
@@ -47,7 +42,6 @@ class BaseMethod(abc.ABC):
         """Whether the model is trained."""
         return self._is_trained
 
-    @abc.abstractmethod
     @is_trained.setter
     def is_trained(self, value: bool) -> None:
         self._is_trained = value
@@ -56,8 +50,9 @@ class BaseMethod(abc.ABC):
 class FlowMatching(BaseMethod, abc.ABC):
     """TODO."""
 
-    def __init__(self, *args: Any, **kwargs: Any):
+    def __init__(self, *args: Any, generate_from_noise: bool, **kwargs: Any):
         super().__init__(*args, **kwargs)
+        self.generate_from_noise = generate_from_noise
 
 
 class OTFlowMatching(FlowMatching, abc.ABC):

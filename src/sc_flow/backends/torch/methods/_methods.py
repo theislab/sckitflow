@@ -40,7 +40,8 @@ class FlowMatching(basemethods.FlowMatching):
         loss = torch.nn.functional.mse_loss(vt, ut)
         return loss, {"loss": loss.detach().cpu().item()}
 
-    pass
+    def predict(self, *args, **kwargs):
+        pass
 
 
 class OTFlowMatching(FlowMatching, basemethods.OTFlowMatching):
@@ -69,7 +70,7 @@ class OTFlowMatching(FlowMatching, basemethods.OTFlowMatching):
         return super().step_fn(rng=rng, batch=batch)
 
 
-class GENOT(basemethods.GENOT, basemethods.GENOT):
+class GENOT(basemethods.GENOT):
     """TODO."""
 
     def __init__(
@@ -90,3 +91,6 @@ class GENOT(basemethods.GENOT, basemethods.GENOT):
 
     def step_fn(self, rng: torch.Tensor, batch: dict[str, torch.Tensor]):
         """Single step fn"""
+
+    def predict(self, *args, **kwargs):
+        pass

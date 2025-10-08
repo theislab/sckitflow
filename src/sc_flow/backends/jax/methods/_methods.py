@@ -11,7 +11,7 @@ from ott.solvers import utils as solver_utils  # TODO: consider implementing thi
 
 import sc_flow.methods as basemethods
 from sc_flow import _constants, _types
-from sc_flow.backends.methods import _utils
+from sc_flow.backends.jax.methods import _utils
 
 __all__ = ["FlowMatching", "OTFlowMatching", "GENOT"]
 

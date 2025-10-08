@@ -1,1 +1,1 @@
-from methods import GENOT, FlowMatching, OTFlowMatching
+from sc_flow.methods._methods import GENOT, FlowMatching, OTFlowMatching

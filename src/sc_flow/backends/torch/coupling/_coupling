@@ -1,0 +1,138 @@
+import torch
+import ot as pot
+import numpy as np
+
+from typing import Callable, Literal
+from functools import partial
+import logging
+
+logger = logging.getLogger(__name__)
+
+
+def independent_coupling(
+          source: torch.Tensor,
+          target: torch.Tensor,
+          ) -> tuple[torch.Tensor, torch.Tensor]:
+        """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
+
+        :param source: A tensor of values containing the data coming from the source distribution.
+        :type source: class:`torch.Tensor`
+
+        :param target: A tensor of values containing the data coming from the target distribution.
+        :type target: class:`torch.Tensor`
+
+        Returns:
+
+        """
+        # randomy permuting the tensors
+        src_random_perm_idx = torch.randperm(source.shape[0])
+        tgt_random_perm_idx = torch.randperm(target.shape[0])
+
+        min_shape = min(src_random_perm_idx.shape[0], tgt_random_perm_idx.shape[0])
+
+        return src_random_perm_idx[: min_shape], tgt_random_perm_idx[:min_shape]
+
+
+
+
+
+def ot_coupling(
+    source: torch.Tensor,
+    target: torch.Tensor,
+    cost_fn: Callable | None = None,
+    scale_cost: float | Literal["mean", "max_cost", "median"] = "mean",
+    method: Literal["exact", "sinkhorn", "partial", "unbalanced"] = "sinkhorn",
+    of_fn: Callable | None = None,
+    reg: float = 5e-1,
+    reg_m: float = 1.,
+    **kwargs,
+) -> tuple[torch.Tensor, torch.Tensor]:
+        """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
+
+        :param source: A tensor of values containing the data coming from the source distribution.
+        :type source: class:`torch.Tensor`
+
+        :param target: A tensor of values containing the data coming from the target distribution.
+        :type target: class:`torch.Tensor`
+        """
+
+        if cost_fn is None:
+             cost_fn = lambda source, target: torch.cdist(source, target)**2
+
+        # computing weights
+        src_weights = pot.unif(source.shape[0])
+        tgt_weights = pot.unif(target.shape[0])
+        # moving arrays to torch tensors
+        if isinstance(source, np.ndarray):
+            source = torch.from_numpy(source)
+        if isinstance(target, np.ndarray):
+            target = torch.from_numpy(target)
+        # flattening tensors
+        source = torch.flatten(source, start_dim=1)
+        target = torch.flatten(target, start_dim=1)
+        # computing cost matrix
+        distance_matrix = cost_fn(source, target)
+        # normalization of cost
+        if scale_cost == "mean":
+            distance_matrix = distance_matrix / distance_matrix.mean()
+        elif scale_cost == "max":
+             distance_matrix = distance_matrix / distance_matrix.max()
+        elif scale_cost == "median":
+            distance_matrix = distance_matrix / distance_matrix.median()
+        elif isinstance(scale_cost, float):
+             distance_matrix = distance_matrix / scale_cost
+
+        if method == "exact":
+            ot_fn = pot.emd
+        elif method == "sinkhorn":
+            if reg is None:
+                msg = f"{method=} requires `reg` to be a `float`, `None` found"
+                raise ValueError(msg)
+            ot_fn = partial(pot.sinkhorn, reg=reg, **kwargs)
+        elif method == "partial":
+            if reg is None:
+                msg = f"{method=} requires `reg` to be a `float`, `None` found"
+                raise ValueError(msg)
+            ot_fn = partial(pot.partial.entropic_partial_wasserstein, reg=reg, **kwargs)
+        elif method == "unbalanced":
+            if reg is None:
+                msg = f"{method=} requires `reg` to be a `float`, `None` found"
+                raise ValueError(msg)
+            if reg_m is None:
+                msg = f"{method=} requires `reg_m` to be a `float`, `None` found"
+                raise ValueError(msg)
+            ot_fn = partial(pot.unbalanced.sinkhorn_knopp_unbalanced, reg=reg, reg_m=reg_m, **kwargs)
+        elif method in ["exact", "sinkhorn", "partial", "unbalanced"] and ot_fn is None:
+             msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
+             raise ValueError(msg)
+
+
+        # computing coupling matrix
+        coupling_matrix = ot_fn(
+            src_weights,
+            tgt_weights,
+            distance_matrix.detach().cpu().numpy()
+        )
+        # checking for numerical errors in the coupling matrix
+        if not np.all(np.isfinite(coupling_matrix)):
+            msg = f"Non finite values found in `coupling_matrix` \n {coupling_matrix=} \n {source=} \n {target=} \n {distance_matrix.mean()=} \n {distance_matrix.max()=}"
+            logger.warning(msg)
+        if np.abs(coupling_matrix.sum()) < 1e-8:
+            msg = f""
+            logger.warning(msg)
+            coupling_matrix = np.ones_like(coupling_matrix) / coupling_matrix.size
+        # retrieving coupling probabilities
+        coupling_probs = coupling_matrix.flatten()
+        coupling_probs = coupling_probs / coupling_probs.sum()
+        # sampling indices
+        choices = np.random.choice(
+            coupling_matrix.shape[0]*coupling_matrix.shape[1],
+            p=coupling_probs,
+            size=source.shape[0],
+            replace=self.replace,
+        )
+        source_idxs, target_idxs = np.divmod(
+            choices,
+            coupling_matrix.shape[1]
+        )
+        return source_idxs, target_idxs

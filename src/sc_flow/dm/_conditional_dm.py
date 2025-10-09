@@ -120,7 +120,7 @@ class ConditionalDataManager(UnconditionalDataManager):
         if self._coupling_reps is None:
             msg = ""
             raise ValueError(msg)
-        if self._control_key is None:
+        if not self.has_controls:
             msg = ""
             raise ValueError(msg)
         for term_id, term_rep in self._coupling_reps.items():

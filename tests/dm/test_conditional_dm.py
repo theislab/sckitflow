@@ -3,6 +3,7 @@ from collections.abc import Sequence
 import pytest
 from anndata import AnnData
 
+from sc_flow._types import CouplingSpaceReps
 from sc_flow.dm._conditional_dm import ConditionalDataManager
 
 
@@ -104,3 +105,64 @@ class TestConditionalDM:
                 cond_cat = conditions[cond_realm][0]
                 n_feats = len(conditions_covariates[cond_cat])
                 assert covariates.shape == (n_obs, n_combs, n_feats)
+
+    @pytest.mark.parametrize("sample_rep", [None, "X_repr"])
+    @pytest.mark.parametrize("control_key", [None, "is_control"])
+    @pytest.mark.parametrize(
+        "coupling_reps",
+        [
+            None,
+            {
+                "src_coupling_lin": "X_src_lin",
+                "src_coupling_quad": "X_src_quad",
+            },
+            {
+                "src_coupling_lin": "X_src_lin",
+                "src_coupling_quad": "X_src_quad",
+                "tgt_coupling_lin": "X_tgt_lin",
+                "tgt_coupling_quad": "X_tgt_quad_rep",
+            },
+            {
+                "src_coupling_lin": "X_src_lin",
+                "src_coupling_quad": "X_src_quad",
+                "tgt_coupling_lin": "X_tgt_lin",
+                "tgt_coupling_quad": "X_tgt_quad_X",
+            },
+        ],
+    )
+    def test_dm_get_coupling_data(
+        self,
+        adata: AnnData,
+        sample_rep: str | None,
+        control_key: str,
+        coupling_reps: dict[CouplingSpaceReps, str] | None,
+    ) -> None:
+        dm = ConditionalDataManager(
+            sample_rep=sample_rep,
+            coupling_reps=coupling_reps,
+            control_key=control_key,
+        )
+
+        if coupling_reps is None:
+            with pytest.raises(ValueError):
+                coupling_data = dm.get_coupling_data(adata)
+            return None
+
+        if control_key is None:
+            with pytest.raises(ValueError):
+                coupling_data = dm.get_coupling_data(adata)
+            return None
+
+        tgt_quad_rep = coupling_reps.get("tgt_coupling_quad", None)
+        if tgt_quad_rep is not None:
+            if sample_rep is None and tgt_quad_rep == "X_tgt_quad_rep":
+                with pytest.raises(ValueError):
+                    coupling_data = dm.get_coupling_data(adata)
+                return None
+
+            if sample_rep is not None and tgt_quad_rep == "X_tgt_quad_X":
+                with pytest.raises(ValueError):
+                    coupling_data = dm.get_coupling_data(adata)
+                return None
+
+        coupling_data = dm.get_coupling_data(adata)  # noqa

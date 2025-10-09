@@ -5,6 +5,12 @@ from typing import NewType
 import numpy as np
 from anndata import AnnData
 
+from sc_flow._constants import (
+    SOURCE_COUPLING_STATE_LIN,
+    SOURCE_COUPLING_STATE_QUAD,
+    TARGET_COUPLING_STATE_LIN,
+    TARGET_COUPLING_STATE_QUAD,
+)
 from sc_flow._types import CouplingSpaceReps, MappedArray
 from sc_flow.dm._unconditional_dm import UnconditionalDataManager
 
@@ -78,7 +84,7 @@ class ConditionalDataManager(UnconditionalDataManager):
             continuous_target_covariates=continuous_target_covariates,
         )
         self._control_key = control_key
-        self._coupling_reps = {} if coupling_reps is None else coupling_reps
+        self._coupling_reps = coupling_reps
         self._conditions = conditions
         self._conditions_reps = conditions_reps
         self._conditions_covariates = {} if conditions_covariates is None else conditions_covariates
@@ -111,8 +117,15 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        for term_rep in self._coupling_reps.values():
-            self._check_key_found_in_adata_field(adata, term_rep, "obsm")
+        if self._coupling_reps is None:
+            msg = ""
+            raise ValueError(msg)
+        if self._control_key is None:
+            msg = ""
+            raise ValueError(msg)
+        for term_id, term_rep in self._coupling_reps.items():
+            if ("src" in term_id) or ("tgt" in term_id and term_rep is not None):
+                self._check_key_found_in_adata_field(adata, term_rep, "obsm")
 
     def _validate_conditions(
         self,
@@ -125,8 +138,6 @@ class ConditionalDataManager(UnconditionalDataManager):
         """
         for conditions in self._conditions.values():
             for condition in conditions:
-                # print(f"_validate_conditions::{condition=}")
-                # print(f"_validate_conditions::{condition in adata.obs.columns}")
                 self._check_key_found_in_adata_field(adata, condition, "obs")
 
     def _validate_conditions_reps(
@@ -217,10 +228,42 @@ class ConditionalDataManager(UnconditionalDataManager):
         adata: AnnData,
     ) -> CouplingData | None:
         """"""  # noqa
-        if self._coupling_reps is None:
-            return None
         self._validate_coupling_reps(adata)
-        return CouplingData({k: adata.obsm[v] for k, v in self._coupling_reps})
+        # source is required
+        src_lin = adata.obsm[self._coupling_reps["src_coupling_lin"]]
+        src_quad = adata.obsm[self._coupling_reps["src_coupling_quad"]]
+        n_shared_dims = src_lin.shape[-1]
+        # target is optional (we take it from .X and slice manually otherwise)
+        tgt_lin_rep = self._coupling_reps.get("tgt_coupling_lin", None)
+        tgt_quad_rep = self._coupling_reps.get("tgt_coupling_quad", None)
+        state_data = self.get_state_data(adata)
+        if (tgt_lin_rep is not None) and (tgt_quad_rep is not None):
+            tgt_lin = adata.obsm[tgt_lin_rep]
+            tgt_quad = adata.obsm[tgt_quad_rep]
+            print(f"cdm::get_coupling_data::{tgt_lin.shape=}")
+            print(f"cdm::get_coupling_data::{tgt_quad.shape=}")
+            print(f"cdm::get_coupling_data::{state_data.shape=}")
+            if tgt_lin.shape[-1] != n_shared_dims:
+                msg = ""
+                raise ValueError(msg)
+            if tgt_lin.shape[-1] + tgt_quad.shape[-1] != state_data.shape[-1]:
+                msg = ""
+                raise ValueError(msg)
+        else:
+            if n_shared_dims >= state_data.shape[-1]:
+                msg = ""
+                raise ValueError(msg)
+            tgt_lin = state_data[..., :n_shared_dims]
+            tgt_quad = state_data[..., n_shared_dims:]
+
+        return CouplingData(
+            {
+                SOURCE_COUPLING_STATE_LIN: src_lin,
+                SOURCE_COUPLING_STATE_QUAD: src_quad,
+                TARGET_COUPLING_STATE_LIN: tgt_lin,
+                TARGET_COUPLING_STATE_QUAD: tgt_quad,
+            }
+        )
 
     def get_condition_data(
         self,
@@ -230,6 +273,7 @@ class ConditionalDataManager(UnconditionalDataManager):
         self._validate_conditions(adata)
         reps_dict = self._get_conditions_reps(adata)
         covs_dict = self._get_conditions_covariates(adata)
+        # TODO: the keys should be the condition realms
         return ConditionData({"reps": reps_dict, "covariates": covs_dict})
 
     @property

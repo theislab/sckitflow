@@ -20,7 +20,12 @@ ConditioningLayersId = Literal["concat", "resnet1d"]
 LayersDict = dict[str, Any]
 NestedLayersDict = dict[str, LayersDict]
 
-CouplingSpaceReps = Literal["xy", "xx", "yy"]
+CouplingSpaceReps = Literal[
+    "src_coupling_lin",
+    "tgt_coupling_lin",
+    "src_coupling_quad",
+    "tgt_coupling_quad",
+]
 
 TargetCovariatesEncoding = Literal["label", "one-hot"]
 

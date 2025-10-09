@@ -63,14 +63,40 @@ def ko_rep_n_feats() -> int:
     return 512
 
 
-@pytest.fixture()
+@pytest.fixture
 def n_feats_obsm_repr() -> int:
     return 200
 
 
-@pytest.fixture()
+@pytest.fixture
 def continuous_target_dim() -> int:
     return 10
+
+
+@pytest.fixture
+def n_shared_dims() -> int:
+    return 100
+
+
+@pytest.fixture
+def src_n_quad_dims() -> int:
+    return 50
+
+
+@pytest.fixture
+def tgt_n_quad_dims_repr(
+    n_shared_dims: int,
+    n_genes: int,
+) -> int:
+    return n_genes - n_shared_dims
+
+
+@pytest.fixture
+def tgt_n_quad_dims_X(
+    n_shared_dims: int,
+    n_feats_obsm_repr: int,
+) -> int:
+    return n_feats_obsm_repr - n_shared_dims
 
 
 @pytest.fixture
@@ -96,6 +122,31 @@ def repr_obsm_key() -> str:
 @pytest.fixture
 def continuous_target_obsm_key() -> str:
     return "target_variable"
+
+
+@pytest.fixture
+def src_coupling_lin_obsm_key() -> str:
+    return "X_src_lin"
+
+
+@pytest.fixture
+def tgt_coupling_lin_obsm_key() -> str:
+    return "X_tgt_lin"
+
+
+@pytest.fixture
+def src_coupling_quad_obsm_key() -> str:
+    return "X_src_quad"
+
+
+@pytest.fixture
+def tgt_coupling_quad_rep_obsm_key() -> str:
+    return "X_tgt_quad_rep"
+
+
+@pytest.fixture
+def tgt_coupling_quad_X_obsm_key() -> str:
+    return "X_tgt_quad_X"
 
 
 @pytest.fixture
@@ -134,6 +185,15 @@ def obsm_keys_to_dim(
     continuous_target_dim: int,
     repr_obsm_key: str,
     continuous_target_obsm_key: str,
+    n_shared_dims: int,
+    src_n_quad_dims: int,
+    tgt_n_quad_dims_repr: int,
+    tgt_n_quad_dims_X: int,
+    src_coupling_lin_obsm_key: str,
+    src_coupling_quad_obsm_key: str,
+    tgt_coupling_lin_obsm_key: str,
+    tgt_coupling_quad_rep_obsm_key: str,
+    tgt_coupling_quad_X_obsm_key: str,
 ) -> dict[str, int]:
     return {
         "drugA_time": 1,
@@ -147,6 +207,11 @@ def obsm_keys_to_dim(
         "paired_condition": paired_condition_n_feats,
         repr_obsm_key: n_feats_obsm_repr,
         continuous_target_obsm_key: continuous_target_dim,
+        src_coupling_lin_obsm_key: n_shared_dims,
+        src_coupling_quad_obsm_key: src_n_quad_dims,
+        tgt_coupling_lin_obsm_key: n_shared_dims,
+        tgt_coupling_quad_rep_obsm_key: tgt_n_quad_dims_repr,
+        tgt_coupling_quad_X_obsm_key: tgt_n_quad_dims_X,
     }
 
 

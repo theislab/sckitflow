@@ -202,7 +202,7 @@ def get_dummy_adata(
         uns_keys_to_nunique_prefix_and_dim=uns_keys_to_nunique_prefix_and_dim,
         obs_columns_to_fixed_val=obs_columns_to_fixed_val,
     )
-    ctrl_adata.obs[control_key] = False
+    ctrl_adata.obs[control_key] = True
     ctrl_adata.obs_names = (n_obs_pert + np.arange(n_obs_ctrl)).astype(str)
 
     # contantenating the two adatas

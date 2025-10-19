@@ -167,24 +167,30 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        if self._split_covariates is not None and self.has_controls:
-            # sanity check
-            for covariate in self._split_covariates:
-                self._check_key_found_in_adata_field(adata, covariate, "obs")
+        # we require control key to be passed
+        if not self.has_controls:
+            msg = (
+                "In order to use split covariates, you should provide "
+                "a control flag in `control_key`, but `None` found."
+            )
+            raise ValueError(msg)
+        # sanity check
+        for covariate in self._split_covariates:
+            self._check_key_found_in_adata_field(adata, covariate, "obs")
 
-            # retrieving unique source split values
-            source_splits = adata[adata.obs[self._control_key]].obs[self._split_covariates].drop_duplicates()
-            source_splits = map(tuple, source_splits)
+        # retrieving unique source split values
+        source_splits = adata[adata.obs[self._control_key]].obs[self._split_covariates].drop_duplicates()
+        source_splits = map(tuple, source_splits)
 
-            # retrieving corresponding target split values
-            target_splits = adata[~adata.obs[self._control_key]].obs[self._split_covariates].drop_duplicates()
-            target_splits = map(tuple, target_splits)
+        # retrieving corresponding target split values
+        target_splits = adata[~adata.obs[self._control_key]].obs[self._split_covariates].drop_duplicates()
+        target_splits = map(tuple, target_splits)
 
-            # check that all source populations have corresponding target
-            n_unmatched_source_splits = set(source_splits) - set(target_splits)
-            if n_unmatched_source_splits > 0:
-                msg = f"There are {n_unmatched_source_splits} source "
-                raise ValueError(msg)
+        # check that all source populations have corresponding target
+        n_unmatched_source_splits = set(source_splits) - set(target_splits)
+        if n_unmatched_source_splits > 0:
+            msg = f"There are {n_unmatched_source_splits} source "
+            raise ValueError(msg)
 
     def _get_conditions_reps(
         self,
@@ -223,6 +229,8 @@ class ConditionalDataManager(UnconditionalDataManager):
         # retrieving representations and covariates
         reps_dict = self._get_conditions_reps(adata)
         covs_dict = self._get_conditions_covariates(adata)
+        # retrieving combinations
+
         # TODO: the keys should be the condition realms
         return ConditionData({"reps": reps_dict, "covariates": covs_dict})
 

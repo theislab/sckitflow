@@ -1,18 +1,15 @@
 from collections.abc import Sequence
-from typing import Literal, NewType
+from typing import Literal
 
 import numpy as np
 from anndata import AnnData
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
 from sc_flow._types import MappedArray, TargetCovariatesEncoding
-
-## TODO: remove when felix writes this stuff
-StateData = NewType("StateData", np.array)
-ConditionData = NewType("ConditionData", MappedArray)
-TargetData = NewType("TargetData", MappedArray)
-CouplingData = NewType("CouplingData", MappedArray)
-
+from sc_flow.data._data import (
+    StateData,
+    TargetData,
+)
 
 __all__ = ["UnconditionalDataManager"]
 
@@ -235,9 +232,9 @@ class UnconditionalDataManager:
         :param adata: The input annotated data from which to retrieve the cell state representations.
         :type adata: class: `AnnData`
         """
-        categorical_targets = self._get_categorical_target_data(adata)
-        continouos_targets = self._get_continuous_target_data(adata)
-        return TargetData({**categorical_targets, **continouos_targets})
+        categorical_target_data = self._get_categorical_target_data(adata)
+        continouos_target_data = self._get_continuous_target_data(adata)
+        return TargetData(categorical_target_data, continouos_target_data)
 
     @property
     def categorical_target_encoders(

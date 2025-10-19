@@ -5,17 +5,10 @@ from collections.abc import Sequence
 import numpy as np
 from anndata import AnnData
 
-from sc_flow._constants import (
-    SOURCE_COUPLING_STATE_LIN,
-    SOURCE_COUPLING_STATE_QUAD,
-    TARGET_COUPLING_STATE_LIN,
-    TARGET_COUPLING_STATE_QUAD,
-)
-from sc_flow._types import CouplingSpaceReps, MappedArray
+from sc_flow._types import MappedArray
 from sc_flow.data._data import (
     CombinationData,
     ConditionData,
-    CouplingData,
 )
 from sc_flow.dm._unconditional_dm import UnconditionalDataManager
 
@@ -31,7 +24,6 @@ class ConditionalDataManager(UnconditionalDataManager):
         categorical_target_covariates: Sequence[str] | None = None,
         continuous_target_covariates: Sequence[str] | None = None,
         control_key: str | None = None,  # this key is not being checked
-        coupling_reps: dict[CouplingSpaceReps, str] | None = None,
         conditions: dict[str, Sequence[str]] | None = None,
         conditions_reps: dict[str, Sequence[str]] | None = None,
         conditions_covariates: Sequence[str] | None = None,
@@ -60,13 +52,6 @@ class ConditionalDataManager(UnconditionalDataManager):
             when all observation have been subjected to some kind of perturbation. Defaults to `None`.
         :type control_key: class: `str | None`
 
-        :param coupling_reps: (Optional) Dictionary mapping each term needed for the GENOT
-            coupling over incomparable spaces to its representation in `.obsm`.
-            It has to contain three keys `("xy", "xx", "yy")` which will be used to compute
-            such distances over only partially comparable spaces. Only used when the
-            method used dowstream is GENOT, ignored otherwise. Defaults to `None`.
-        :type coupling_reps: class: `dict[CouplingSpaceReps, str] | None`
-
         :param conditions:
         :type conditions:
 
@@ -85,7 +70,6 @@ class ConditionalDataManager(UnconditionalDataManager):
             continuous_target_covariates=continuous_target_covariates,
         )
         self._control_key = control_key
-        self._coupling_reps = coupling_reps
         self._conditions = conditions
         self._conditions_reps = conditions_reps
         self._conditions_covariates = {} if conditions_covariates is None else conditions_covariates
@@ -125,31 +109,6 @@ class ConditionalDataManager(UnconditionalDataManager):
             comb_id_to_unique_values,
             comb_id_to_indices,
         )
-
-    def _validate_coupling_reps(
-        self,
-        adata: AnnData,
-    ) -> None:
-        """Verifies the coupling representations settings on the input :class: `AnnData`.
-
-        :param adata: The input annotated data to verify.
-        :type adata: class: `AnnData`
-        """
-        if not self.has_controls:
-            msg = (
-                "In order to use coupling representations, "
-                "you should provide a control flag in `control_key`, but `None` found."
-            )
-            raise ValueError(msg)
-        if SOURCE_COUPLING_STATE_LIN not in self._coupling_reps:
-            msg = f"Key {SOURCE_COUPLING_STATE_LIN} required in `coupling_reps`."
-            raise KeyError(msg)
-        if SOURCE_COUPLING_STATE_QUAD not in self._coupling_reps:
-            msg = f"Key {SOURCE_COUPLING_STATE_QUAD} required in `coupling_reps`."
-            raise KeyError(msg)
-        for term_id, term_rep in self._coupling_reps.items():
-            if ("src" in term_id) or ("tgt" in term_id and term_rep is not None):
-                self._check_key_found_in_adata_field(adata, term_rep, "obsm")
 
     def _validate_conditions(
         self,
@@ -250,49 +209,6 @@ class ConditionalDataManager(UnconditionalDataManager):
             data_dict[realm].append(current_cat_covariate_data)
         data_dict = {realm: np.stack(cat_covariates, axis=-2) for realm, cat_covariates in data_dict.items()}
         return data_dict
-
-    def get_coupling_data(
-        self,
-        adata: AnnData,
-    ) -> CouplingData | None:
-        """"""  # noqa
-        # eraly return if not provided
-        # otheriwise performs sanity checks
-        if self._coupling_reps is None:
-            return None
-        self._validate_coupling_reps(adata)
-        # source is required
-        src_lin = adata.obsm[self._coupling_reps[SOURCE_COUPLING_STATE_LIN]]
-        src_quad = adata.obsm[self._coupling_reps[SOURCE_COUPLING_STATE_QUAD]]
-        n_shared_dims = src_lin.shape[-1]
-        # target is optional (we take it from .X and slice manually otherwise)
-        tgt_lin_rep = self._coupling_reps.get(TARGET_COUPLING_STATE_LIN, None)
-        tgt_quad_rep = self._coupling_reps.get(TARGET_COUPLING_STATE_QUAD, None)
-        state_data = self.get_state_data(adata)
-        if (tgt_lin_rep is not None) and (tgt_quad_rep is not None):
-            tgt_lin = adata.obsm[tgt_lin_rep]
-            tgt_quad = adata.obsm[tgt_quad_rep]
-            if tgt_lin.shape[-1] != n_shared_dims:
-                msg = ""
-                raise ValueError(msg)
-            if tgt_lin.shape[-1] + tgt_quad.shape[-1] != state_data.shape[-1]:
-                msg = ""
-                raise ValueError(msg)
-        else:
-            if n_shared_dims >= state_data.shape[-1]:
-                msg = ""
-                raise ValueError(msg)
-            tgt_lin = state_data[..., :n_shared_dims]
-            tgt_quad = state_data[..., n_shared_dims:]
-
-        return CouplingData(
-            {
-                SOURCE_COUPLING_STATE_LIN: src_lin,
-                SOURCE_COUPLING_STATE_QUAD: src_quad,
-                TARGET_COUPLING_STATE_LIN: tgt_lin,
-                TARGET_COUPLING_STATE_QUAD: tgt_quad,
-            }
-        )
 
     def get_condition_data(
         self,

@@ -6,10 +6,7 @@ from anndata import AnnData
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
 from sc_flow._types import MappedArray, TargetCovariatesEncoding
-from sc_flow.data._data import (
-    StateData,
-    TargetData,
-)
+from sc_flow.data._data import StateData, TargetData, UnconditionalDataset
 
 __all__ = ["UnconditionalDataManager"]
 
@@ -26,6 +23,7 @@ class UnconditionalDataManager:
         sample_rep: str | None = None,
         categorical_target_covariates: dict[str, TargetCovariatesEncoding] | None = None,
         continuous_target_covariates: Sequence[str] | None = None,
+        cell_covariates: dict[str, str] | None = None,
     ) -> None:
         """Initializes the unconditional data manager.
 
@@ -53,6 +51,7 @@ class UnconditionalDataManager:
         )
 
         self._categorical_target_encoders: dict[str, LabelEncoder | OneHotEncoder] = {}
+        self._cell_covariates = cell_covariates
 
     @staticmethod
     def _check_key_found_in_adata_field(
@@ -171,6 +170,15 @@ class UnconditionalDataManager:
         for target_covariate in self._continuous_target_covariates:
             self._check_key_found_in_adata_field(adata, target_covariate, "obsm")
 
+    def _validate_cell_covariates(
+        self,
+        adata: AnnData,
+    ) -> None:
+        """"""  # noqa
+        for cell_covariate_obs_col, covariate_uns_key in self._cell_covariates.items():
+            self._check_key_found_in_adata_field(adata, cell_covariate_obs_col, "obs")
+            self._check_key_found_in_adata_field(adata, covariate_uns_key, "uns")
+
     def _get_categorical_target_data(
         self,
         adata: AnnData,
@@ -235,6 +243,29 @@ class UnconditionalDataManager:
         categorical_target_data = self._get_categorical_target_data(adata)
         continouos_target_data = self._get_continuous_target_data(adata)
         return TargetData(categorical_target_data, continouos_target_data)
+
+    def get_cell_covariate_data(
+        self,
+        adata: AnnData,
+    ) -> dict[str, MappedArray]:
+        """"""  # noqa
+        # eraly return if not provided
+        # otheriwise performs sanity checks
+        if self._cell_covariates is None:
+            return None
+        self._validate_cell_covariates(adata)
+        return {cell_cov: adata.uns[cov_rep] for cell_cov, cov_rep in self._cell_covariates.items()}
+
+    def get_dataset(
+        self,
+        adata: AnnData,
+    ) -> UnconditionalDataset:
+        """"""  # noqa
+
+        state_data = self.get_state_data(adata)
+        target_data = self.get_target_data(adata)
+        cell_covariates_data = self.get_cell_covariate_data(adata)
+        return UnconditionalDataset(state_data, target_data=target_data, cell_covariates_data=cell_covariates_data)
 
     @property
     def categorical_target_encoders(

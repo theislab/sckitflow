@@ -1,6 +1,6 @@
+import logging
 from collections import defaultdict
 from collections.abc import Sequence
-from typing import NewType
 
 import numpy as np
 from anndata import AnnData
@@ -12,13 +12,14 @@ from sc_flow._constants import (
     TARGET_COUPLING_STATE_QUAD,
 )
 from sc_flow._types import CouplingSpaceReps, MappedArray
+from sc_flow.data._data import (
+    CombinationData,
+    ConditionData,
+    CouplingData,
+)
 from sc_flow.dm._unconditional_dm import UnconditionalDataManager
 
-## TODO: remove when felix writes this stuff
-StateData = NewType("StateData", np.array)
-ConditionData = NewType("ConditionData", dict[str, MappedArray])
-TargetData = NewType("TargetData", MappedArray)
-CouplingData = NewType("CouplingData", MappedArray)
+logger = logging.getLogger(__name__)
 
 
 class ConditionalDataManager(UnconditionalDataManager):
@@ -27,10 +28,10 @@ class ConditionalDataManager(UnconditionalDataManager):
     def __init__(
         self,
         sample_rep: str | None = None,
-        coupling_reps: dict[CouplingSpaceReps, str] | None = None,
         categorical_target_covariates: Sequence[str] | None = None,
         continuous_target_covariates: Sequence[str] | None = None,
         control_key: str | None = None,  # this key is not being checked
+        coupling_reps: dict[CouplingSpaceReps, str] | None = None,
         conditions: dict[str, Sequence[str]] | None = None,
         conditions_reps: dict[str, Sequence[str]] | None = None,
         conditions_covariates: Sequence[str] | None = None,
@@ -53,18 +54,18 @@ class ConditionalDataManager(UnconditionalDataManager):
             covariates to regress against. These covariates must appear as keys in `.obsm`. Defaults to `None`.
         :type continuous_target_covariates: class:  `Sequence[str]`
 
+        :param control_key: (Optional) String identifier of the `.obs` column indicating whether
+            an observation belongs to the control group. When `None`, it will assume no
+            notion of control state is available for the current data. This could be the case
+            when all observation have been subjected to some kind of perturbation. Defaults to `None`.
+        :type control_key: class: `str | None`
+
         :param coupling_reps: (Optional) Dictionary mapping each term needed for the GENOT
             coupling over incomparable spaces to its representation in `.obsm`.
             It has to contain three keys `("xy", "xx", "yy")` which will be used to compute
             such distances over only partially comparable spaces. Only used when the
             method used dowstream is GENOT, ignored otherwise. Defaults to `None`.
         :type coupling_reps: class: `dict[CouplingSpaceReps, str] | None`
-
-        :param control_key: (Optional) String identifier of the `.obs` column indicating whether
-            an observation belongs to the control group. When `None`, it will assume no
-            notion of control state is available for the current data. This could be the case
-            when all observation have been subjected to some kind of perturbation. Defaults to `None`.
-        :type control_key: class: `str | None`
 
         :param conditions:
         :type conditions:
@@ -108,6 +109,23 @@ class ConditionalDataManager(UnconditionalDataManager):
                 cat2realm[cat] = condition
         return cat2realm
 
+    def _obs_columns_to_combination_data(self, adata: AnnData, columns: Sequence[str]) -> CombinationData:
+        """"""  # noqa
+        for col in columns:
+            self._check_key_found_in_adata_field(adata, col, "obs")
+        columns_values = adata.obs.loc[:, columns].values
+        unique_values = np.unique(columns_values, axis=0)
+        comb_id_to_unique_values = {comb_id: unique_values[comb_id] for comb_id in range(unique_values.shape[0])}
+        comb_id_to_indices = {
+            comb_id: np.argwhere(np.all(columns_values == unique_val, axis=-1))[:, 0]
+            for comb_id, unique_val in comb_id_to_unique_values.items()
+        }
+        return CombinationData(
+            columns,
+            comb_id_to_unique_values,
+            comb_id_to_indices,
+        )
+
     def _validate_coupling_reps(
         self,
         adata: AnnData,
@@ -117,12 +135,18 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        if self._coupling_reps is None:
-            msg = ""
-            raise ValueError(msg)
         if not self.has_controls:
-            msg = ""
+            msg = (
+                "In order to use coupling representations, "
+                "you should provide a control flag in `control_key`, but `None` found."
+            )
             raise ValueError(msg)
+        if SOURCE_COUPLING_STATE_LIN not in self._coupling_reps:
+            msg = f"Key {SOURCE_COUPLING_STATE_LIN} required in `coupling_reps`."
+            raise KeyError(msg)
+        if SOURCE_COUPLING_STATE_QUAD not in self._coupling_reps:
+            msg = f"Key {SOURCE_COUPLING_STATE_QUAD} required in `coupling_reps`."
+            raise KeyError(msg)
         for term_id, term_rep in self._coupling_reps.items():
             if ("src" in term_id) or ("tgt" in term_id and term_rep is not None):
                 self._check_key_found_in_adata_field(adata, term_rep, "obsm")
@@ -136,7 +160,10 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        for conditions in self._conditions.values():
+        for condition_id, conditions in self._conditions.items():
+            if condition_id not in self._conditions_reps:
+                msg = f"Representation not found for {condition_id}."
+                raise ValueError(msg)
             for condition in conditions:
                 self._check_key_found_in_adata_field(adata, condition, "obs")
 
@@ -149,11 +176,12 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        for condition_id in self._conditions.keys():
+        for condition_id, condition_reps in self._conditions.items():
             if condition_id not in self._conditions:
                 msg = f"Condition {condition_id} not found."
                 raise ValueError(msg)
-            self._check_key_found_in_adata_field(adata, condition_id, "uns")
+            for rep in condition_reps:
+                self._check_key_found_in_adata_field(adata, rep, "uns")
 
     def _validate_conditions_covariates(
         self,
@@ -228,21 +256,22 @@ class ConditionalDataManager(UnconditionalDataManager):
         adata: AnnData,
     ) -> CouplingData | None:
         """"""  # noqa
+        # eraly return if not provided
+        # otheriwise performs sanity checks
+        if self._coupling_reps is None:
+            return None
         self._validate_coupling_reps(adata)
         # source is required
-        src_lin = adata.obsm[self._coupling_reps["src_coupling_lin"]]
-        src_quad = adata.obsm[self._coupling_reps["src_coupling_quad"]]
+        src_lin = adata.obsm[self._coupling_reps[SOURCE_COUPLING_STATE_LIN]]
+        src_quad = adata.obsm[self._coupling_reps[SOURCE_COUPLING_STATE_QUAD]]
         n_shared_dims = src_lin.shape[-1]
         # target is optional (we take it from .X and slice manually otherwise)
-        tgt_lin_rep = self._coupling_reps.get("tgt_coupling_lin", None)
-        tgt_quad_rep = self._coupling_reps.get("tgt_coupling_quad", None)
+        tgt_lin_rep = self._coupling_reps.get(TARGET_COUPLING_STATE_LIN, None)
+        tgt_quad_rep = self._coupling_reps.get(TARGET_COUPLING_STATE_QUAD, None)
         state_data = self.get_state_data(adata)
         if (tgt_lin_rep is not None) and (tgt_quad_rep is not None):
             tgt_lin = adata.obsm[tgt_lin_rep]
             tgt_quad = adata.obsm[tgt_quad_rep]
-            print(f"cdm::get_coupling_data::{tgt_lin.shape=}")
-            print(f"cdm::get_coupling_data::{tgt_quad.shape=}")
-            print(f"cdm::get_coupling_data::{state_data.shape=}")
             if tgt_lin.shape[-1] != n_shared_dims:
                 msg = ""
                 raise ValueError(msg)
@@ -268,13 +297,33 @@ class ConditionalDataManager(UnconditionalDataManager):
     def get_condition_data(
         self,
         adata: AnnData,
-    ) -> None:
+    ) -> ConditionData:
         """"""  # noqa
+        # eraly return if not provided
+        # otheriwise performs sanity checks
+        if self._conditions is None:
+            return None
         self._validate_conditions(adata)
+        # retrieving representations and covariates
         reps_dict = self._get_conditions_reps(adata)
         covs_dict = self._get_conditions_covariates(adata)
         # TODO: the keys should be the condition realms
         return ConditionData({"reps": reps_dict, "covariates": covs_dict})
+
+    def get_split_data(
+        self,
+        adata: AnnData,
+    ) -> CombinationData | None:
+        """"""  # noqa
+        # eraly return if not provided
+        # otheriwise performs sanity checks
+        if self._split_covariates is None:
+            return None
+        self._validate_split_covariates(adata)
+        return self._obs_columns_to_combination_data(
+            adata,
+            self._split_covariates,
+        )
 
     @property
     def has_controls(

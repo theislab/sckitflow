@@ -1,11 +1,3 @@
-from __future__ import annotations
+from sc_flow.backends.jax.methods._methods import BaseMethod
 
-from importlib import import_module
-
-__all__ = ["solvers", "nn", "methods"]
-
-
-def __getattr__(name: str):
-    if name in __all__:
-        return import_module(f"{__name__}.{name}")
-    raise AttributeError(name)
+__all__ = ["BaseMethod"]

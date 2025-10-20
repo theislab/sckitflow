@@ -18,3 +18,5 @@ SOURCE_COUPLING_STATE_LIN = "src_xy_cell_coupling"
 TARGET_COUPLING_STATE_LIN = "tgt_xy_cell_coupling"
 SOURCE_COUPLING_STATE_QUAD = "src_xx_cell_coupling"
 TARGET_COUPLING_STATE_QUAD = "tgt_yy_cell_coupling"
+
+SOURCE_IDXS_KEY = "src_idxs"

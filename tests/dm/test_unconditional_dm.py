@@ -24,9 +24,9 @@ class TestUnconditionalDM:
             return None
         state_data = dm.get_state_data(adata)
         if sample_rep == "X_repr":
-            assert state_data.shape == (n_obs, n_feats_obsm_repr)
+            assert state_data.cell_states.shape == (n_obs, n_feats_obsm_repr)
         else:
-            assert state_data.shape == (n_obs, n_genes)
+            assert state_data.cell_states.shape == (n_obs, n_genes)
 
     @pytest.mark.parametrize(
         "categorical_target_covariates",

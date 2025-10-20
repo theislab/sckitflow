@@ -1,13 +1,25 @@
 import logging
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
+from typing import Any, NewType
 
 import numpy as np
+import pandas as pd
 from anndata import AnnData
 
+try:
+    from tqdm import tqdm
+except ImportError:
+    from sc_flow._runtime import set_tqdm_import_failed
+
+    set_tqdm_import_failed(True)
+    tqdm = NewType("tqdm", Iterable)
+
+from sc_flow._constants import SOURCE_IDXS_KEY
 from sc_flow._types import MappedArray
 from sc_flow.data._data import (
     CombinationData,
+    ConditionalDataset,
     ConditionData,
 )
 from sc_flow.dm._unconditional_dm import UnconditionalDataManager
@@ -23,11 +35,12 @@ class ConditionalDataManager(UnconditionalDataManager):
         sample_rep: str | None = None,
         categorical_target_covariates: Sequence[str] | None = None,
         continuous_target_covariates: Sequence[str] | None = None,
+        cell_covariates: dict[str, str] | None = None,
         control_key: str | None = None,  # this key is not being checked
         conditions: dict[str, Sequence[str]] | None = None,
-        conditions_reps: dict[str, Sequence[str]] | None = None,
+        conditions_reps: dict[str, str] | None = None,
         conditions_covariates: Sequence[str] | None = None,
-        split_covariates: Sequence[str] | None = None,
+        groups_obs_keys: Sequence[str] | None = None,
     ) -> None:
         """Initializes the conditional data manager.
 
@@ -52,10 +65,24 @@ class ConditionalDataManager(UnconditionalDataManager):
             when all observation have been subjected to some kind of perturbation. Defaults to `None`.
         :type control_key: class: `str | None`
 
-        :param conditions:
+        :param conditions: (Optional) Dictionary mapping each condition realm to the respective categories.
+            * "Condition realms" (i.e.: keys of the dictionary) are intended as the high level group the conditions belong to.
+            That could be, for example, drugs or genetic perturbations, which can be applied multiple times in combination.
+            They can have arbitrary name, with the only restrictions that they should all be present as keys in
+            :param: `condition_reps`.
+
+            * "Condition categories" (i.e.: values of the dictionay) instead represent the (possibly multiple)
+            application of each condition axes on the observations. They should appear as columns in the `.obs` attribute
+            of :class: `anndata.AnnData` objects to annotate. The target populations for generative modeling will be determined
+            by the unique combinations over `.obs` of all the columns appearing here as values.
+
+            When this dictionary is not passed, the returned conditions will be `None`, with the behavior of the class falling
+            back to the unconditional case. Defaults to `None`.
         :type conditions:
 
-        :param conditions_reps:
+        :param conditions_reps: (Optional) Dictionary mapping each condition realm to the key in `.obs` where their representation
+            is stored in. Required when :param: `conditions` is provided. In that case, it should contain the same keys as
+            :param: `conditions`.
         :type conditions_reps:
 
         :param conditions_covariates:
@@ -68,12 +95,13 @@ class ConditionalDataManager(UnconditionalDataManager):
             sample_rep=sample_rep,
             categorical_target_covariates=categorical_target_covariates,
             continuous_target_covariates=continuous_target_covariates,
+            cell_covariates=cell_covariates,
         )
         self._control_key = control_key
         self._conditions = conditions
         self._conditions_reps = conditions_reps
         self._conditions_covariates = {} if conditions_covariates is None else conditions_covariates
-        self._split_covariates = split_covariates
+        self._groups_obs_keys = groups_obs_keys
 
     @property
     def _all_condition_categories(
@@ -93,22 +121,36 @@ class ConditionalDataManager(UnconditionalDataManager):
                 cat2realm[cat] = condition
         return cat2realm
 
-    def _obs_columns_to_combination_data(self, adata: AnnData, columns: Sequence[str]) -> CombinationData:
+    def _obs_columns_to_combination_data(
+        self,
+        adata: AnnData,
+        columns: Sequence[str],
+        index: pd.Index | None = None,
+    ) -> CombinationData:
         """"""  # noqa
+        if index is None:
+            index = adata.obs.index
+        if not isinstance(columns, list):
+            columns = list(columns)
         for col in columns:
             self._check_key_found_in_adata_field(adata, col, "obs")
-        columns_values = adata.obs.loc[:, columns].values
-        unique_values = np.unique(columns_values, axis=0)
-        comb_id_to_unique_values = {comb_id: unique_values[comb_id] for comb_id in range(unique_values.shape[0])}
-        comb_id_to_indices = {
-            comb_id: np.argwhere(np.all(columns_values == unique_val, axis=-1))[:, 0]
-            for comb_id, unique_val in comb_id_to_unique_values.items()
-        }
+        groups = adata.obs.groupby(by=columns)
+        comb_values_to_indices = {}
+        for group_val, obs_group in groups:
+            group_idx = obs_group.index
+            comb_values_to_indices[tuple(group_val)] = index.get_indexer(group_idx)
+        # transforming back into tuple and returning condition data
         return CombinationData(
             columns,
-            comb_id_to_unique_values,
-            comb_id_to_indices,
+            comb_values_to_indices,
         )
+
+    def _validate_control_key(
+        self,
+        adata: AnnData,
+    ) -> None:
+        """"""  # noqa
+        self._check_key_found_in_adata_field(adata, self._control_key, "obs")
 
     def _validate_conditions(
         self,
@@ -119,12 +161,15 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        for condition_id, conditions in self._conditions.items():
-            if condition_id not in self._conditions_reps:
-                msg = f"Representation not found for {condition_id}."
+        if self._conditions_reps is None:
+            msg = "Conditions representations passed with `conditions_reps` are required, found `None`."
+            raise ValueError(msg)
+        for condition_realm, condition_categories in self._conditions.items():
+            if condition_realm not in self._conditions_reps:
+                msg = f"Representation not found for {condition_realm}."
                 raise ValueError(msg)
-            for condition in conditions:
-                self._check_key_found_in_adata_field(adata, condition, "obs")
+            for condition_category in condition_categories:
+                self._check_key_found_in_adata_field(adata, condition_category, "obs")
 
     def _validate_conditions_reps(
         self,
@@ -135,12 +180,11 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        for condition_id, condition_reps in self._conditions.items():
-            if condition_id not in self._conditions:
-                msg = f"Condition {condition_id} not found."
+        for condition_realm, condition_rep in self._conditions_reps.items():
+            if condition_realm not in self._conditions:
+                msg = f"Condition {condition_realm} not found."
                 raise ValueError(msg)
-            for rep in condition_reps:
-                self._check_key_found_in_adata_field(adata, rep, "uns")
+            self._check_key_found_in_adata_field(adata, condition_rep, "uns")
 
     def _validate_conditions_covariates(
         self,
@@ -158,7 +202,7 @@ class ConditionalDataManager(UnconditionalDataManager):
             for covariate in covariates:
                 self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
-    def _validate_split_covariates(
+    def _validate_groups_obs_keys(
         self,
         adata: AnnData,
     ) -> None:
@@ -167,35 +211,14 @@ class ConditionalDataManager(UnconditionalDataManager):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        # we require control key to be passed
-        if not self.has_controls:
-            msg = (
-                "In order to use split covariates, you should provide "
-                "a control flag in `control_key`, but `None` found."
-            )
-            raise ValueError(msg)
         # sanity check
-        for covariate in self._split_covariates:
+        for covariate in self._groups_obs_keys:
             self._check_key_found_in_adata_field(adata, covariate, "obs")
-
-        # retrieving unique source split values
-        source_splits = adata[adata.obs[self._control_key]].obs[self._split_covariates].drop_duplicates()
-        source_splits = map(tuple, source_splits)
-
-        # retrieving corresponding target split values
-        target_splits = adata[~adata.obs[self._control_key]].obs[self._split_covariates].drop_duplicates()
-        target_splits = map(tuple, target_splits)
-
-        # check that all source populations have corresponding target
-        n_unmatched_source_splits = set(source_splits) - set(target_splits)
-        if n_unmatched_source_splits > 0:
-            msg = f"There are {n_unmatched_source_splits} source "
-            raise ValueError(msg)
 
     def _get_conditions_reps(
         self,
         adata: AnnData,
-    ) -> MappedArray:
+    ) -> dict[str, MappedArray]:
         """"""  # noqa
         self._validate_conditions_reps(adata)
         return {condition_id: adata.uns[condition_rep] for condition_id, condition_rep in self._conditions_reps.items()}
@@ -216,7 +239,51 @@ class ConditionalDataManager(UnconditionalDataManager):
         data_dict = {realm: np.stack(cat_covariates, axis=-2) for realm, cat_covariates in data_dict.items()}
         return data_dict
 
-    def get_condition_data(
+    def _get_populations_indices(
+        self,
+        group_adata: AnnData,
+        original_index: pd.Index | None = None,
+    ) -> dict[str, np.ndarray | MappedArray]:
+        """"""  # noqa
+        # constructing results dictionary for current data
+        results_dict = {}
+        # handling control distriution
+        if self.has_controls:
+            # computing source mask and slicing adata to only perturbed states
+            source_mask = group_adata.obs[self._control_key]
+            source_idxs = group_adata.obs.index[source_mask]
+            group_adata = group_adata[~source_mask]
+
+            # retrieving source indices and storing them
+            results_dict[SOURCE_IDXS_KEY] = source_idxs
+        # computing combinations after optional slicing
+        populations_data = self._obs_columns_to_combination_data(
+            group_adata, self._all_condition_categories, index=original_index
+        )
+        results_dict.update(populations_data.comb_values_to_indices)
+        return results_dict
+
+    def _get_populations_indices_per_group(
+        self,
+        adata: AnnData,
+    ) -> dict[tuple[Any], MappedArray]:
+        """"""  # noqa
+        if self._groups_obs_keys is None:
+            return {None: self._obs_columns_to_combination_data(adata, self._all_condition_categories)}
+        self._validate_groups_obs_keys(adata)
+        # defining result dictionary
+        results_dict = {}
+        # retrieving groups data
+        groups_data = self._obs_columns_to_combination_data(adata, self._groups_obs_keys)
+        # iterating over each group
+        for group_val, group_idxs in groups_data.comb_values_to_indices.items():
+            # retrieving group adata
+            group_adata = adata[group_idxs]
+            # storing population indices
+            results_dict[group_val] = self._get_populations_indices(group_adata, original_index=adata.obs.index)
+        return results_dict
+
+    def _get_condition_data(
         self,
         adata: AnnData,
     ) -> ConditionData:
@@ -229,24 +296,29 @@ class ConditionalDataManager(UnconditionalDataManager):
         # retrieving representations and covariates
         reps_dict = self._get_conditions_reps(adata)
         covs_dict = self._get_conditions_covariates(adata)
-        # retrieving combinations
+        return ConditionData(reps_dict, covs_dict)
 
-        # TODO: the keys should be the condition realms
-        return ConditionData({"reps": reps_dict, "covariates": covs_dict})
-
-    def get_split_data(
+    def get_dataset(
         self,
         adata: AnnData,
-    ) -> CombinationData | None:
+    ) -> ConditionalDataset:
         """"""  # noqa
-        # eraly return if not provided
-        # otheriwise performs sanity checks
-        if self._split_covariates is None:
-            return None
-        self._validate_split_covariates(adata)
-        return self._obs_columns_to_combination_data(
-            adata,
-            self._split_covariates,
+        # base dataset
+        base_dataset = super().get_dataset(adata)
+
+        # retrieving groups and condition data
+        if self.has_controls:
+            self._validate_control_key(adata)
+        condition_data = self._get_condition_data(adata)
+        if condition_data is not None:
+            group_to_populations_indices = self._get_populations_indices_per_group(adata)
+        else:
+            group_to_populations_indices = None
+
+        return ConditionalDataset.init_from_unconditional(
+            base_dataset,
+            group_to_populations_indices=group_to_populations_indices,
+            condition_data=condition_data,
         )
 
     @property

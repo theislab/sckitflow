@@ -6,6 +6,7 @@ BACKEND = DEFAULT_BACKEND
 
 TORCH_IMPORT_FAILED = False
 JAX_IMPORT_FAILED = False
+TQDM_IMPORT_FAILED = False
 
 
 def set_backend(backend: BackendId):
@@ -23,6 +24,11 @@ def set_torch_import_failed(failed: bool):
 def set_jax_import_failed(failed: bool):
     global JAX_IMPORT_FAILED
     JAX_IMPORT_FAILED = failed
+
+
+def set_tqdm_import_failed(failed: bool):
+    global TQDM_IMPORT_FAILED
+    TQDM_IMPORT_FAILED = failed
 
 
 def raise_runtime_error_on_backend_not_supported(backend: str):

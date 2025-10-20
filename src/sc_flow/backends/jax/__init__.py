@@ -1,3 +1,3 @@
-from sc_flow.backends.jax.methods._methods import GENOT, FlowMatching, OTFlowMatching
+from sc_flow.backends.jax.methods._methods import BaseMethod
 
-__all__ = ["FlowMatching", "OTFlowMatching", "GENOT"]
+__all__ = ["BaseMethod"]

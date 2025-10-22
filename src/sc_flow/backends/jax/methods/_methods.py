@@ -31,12 +31,20 @@ class BaseMethod:
         match_fn: Any, # TODO: adapt type
         target_dim: int,
         ema: int = 1,
+        generate_from_noise: bool = False,
+        control_key: str | None = None,
+        noise_distribution: Callable[[jax.Array, tuple[int, ...]], jnp.ndarray] | None = None,
     ):
         self.vf = vf
         self.probability_path = probability_path
         self.time_sampler = time_sampler
         self.match_fn = match_fn
         self.ema = ema
+        self.generate_from_noise = generate_from_noise
+        self.control_key = control_key
+        self.noise_distribution = noise_distribution or (
+            lambda rng, shape: jax.random.normal(rng, shape)
+        )
         # TODO: add cfg
 
         self._is_trained = False
@@ -134,8 +142,15 @@ class BaseMethod:
                 conditions: dict[str, jnp.ndarray],
                 rng: jax.Array,
             ) -> jnp.ndarray:
-                rng_flow, rng_dropout = jax.random.split(rng, 2)
-                x_t = self.probability_path.compute_xt(rng_flow, t, source, target)
+                rng_flow, rng_latent, rng_dropout = jax.random.split(rng, 3)
+                if self.generate_from_noise:
+                    latent = self.noise_distribution(rng_latent, target.shape)
+                    x_t = self.probability_path.compute_xt(rng_flow, t, latent, target)
+                    if self.control_key is not None:
+                        conditions = conditions.copy()
+                        conditions[self.control_key] = source
+                else:
+                    x_t = self.probability_path.compute_xt(rng_flow, t, source, target)
                 v_t = vf_state.apply_fn(
                     {"params": params},
                     t,
@@ -165,4 +180,3 @@ class BaseMethod:
         **kwargs: Any,
     ) -> jnp.ndarray | tuple[jnp.ndarray, diffrax.Solution]:
         pass
-

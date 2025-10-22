@@ -49,32 +49,36 @@ def dummy_match_fn(src, tgt):
 def dummy_time_sampler(rng, n):
     return jax.random.uniform(rng, shape=(n,), minval=0.0, maxval=1.0)
 
+class TestJaxMethods:
+    @pytest.mark.parametrize("generate_from_noise", [True, False])
+    @pytest.mark.parametrize("control_key", [None, "src_cell_data"])
+    def test_step_fn_runs_without_error(self, generate_from_noise, control_key):
+        vf = TestVF()
+        probability_path = DummyProbabilityPath()
+        match_fn = dummy_match_fn
+        time_sampler = dummy_time_sampler
+        target_dim = 3
 
-def test_step_fn_runs_without_error():
-    vf = TestVF()
-    probability_path = DummyProbabilityPath()
-    match_fn = dummy_match_fn
-    time_sampler = dummy_time_sampler
-    target_dim = 3
+        method = BaseMethod(
+            vf=vf,
+            probability_path=probability_path,
+            time_sampler=time_sampler,
+            match_fn=match_fn,
+            target_dim=target_dim,
+            generate_from_noise=generate_from_noise,
+            control_key=control_key,
+        )
 
-    method = BaseMethod(
-        vf=vf,
-        probability_path=probability_path,
-        time_sampler=time_sampler,
-        match_fn=match_fn,
-        target_dim=target_dim,
-    )
+        # Create dummy batch
+        batch_size, dim = 4, 3
+        batch = {
+            "src_cell_data": jnp.ones((batch_size, dim)),
+            "tgt_cell_data": jnp.ones((batch_size, dim)) * 2,
+            "condition": {"dummy_cond": jnp.ones((batch_size, 1))},
+        }
 
-    # Create dummy batch
-    batch_size, dim = 4, 3
-    batch = {
-        "src_cell_data": jnp.ones((batch_size, dim)),
-        "tgt_cell_data": jnp.ones((batch_size, dim)) * 2,
-        "condition": {"dummy_cond": jnp.ones((batch_size, 1))},
-    }
+        rng = jax.random.PRNGKey(42)
+        loss = method.step_fn(rng, batch)
 
-    rng = jax.random.PRNGKey(42)
-    loss = method.step_fn(rng, batch)
-
-    assert jnp.isscalar(loss) or np.isscalar(loss)
-    assert jnp.isfinite(loss)
+        assert jnp.isscalar(loss) or np.isscalar(loss)
+        assert jnp.isfinite(loss)

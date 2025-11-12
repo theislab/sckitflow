@@ -14,6 +14,8 @@ from jax import Array as JaxArray
 
 ArrayLike = NumpyArray | JaxArray
 
+MappedArray = dict[str, ArrayLike]
+
 TTimeFeaturesFn = Callable[[ArrayLike, int], ArrayLike]
 
 TMeanFn = Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]

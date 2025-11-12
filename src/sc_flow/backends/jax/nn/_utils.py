@@ -1,6 +1,8 @@
+from flax.core import FrozenDict
+
 from sc_flow._types import LayersDict
 from sc_flow._utils import verify_fn_kwargs_dictionary
-from sc_flow.backends.torch.nn._modules import MLP, BaseModule
+from sc_flow.backends.jax.nn._modules import MLP, BaseModule
 
 __all__ = ["init_module_from_dict"]
 
@@ -29,8 +31,11 @@ def init_module_from_dict(
     :param output_dim: (Optional) Output dimension for the module.
     :type output_dim: class: `int | None`
     """
-    # copying the layers dictionary to preserve it
-    layers_dict = layers_dict.copy()
+
+    if isinstance(layers_dict, FrozenDict):
+        layers_dict = dict(layers_dict)
+    else:
+        layers_dict = layers_dict.copy()
 
     # retrieving layer type
     layer_type = layers_dict.pop("layer_type", "mlp")
@@ -64,8 +69,8 @@ def init_module_from_dict(
         if not isinstance(input_dim, int):
             msg = f"Argument `input_dim` is expected to be an `int`, {type(input_dim)} found."
             raise TypeError(msg)
-        if not isinstance(output_dim, int):
-            msg = f"Argument `output_dim` is expected to be an `int`, {type(output_dim)} found."
+        if not isinstance(input_dim, int):
+            msg = f"Argument `input_dim` is expected to be an `int`, {type(input_dim)} found."
             raise TypeError(msg)
 
         # verify keyword arguments

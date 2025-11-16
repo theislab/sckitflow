@@ -29,15 +29,10 @@ class HierarchicalIndexer:
         it creates a dummy placeholder for the conditions groups.
         Defaults to `None`.
     :type conditions_cols: class: `Sequence[str] | None`
-
-    :param sort_columns: Whether to sort the columns identifier
-        for each level. Defaults to `True`.
-    :type sort_columns: class: `bool`
     """
 
     groups_cols: Sequence[str] | None = None
     conditions_cols: Sequence[str] | None = None
-    sort_columns: bool = True
 
     def __post_init__(self) -> None:
         self._init_registry()
@@ -103,7 +98,7 @@ class HierarchicalIndexer:
             raise ValueError(msg)
 
         # update registry
-        self._registry[level_name] = level_columns
+        self._registry[level_name] = level_columns if level_columns is None else sorted(level_columns)
 
     def reset_registry(self) -> None:
         """Resets the levels registry created at initialization."""

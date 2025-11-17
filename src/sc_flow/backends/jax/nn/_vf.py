@@ -204,10 +204,10 @@ class MLPUnconditionalVF(BaseVelocityField):
     time_features_id: TimeFeaturesId | None = None
     time_features_fn: TTimeFeaturesFn | None = None
     num_time_features: int | None = DEFAULT_NUM_TIME_FEATURES
-    max_period: int | None = DEFAULT_TIME_FEATURES_MAX_PERIOD
+    max_period: int = DEFAULT_TIME_FEATURES_MAX_PERIOD
     time_features_kwargs: dict[str, Any] = dc_field(default_factory=dict)
-    state_encoder_output_dim: int | None = DEFAULT_VF_LATENT_STATE_DIM
-    time_encoder_output_dim: int | None = DEFAULT_VF_LATENT_TIME_DIM
+    state_encoder_output_dim: int = DEFAULT_VF_LATENT_STATE_DIM
+    time_encoder_output_dim: int = DEFAULT_VF_LATENT_TIME_DIM
     state_encoder_mlp_kwargs: LayersDict = dc_field(default_factory=dict)
     time_encoder_mlp_kwargs: LayersDict = dc_field(default_factory=dict)
     vf_decoder_mlp_kwargs: LayersDict = dc_field(default_factory=dict)
@@ -215,12 +215,12 @@ class MLPUnconditionalVF(BaseVelocityField):
     conditioning_fn: TConditioningFn | None = None
     conditioning_kwargs: dict[str, Any] | None = None
     condition_encoder_input_layers: NestedLayersDict | None = None
-    condition_encoder_output_dim: int | None = DEFAULT_CONDITION_ENCODER_OUTPUT_DIM
+    condition_encoder_output_dim: int = DEFAULT_CONDITION_ENCODER_OUTPUT_DIM
     condition_encoder_pooling_mode: Literal["mean", "sum"] = "mean"
     condition_encoder_pooling_kwargs: dict[str, Any] = dc_field(default_factory=dict)
     condition_encoder_output_layers_kwargs: LayersDict | None = None
     source_encoder_mlp_kwargs: LayersDict | None = None
-    source_encoder_output_dim: int | None = None
+    source_encoder_output_dim: int = DEFAULT_SOURCE_ENCODER_OUTPUT_DIM
 
     def setup(self) -> None:
         """Initialize the network."""
@@ -342,11 +342,9 @@ class MLPUnconditionalVF(BaseVelocityField):
         When :param: `encode_time` is set to `True` it will initialize a :class: `MLP` with the configurations
         specified in :param: `time_encoder_mlp_kwargs`. Returns an identity function wrapper otherwise otherwise.
         """
-        kwargs = {} if self.time_encoder_mlp_kwargs is None else self.time_encoder_mlp_kwargs
-
         if self.encode_time:
             return init_module_from_dict(
-                kwargs,
+                self.time_encoder_mlp_kwargs,
                 input_dim=self.get_num_time_features(),
                 output_dim=self.time_encoder_output_dim,
             )
@@ -360,11 +358,10 @@ class MLPUnconditionalVF(BaseVelocityField):
         When :param: `encode_state` is set to `True` it will initialize a :class: `MLP` with the configurations
         specified in :param: `state_encoder_mlp_kwargs`. Returns an identity function wrapper otherwise otherwise.
         """
-        kwargs = {} if self.state_encoder_mlp_kwargs is None else self.state_encoder_mlp_kwargs
 
         if self.encode_state:
             return init_module_from_dict(
-                kwargs,
+                self.state_encoder_mlp_kwargs,
                 input_dim=self.state_dim,
                 output_dim=self.state_encoder_output_dim,
             )
@@ -375,8 +372,8 @@ class MLPUnconditionalVF(BaseVelocityField):
     ) -> BaseConditioningLayer:
         """Initializes the conditioning layer according to the configurations specified during initialization."""
         return get_conditioning_layer(
-            self._state_encoder_output_dim if self.encode_state else self.state_dim,
-            self._time_encoder_output_dim if self.encode_time else self.get_num_time_features(),
+            self.state_encoder_output_dim if self.encode_state else self.state_dim,
+            self.time_encoder_output_dim if self.encode_time else self.get_num_time_features(),
             latent_condition_dim=self.conditioning_dim,
             conditioning_id=self.conditioning_id,
             conditioning_fn=self.conditioning_fn,
@@ -409,10 +406,8 @@ class MLPUnconditionalVF(BaseVelocityField):
 
         It will initialize a :class: `MLP` with the configurations specified in :param: `vf_decoder_mlp_kwargs`.
         """
-        kwargs = {} if self.vf_decoder_mlp_kwargs is None else self.vf_decoder_mlp_kwargs
-
         return init_module_from_dict(
-            kwargs,
+            self.vf_decoder_mlp_kwargs,
             input_dim=decoder_input_dim,
             output_dim=self.state_dim,
         )
@@ -428,10 +423,8 @@ class MLPUnconditionalVF(BaseVelocityField):
             )
             raise TypeError(msg)
 
-        kwargs = {} if self.source_encoder_mlp_kwargs is None else self.source_encoder_mlp_kwargs
-
         return init_module_from_dict(
-            kwargs,
+            self.source_encoder_mlp_kwargs,
             input_dim=self.source_encoder_input_dim,
             output_dim=self.source_encoder_output_dim,
         )

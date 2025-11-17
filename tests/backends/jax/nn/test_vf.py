@@ -25,84 +25,65 @@ class TestVF:
     @pytest.mark.parametrize("time_features_id", ["ott-jax", "torch-cfm", None])
     @pytest.mark.parametrize("time_features_fn", [None])
     @pytest.mark.parametrize("num_time_features", [None, num_time_features])
-    @pytest.mark.parametrize("time_features_kwargs", [None])
-    @pytest.mark.parametrize("state_encoder_output_dim", [None, state_encoder_output_dim])
-    @pytest.mark.parametrize("time_encoder_output_dim", [None, time_encoder_output_dim])
+    @pytest.mark.parametrize("state_encoder_output_dim", [state_encoder_output_dim])
+    @pytest.mark.parametrize("time_encoder_output_dim", [time_encoder_output_dim])
     @pytest.mark.parametrize(
         "state_encoder_mlp_kwargs",
         [
-            None,
             {
                 "use_batchnorm": True,
-                "batchnorm_affine": True,
-                "batchnorm_track_running_stats": True,
+                "use_layernorm": True,
+                "batchnorm_bias": True,
             },
             {
                 "use_batchnorm": True,
-                "batchnorm_affine": False,
-                "batchnorm_track_running_stats": True,
+                "use_layernorm": False,
+                "batchnorm_bias": True,
             },
             {
                 "use_batchnorm": True,
-                "batchnorm_affine": True,
-                "batchnorm_track_running_stats": False,
-            },
-            {
-                "use_batchnorm": True,
-                "batchnorm_affine": False,
-                "batchnorm_track_running_stats": False,
+                "use_layernorm": True,
+                "batchnorm_bias": False,
             },
         ],
     )
     @pytest.mark.parametrize(
         "time_encoder_mlp_kwargs",
         [
-            None,
             {
                 "use_batchnorm": True,
-                "batchnorm_affine": True,
-                "batchnorm_track_running_stats": True,
+                "use_layernorm": True,
+                "batchnorm_bias": True,
             },
             {
                 "use_batchnorm": True,
-                "batchnorm_affine": False,
-                "batchnorm_track_running_stats": True,
+                "use_layernorm": False,
+                "batchnorm_bias": True,
             },
             {
                 "use_batchnorm": True,
-                "batchnorm_affine": True,
-                "batchnorm_track_running_stats": False,
-            },
-            {
-                "use_batchnorm": True,
-                "batchnorm_affine": False,
-                "batchnorm_track_running_stats": False,
+                "use_layernorm": True,
+                "batchnorm_bias": False,
             },
         ],
     )
     @pytest.mark.parametrize(
         "vf_decoder_mlp_kwargs",
         [
-            None,
             {
                 "use_batchnorm": True,
-                "batchnorm_affine": True,
-                "batchnorm_track_running_stats": True,
+                "use_layernorm": True,
+                "batchnorm_bias": True,
             },
             {
                 "use_batchnorm": True,
-                "batchnorm_affine": False,
-                "batchnorm_track_running_stats": True,
+                "use_layernorm": False,
+                "batchnorm_bias": True,
             },
             {
                 "use_batchnorm": True,
-                "batchnorm_affine": True,
-                "batchnorm_track_running_stats": False,
-            },
-            {
-                "use_batchnorm": True,
-                "batchnorm_affine": False,
-                "batchnorm_track_running_stats": False,
+                "use_layernorm": True,
+                "batchnorm_bias": False,
             },
         ],
     )
@@ -116,12 +97,11 @@ class TestVF:
         time_features_id: TimeFeaturesId | None,
         time_features_fn: TTimeFeaturesFn | None,
         num_time_features: int | None,
-        time_features_kwargs: dict[str, Any] | None,
-        state_encoder_output_dim: int | None,
-        time_encoder_output_dim: int | None,
-        state_encoder_mlp_kwargs: dict[str, Any] | None,
-        time_encoder_mlp_kwargs: dict[str, Any] | None,
-        vf_decoder_mlp_kwargs: dict[str, Any] | None,
+        state_encoder_output_dim: int,
+        time_encoder_output_dim: int,
+        state_encoder_mlp_kwargs: dict[str, Any],
+        time_encoder_mlp_kwargs: dict[str, Any],
+        vf_decoder_mlp_kwargs: dict[str, Any],
         conditioning_id: str | None,
         conditioning_fn: Callable | None,
         conditioning_kwargs: dict[str, Any],
@@ -133,7 +113,6 @@ class TestVF:
             time_features_id=time_features_id,
             time_features_fn=time_features_fn,
             num_time_features=num_time_features,
-            time_features_kwargs=time_features_kwargs,
             state_encoder_output_dim=state_encoder_output_dim,
             time_encoder_output_dim=time_encoder_output_dim,
             state_encoder_mlp_kwargs=state_encoder_mlp_kwargs,

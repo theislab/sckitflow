@@ -27,8 +27,8 @@ def independent_coupling(
     ## TODO
     """
     # randomy permuting the tensors
-    src_random_perm_idx = np.random.choice(np.arange(source.shape[0]), replace=False)
-    tgt_random_perm_idx = np.random.choice(np.arange(target.shape[0]), replace=False)
+    src_random_perm_idx = np.random.choice(np.arange(source.shape[0]), size=source.shape[0], replace=False)
+    tgt_random_perm_idx = np.random.choice(np.arange(target.shape[0]), size=source.shape[0], replace=False)
 
     min_shape = min(src_random_perm_idx.shape[0], tgt_random_perm_idx.shape[0])
 

@@ -48,7 +48,7 @@ def ot_linear_coupling(
     reg: float = 5e-1,
     reg_m: float = 1.0,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, jax.Array]:
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
 
     :param source: A tensor of values containing the data coming from the source distribution.
@@ -82,20 +82,20 @@ def ot_linear_coupling(
         threshold = kwargs["threshold"]
     if "tau_a" not in kwargs.keys() and method != "unbalanced":
         tau_a = 1.0
-    elif method == "unbalanced":
-        tau_a = 0.667
+    elif "tau_a" not in kwargs.keys() and method == "unbalanced":
+        tau_a = 0.9
     else:
         tau_a = kwargs["tau_a"]
     if "tau_b" not in kwargs.keys() and method != "unbalanced":
         tau_b = 1.0
-    elif method == "unbalanced":
-        tau_b = 0.667
+    elif "tau_b" not in kwargs.keys() and method == "unbalanced":
+        tau_b = 0.9
     else:
         tau_b = kwargs["tau_b"]
 
-    if method in ["exact", "sinkhorn", "unbalanced"]:
+    if method in ["sinkhorn", "unbalanced"]:
         ot_fn = sinkhorn.Sinkhorn(threshold=threshold)
-    elif method == "partial":
+    elif (method == "partial") | (method == "exact"):
         msg = f"{method=} has to equivalent in `ott-ajax`"
         raise ValueError(msg)
     elif method in ["exact", "sinkhorn", "partial", "unbalanced"] and ot_fn is None:
@@ -125,11 +125,12 @@ def ot_linear_coupling(
         replace=False,
     )
     source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
+    if "return_matrix" in kwargs and kwargs["return_matrix"]:
+        return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs
 
 
 def ot_quadratic_coupling(
-    source: jax.Array,
     src_xx_cell_coupling: jax.Array,
     tgt_yy_cell_coupling: jax.Array,
     src_xy_cell_coupling: jax.Array | None = None,
@@ -144,7 +145,7 @@ def ot_quadratic_coupling(
     reg: float = 5e-1,
     reg_m: float = 1.0,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, jax.Array]:
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
 
     :param source: A tensor of values containing the data coming from the source distribution.
@@ -204,8 +205,10 @@ def ot_quadratic_coupling(
     choices = np.random.choice(
         coupling_matrix.shape[0] * coupling_matrix.shape[1],
         p=coupling_probs,
-        size=source.shape[0],
+        size=src_xx_cell_coupling.shape[0],
         replace=False,
     )
     source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
+    if "return_matrix" in kwargs and kwargs["return_matrix"]:
+        return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs

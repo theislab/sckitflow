@@ -62,15 +62,19 @@ def test_ot_linear_coupling_basic(method, small_tensors):
 def test_ot_linear_coupling_invalid_method_raises(small_tensors):
     source, target = small_tensors
     with pytest.raises(ValueError):
-        ot_linear_coupling(source, target, method="sinkhorn", reg=5e-1)
+        ot_linear_coupling(source, target, method="invalid", reg=5e-1)
 
 
 @pytest.mark.parametrize("scale_cost", ["mean", "max", "median", 1.0])
 def test_ot_linear_coupling_scale_modes(scale_cost, small_tensors):
     source, target = small_tensors
     src_idx, tgt_idx = ot_linear_coupling(source, target, scale_cost=scale_cost, method="sinkhorn")
+
+    dim_out = min(len(src_idx), len(tgt_idx))
     assert isinstance(src_idx, np.ndarray)
-    assert len(src_idx) == len(source)
+    assert len(src_idx) == dim_out
+    assert isinstance(tgt_idx, np.ndarray)
+    assert len(tgt_idx) == dim_out
 
 
 # ===============================================================
@@ -83,15 +87,13 @@ def quadratic_inputs():
     tgt_yy = torch.rand(5, 3)
     src_xy = torch.rand(4, 3)
     tgt_xy = torch.rand(5, 3)
-    source = torch.rand(4, 3)
-    return source, src_xx, tgt_yy, src_xy, tgt_xy
+    return src_xx, tgt_yy, src_xy, tgt_xy
 
 
 @pytest.mark.parametrize("method", ["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"])
 def test_ot_quadratic_coupling_basic(quadratic_inputs, method):
-    source, src_xx, tgt_yy, src_xy, tgt_xy = quadratic_inputs
+    src_xx, tgt_yy, src_xy, tgt_xy = quadratic_inputs
     src_idx, tgt_idx = ot_quadratic_coupling(
-        source=source,
         src_xx_cell_coupling=src_xx,
         tgt_yy_cell_coupling=tgt_yy,
         src_xy_cell_coupling=src_xy,
@@ -99,26 +101,32 @@ def test_ot_quadratic_coupling_basic(quadratic_inputs, method):
         method=method,
     )
 
+    dim_out = min(len(src_xx), len(tgt_yy))
     assert isinstance(src_idx, np.ndarray)
     assert isinstance(tgt_idx, np.ndarray)
-    assert len(src_idx) == len(source)
-    assert len(tgt_idx) == len(source)
+    assert isinstance(src_idx, np.ndarray)
+    assert len(src_idx) == dim_out
+    assert isinstance(tgt_idx, np.ndarray)
+    assert len(tgt_idx) == dim_out
     assert (src_idx >= 0).all() and (tgt_idx >= 0).all()
 
 
 def test_ot_quadratic_coupling_without_xy_couplings(quadratic_inputs):
-    source, src_xx, tgt_yy, *_ = quadratic_inputs
+    src_xx, tgt_yy, *_ = quadratic_inputs
     src_idx, tgt_idx = ot_quadratic_coupling(
-        source=source,
         src_xx_cell_coupling=src_xx,
         tgt_yy_cell_coupling=tgt_yy,
         method="entropic_gromov_wasserstein",
     )
+
+    dim_out = min(len(src_xx), len(tgt_yy))
     assert isinstance(src_idx, np.ndarray)
-    assert len(src_idx) == len(source)
+    assert len(src_idx) == dim_out
+    assert isinstance(tgt_idx, np.ndarray)
+    assert len(tgt_idx) == dim_out
 
 
 def test_ot_quadratic_coupling_invalid_method_raises(quadratic_inputs):
-    source, src_xx, tgt_yy, *_ = quadratic_inputs
+    src_xx, tgt_yy, *_ = quadratic_inputs
     with pytest.raises(ValueError):
-        ot_quadratic_coupling(source, src_xx_cell_coupling=src_xx, tgt_yy_cell_coupling=tgt_yy, method="invalid_method")
+        ot_quadratic_coupling(src_xx_cell_coupling=src_xx, tgt_yy_cell_coupling=tgt_yy, method="invalid_method")

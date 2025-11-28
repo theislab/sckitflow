@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Collection
 from dataclasses import dataclass
 
 import numpy as np
@@ -16,23 +16,23 @@ class HierarchicalIndexer:
     each of the columns. When only one column is provided, it still
     creates a single element tuple for consistency.
 
-    :param groups_cols: Sequence of string identifiers for the
+    :param groups_cols: Collection of string identifiers for the
         columns used to define the base groups. When no columns
         are provided (i.e.: :param: `groups_cols` is `None`),
         it creates a dummy placeholder for the base groups.
         Defaults to `None`.
-    :type groups_cols: class: `Sequence[str] | None`
+    :type groups_cols: class: `Collection[str] | None`
 
-    :param conditions_cols: Sequence of string identifiers for the
+    :param conditions_cols: Collection of string identifiers for the
         columns used to define the base groups. When no columns
         are provided (i.e.: :param: `conditions_cols` is `None`),
         it creates a dummy placeholder for the conditions groups.
         Defaults to `None`.
-    :type conditions_cols: class: `Sequence[str] | None`
+    :type conditions_cols: class: `Collection[str] | None`
     """
 
-    groups_cols: Sequence[str] | None = None
-    conditions_cols: Sequence[str] | None = None
+    groups_cols: Collection[str] | None = None
+    conditions_cols: Collection[str] | None = None
 
     def __post_init__(self) -> None:
         self._init_registry()
@@ -74,7 +74,7 @@ class HierarchicalIndexer:
     def update_registry(
         self,
         level_name: str,
-        level_columns: Sequence[str] | None = None,
+        level_columns: Collection[str] | None = None,
         allow_override: bool = False,
     ) -> None:
         """Updates registry with new level data.
@@ -82,9 +82,9 @@ class HierarchicalIndexer:
         :param level_name: The name of the level to be added.
         :type level_name: class: `str`
 
-        :param level_columns: Sequence of string identifiers for the
+        :param level_columns: Collection of string identifiers for the
             columns used to define the new level. Defaults to `None`.
-        :type level_columns: class: `Sequence[str] | None`
+        :type level_columns: class: `Collection[str] | None`
 
         :param allow_override: Whether to allow overriding data for
             already existing levels. If override is not allowed,

@@ -1,5 +1,5 @@
 import inspect
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Mapping
 from typing import Any, get_args, get_origin
 
 __all__ = [
@@ -8,7 +8,9 @@ __all__ = [
     "verify_fn_args",
     "verify_fn_kwargs_dictionary",
     "verify_fn_signature",
+    "apply_fn_to_mapping",
 ]
+
 
 def check_type_against_generic(
     input_type: type,
@@ -30,9 +32,10 @@ def check_type_against_generic(
         return input_type is origin
     return input_type is target_type
 
+
 def get_fn_args_names_and_types(
     fn: Callable,
-    omitted_args: Sequence[str] | None = None,
+    omitted_args: Collection[str] | None = None,
 ) -> dict[str, type[object]]:
     """Retrieves the type annotation for the positional arguments of a function and their respective names.
 
@@ -42,7 +45,7 @@ def get_fn_args_names_and_types(
     :param omitted_args: Optional positional arguments to be omitted from the verification.
         This is to be used only when calling this function on a class method, as we do not want to consider
         `self` as a positional argument. Defaults to `None`.
-    :type omitted_args: class: `Sequence[str] | None`
+    :type omitted_args: class: `Collection[str] | None`
 
     :return: Dictionary mapping each positional argument name to the respective type annotation.
     :rtype: class: `dict[str, type[object]]`
@@ -83,7 +86,7 @@ def get_fn_kwargs_names_and_types(
 def verify_fn_args(
     fn: Callable,
     Tfn: type[Callable],
-    omitted_args: Sequence[str] | None = None,
+    omitted_args: Collection[str] | None = None,
 ) -> None:
     """Verifies the positional arguments of a function against a template.
 
@@ -100,7 +103,7 @@ def verify_fn_args(
     :param omitted_args: Optional positional arguments to be omitted from the verification.
         This is to be used only when calling this function on a class method, as we do not want to consider
         `self` as a positional argument. Defaults to `None`.
-    :type omitted_args: class: `Sequence[str] | None`
+    :type omitted_args: class: `Collection[str] | None`
     """
     input_types, output_types = get_args(Tfn)
     positional_args = get_fn_args_names_and_types(fn, omitted_args=omitted_args)
@@ -148,7 +151,7 @@ def verify_fn_signature(
     fn: Callable,
     Tfn: type[Callable],
     kwargs_dict: dict[str, Any],
-    omitted_args: Sequence[str] | None = None,
+    omitted_args: Collection[str] | None = None,
 ) -> None:
     """Verifies the signature of the input function against a template and optional key-word arguments.
 
@@ -167,10 +170,48 @@ def verify_fn_signature(
     :param omitted_args: Optional positional arguments to be omitted from the verification.
         This is to be used only when calling this function on a class method, as we do not want to consider
         `self` as a positional argument. Defaults to `None`.
-    :type omitted_args: class: `Sequence[str] | None`
+    :type omitted_args: class: `Collection[str] | None`
     """
     if not isinstance(fn, Callable):
         msg = f"Input `fn` is expected to be a `Callable`, found {type(fn)}"
         raise TypeError(msg)
     verify_fn_args(fn, Tfn, omitted_args=omitted_args)
     verify_fn_kwargs_dictionary(fn, kwargs_dict)
+
+
+def apply_fn_to_mapping(
+    mapping: Mapping[str, Any],
+    function: Callable[[Any], Any],
+    *args,
+    fields: None | Collection[str] = None,
+    drop_unused_fields: bool = False,
+    recursive: bool = True,
+    **kwargs,
+) -> Mapping[str, Any]:
+    """Applies a function to a mapping of objects."""
+    # handling optional fields
+    if fields is None:
+        fields = mapping.keys()
+    # applying the function
+    out_dict = {}
+    for key, value in mapping.items():
+        # applying function
+        if key in fields:
+            # recursive call
+            if recursive and isinstance(value, mapping.__class__):
+                value = apply_fn_to_mapping(
+                    value,
+                    function,
+                    *args,
+                    fields=fields,
+                    drop_unused_fields=drop_unused_fields,
+                    recursive=recursive,
+                    **kwargs,
+                )
+            else:
+                value = function(value, *args, **kwargs)
+            out_dict[key] = value
+        # optionally storing unused keys
+        elif not drop_unused_fields:
+            out_dict[key] = value
+    return mapping.__class__(**out_dict)

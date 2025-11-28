@@ -2,6 +2,8 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from sc_flow.data_new._mixins import ArrayMixin, BatchMixin
+
 __all__ = ["DistributionData"]
 
 
@@ -11,11 +13,14 @@ class StateData:
 
 
 @dataclass
-class TargetData: ...
+class TargetData:
+    target_data: BatchMixin
 
 
 @dataclass
-class ConditionData: ...
+class ConditionData:
+    condition_reps: dict[str, ArrayMixin]
+    condition_covariates: BatchMixin
 
 
 @dataclass

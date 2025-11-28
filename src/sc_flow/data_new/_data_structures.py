@@ -32,6 +32,11 @@ class CategoricalDataContainer(BaseDataContainer):
 
 
 @dataclass
+class CombinatorialCategoricalDataContainer(CategoricalDataContainer):
+    """"""  # noqa
+
+
+@dataclass
 class StateDataContainer(BaseDataContainer):
     """"""  # noqa
 
@@ -42,15 +47,16 @@ class StateDataContainer(BaseDataContainer):
 class TargetDataContainer(BaseDataContainer):
     """"""  # noqa
 
-    target_data: BatchMixin
+    categorical_covariates: CategoricalDataContainer | None = None
+    continuous_covariates: BatchMixin | None = None
 
 
 @dataclass
 class ConditionDataContainer(BaseDataContainer):
     """"""  # noqa
 
-    condition_reps: CategoricalDataContainer
-    condition_covariates: BatchMixin
+    condition_reps: CombinatorialCategoricalDataContainer | None = None
+    condition_covariates: BatchMixin | None = None
 
 
 @dataclass
@@ -58,8 +64,8 @@ class DistributionContainer(BaseDataContainer):
     """"""  # noqa
 
     state_data: StateDataContainer
-    target_data: TargetDataContainer
-    condition_data: ConditionDataContainer
+    target_data: TargetDataContainer | None = None
+    condition_data: ConditionDataContainer | None = None
 
 
 @dataclass

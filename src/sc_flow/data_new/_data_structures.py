@@ -6,6 +6,11 @@ __all__ = ["DistributionData"]
 
 
 @dataclass
+class StateData:
+    X: np.ndarray
+
+
+@dataclass
 class TargetData: ...
 
 
@@ -15,6 +20,12 @@ class ConditionData: ...
 
 @dataclass
 class DistributionData:
-    X: np.ndarray
+    state_data: StateData
     target_data: TargetData
     condition_data: ConditionData
+
+
+@dataclass
+class MatchedDistributionsData:
+    target_distr: DistributionData
+    source_distr: DistributionData | None = None

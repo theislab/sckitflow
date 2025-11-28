@@ -40,12 +40,12 @@ def ot_linear_coupling(
     target: torch.Tensor,
     cost_fn: Callable | None = None,
     scale_cost: float | Literal["mean", "max_cost", "median"] = "mean",
-    method: Literal["exact", "sinkhorn", "partial", "unbalanced"] = "sinkhorn",
+    method: Literal["exact", "sinkhorn", "partial", "unbalanced", None] = None,
     of_fn: Callable | None = None,
     reg: float = 5e-1,
     reg_m: float = 1.0,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, torch.Tensor]:
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
 
     :param source: A tensor of values containing the data coming from the source distribution.
@@ -56,6 +56,9 @@ def ot_linear_coupling(
 
     #TODO
     """
+    if method is None:
+        method = "sinkhorn"
+
     if cost_fn is None:
         cost_fn = lambda source, target: torch.cdist(source, target) ** 2
 
@@ -102,7 +105,7 @@ def ot_linear_coupling(
             msg = f"{method=} requires `reg_m` to be a `float`, `None` found"
             raise ValueError(msg)
         ot_fn = partial(pot.unbalanced.sinkhorn_knopp_unbalanced, reg=reg, reg_m=reg_m, **kwargs)
-    elif method in ["exact", "sinkhorn", "partial", "unbalanced"] and ot_fn is None:
+    elif method not in ["exact", "sinkhorn", "partial", "unbalanced"]:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
         raise ValueError(msg)
 
@@ -127,11 +130,12 @@ def ot_linear_coupling(
         replace=False,
     )
     source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
+    if "return_matrix" in kwargs and kwargs["return_matrix"]:
+        return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs
 
 
 def ot_quadratic_coupling(
-    source: torch.Tensor,
     src_xx_cell_coupling: torch.Tensor,
     tgt_yy_cell_coupling: torch.Tensor,
     src_xy_cell_coupling: torch.Tensor | None = None,
@@ -141,12 +145,13 @@ def ot_quadratic_coupling(
     method: Literal[
         "entropic_gromov_wasserstein",
         "entropic_fused_gromov_wasserstein",
-    ] = "entropic_gromov_wasserstein",
+        None,
+    ] = None,
     of_fn: Callable | None = None,
     reg: float = 5e-1,
     reg_m: float = 1.0,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, torch.Tensor]:
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
 
     :param source: A tensor of values containing the data coming from the source distribution.
@@ -159,6 +164,8 @@ def ot_quadratic_coupling(
     """
     if cost_fn is None:
         cost_fn = lambda source, target: torch.cdist(source, target) ** 2
+    if method is None:
+        method = "entropic_gromov_wasserstein"
 
     # moving arrays to torch tensors
     if isinstance(src_xx_cell_coupling, np.ndarray):
@@ -200,21 +207,26 @@ def ot_quadratic_coupling(
             distance_matrix_xy = distance_matrix_xy / scale_cost
 
     if method == "entropic_gromov_wasserstein":
-        ot_fn = partial(pot.gromov.entropic_fused_gromov_wasserstein, epsilon=1.0, alpha=1.0)
+        ot_fn = partial(pot.gromov.entropic_gromov_wasserstein, epsilon=1.0, alpha=1.0)
+        # computing coupling matrix
+        coupling_matrix = ot_fn(
+            C1=distance_matrix_xx,
+            C2=distance_matrix_yy,
+        )
     elif method == "entropic_fused_gromov_wasserstein" and distance_matrix_xy is not None:
         ot_fn = partial(pot.gromov.entropic_fused_gromov_wasserstein, epsilon=1.0, alpha=0.5)
-    elif method in ["entropic_gromov_wasserstein"] and ot_fn is None:
+        # computing coupling matrix
+        coupling_matrix = ot_fn(
+            C1=distance_matrix_xx,
+            C2=distance_matrix_yy,
+            M=distance_matrix_xy,
+        )
+    elif method not in ["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"]:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
         raise ValueError(msg)
 
-    # computing coupling matrix
-    coupling_matrix = ot_fn(
-        C1=distance_matrix_xx,
-        C2=distance_matrix_yy,
-        M=distance_matrix_xy,
-    )
     # checking for numerical errors in the coupling matrix
-    if not np.all(np.isfinite(coupling_matrix)):
+    if not np.all(np.isfinite(coupling_matrix.numpy())):
         msg = f"Non finite values found in `coupling_matrix` \n {coupling_matrix=} \n {source=} \n {target=} \n {distance_matrix_xx.mean()=} \n {distance_matrix_xx.max()=}"
         logger.warning(msg)
     if np.abs(coupling_matrix.sum()) < 1e-8:
@@ -222,7 +234,7 @@ def ot_quadratic_coupling(
         logger.warning(msg)
         coupling_matrix = np.ones_like(coupling_matrix) / coupling_matrix.size
     # retrieving coupling probabilities
-    coupling_probs = coupling_matrix.flatten()
+    coupling_probs = coupling_matrix.numpy().flatten()
     coupling_probs = coupling_probs / coupling_probs.sum()
     # sampling indices
     choices = np.random.choice(
@@ -232,4 +244,6 @@ def ot_quadratic_coupling(
         replace=False,
     )
     source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
+    if "return_matrix" in kwargs and kwargs["return_matrix"]:
+        return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs

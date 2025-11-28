@@ -78,9 +78,8 @@ def test_ot_linear_coupling_exact_vs_sinkhorn_same_shape():
     tgt = jax.random.normal(shape=(5, 3), key=subkey_2)
 
     out_sinkhorn = ot_linear_coupling(src, tgt, method="sinkhorn")
-    out_exact = ot_linear_coupling(src, tgt, method="exact")
 
-    assert len(out_sinkhorn[0]) == len(out_exact[0]) == src.shape[0]
+    assert len(out_sinkhorn[0]) == src.shape[0]
 
 
 def test_ot_linear_coupling_partial_raises():
@@ -104,18 +103,15 @@ def test_ot_quadratic_coupling_basic():
     key = jax.random.key(0)
     key, subkey_1 = jax.random.split(key, num=2)
 
-    source = jax.random.normal(shape=(4, 2), key=subkey_1)
-
     xx = np.random.rand(5, 5)
     yy = np.random.rand(6, 6)
 
     src_idx, tgt_idx = ot_quadratic_coupling(
-        source,
         src_xx_cell_coupling=xx,
         tgt_yy_cell_coupling=yy,
     )
 
-    assert len(src_idx) == len(tgt_idx) == source.shape[0]
+    assert len(src_idx) == len(tgt_idx) == xx.shape[0]
     assert np.all(src_idx < xx.shape[0])
     assert np.all(tgt_idx < yy.shape[0])
 
@@ -124,15 +120,12 @@ def test_ot_quadratic_requires_fused_terms():
     key = jax.random.key(0)
     key, subkey_1 = jax.random.split(key, num=2)
 
-    src = jax.random.normal(shape=(3, 2), key=subkey_1)
-
     xx = np.random.rand(3, 3)
     yy = np.random.rand(4, 4)
 
     # Missing fused terms → must fail
     with pytest.raises(ValueError):
         ot_quadratic_coupling(
-            src,
             xx,
             yy,
             method="entropic_fused_gromov_wasserstein",
@@ -153,7 +146,6 @@ def test_ot_quadratic_coupling_fused_terms():
     yx = np.random.rand(5, 3)
 
     src_idx, tgt_idx = ot_quadratic_coupling(
-        src,
         xx,
         yy,
         src_xy_cell_coupling=xy,

@@ -6,6 +6,7 @@ import pandas as pd
 from anndata import AnnData
 
 from sc_flow._types import MappedArray
+from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data._mixins import BatchMixin
 from sc_flow.data._structures import CategoricalData, CombinationData, ConditionData
 from sc_flow.data.schemas._base_schema import BaseDataSchema
@@ -23,10 +24,12 @@ class ConditionDataSchema(BaseDataSchema):
 
     def __post_init__(self) -> None:
         """"""  # noqa
-        missing_keys = set(self.conditions.keys()) - set(self.conditions_reps.keys())
-        if len(missing_keys):
-            msg = "Keys of conditions and conditions_reps are shared"
-            raise KeyError(msg)
+        check_sequence_query_against_reference(
+            self.conditions_reps.keys(),
+            self.conditions.keys(),
+            allow_missing_from_query=False,
+            allow_missing_from_reference=False,
+        )
 
     @property
     def all_condition_categories(
@@ -55,7 +58,7 @@ class ConditionDataSchema(BaseDataSchema):
         """"""  # noqa
         return self.conditions_covariates is None
 
-    def _verify_schema_categorical_covariates(
+    def _verify_categorical_covariates(
         self,
         adata: AnnData,
     ) -> None:
@@ -66,7 +69,7 @@ class ConditionDataSchema(BaseDataSchema):
                 raise ValueError(msg)
             self._check_key_found_in_adata_field(adata, condition_rep, "uns")
 
-    def _verify_schema_continuous_covariates(
+    def _verify_continuous_covariates(
         self,
         adata: AnnData,
     ) -> None:
@@ -112,8 +115,8 @@ class ConditionDataSchema(BaseDataSchema):
         adata: AnnData,
     ) -> None:
         """"""  # noqa
-        self._verify_schema_categorical_covariates(adata)
-        self._verify_schema_continuous_covariates(adata)
+        self._verify_categorical_covariates(adata)
+        self._verify_continuous_covariates(adata)
 
     def _get_data(
         self,

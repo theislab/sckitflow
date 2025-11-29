@@ -9,6 +9,7 @@ __all__ = [
     "verify_fn_kwargs_dictionary",
     "verify_fn_signature",
     "apply_fn_to_mapping",
+    "check_sequence_query_against_reference",
 ]
 
 
@@ -215,3 +216,26 @@ def apply_fn_to_mapping(
         elif not drop_unused_fields:
             out_dict[key] = value
     return mapping.__class__(**out_dict)
+
+
+def check_sequence_query_against_reference(
+    query: Collection[str],
+    reference: Collection[str],
+    allow_missing_from_query: bool = True,
+    allow_missing_from_reference: bool = False,
+) -> None:
+    """"""  # noqa
+    # set logic for overlap
+    union = set(query).union(set(reference))
+    missing_from_reference = union - set(reference)
+    missing_from_query = union - set(query)
+
+    # strictly checking that we have all reference columns
+    if len(missing_from_query) and not allow_missing_from_query:
+        msg = f"The following reference columns are missing from the query: {missing_from_query}"
+        raise ValueError(msg)
+
+    # query value not found in reference set
+    if len(missing_from_reference) and not allow_missing_from_reference:
+        msg = f"The following query columns dont appear in the reference: {missing_from_reference}"
+        raise ValueError(msg)

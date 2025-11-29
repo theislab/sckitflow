@@ -1,9 +1,9 @@
-from collections.abc import Collection
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
+from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 
 __all__ = ["IndexSelector"]
@@ -23,29 +23,6 @@ class IndexSelector:
             indexer.registry,
             indexer._hierarchy_levels,
         )
-
-    @staticmethod
-    def _check_columns_against_query(
-        query: Collection[str],
-        reference: Collection[str],
-        allow_missing_from_query: bool = True,
-        allow_missing_from_reference: bool = False,
-    ) -> None:
-        """"""  # noqa
-        # set logic for overlap
-        union = set(query) + set(reference)
-        missing_from_reference = union - set(reference)
-        missing_from_query = union - set(query)
-
-        # strictly checking that we have all reference columns
-        if len(missing_from_query) and not allow_missing_from_query:
-            msg = f"The following reference columns are missing from the query: {missing_from_query}"
-            raise ValueError(msg)
-
-        # query value not found in reference set
-        if len(missing_from_reference) and not allow_missing_from_reference:
-            msg = f"The following query columns dont appear in the reference: {missing_from_reference}"
-            raise ValueError(msg)
 
     @staticmethod
     def _parse_query_dict(
@@ -134,14 +111,16 @@ class IndexSelector:
         query_dict: dict[str, str],
     ) -> None:
         """"""  # noqa
-        self._check_columns_against_query(query_dict.keys(), self.registry[level_name], allow_missing_from_query=False)
+        check_sequence_query_against_reference(
+            query_dict.keys(), self.registry[level_name], allow_missing_from_query=False
+        )
 
     def _verify_query_dict(
         self,
         query_dict: dict[str, dict[str, str]],
     ) -> None:
         """"""  # noqa
-        self._check_columns_against_query(query_dict.keys(), self.registry.keys())
+        check_sequence_query_against_reference(query_dict.keys(), self.registry.keys())
         for level_name, level_query_dict in query_dict.items():
             self._verify_level_query_dict(level_name, level_query_dict)
 

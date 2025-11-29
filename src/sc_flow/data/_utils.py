@@ -1,9 +1,24 @@
+from collections.abc import Mapping
+
 import numpy as np
+import pandas as pd
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
-from sc_flow._types import TargetCovariatesEncodingId
+from sc_flow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
 
-__all__ = ["get_covariate_encoder", "get_label_encoder", "get_one_hot_encoder"]
+__all__ = ["get_covariates_encoders_from_dict", "get_covariate_encoder", "get_label_encoder", "get_one_hot_encoder"]
+
+
+def get_covariates_encoders_from_dict(
+    categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId],
+    covariates_df: pd.DataFrame,
+) -> Mapping[str, TargetCovariatesEncoderCls]:
+    """"""  # noqa
+    encoder_dict = {}
+    for cov_name, enc_id in categorical_covs_dict.items():
+        cov_data = covariates_df.loc[:, cov_name].values
+        encoder_dict[cov_name] = get_covariate_encoder(enc_id, cov_data)
+    return encoder_dict
 
 
 def get_covariate_encoder(

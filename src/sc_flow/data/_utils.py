@@ -1,6 +1,25 @@
 import numpy as np
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
+from sc_flow._types import TargetCovariatesEncoding
+
+__all__ = ["get_covariate_encoder", "get_label_encoder", "get_one_hot_encoder"]
+
+
+def get_covariate_encoder(
+    encoder_id: TargetCovariatesEncoding,
+    data: np.ndarray,
+) -> LabelEncoder | OneHotEncoder:
+    """"""  # noqa
+    if encoder_id == "label":
+        return get_label_encoder(data)
+    elif encoder_id == "one-hot":
+        return get_one_hot_encoder(data)
+    elif encoder_id == "identity":
+        return lambda x: x
+    msg = f"Covariate Encoder {encoder_id} not available.Possible options are {TargetCovariatesEncoding}"
+    raise ValueError(msg)
+
 
 def get_label_encoder(data: np.ndarray) -> LabelEncoder:
     """Fits a label encoder on the provided data."""

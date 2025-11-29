@@ -27,6 +27,6 @@ CouplingSpaceReps = Literal[
     "tgt_coupling_quad",
 ]
 
-TargetCovariatesEncoding = Literal["label", "one-hot"]
+TargetCovariatesEncoding = Literal["label", "one-hot", "identity"]
 
 MappedArray = dict[str, np.ndarray]

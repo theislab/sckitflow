@@ -2,14 +2,14 @@ from dataclasses import dataclass
 
 from anndata import AnnData
 
-from sc_flow.data._data_structures import StateDataContainer
-from sc_flow.data.contracts._base_contract import BaseDataContract
+from sc_flow.data._structures import StateDataContainer
+from sc_flow.data.schemas._base_schema import BaseDataSchema
 
-__all__ = ["StateDataContract"]
+__all__ = ["StateDataSchema"]
 
 
 @dataclass
-class StateDataContract(BaseDataContract):
+class StateDataSchema(BaseDataSchema):
     """"""  # noqa
 
     sample_rep: str | None = None

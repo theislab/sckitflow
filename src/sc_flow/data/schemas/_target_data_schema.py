@@ -4,15 +4,15 @@ from dataclasses import dataclass
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncoding
-from sc_flow.data._data_structures import CategoricalDataContainer, TargetDataContainer
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data.contracts._base_contract import BaseDataContract
+from sc_flow.data._structures import CategoricalDataContainer, TargetDataContainer
+from sc_flow.data.schemas._base_schema import BaseDataSchema
 
-__all__ = ["TargetDataContract"]
+__all__ = ["TargetDataSchema"]
 
 
 @dataclass
-class TargetDataContract(BaseDataContract):
+class TargetDataSchema(BaseDataSchema):
     """"""  # noqa
 
     categorical_target_covariates: Mapping[str, TargetCovariatesEncoding] | None = None

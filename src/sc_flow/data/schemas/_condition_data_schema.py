@@ -3,15 +3,15 @@ from dataclasses import dataclass
 
 from anndata import AnnData
 
-from sc_flow.data._data_structures import CombinatorialCategoricalDataContainer, ConditionDataContainer
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data.contracts._base_contract import BaseDataContract
+from sc_flow.data._structures import CombinatorialCategoricalDataContainer, ConditionDataContainer
+from sc_flow.data.schemas._base_schema import BaseDataSchema
 
-__all__ = ["ConditionDataContract"]
+__all__ = ["ConditionDataSchema"]
 
 
 @dataclass
-class ConditionDataContract(BaseDataContract):
+class ConditionDataSchema(BaseDataSchema):
     """Implements the logic for conditioning."""
 
     conditions: dict[str, Collection[str]] | None = None

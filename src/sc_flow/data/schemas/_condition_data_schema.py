@@ -1,10 +1,12 @@
 from collections.abc import Collection
 from dataclasses import dataclass
 
+import pandas as pd
 from anndata import AnnData
 
+from sc_flow._types import MappedArray
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._structures import CombinationData, ConditionData
+from sc_flow.data._structures import CategoricalData, CombinationData, ConditionData
 from sc_flow.data.schemas._base_schema import BaseDataSchema
 
 __all__ = ["ConditionDataSchema"]
@@ -75,25 +77,38 @@ class ConditionDataSchema(BaseDataSchema):
             for covariate in covariates:
                 self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
+    def _get_covariates_df_dict(
+        self,
+        adata: AnnData,
+    ) -> dict[str, pd.DataFrame]:
+        """"""  # noqa
+        return {condition_name: adata.obs.loc[:, covariates] for condition_name, covariates in self.conditions.items()}
+
+    def _get_repr_dict(self, adata: AnnData) -> dict[str, MappedArray]:
+        """"""  # noqa
+        return {
+            condition_name: adata.uns[condition_repr] for condition_name, condition_repr in self.conditions_reps.items()
+        }
+
     def _get_categorical_covariates(
         self,
         adata: AnnData,
     ) -> CombinationData:
         """"""  # noqa
-        column_values = ...
-        repr_dict = ...
-        raise NotImplementedError
-        return CombinationData(
-            column_values=column_values,
-            repr_dict=repr_dict,
-        )
+        covariates_df_dict = self._get_covariates_df_dict(adata)
+        repr_dict = self._get_repr_dict(adata)
+        data_dict = {
+            condition_name: CategoricalData(covariates_df, repr_dict=repr_dict[condition_name])
+            for condition_name, covariates_df in covariates_df_dict.items()
+        }
+        return CombinationData(data_dict)
 
     def _get_continuous_covariates(
         self,
         adata: AnnData,
     ) -> BatchMixin:
         """"""  # noqa
-        raise NotImplementedError
+        return {covariate_name: adata.obsm[covariate_name] for covariate_name in self.conditions_covariates}
 
     def _verify_schema(
         self,

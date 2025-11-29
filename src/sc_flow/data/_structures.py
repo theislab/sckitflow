@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -36,7 +35,7 @@ class CategoricalData(BaseDataContainer):
 class CombinationData(CategoricalData):
     """"""  # noqa
 
-    combination_data: dict[str, Any]
+    combination_data: dict[str, CategoricalData]
 
 
 @dataclass

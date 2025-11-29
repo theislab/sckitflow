@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from sc_flow.data._indexer import HierarchicalIndexer
 from sc_flow.data._structures import CompiledData
+from sc_flow.data.grouping._indexer import HierarchicalIndexer
 
 __all__ = [
     "BaseCollection",

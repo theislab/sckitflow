@@ -30,19 +30,19 @@ class DataManager:
 
     def __post_init__(self) -> None:
         """"""  # noqa
-        self._state_data_contract = StateDataSchema(
+        self._state_data_schema = StateDataSchema(
             sample_rep=self.sample_rep,
         )
-        self._condition_data_contract = ConditionDataSchema(
+        self._condition_data_schema = ConditionDataSchema(
             conditions_reps=self.conditions_reps, conditions_covariates=self.conditions_covariates
         )
-        self._target_data_contract = TargetDataSchema(
+        self._target_data_schema = TargetDataSchema(
             categorical_target_covariates=self.categorical_target_covariates,
             continuous_target_covariates=self.continuous_target_covariates,
         )
         self._indexer = HierarchicalIndexer(
             groups_cols=None,  # TODO: add attributes for base groups
-            conditions_cols=self.condition_data_contract.all_condition_categories,
+            conditions_cols=self.condition_data_schema.all_condition_categories,
         )
 
     def _get_index(self, adata: AnnData) -> pd.MultiIndex:
@@ -54,23 +54,23 @@ class DataManager:
         adata: AnnData,
     ) -> StateData:
         """"""  # noqa
-        return self.state_data_contract.enforce_contract(adata)
+        return self.state_data_schema.enforce_schema(adata)
 
     def _get_condition_data(
         self,
         adata: AnnData,
     ) -> ConditionData:
         """"""  # noqa
-        return self.condition_data_contract.enforce_contract(adata)
+        return self.condition_data_schema.enforce_schema(adata)
 
     def _get_target_data(
         self,
         adata: AnnData,
     ) -> TargetData:
         """"""  # noqa
-        return self.target_data_contract.enforce_contract(adata)
+        return self.target_data_schema.enforce_schema(adata)
 
-    def _get_data(
+    def _get_compiled_data(
         self,
         adata: AnnData,
     ) -> CompiledData:
@@ -100,16 +100,16 @@ class DataManager:
         return self._indexer
 
     @property
-    def state_data_contract(self) -> StateDataSchema:
+    def state_data_schema(self) -> StateDataSchema:
         """"""  # noqa
-        return self._state_data_contract
+        return self._state_data_schema
 
     @property
-    def condition_data_contract(self) -> ConditionDataSchema:
+    def condition_data_schema(self) -> ConditionDataSchema:
         """"""  # noqa
-        return self._condition_data_contract
+        return self._condition_data_schema
 
     @property
-    def target_data_contract(self) -> ConditionDataSchema:
+    def target_data_schema(self) -> ConditionDataSchema:
         """"""  # noqa
-        return self._condition_data_contract
+        return self._condition_data_schema

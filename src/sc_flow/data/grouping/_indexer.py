@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from sc_flow._constants import CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
+from sc_flow._utils import check_sequence_query_against_reference
 
 __all__ = ["HierarchicalIndexer"]
 
@@ -63,7 +64,9 @@ class HierarchicalIndexer:
             # use level data when provided
             else:
                 # sanity check
-                self._check_columns_against_query(level_cols, df.columns)
+                check_sequence_query_against_reference(
+                    level_cols, df.columns, allow_missing_from_query=True, allow_missing_from_reference=False
+                )
                 level_data = df[level_cols].to_numpy()
 
             # updating levels

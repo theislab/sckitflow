@@ -1,5 +1,6 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
+from dataclasses import field as dc_field
 
 import numpy as np
 import pandas as pd
@@ -9,6 +10,7 @@ from sc_flow.data._mixins import BatchMixin
 
 __all__ = [
     "CategoricalData",
+    "CombinationData",
     "StateData",
     "TargetData",
     "ConditionData",
@@ -28,19 +30,12 @@ class CategoricalData(BaseData):
     """"""  # noqa
 
     ann_df: pd.DataFrame
-    repr_dict: MappedArray | None = None
-    categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] | None = None
+    repr_dict: MappedArray | dict[str, MappedArray] = dc_field(default_factory=lambda: {})
+    categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] = dc_field(default_factory=lambda: {})
 
 
 @dataclass
-class GroupsData(BaseData):
-    """"""  # noqa
-
-    combination_data: dict[str, CategoricalData]
-
-
-@dataclass
-class CombinationData(GroupsData):
+class CombinationData(CategoricalData):
     """"""  # noqa
 
 
@@ -74,7 +69,7 @@ class CompiledData(BaseData):
     state_data: StateData
     target_data: TargetData | None = None
     condition_data: ConditionData | None = None
-    groups_data: GroupsData | None = None
+    groups_data: CategoricalData | None = None
 
     @property
     def ann_df(self) -> pd.DataFrame:

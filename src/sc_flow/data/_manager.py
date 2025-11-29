@@ -6,9 +6,9 @@ from anndata import AnnData
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._collections import TrainCollection, ValidationCollection
 from sc_flow.data._structures import (
+    CategoricalData,
     CompiledData,
     ConditionData,
-    GroupsData,
     StateData,
     TargetData,
 )
@@ -98,7 +98,7 @@ class DataManager:
         return GroupsDataSchema(
             groups=[] if groups is None else groups,
             groups_reps={} if groups_reps is None else groups_reps,
-            groups_encoding={} if groups_encoding else groups_encoding,
+            groups_encoding={} if groups_encoding is None else groups_encoding,
         )
 
     def _init_indexer(
@@ -129,7 +129,7 @@ class DataManager:
     def _get_groups_data(
         self,
         adata: AnnData,
-    ) -> GroupsData:
+    ) -> CategoricalData:
         """"""  # noqa
         return self._groups_data_schema.get_data(adata)
 
@@ -149,7 +149,7 @@ class DataManager:
         # retrieving data
         state_data: StateData = self._get_state_data(adata)
         condition_data: ConditionData = self._get_condition_data(adata)
-        groups_data: GroupsData = self._get_groups_data(adata)
+        groups_data: CategoricalData = self._get_groups_data(adata)
         target_data: TargetData = self._get_target_data(adata)
         return CompiledData(
             state_data,
@@ -157,6 +157,13 @@ class DataManager:
             condition_data=condition_data,
             groups_data=groups_data,
         )
+
+    def get_compiled_data(
+        self,
+        adata: AnnData,
+    ) -> CompiledData:
+        """"""  # noqa
+        return self._get_compiled_data(adata)
 
     def get_train_collection(
         self,

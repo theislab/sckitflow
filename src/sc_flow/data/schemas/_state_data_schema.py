@@ -14,7 +14,7 @@ class StateDataSchema(BaseDataSchema):
 
     sample_rep: str | None = None
 
-    def _verify_contract(
+    def _verify_schema(
         self,
         adata: AnnData,
     ) -> None:
@@ -27,7 +27,7 @@ class StateDataSchema(BaseDataSchema):
         if self.sample_rep is not None:
             self._check_key_found_in_adata_field(adata, self.sample_rep, "obsm")
 
-    def _enforce_contract(
+    def _enforce_schema(
         self,
         adata: AnnData,
     ) -> StateData:

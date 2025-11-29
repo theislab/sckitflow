@@ -7,10 +7,10 @@ from anndata import AnnData
 from sc_flow._types import TargetCovariatesEncoding
 from sc_flow.data._indexer import HierarchicalIndexer
 from sc_flow.data._structures import (
-    ConditionDataContainer,
+    ConditionData,
     IndexedContainer,
-    StateDataContainer,
-    TargetDataContainer,
+    StateData,
+    TargetData,
 )
 from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema, TargetDataSchema
 
@@ -52,21 +52,21 @@ class DataManager:
     def _get_state_data(
         self,
         adata: AnnData,
-    ) -> StateDataContainer:
+    ) -> StateData:
         """"""  # noqa
         return self.state_data_contract.enforce_contract(adata)
 
     def _get_condition_data(
         self,
         adata: AnnData,
-    ) -> ConditionDataContainer:
+    ) -> ConditionData:
         """"""  # noqa
         return self.condition_data_contract.enforce_contract(adata)
 
     def _get_target_data(
         self,
         adata: AnnData,
-    ) -> TargetDataContainer:
+    ) -> TargetData:
         """"""  # noqa
         return self.target_data_contract.enforce_contract(adata)
 
@@ -81,14 +81,23 @@ class DataManager:
         condition_data = self._get_condition_data(adata)
         target_data = self._get_target_data(adata)
 
-        # retrieving index and return indexed data
-        index = self._get_index(adata)
         return IndexedContainer(
-            index,
             state_data,
             target_data=target_data,
             condition_data=condition_data,
         )
+
+    def _get_index(
+        self,
+        adata: AnnData,
+    ) -> pd.MultiIndex:
+        """"""  # noqa
+        return self._indexer.create_index(adata.obs)
+
+    @property
+    def indexer(self) -> HierarchicalIndexer:
+        """"""  # noqa
+        return self._indexer
 
     @property
     def state_data_contract(self) -> StateDataSchema:

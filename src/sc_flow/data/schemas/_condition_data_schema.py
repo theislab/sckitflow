@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from anndata import AnnData
 
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._structures import CombinatorialCategoricalDataContainer, ConditionDataContainer
+from sc_flow.data._structures import CombinationData, ConditionData
 from sc_flow.data.schemas._base_schema import BaseDataSchema
 
 __all__ = ["ConditionDataSchema"]
@@ -78,12 +78,12 @@ class ConditionDataSchema(BaseDataSchema):
     def _enforce_contract_categorical_covariates(
         self,
         adata: AnnData,
-    ) -> CombinatorialCategoricalDataContainer:
+    ) -> CombinationData:
         """"""  # noqa
         column_values = ...
         repr_dict = ...
         raise NotImplementedError
-        return CombinatorialCategoricalDataContainer(
+        return CombinationData(
             column_values=column_values,
             repr_dict=repr_dict,
         )
@@ -106,8 +106,8 @@ class ConditionDataSchema(BaseDataSchema):
     def _enforce_contract(
         self,
         adata: AnnData,
-    ) -> ConditionDataContainer:
+    ) -> ConditionData:
         """"""  # noqa
         categorical_covariates = self._enforce_contract_categorical_covariates(adata)
         continuous_covariates = self._enforce_contract_continuous_covariates(adata)
-        raise ConditionDataContainer(condition_reps=categorical_covariates, condition_covariates=continuous_covariates)
+        raise ConditionData(condition_reps=categorical_covariates, condition_covariates=continuous_covariates)

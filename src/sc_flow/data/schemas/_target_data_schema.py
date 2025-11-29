@@ -5,7 +5,7 @@ from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncoding
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._structures import CategoricalDataContainer, TargetDataContainer
+from sc_flow.data._structures import CategoricalData, TargetData
 from sc_flow.data.schemas._base_schema import BaseDataSchema
 
 __all__ = ["TargetDataSchema"]
@@ -58,7 +58,7 @@ class TargetDataSchema(BaseDataSchema):
         self._verify_contract_categorical_covariates(adata)
         self._verify_contract_continuous_covariates(adata)
 
-    def _enforce_contract_categorical_covariates(adata) -> CategoricalDataContainer:
+    def _enforce_contract_categorical_covariates(adata) -> CategoricalData:
         """"""  # noqa
         raise NotImplementedError
 
@@ -69,10 +69,8 @@ class TargetDataSchema(BaseDataSchema):
     def _enforce_contract(
         self,
         adata: AnnData,
-    ) -> TargetDataContainer:
+    ) -> TargetData:
         """"""  # noqa
         categorical_covariates = self._enforce_contract_categorical_covariates(adata)
         continuous_covariates = self._enforce_contract_categorical_covariates(adata)
-        raise TargetDataContainer(
-            categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates
-        )
+        raise TargetData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)

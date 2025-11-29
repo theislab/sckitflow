@@ -13,7 +13,7 @@ from sc_flow.data.schemas._base_schema import BaseDataSchema
 class GroupsDataSchema(BaseDataSchema):
     """"""  # noqa
 
-    groups: dict[str, Collection[str]] = dc_field(default_factory=lambda: {})
+    groups: Collection[str] = dc_field(default_factory=lambda: [])
     groups_reps: dict[str, str] = dc_field(default_factory=lambda: {})
     groups_encoding: dict[str, TargetCovariatesEncodingId] = dc_field(default_factory=lambda: {})
 

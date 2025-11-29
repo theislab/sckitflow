@@ -65,7 +65,7 @@ class TargetDataSchema(BaseDataSchema):
         adata: AnnData,
     ) -> pd.DataFrame:
         """"""  # noqa
-        return self.adata.obs.loc[self.categorical_covariates]
+        return self.adata.obs.loc[:, self.categorical_covariates]
 
     def _get_covariates_encoders(
         self,

@@ -48,7 +48,7 @@ class HierarchicalIndexer:
             if self.conditions_cols is None
             else sorted(self.conditions_cols),
         }
-        self._hierarchy_levels: list[str] = ["groups", "conditions"]
+        self._hierarchy_levels: list[str] = [GROUP_LEVEL_NAME, CONDITION_LEVEL_NAME]
 
     def create_index(self, df: pd.DataFrame) -> pd.MultiIndex:
         """Creates a hierarchical index from the input dataframe."""

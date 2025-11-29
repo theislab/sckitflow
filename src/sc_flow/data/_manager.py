@@ -7,8 +7,8 @@ from anndata import AnnData
 from sc_flow._types import TargetCovariatesEncoding
 from sc_flow.data._indexer import HierarchicalIndexer
 from sc_flow.data._structures import (
+    CompiledData,
     ConditionData,
-    IndexedContainer,
     StateData,
     TargetData,
 )
@@ -73,7 +73,7 @@ class DataManager:
     def _get_data(
         self,
         adata: AnnData,
-    ) -> IndexedContainer:
+    ) -> CompiledData:
         """"""  # noqa
 
         # retrieving data
@@ -81,7 +81,7 @@ class DataManager:
         condition_data = self._get_condition_data(adata)
         target_data = self._get_target_data(adata)
 
-        return IndexedContainer(
+        return CompiledData(
             state_data,
             target_data=target_data,
             condition_data=condition_data,

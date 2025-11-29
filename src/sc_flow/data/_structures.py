@@ -11,7 +11,7 @@ __all__ = [
     "StateData",
     "TargetData",
     "ConditionData",
-    "IndexedContainer",
+    "CompiledData",
 ]
 
 
@@ -61,7 +61,7 @@ class ConditionData(BaseDataContainer):
 
 
 @dataclass
-class IndexedContainer(BaseDataContainer):
+class CompiledData(BaseDataContainer):
     """"""  # noqa
 
     state_data: StateData

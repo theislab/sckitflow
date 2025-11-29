@@ -27,7 +27,7 @@ class StateDataSchema(BaseDataSchema):
         if self.sample_rep is not None:
             self._check_key_found_in_adata_field(adata, self.sample_rep, "obsm")
 
-    def _enforce_schema(
+    def _get_data(
         self,
         adata: AnnData,
     ) -> StateData:

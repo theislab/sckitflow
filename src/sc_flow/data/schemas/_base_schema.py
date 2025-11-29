@@ -45,17 +45,17 @@ class BaseDataSchema(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _enforce_schema(
+    def _get_data(
         self,
         adata: AnnData,
     ) -> BaseDataContainer:
         """"""  # noqa
         raise NotImplementedError
 
-    def enforce_schema(
+    def get_data(
         self,
         adata: AnnData,
     ) -> BaseDataContainer:
         """"""  # noqa
         self._verify_schema(adata)
-        return self._enforce_schema(adata)
+        return self._get_data(adata)

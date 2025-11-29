@@ -75,7 +75,7 @@ class ConditionDataSchema(BaseDataSchema):
             for covariate in covariates:
                 self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
-    def _enforce_schema_categorical_covariates(
+    def _get_categorical_covariates(
         self,
         adata: AnnData,
     ) -> CombinationData:
@@ -88,7 +88,7 @@ class ConditionDataSchema(BaseDataSchema):
             repr_dict=repr_dict,
         )
 
-    def _enforce_schema_continuous_covariates(
+    def _get_continuous_covariates(
         self,
         adata: AnnData,
     ) -> BatchMixin:
@@ -103,11 +103,11 @@ class ConditionDataSchema(BaseDataSchema):
         self._verify_schema_categorical_covariates(adata)
         self._verify_schema_continuous_covariates(adata)
 
-    def _enforce_schema(
+    def _get_data(
         self,
         adata: AnnData,
     ) -> ConditionData:
         """"""  # noqa
-        categorical_covariates = self._enforce_schema_categorical_covariates(adata)
-        continuous_covariates = self._enforce_schema_continuous_covariates(adata)
+        categorical_covariates = self._get_categorical_covariates(adata)
+        continuous_covariates = self._get_continuous_covariates(adata)
         raise ConditionData(condition_reps=categorical_covariates, condition_covariates=continuous_covariates)

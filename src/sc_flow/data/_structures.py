@@ -1,9 +1,10 @@
+from collections.abc import Mapping
 from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
 
-from sc_flow._types import MappedArray, MappedTargetCovariatesEncodingCls
+from sc_flow._types import MappedArray, TargetCovariatesEncoderCls
 from sc_flow.data._mixins import BatchMixin
 
 __all__ = [
@@ -28,11 +29,11 @@ class CategoricalData(BaseData):
 
     ann_df: pd.DataFrame
     repr_dict: MappedArray | None = None
-    categorical_encoders: MappedTargetCovariatesEncodingCls | None = None
+    categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] | None = None
 
 
 @dataclass
-class GroupsData(CategoricalData):
+class GroupsData(BaseData):
     """"""  # noqa
 
     combination_data: dict[str, CategoricalData]

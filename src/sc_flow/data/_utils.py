@@ -1,5 +1,5 @@
 import numpy as np
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
+from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sc_flow._types import TargetCovariatesEncodingId
 
@@ -16,7 +16,7 @@ def get_covariate_encoder(
     elif encoder_id == "one-hot":
         return get_one_hot_encoder(data)
     elif encoder_id == "identity":
-        return lambda x: x
+        return FunctionTransformer()
     msg = f"Covariate Encoder {encoder_id} not available.Possible options are {TargetCovariatesEncodingId}"
     raise ValueError(msg)
 

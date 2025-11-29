@@ -1,5 +1,6 @@
 from collections.abc import Collection
 from dataclasses import dataclass
+from dataclasses import field as dc_field
 
 import pandas as pd
 from anndata import AnnData
@@ -16,9 +17,9 @@ __all__ = ["ConditionDataSchema"]
 class ConditionDataSchema(BaseDataSchema):
     """Implements the logic for conditioning."""
 
-    conditions: dict[str, Collection[str]] | None = None
-    conditions_reps: dict[str, str] | None = None
-    conditions_covariates: Collection[str] | None = None
+    conditions: dict[str, Collection[str]] = dc_field(default_factory=lambda: {})
+    conditions_reps: dict[str, str] = dc_field(default_factory=lambda: {})
+    conditions_covariates: Collection[str] = dc_field(default_factory=lambda: [])
 
     def __post_init__(self) -> None:
         """"""  # noqa
@@ -70,12 +71,8 @@ class ConditionDataSchema(BaseDataSchema):
         adata: AnnData,
     ) -> None:
         """"""  # noqa
-        for condition_cat, covariates in self.conditions_covariates.items():
-            if condition_cat not in self.all_condition_categories:
-                msg = f"Condition category {condition_cat} not found."
-                raise KeyError(msg)
-            for covariate in covariates:
-                self._check_key_found_in_adata_field(adata, covariate, "obsm")
+        for covariate in self.conditions_covariates:
+            self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
     def _get_covariates_df_dict(
         self,
@@ -125,4 +122,4 @@ class ConditionDataSchema(BaseDataSchema):
         """"""  # noqa
         categorical_covariates = self._get_categorical_covariates(adata)
         continuous_covariates = self._get_continuous_covariates(adata)
-        raise ConditionData(condition_reps=categorical_covariates, condition_covariates=continuous_covariates)
+        return ConditionData(condition_reps=categorical_covariates, condition_covariates=continuous_covariates)

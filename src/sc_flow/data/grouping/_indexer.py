@@ -109,6 +109,11 @@ class HierarchicalIndexer:
         self._init_registry()
 
     @property
+    def hierarchy_levels(self) -> list[str]:
+        """"""  # noqa
+        return self._hierarchy_levels
+
+    @property
     def registry(self) -> dict[str, tuple[str] | None]:
         """Retrieves the registry associated to the indexer."""
         return self._registry

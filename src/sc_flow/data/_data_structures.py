@@ -28,12 +28,14 @@ class CategoricalDataContainer(BaseDataContainer):
     """"""  # noqa
 
     column_values: Collection[tuple[str]]
-    repr_dict: MappedArray
+    repr_dict: MappedArray | None = None
 
 
 @dataclass
 class CombinatorialCategoricalDataContainer(CategoricalDataContainer):
     """"""  # noqa
+
+    combination_data: dict[str, CategoricalDataContainer]
 
 
 @dataclass

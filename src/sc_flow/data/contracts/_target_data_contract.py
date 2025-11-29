@@ -71,4 +71,8 @@ class TargetDataContract(BaseDataContract):
         adata: AnnData,
     ) -> TargetDataContainer:
         """"""  # noqa
-        raise NotImplementedError
+        categorical_covariates = self._enforce_contract_categorical_covariates(adata)
+        continuous_covariates = self._enforce_contract_categorical_covariates(adata)
+        raise TargetDataContainer(
+            categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates
+        )

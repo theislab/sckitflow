@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from anndata import AnnData
 
-from sc_flow.data._structures import StateDataContainer
+from sc_flow.data._structures import StateData
 from sc_flow.data.schemas._base_schema import BaseDataSchema
 
 __all__ = ["StateDataSchema"]
@@ -30,9 +30,9 @@ class StateDataSchema(BaseDataSchema):
     def _enforce_contract(
         self,
         adata: AnnData,
-    ) -> StateDataContainer:
+    ) -> StateData:
         """"""  # noqa
         if self.sample_rep is None:
             X = adata.X
         X = adata.obsm[self.sample_rep]
-        return StateDataContainer(X)
+        return StateData(X)

@@ -7,10 +7,10 @@ from sc_flow._types import MappedArray
 from sc_flow.data._mixins import BatchMixin
 
 __all__ = [
-    "CategoricalDataContainer",
-    "StateDataContainer",
-    "TargetDataContainer",
-    "ConditionDataContainer",
+    "CategoricalData",
+    "StateData",
+    "TargetData",
+    "ConditionData",
     "IndexedContainer",
 ]
 
@@ -23,7 +23,7 @@ class BaseDataContainer:
 
 
 @dataclass
-class CategoricalDataContainer(BaseDataContainer):
+class CategoricalData(BaseDataContainer):
     """"""  # noqa
 
     column_values: pd.DataFrame
@@ -31,32 +31,32 @@ class CategoricalDataContainer(BaseDataContainer):
 
 
 @dataclass
-class CombinatorialCategoricalDataContainer(CategoricalDataContainer):
+class CombinationData(CategoricalData):
     """"""  # noqa
 
-    combination_data: dict[str, CategoricalDataContainer]
+    combination_data: dict[str, CategoricalData]
 
 
 @dataclass
-class StateDataContainer(BaseDataContainer):
+class StateData(BaseDataContainer):
     """"""  # noqa
 
     X: np.ndarray
 
 
 @dataclass
-class TargetDataContainer(BaseDataContainer):
+class TargetData(BaseDataContainer):
     """"""  # noqa
 
-    categorical_covariates: CategoricalDataContainer | None = None
+    categorical_covariates: CategoricalData | None = None
     continuous_covariates: BatchMixin | None = None
 
 
 @dataclass
-class ConditionDataContainer(BaseDataContainer):
+class ConditionData(BaseDataContainer):
     """"""  # noqa
 
-    condition_reps: CombinatorialCategoricalDataContainer | None = None
+    condition_reps: CombinationData | None = None
     condition_covariates: BatchMixin | None = None
 
 
@@ -64,7 +64,6 @@ class ConditionDataContainer(BaseDataContainer):
 class IndexedContainer(BaseDataContainer):
     """"""  # noqa
 
-    index: pd.MultiIndex
-    state_data: StateDataContainer
-    target_data: TargetDataContainer | None = None
-    condition_data: ConditionDataContainer | None = None
+    state_data: StateData
+    target_data: TargetData | None = None
+    condition_data: ConditionData | None = None

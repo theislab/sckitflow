@@ -16,6 +16,19 @@ class DataMixin(dict):
     required_type: ClassVar[type[Any] | None] = None
     mapping: Mapping[str, Any] | None = None
 
+    def __init__(self, required_type: type[Any] | None = None, mapping: Mapping[str, Any] | None = None) -> None:
+        """"""  # noqa
+        # update data type if provided
+        if required_type is not None:
+            self.__class__.required_type = required_type
+        self.mapping = {} if mapping is None else dict(mapping)
+
+        # initialize dict parent with same items
+        super().__init__(self.mapping)
+
+        # run verification
+        self.__post_init__()
+
     def __post_init__(self) -> None:
         """"""  # noqa
         # creating empty dictionary

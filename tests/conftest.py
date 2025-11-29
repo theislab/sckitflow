@@ -2,7 +2,7 @@ from collections.abc import Sequence
 
 import pytest
 
-from sc_flow.data.dummy import get_dummy_adata
+from sc_flow.data._dummy_adata import get_dummy_adata
 
 
 @pytest.fixture

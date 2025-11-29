@@ -29,10 +29,10 @@ CouplingSpaceReps = Literal[
     "tgt_coupling_quad",
 ]
 
-TargetCovariatesEncoding = Literal["label", "one-hot", "identity"]
+TargetCovariatesEncodingId = Literal["label", "one-hot", "identity"]
 
 MappedArray = dict[str, np.ndarray]
 
 ArrayTransformation = Callable[[np.ndarray], np.ndarray]
-TargetCovariatesEncoder = ArrayTransformation | LabelEncoder | OneHotEncoder
-MappedCovariatesEncoder = Mapping[str, TargetCovariatesEncoder]
+TargetCovariatesEncoderCls = ArrayTransformation | LabelEncoder | OneHotEncoder
+MappedTargetCovariatesEncodingCls = Mapping[str, TargetCovariatesEncoderCls]

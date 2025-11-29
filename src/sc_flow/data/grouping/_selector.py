@@ -11,6 +11,9 @@ __all__ = ["IndexSelector"]
 class IndexSelector:
     """"""  # noqa
 
+    registry: dict[str, tuple[str, ...] | None]
+    hierarchy_levels: list[str]
+
     @staticmethod
     def _check_columns_against_query(
         query: Collection[str],

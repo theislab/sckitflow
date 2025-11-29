@@ -1,7 +1,7 @@
-from collections.abc import Collection
 from dataclasses import dataclass
 
 import numpy as np
+import pandas as pd
 
 from sc_flow._types import MappedArray
 from sc_flow.data._mixins import BatchMixin
@@ -11,8 +11,7 @@ __all__ = [
     "StateDataContainer",
     "TargetDataContainer",
     "ConditionDataContainer",
-    "DistributionContainer",
-    "MatchedDistributionsContainer",
+    "IndexedContainer",
 ]
 
 
@@ -27,7 +26,7 @@ class BaseDataContainer:
 class CategoricalDataContainer(BaseDataContainer):
     """"""  # noqa
 
-    column_values: Collection[tuple[str]]
+    column_values: pd.DataFrame
     repr_dict: MappedArray | None = None
 
 
@@ -62,22 +61,10 @@ class ConditionDataContainer(BaseDataContainer):
 
 
 @dataclass
-class DistributionContainer(BaseDataContainer):
+class IndexedContainer(BaseDataContainer):
     """"""  # noqa
 
+    index: pd.MultiIndex
     state_data: StateDataContainer
     target_data: TargetDataContainer | None = None
     condition_data: ConditionDataContainer | None = None
-
-
-@dataclass
-class MatchedDistributionsContainer(BaseDataContainer):
-    """"""  # noqa
-
-    target_distr: DistributionContainer
-    source_distr: DistributionContainer | None = None
-
-    @property
-    def has_source(self) -> bool:
-        """"""  # noqa
-        return self.source_distr is not None

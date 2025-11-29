@@ -30,7 +30,7 @@ class DataManager:
         conditions_covariates: Collection[str] | None = None,
         target_categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
         target_continuous_covs_dict: Collection[str] | None = None,
-        groups: dict[str, Collection[str]] | None = None,
+        groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
         groups_encoding: dict[str, TargetCovariatesEncodingId | None] | None = None,
     ) -> None:
@@ -90,13 +90,13 @@ class DataManager:
 
     def _init_groups_data_schema(
         self,
-        groups: dict[str, Collection[str]] | None = None,
+        groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
         groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
     ) -> GroupsDataSchema:
         """"""  # noqa
         return GroupsDataSchema(
-            groups={} if groups is None else groups,
+            groups=[] if groups is None else groups,
             groups_reps={} if groups_reps is None else groups_reps,
             groups_encoding={} if groups_encoding else groups_encoding,
         )

@@ -21,10 +21,9 @@ class DataMixin(dict):
         # update data type if provided
         if required_type is not None:
             self.__class__.required_type = required_type
-        self.mapping = {} if mapping is None else dict(mapping)
 
         # initialize dict parent with same items
-        super().__init__(self.mapping)
+        super().__init__(mapping)
 
         # run verification
         self.__post_init__()

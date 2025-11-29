@@ -5,6 +5,7 @@ import pandas as pd
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncoding
+from sc_flow.data._collections import TrainCollection
 from sc_flow.data._structures import (
     CompiledData,
     ConditionData,
@@ -12,6 +13,7 @@ from sc_flow.data._structures import (
     TargetData,
 )
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
+from sc_flow.data.grouping._selector import IndexSelector
 from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema, TargetDataSchema
 
 __all__ = ["DataManager"]
@@ -44,6 +46,7 @@ class DataManager:
             groups_cols=None,  # TODO: add attributes for base groups
             conditions_cols=self.condition_data_schema.all_condition_categories,
         )
+        self._selector = IndexSelector.init_from_indexer(self.indexer)
 
     def _get_index(self, adata: AnnData) -> pd.MultiIndex:
         """"""  # noqa
@@ -87,17 +90,27 @@ class DataManager:
             condition_data=condition_data,
         )
 
-    def _get_index(
+    def get_train_collection(
         self,
         adata: AnnData,
     ) -> pd.MultiIndex:
         """"""  # noqa
-        return self._indexer.create_index(adata.obs)
+        compiled_data = self._get_compiled_data(adata)
+        return TrainCollection(
+            compiled_data,
+            self.indexer,
+            self.selector,
+        )
 
     @property
     def indexer(self) -> HierarchicalIndexer:
         """"""  # noqa
         return self._indexer
+
+    @property
+    def selector(self) -> IndexSelector:
+        """"""  # noqa
+        return self._selector
 
     @property
     def state_data_schema(self) -> StateDataSchema:

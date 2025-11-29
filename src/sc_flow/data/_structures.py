@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -26,7 +27,7 @@ class BaseDataContainer:
 class CategoricalData(BaseDataContainer):
     """"""  # noqa
 
-    column_values: pd.DataFrame
+    ann_df: pd.DataFrame
     repr_dict: MappedArray | None = None
 
 
@@ -34,7 +35,7 @@ class CategoricalData(BaseDataContainer):
 class CombinationData(CategoricalData):
     """"""  # noqa
 
-    combination_data: dict[str, CategoricalData]
+    combination_data: dict[str, Any]
 
 
 @dataclass
@@ -67,3 +68,8 @@ class CompiledData(BaseDataContainer):
     state_data: StateData
     target_data: TargetData | None = None
     condition_data: ConditionData | None = None
+
+    @property
+    def ann_df(self) -> pd.DataFrame:
+        """"""  # noqa
+        return self.condition_data.condition_reps.ann_df

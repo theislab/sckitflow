@@ -46,13 +46,14 @@ class DataManager:
             categorical_covs_dict=target_categorical_covs_dict,
             continuous_covs_dict=target_continuous_covs_dict,
         )
-        self._groups_data_schema: GroupsDataSchema = self._init_groups_data(
+        self._groups_data_schema: GroupsDataSchema = self._init_groups_data_schema(
             groups=groups,
             groups_reps=groups_reps,
             groups_encoding=groups_encoding,
         )
         self._indexer: HierarchicalIndexer = self._init_indexer(
-            groups_cols=None, conditions_cols=self._condition_data_schema.all_condition_categories
+            groups_cols=None,
+            conditions_cols=self._condition_data_schema.all_condition_categories,
         )
         self._selector = IndexSelector.init_from_indexer(self._indexer)
 
@@ -71,20 +72,20 @@ class DataManager:
     ) -> ConditionDataSchema:
         """"""  # noqa
         return ConditionDataSchema(
-            conditions=conditions,
-            conditions_reps=conditions_reps,
-            conditions_covariates=conditions_covariates,
+            conditions={} if conditions is None else conditions,
+            conditions_reps={} if conditions_reps is None else conditions_reps,
+            conditions_covariates=[] if conditions_covariates is None else conditions_covariates,
         )
 
     def _init_target_data_schema(
         self,
-        target_categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
-        target_continuous_covs_dict: Collection[str] | None = None,
+        categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
+        continuous_covs_dict: Collection[str] | None = None,
     ) -> TargetDataSchema:
         """"""  # noqa
         return TargetDataSchema(
-            categorical_covs_dict=target_categorical_covs_dict,
-            continuous_covs_dict=target_continuous_covs_dict,
+            categorical_covs_dict={} if categorical_covs_dict is None else categorical_covs_dict,
+            continuous_covs_dict=[] if continuous_covs_dict is None else continuous_covs_dict,
         )
 
     def _init_groups_data_schema(
@@ -94,7 +95,11 @@ class DataManager:
         groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
     ) -> GroupsDataSchema:
         """"""  # noqa
-        return GroupsDataSchema(groups=groups, groups_reps=groups_reps, groups_encoding=groups_encoding)
+        return GroupsDataSchema(
+            groups={} if groups is None else groups,
+            groups_reps={} if groups_reps is None else groups_reps,
+            groups_encoding={} if groups_encoding else groups_encoding,
+        )
 
     def _init_indexer(
         self,
@@ -103,8 +108,8 @@ class DataManager:
     ) -> HierarchicalIndexer:
         """"""  # noqa
         return HierarchicalIndexer(
-            groups_cols=groups_cols,  # TODO: add attributes for base groups
-            conditions_cols=conditions_cols,
+            groups_cols=[] if groups_cols is None else groups_cols,  # TODO: add attributes for base groups
+            conditions_cols=[] if conditions_cols is None else conditions_cols,
         )
 
     def _get_state_data(

@@ -19,7 +19,7 @@ class IndexSelector:
     @classmethod
     def init_from_indexer(cls, indexer: HierarchicalIndexer) -> "IndexSelector":
         """"""  # noqa
-        return cls.__init__(
+        return cls(
             indexer.registry,
             indexer._hierarchy_levels,
         )
@@ -172,19 +172,9 @@ class IndexSelector:
         )
 
     @property
-    def hierarchy_levels(self) -> list[str]:
-        """"""  # noqa
-        return self._hierarchy_levels
-
-    @property
     def n_hierarchy_levels(self) -> int:
         """"""  # noqa
         return len(self.hierarchy_levels)
-
-    @property
-    def registry(self) -> dict[str, tuple[str] | None]:
-        """Retrieves the registry associated to the indexer."""
-        return self._registry
 
     @property
     def registry_keys(self) -> tuple[str]:

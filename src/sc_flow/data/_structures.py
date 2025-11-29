@@ -16,14 +16,14 @@ __all__ = [
 
 
 @dataclass
-class BaseDataContainer:
+class BaseData:
     """"""  # noqa
 
     pass
 
 
 @dataclass
-class CategoricalData(BaseDataContainer):
+class CategoricalData(BaseData):
     """"""  # noqa
 
     ann_df: pd.DataFrame
@@ -44,14 +44,14 @@ class CombinationData(GroupsData):
 
 
 @dataclass
-class StateData(BaseDataContainer):
+class StateData(BaseData):
     """"""  # noqa
 
     X: np.ndarray
 
 
 @dataclass
-class TargetData(BaseDataContainer):
+class TargetData(BaseData):
     """"""  # noqa
 
     categorical_covariates: CategoricalData | None = None
@@ -59,7 +59,7 @@ class TargetData(BaseDataContainer):
 
 
 @dataclass
-class ConditionData(BaseDataContainer):
+class ConditionData(BaseData):
     """"""  # noqa
 
     condition_reps: CombinationData | None = None
@@ -67,7 +67,7 @@ class ConditionData(BaseDataContainer):
 
 
 @dataclass
-class CompiledData(BaseDataContainer):
+class CompiledData(BaseData):
     """"""  # noqa
 
     state_data: StateData

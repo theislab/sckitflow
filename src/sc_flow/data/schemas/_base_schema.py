@@ -4,7 +4,7 @@ from typing import Literal
 
 from anndata import AnnData
 
-from sc_flow.data._structures import BaseDataContainer
+from sc_flow.data._structures import BaseData
 
 __all__ = ["BaseDataSchema"]
 
@@ -48,14 +48,14 @@ class BaseDataSchema(abc.ABC):
     def _get_data(
         self,
         adata: AnnData,
-    ) -> BaseDataContainer:
+    ) -> BaseData:
         """"""  # noqa
         raise NotImplementedError
 
     def get_data(
         self,
         adata: AnnData,
-    ) -> BaseDataContainer:
+    ) -> BaseData:
         """"""  # noqa
         self._verify_schema(adata)
         return self._get_data(adata)

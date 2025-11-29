@@ -37,7 +37,7 @@ class BaseDataSchema(abc.ABC):
             raise KeyError(f"Key '{identifier}' not found in adata.{adata_field_key}. Available keys: {available}")
 
     @abc.abstractmethod
-    def _verify_contract(
+    def _verify_schema(
         self,
         adata: AnnData,
     ) -> None:
@@ -45,17 +45,17 @@ class BaseDataSchema(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def _enforce_contract(
+    def _enforce_schema(
         self,
         adata: AnnData,
     ) -> BaseDataContainer:
         """"""  # noqa
         raise NotImplementedError
 
-    def enforce_contract(
+    def enforce_schema(
         self,
         adata: AnnData,
     ) -> BaseDataContainer:
         """"""  # noqa
-        self._verify_contract(adata)
-        return self._enforce_contract(adata)
+        self._verify_schema(adata)
+        return self._enforce_schema(adata)

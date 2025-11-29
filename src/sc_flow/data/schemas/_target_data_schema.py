@@ -18,7 +18,7 @@ class TargetDataSchema(BaseDataSchema):
     categorical_target_covariates: Mapping[str, TargetCovariatesEncoding] | None = None
     continuous_target_covariates: Collection[str] | None = None
 
-    def _verify_contract_categorical_covariates(
+    def _verify_schema_categorical_covariates(
         self,
         adata: AnnData,
     ) -> None:
@@ -37,7 +37,7 @@ class TargetDataSchema(BaseDataSchema):
                     )
                     raise ValueError(msg)
 
-    def _verify_contract_continuous_covariates(
+    def _verify_schema_continuous_covariates(
         self,
         adata: AnnData,
     ) -> None:
@@ -50,27 +50,27 @@ class TargetDataSchema(BaseDataSchema):
             for target_covariate in self.continuous_target_covariates:
                 self._check_key_found_in_adata_field(adata, target_covariate, "obsm")
 
-    def _verify_contract(
+    def _verify_schema(
         self,
         adata: AnnData,
     ) -> None:
         """"""  # noqa
-        self._verify_contract_categorical_covariates(adata)
-        self._verify_contract_continuous_covariates(adata)
+        self._verify_schema_categorical_covariates(adata)
+        self._verify_schema_continuous_covariates(adata)
 
-    def _enforce_contract_categorical_covariates(adata) -> CategoricalData:
+    def _enforce_schema_categorical_covariates(adata) -> CategoricalData:
         """"""  # noqa
         raise NotImplementedError
 
-    def _enforce_contract_continuous_covariates(adata) -> BatchMixin:
+    def _enforce_schema_continuous_covariates(adata) -> BatchMixin:
         """"""  # noqa
         raise NotImplementedError
 
-    def _enforce_contract(
+    def _enforce_schema(
         self,
         adata: AnnData,
     ) -> TargetData:
         """"""  # noqa
-        categorical_covariates = self._enforce_contract_categorical_covariates(adata)
-        continuous_covariates = self._enforce_contract_categorical_covariates(adata)
+        categorical_covariates = self._enforce_schema_categorical_covariates(adata)
+        continuous_covariates = self._enforce_schema_categorical_covariates(adata)
         raise TargetData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)

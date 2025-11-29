@@ -27,80 +27,88 @@ class DataManager:
         conditions: dict[str, Collection[str]] | None = None,
         conditions_reps: dict[str, str] | None = None,
         conditions_covariates: Collection[str] | None = None,
-        categorical_covs_dict: Mapping[str, TargetCovariatesEncoding] | None = None,
-        continuous_covs_dict: Collection[str] | None = None,
+        target_categorical_covs_dict: Mapping[str, TargetCovariatesEncoding] | None = None,
+        target_continuous_covs_dict: Collection[str] | None = None,
     ) -> None:
         """"""  # noqa
 
-        self._sample_rep = sample_rep
-        self._conditions = conditions
-        self._conditions_reps = conditions_reps
-        self._conditions_covariates = conditions_covariates
-        self._categorical_covs_dict = categorical_covs_dict
-        self._continuous_covs_dict = continuous_covs_dict
+        self._state_data_schema: StateDataSchema = self._init_state_data_schema(sample_rep=sample_rep)
+        self._condition_data_schema: ConditionDataSchema = self._init_condition_data_schema(
+            conditions=conditions,
+            conditions_reps=conditions_reps,
+            conditions_covariates=conditions_covariates,
+        )
+        self._target_data_schema: TargetDataSchema = self._init_target_data_schema(
+            categorical_covs_dict=target_categorical_covs_dict,
+            continuous_covs_dict=target_continuous_covs_dict,
+        )
+        self._indexer: HierarchicalIndexer = self._init_indexer(
+            groups_cols=None, conditions_cols=self._condition_data_schema.all_condition_categories
+        )
+        self._selector = IndexSelector.init_from_indexer(self._indexer)
 
-        self._state_data_schema: StateDataSchema | None = None
-        self._condition_data_schema: ConditionDataSchema | None = None
-        self._target_data_schema: TargetDataSchema | None = None
-        self._indexer: HierarchicalIndexer | None = None
-        self._selector: IndexSelector | None = None
-
-    def _prepare_schemas(self) -> None:
+    def _init_state_data_schema(
+        self,
+        sample_rep: str | None = None,
+    ) -> StateDataSchema:
         """"""  # noqa
-        self._state_data_schema = self._init_state_data_schema()
-        self._condition_data_schema = self._init_condition_data_schema()
-        self._target_data_schema = self._init_target_data_schema()
-        self._indexer = self._init_indexer()
-        self._selector = IndexSelector.init_from_indexer(self.indexer)
+        return StateDataSchema(sample_rep=sample_rep)
 
-    def _init_state_data_schema(self) -> StateDataSchema:
-        """"""  # noqa
-        return StateDataSchema(sample_rep=self._sample_rep)
-
-    def _init_condition_data_schema(self) -> ConditionDataSchema:
+    def _init_condition_data_schema(
+        self,
+        conditions: dict[str, Collection[str]] | None = None,
+        conditions_reps: dict[str, str] | None = None,
+        conditions_covariates: Collection[str] | None = None,
+    ) -> ConditionDataSchema:
         """"""  # noqa
         return ConditionDataSchema(
-            conditions_reps=self._conditions_reps, conditions_covariates=self._conditions_covariates
+            conditions=conditions,
+            conditions_reps=conditions_reps,
+            conditions_covariates=conditions_covariates,
         )
 
-    def _init_target_data_schema(self) -> TargetDataSchema:
+    def _init_target_data_schema(
+        self,
+        target_categorical_covs_dict: Mapping[str, TargetCovariatesEncoding] | None = None,
+        target_continuous_covs_dict: Collection[str] | None = None,
+    ) -> TargetDataSchema:
         """"""  # noqa
         return TargetDataSchema(
-            categorical_covs_dict=self._categorical_covs_dict,
-            continuous_covs_dict=self._continuous_covs_dict,
+            categorical_covs_dict=target_categorical_covs_dict,
+            continuous_covs_dict=target_continuous_covs_dict,
         )
 
-    def _init_indexer(self) -> HierarchicalIndexer:
+    def _init_indexer(
+        self,
+        groups_cols: Collection[str] | None = None,
+        conditions_cols: Collection[str] | None = None,
+    ) -> HierarchicalIndexer:
         """"""  # noqa
         return HierarchicalIndexer(
-            groups_cols=None,  # TODO: add attributes for base groups
-            conditions_cols=self.condition_data_schema.all_condition_categories,
+            groups_cols=groups_cols,  # TODO: add attributes for base groups
+            conditions_cols=conditions_cols,
         )
-
-    def _get_index(self, adata: AnnData) -> pd.MultiIndex:
-        """"""  # noqa
-        return self._indexer.create_index(adata.obs)
 
     def _get_state_data(
         self,
         adata: AnnData,
     ) -> StateData:
         """"""  # noqa
-        return self.state_data_schema.enforce_schema(adata)
+        return self._state_data_schema.get_data(adata)
 
     def _get_condition_data(
         self,
         adata: AnnData,
     ) -> ConditionData:
         """"""  # noqa
-        return self.condition_data_schema.enforce_schema(adata)
+        return self._condition_data_schema.get_data(adata)
 
     def _get_target_data(
         self,
         adata: AnnData,
     ) -> TargetData:
         """"""  # noqa
-        return self.target_data_schema.enforce_schema(adata)
+        return self._target_data_schema.get_data(adata)
 
     def _get_compiled_data(
         self,
@@ -109,9 +117,9 @@ class DataManager:
         """"""  # noqa
 
         # retrieving data
-        state_data = self._get_state_data(adata)
-        condition_data = self._get_condition_data(adata)
-        target_data = self._get_target_data(adata)
+        state_data: StateData = self._get_state_data(adata)
+        condition_data: ConditionData = self._get_condition_data(adata)
+        target_data: TargetData = self._get_target_data(adata)
 
         return CompiledData(
             state_data,

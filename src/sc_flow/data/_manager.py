@@ -1,5 +1,4 @@
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass
 
 import pandas as pd
 from anndata import AnnData
@@ -19,34 +18,64 @@ from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema, TargetDat
 __all__ = ["DataManager"]
 
 
-@dataclass
 class DataManager:
     """"""  # noqa
 
-    sample_rep: str | None = None
-    conditions: dict[str, Collection[str]] | None = None
-    conditions_reps: dict[str, str] | None = None
-    conditions_covariates: Collection[str] | None = None
-    categorical_target_covariates: Mapping[str, TargetCovariatesEncoding] | None = None
-    continuous_target_covariates: Collection[str] | None = None
-
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        sample_rep: str | None = None,
+        conditions: dict[str, Collection[str]] | None = None,
+        conditions_reps: dict[str, str] | None = None,
+        conditions_covariates: Collection[str] | None = None,
+        categorical_target_covariates: Mapping[str, TargetCovariatesEncoding] | None = None,
+        continuous_target_covariates: Collection[str] | None = None,
+    ) -> None:
         """"""  # noqa
-        self._state_data_schema = StateDataSchema(
-            sample_rep=self.sample_rep,
+
+        self._sample_rep = sample_rep
+        self._conditions = conditions
+        self._conditions_reps = conditions_reps
+        self._conditions_covariates = conditions_covariates
+        self._categorical_target_covariates = categorical_target_covariates
+        self._continuous_target_covariates = continuous_target_covariates
+
+        self._state_data_schema: StateDataSchema | None = None
+        self._condition_data_schema: ConditionDataSchema | None = None
+        self._target_data_schema: TargetDataSchema | None = None
+        self._indexer: HierarchicalIndexer | None = None
+        self._selector: IndexSelector | None = None
+
+    def _prepare_schemas(self) -> None:
+        """"""  # noqa
+        self._state_data_schema = self._init_state_data_schema()
+        self._condition_data_schema = self._init_condition_data_schema()
+        self._target_data_schema = self._init_target_data_schema()
+        self._indexer = self._init_indexer()
+        self._selector = IndexSelector.init_from_indexer(self.indexer)
+
+    def _init_state_data_schema(self) -> StateDataSchema:
+        """"""  # noqa
+        return StateDataSchema(sample_rep=self._sample_rep)
+
+    def _init_condition_data_schema(self) -> ConditionDataSchema:
+        """"""  # noqa
+        return ConditionDataSchema(
+            conditions_reps=self._conditions_reps, conditions_covariates=self._conditions_covariates
         )
-        self._condition_data_schema = ConditionDataSchema(
-            conditions_reps=self.conditions_reps, conditions_covariates=self.conditions_covariates
+
+    def _init_target_data_schema(self) -> TargetDataSchema:
+        """"""  # noqa
+        return TargetDataSchema(
+            categorical_target_covariates=self._categorical_target_covariates,
+            continuous_target_covariates=self._continuous_target_covariates,
         )
-        self._target_data_schema = TargetDataSchema(
-            categorical_target_covariates=self.categorical_target_covariates,
-            continuous_target_covariates=self.continuous_target_covariates,
-        )
-        self._indexer = HierarchicalIndexer(
+
+    def _init_indexer(self) -> HierarchicalIndexer:
+        """"""  # noqa
+        return HierarchicalIndexer(
             groups_cols=None,  # TODO: add attributes for base groups
             conditions_cols=self.condition_data_schema.all_condition_categories,
         )
-        self._selector = IndexSelector.init_from_indexer(self.indexer)
 
     def _get_index(self, adata: AnnData) -> pd.MultiIndex:
         """"""  # noqa

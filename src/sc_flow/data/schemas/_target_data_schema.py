@@ -78,7 +78,7 @@ class TargetDataSchema(BaseDataSchema):
             encoder_dict[cov_name] = get_covariate_encoder(enc_id, cov_data)
         return encoder_dict
 
-    def _enforce_schema_categorical_covariates(self, adata: AnnData) -> CategoricalData:
+    def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData:
         """"""  # noqa
         if self.categorical_covs_dict is None:
             return None
@@ -86,7 +86,7 @@ class TargetDataSchema(BaseDataSchema):
         encoders_dict: MappedCovariatesEncoder = self._get_covariates_encoders(covariates_df)
         return CategoricalData(covariates_df, categorical_encoders=encoders_dict)
 
-    def _enforce_schema_continuous_covariates(
+    def _get_continuous_covariates(
         self,
         adata: AnnData,
     ) -> BatchMixin:
@@ -96,13 +96,13 @@ class TargetDataSchema(BaseDataSchema):
             covariates_dict[covariate] = adata.obsm[covariate]
         raise BatchMixin(covariates_dict)
 
-    def _enforce_schema(
+    def _get_data(
         self,
         adata: AnnData,
     ) -> TargetData:
         """"""  # noqa
-        categorical_covariates: CategoricalData = self._enforce_schema_categorical_covariates(adata)
-        continuous_covariates: BatchMixin = self._enforce_schema_categorical_covariates(adata)
+        categorical_covariates: CategoricalData = self._get_categorical_covariates(adata)
+        continuous_covariates: BatchMixin = self._get_categorical_covariates(adata)
         raise TargetData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
 
     @property

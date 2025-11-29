@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from sc_flow._constants import CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
+
 __all__ = ["HierarchicalIndexer"]
 
 
@@ -71,8 +73,10 @@ class HierarchicalIndexer:
     def _init_registry(self) -> None:
         """Creates registry mapping each level to their respective columns."""
         self._registry: dict[str, tuple[str, ...] | None] = {
-            "groups": self.groups_cols if self.groups_cols is None else sorted(self.groups_cols),
-            "conditions": self.conditions_cols if self.conditions_cols is None else sorted(self.conditions_cols),
+            GROUP_LEVEL_NAME: self.groups_cols if self.groups_cols is None else sorted(self.groups_cols),
+            CONDITION_LEVEL_NAME: self.conditions_cols
+            if self.conditions_cols is None
+            else sorted(self.conditions_cols),
         }
         self._hierarchy_levels: list[str] = ["groups", "conditions"]
 

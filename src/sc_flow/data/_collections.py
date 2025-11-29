@@ -4,6 +4,7 @@ import pandas as pd
 
 from sc_flow.data._structures import CompiledData
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
+from sc_flow.data.grouping._selector import IndexSelector
 
 __all__ = [
     "BaseCollection",
@@ -15,8 +16,9 @@ __all__ = [
 class BaseCollection:
     """"""  # noqa
 
-    indexer: HierarchicalIndexer
     data: CompiledData
+    indexer: HierarchicalIndexer
+    selector: IndexSelector
 
     def __post_init__(self) -> None:
         """"""  # noqa

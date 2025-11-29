@@ -4,6 +4,8 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from sc_flow.data.grouping._indexer import HierarchicalIndexer
+
 __all__ = ["IndexSelector"]
 
 
@@ -13,6 +15,14 @@ class IndexSelector:
 
     registry: dict[str, tuple[str, ...] | None]
     hierarchy_levels: list[str]
+
+    @classmethod
+    def init_from_indexer(cls, indexer: HierarchicalIndexer) -> "IndexSelector":
+        """"""  # noqa
+        return cls.__init__(
+            indexer.registry,
+            indexer._hierarchy_levels,
+        )
 
     @staticmethod
     def _check_columns_against_query(

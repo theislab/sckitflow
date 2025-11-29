@@ -1,11 +1,10 @@
-from collections.abc import Collection, Mapping
+from collections.abc import Collection
 from dataclasses import dataclass
 
 import pandas as pd
 from anndata import AnnData
-from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
-from sc_flow._types import TargetCovariatesEncoding
+from sc_flow._types import MappedCovariatesEncoder
 from sc_flow.data._mixins import BatchMixin
 from sc_flow.data._structures import CategoricalData, TargetData
 from sc_flow.data._utils import get_covariate_encoder
@@ -18,7 +17,7 @@ __all__ = ["TargetDataSchema"]
 class TargetDataSchema(BaseDataSchema):
     """"""  # noqa
 
-    categorical_covs_dict: Mapping[str, TargetCovariatesEncoding] | None = None
+    categorical_covs_dict: MappedCovariatesEncoder | None = None
     continuous_covs_dict: Collection[str] | None = None
 
     def _verify_schema_categorical_covariates(
@@ -71,7 +70,7 @@ class TargetDataSchema(BaseDataSchema):
     def _get_covariates_encoders(
         self,
         covariates_df: pd.DataFrame,
-    ) -> dict[str, LabelEncoder | OneHotEncoder]:
+    ) -> MappedCovariatesEncoder:
         """"""  # noqa
         encoder_dict = {}
         for cov_name, enc_id in self.categorical_covs_dict.items():
@@ -83,19 +82,30 @@ class TargetDataSchema(BaseDataSchema):
         """"""  # noqa
         if self.categorical_covs_dict is None:
             return None
-        covariates_df = self._get_covariates_df(adata)
-        encoders_dict = self._get_covariates_encoders(covariates_df)  # noqa
-        raise NotImplementedError
+        covariates_df: pd.DataFrame = self._get_covariates_df(adata)
+        encoders_dict: MappedCovariatesEncoder = self._get_covariates_encoders(covariates_df)
+        return CategoricalData(covariates_df, categorical_encoders=encoders_dict)
 
-    def _enforce_schema_continuous_covariates(adata) -> BatchMixin:
+    def _enforce_schema_continuous_covariates(
+        self,
+        adata: AnnData,
+    ) -> BatchMixin:
         """"""  # noqa
-        raise NotImplementedError
+        covariates_dict = {}
+        for covariate in self.continuous_covs_dict:
+            covariates_dict[covariate] = adata.obsm[covariate]
+        raise BatchMixin(covariates_dict)
 
     def _enforce_schema(
         self,
         adata: AnnData,
     ) -> TargetData:
         """"""  # noqa
-        categorical_covariates = self._enforce_schema_categorical_covariates(adata)
-        continuous_covariates = self._enforce_schema_categorical_covariates(adata)
+        categorical_covariates: CategoricalData = self._enforce_schema_categorical_covariates(adata)
+        continuous_covariates: BatchMixin = self._enforce_schema_categorical_covariates(adata)
         raise TargetData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
+
+    @property
+    def categorical_covariates(self) -> tuple[str]:
+        """"""  # noqa
+        return tuple(self.categorical_covs_dict.keys())

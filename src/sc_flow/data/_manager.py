@@ -3,17 +3,18 @@ from collections.abc import Collection, Mapping
 import pandas as pd
 from anndata import AnnData
 
-from sc_flow._types import TargetCovariatesEncoding
+from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._collections import TrainCollection, ValidationCollection
 from sc_flow.data._structures import (
     CompiledData,
     ConditionData,
+    GroupsData,
     StateData,
     TargetData,
 )
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._selector import IndexSelector
-from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema, TargetDataSchema
+from sc_flow.data.schemas import ConditionDataSchema, GroupsDataSchema, StateDataSchema, TargetDataSchema
 
 __all__ = ["DataManager"]
 
@@ -27,11 +28,11 @@ class DataManager:
         conditions: dict[str, Collection[str]] | None = None,
         conditions_reps: dict[str, str] | None = None,
         conditions_covariates: Collection[str] | None = None,
-        target_categorical_covs_dict: Mapping[str, TargetCovariatesEncoding] | None = None,
+        target_categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
         target_continuous_covs_dict: Collection[str] | None = None,
         groups: dict[str, Collection[str]] | None = None,
         groups_reps: dict[str, str] | None = None,
-        groups_encoding: dict[str, TargetCovariatesEncoding | None] | None = None,
+        groups_encoding: dict[str, TargetCovariatesEncodingId | None] | None = None,
     ) -> None:
         """"""  # noqa
 
@@ -45,7 +46,7 @@ class DataManager:
             categorical_covs_dict=target_categorical_covs_dict,
             continuous_covs_dict=target_continuous_covs_dict,
         )
-        self._group_data = self._init_groups_data(
+        self._groups_data_schema: GroupsDataSchema = self._init_groups_data(
             groups=groups,
             groups_reps=groups_reps,
             groups_encoding=groups_encoding,
@@ -77,7 +78,7 @@ class DataManager:
 
     def _init_target_data_schema(
         self,
-        target_categorical_covs_dict: Mapping[str, TargetCovariatesEncoding] | None = None,
+        target_categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
         target_continuous_covs_dict: Collection[str] | None = None,
     ) -> TargetDataSchema:
         """"""  # noqa
@@ -86,14 +87,14 @@ class DataManager:
             continuous_covs_dict=target_continuous_covs_dict,
         )
 
-    def _init_groups_data(
+    def _init_groups_data_schema(
         self,
         groups: dict[str, Collection[str]] | None = None,
         groups_reps: dict[str, str] | None = None,
-        groups_encoding: dict[str, TargetCovariatesEncoding | None] | None = None,
-    ) -> None:
+        groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
+    ) -> GroupsDataSchema:
         """"""  # noqa
-        raise NotImplementedError
+        return GroupsDataSchema(groups=groups, groups_reps=groups_reps, groups_encoding=groups_encoding)
 
     def _init_indexer(
         self,
@@ -120,6 +121,13 @@ class DataManager:
         """"""  # noqa
         return self._condition_data_schema.get_data(adata)
 
+    def _get_groups_data(
+        self,
+        adata: AnnData,
+    ) -> GroupsData:
+        """"""  # noqa
+        return self._groups_data_schema.get_data(adata)
+
     def _get_target_data(
         self,
         adata: AnnData,
@@ -136,12 +144,13 @@ class DataManager:
         # retrieving data
         state_data: StateData = self._get_state_data(adata)
         condition_data: ConditionData = self._get_condition_data(adata)
+        groups_data: GroupsData = self._get_groups_data(adata)
         target_data: TargetData = self._get_target_data(adata)
-
         return CompiledData(
             state_data,
             target_data=target_data,
             condition_data=condition_data,
+            groups_data=groups_data,
         )
 
     def get_train_collection(
@@ -149,7 +158,7 @@ class DataManager:
         adata: AnnData,
     ) -> pd.MultiIndex:
         """"""  # noqa
-        compiled_data = self._get_compiled_data(adata)
+        compiled_data: CompiledData = self._get_compiled_data(adata)
         return TrainCollection(
             compiled_data,
             self.indexer,
@@ -161,7 +170,7 @@ class DataManager:
         adata: AnnData,
     ) -> pd.MultiIndex:
         """"""  # noqa
-        compiled_data = self._get_compiled_data(adata)
+        compiled_data: CompiledData = self._get_compiled_data(adata)
         return ValidationCollection(
             compiled_data,
             self.indexer,

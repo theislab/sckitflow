@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import pandas as pd
 from anndata import AnnData
 
-from sc_flow._types import MappedCovariatesEncoder
+from sc_flow._types import MappedTargetCovariatesEncodingCls
 from sc_flow.data._mixins import BatchMixin
 from sc_flow.data._structures import CategoricalData, TargetData
 from sc_flow.data._utils import get_covariate_encoder
@@ -17,7 +17,7 @@ __all__ = ["TargetDataSchema"]
 class TargetDataSchema(BaseDataSchema):
     """"""  # noqa
 
-    categorical_covs_dict: MappedCovariatesEncoder | None = None
+    categorical_covs_dict: MappedTargetCovariatesEncodingCls | None = None
     continuous_covs_dict: Collection[str] | None = None
 
     def _verify_schema_categorical_covariates(
@@ -65,12 +65,12 @@ class TargetDataSchema(BaseDataSchema):
         adata: AnnData,
     ) -> pd.DataFrame:
         """"""  # noqa
-        return self.adata.obs.loc[:, self.categorical_covariates]
+        return adata.obs.loc[:, self.categorical_covariates]
 
     def _get_covariates_encoders(
         self,
         covariates_df: pd.DataFrame,
-    ) -> MappedCovariatesEncoder:
+    ) -> MappedTargetCovariatesEncodingCls:
         """"""  # noqa
         encoder_dict = {}
         for cov_name, enc_id in self.categorical_covs_dict.items():
@@ -83,7 +83,7 @@ class TargetDataSchema(BaseDataSchema):
         if self.categorical_covs_dict is None:
             return None
         covariates_df: pd.DataFrame = self._get_covariates_df(adata)
-        encoders_dict: MappedCovariatesEncoder = self._get_covariates_encoders(covariates_df)
+        encoders_dict: MappedTargetCovariatesEncodingCls = self._get_covariates_encoders(covariates_df)
         return CategoricalData(covariates_df, categorical_encoders=encoders_dict)
 
     def _get_continuous_covariates(

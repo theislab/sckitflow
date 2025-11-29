@@ -8,7 +8,9 @@ from sc_flow.data.grouping._selector import IndexSelector
 
 __all__ = [
     "BaseCollection",
+    "DataCollection",
     "TrainCollection",
+    "ValidationCollection",
 ]
 
 
@@ -34,5 +36,20 @@ class BaseCollection:
         return self._index
 
 
-class TrainCollection(BaseCollection):
+class DataCollection(BaseCollection):
+    """"""  # noqa
+
+    def __post_init__(self):
+        super().__post_init__()
+        self._prepare_groups()
+
+    def _prepare_groups(self) -> None:
+        """"""  # noqa
+
+
+class TrainCollection(DataCollection):
+    """"""  # noqa
+
+
+class ValidationCollection(DataCollection):
     """"""  # noqa

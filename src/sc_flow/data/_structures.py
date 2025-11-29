@@ -3,7 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from sc_flow._types import MappedArray, MappedCovariatesEncoder
+from sc_flow._types import MappedArray, MappedTargetCovariatesEncodingCls
 from sc_flow.data._mixins import BatchMixin
 
 __all__ = [
@@ -28,14 +28,19 @@ class CategoricalData(BaseDataContainer):
 
     ann_df: pd.DataFrame
     repr_dict: MappedArray | None = None
-    categorical_encoders: MappedCovariatesEncoder | None = None
+    categorical_encoders: MappedTargetCovariatesEncodingCls | None = None
 
 
 @dataclass
-class CombinationData(CategoricalData):
+class GroupsData(CategoricalData):
     """"""  # noqa
 
     combination_data: dict[str, CategoricalData]
+
+
+@dataclass
+class CombinationData(GroupsData):
+    """"""  # noqa
 
 
 @dataclass
@@ -68,6 +73,7 @@ class CompiledData(BaseDataContainer):
     state_data: StateData
     target_data: TargetData | None = None
     condition_data: ConditionData | None = None
+    groups_data: GroupsData | None = None
 
     @property
     def ann_df(self) -> pd.DataFrame:

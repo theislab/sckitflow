@@ -1,6 +1,8 @@
+from collections.abc import Callable, Mapping
 from typing import Any, Literal
 
 import numpy as np
+from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 
 BackendId = Literal["torch", "jax"]
 ProbabilityPathId = Literal[
@@ -30,3 +32,7 @@ CouplingSpaceReps = Literal[
 TargetCovariatesEncoding = Literal["label", "one-hot", "identity"]
 
 MappedArray = dict[str, np.ndarray]
+
+ArrayTransformation = Callable[[np.ndarray], np.ndarray]
+TargetCovariatesEncoder = ArrayTransformation | LabelEncoder | OneHotEncoder
+MappedCovariatesEncoder = Mapping[str, TargetCovariatesEncoder]

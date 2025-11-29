@@ -4,7 +4,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from sc_flow._types import MappedArray
+from sc_flow._types import MappedArray, MappedCovariatesEncoder
 from sc_flow.data._mixins import BatchMixin
 
 __all__ = [
@@ -29,6 +29,7 @@ class CategoricalData(BaseDataContainer):
 
     ann_df: pd.DataFrame
     repr_dict: MappedArray | None = None
+    categorical_encoders: MappedCovariatesEncoder | None = None
 
 
 @dataclass

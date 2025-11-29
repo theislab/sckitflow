@@ -4,7 +4,7 @@ import pandas as pd
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncoding
-from sc_flow.data._collections import TrainCollection
+from sc_flow.data._collections import TrainCollection, ValidationCollection
 from sc_flow.data._structures import (
     CompiledData,
     ConditionData,
@@ -29,6 +29,9 @@ class DataManager:
         conditions_covariates: Collection[str] | None = None,
         target_categorical_covs_dict: Mapping[str, TargetCovariatesEncoding] | None = None,
         target_continuous_covs_dict: Collection[str] | None = None,
+        groups: dict[str, Collection[str]] | None = None,
+        groups_reps: dict[str, str] | None = None,
+        groups_encoding: dict[str, TargetCovariatesEncoding | None] | None = None,
     ) -> None:
         """"""  # noqa
 
@@ -41,6 +44,11 @@ class DataManager:
         self._target_data_schema: TargetDataSchema = self._init_target_data_schema(
             categorical_covs_dict=target_categorical_covs_dict,
             continuous_covs_dict=target_continuous_covs_dict,
+        )
+        self._group_data = self._init_groups_data(
+            groups=groups,
+            groups_reps=groups_reps,
+            groups_encoding=groups_encoding,
         )
         self._indexer: HierarchicalIndexer = self._init_indexer(
             groups_cols=None, conditions_cols=self._condition_data_schema.all_condition_categories
@@ -77,6 +85,15 @@ class DataManager:
             categorical_covs_dict=target_categorical_covs_dict,
             continuous_covs_dict=target_continuous_covs_dict,
         )
+
+    def _init_groups_data(
+        self,
+        groups: dict[str, Collection[str]] | None = None,
+        groups_reps: dict[str, str] | None = None,
+        groups_encoding: dict[str, TargetCovariatesEncoding | None] | None = None,
+    ) -> None:
+        """"""  # noqa
+        raise NotImplementedError
 
     def _init_indexer(
         self,
@@ -134,6 +151,18 @@ class DataManager:
         """"""  # noqa
         compiled_data = self._get_compiled_data(adata)
         return TrainCollection(
+            compiled_data,
+            self.indexer,
+            self.selector,
+        )
+
+    def get_val_collection(
+        self,
+        adata: AnnData,
+    ) -> pd.MultiIndex:
+        """"""  # noqa
+        compiled_data = self._get_compiled_data(adata)
+        return ValidationCollection(
             compiled_data,
             self.indexer,
             self.selector,

@@ -4,13 +4,13 @@ from typing import Literal
 
 from anndata import AnnData
 
-from sc_flow.data._data_structures import BaseDataContainer
+from sc_flow.data._structures import BaseDataContainer
 
-__all__ = ["BaseDataContract"]
+__all__ = ["BaseDataSchema"]
 
 
 @dataclass
-class BaseDataContract(abc.ABC):
+class BaseDataSchema(abc.ABC):
     """"""  # noqa
 
     @staticmethod

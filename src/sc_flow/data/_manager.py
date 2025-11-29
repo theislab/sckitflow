@@ -5,14 +5,14 @@ import pandas as pd
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncoding
-from sc_flow.data._data_structures import (
+from sc_flow.data._indexer import HierarchicalIndexer
+from sc_flow.data._structures import (
     ConditionDataContainer,
     IndexedContainer,
     StateDataContainer,
     TargetDataContainer,
 )
-from sc_flow.data._hierarchical_indexer import HierarchicalIndexer
-from sc_flow.data.contracts import ConditionDataContract, StateDataContract, TargetDataContract
+from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema, TargetDataSchema
 
 __all__ = ["DataManager"]
 
@@ -30,13 +30,13 @@ class DataManager:
 
     def __post_init__(self) -> None:
         """"""  # noqa
-        self._state_data_contract = StateDataContract(
+        self._state_data_contract = StateDataSchema(
             sample_rep=self.sample_rep,
         )
-        self._condition_data_contract = ConditionDataContract(
+        self._condition_data_contract = ConditionDataSchema(
             conditions_reps=self.conditions_reps, conditions_covariates=self.conditions_covariates
         )
-        self._target_data_contract = TargetDataContract(
+        self._target_data_contract = TargetDataSchema(
             categorical_target_covariates=self.categorical_target_covariates,
             continuous_target_covariates=self.continuous_target_covariates,
         )
@@ -91,16 +91,16 @@ class DataManager:
         )
 
     @property
-    def state_data_contract(self) -> StateDataContract:
+    def state_data_contract(self) -> StateDataSchema:
         """"""  # noqa
         return self._state_data_contract
 
     @property
-    def condition_data_contract(self) -> ConditionDataContract:
+    def condition_data_contract(self) -> ConditionDataSchema:
         """"""  # noqa
         return self._condition_data_contract
 
     @property
-    def target_data_contract(self) -> ConditionDataContract:
+    def target_data_contract(self) -> ConditionDataSchema:
         """"""  # noqa
         return self._condition_data_contract

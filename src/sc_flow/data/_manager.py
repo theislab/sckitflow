@@ -27,8 +27,8 @@ class DataManager:
         conditions: dict[str, Collection[str]] | None = None,
         conditions_reps: dict[str, str] | None = None,
         conditions_covariates: Collection[str] | None = None,
-        categorical_target_covariates: Mapping[str, TargetCovariatesEncoding] | None = None,
-        continuous_target_covariates: Collection[str] | None = None,
+        categorical_covs_dict: Mapping[str, TargetCovariatesEncoding] | None = None,
+        continuous_covs_dict: Collection[str] | None = None,
     ) -> None:
         """"""  # noqa
 
@@ -36,8 +36,8 @@ class DataManager:
         self._conditions = conditions
         self._conditions_reps = conditions_reps
         self._conditions_covariates = conditions_covariates
-        self._categorical_target_covariates = categorical_target_covariates
-        self._continuous_target_covariates = continuous_target_covariates
+        self._categorical_covs_dict = categorical_covs_dict
+        self._continuous_covs_dict = continuous_covs_dict
 
         self._state_data_schema: StateDataSchema | None = None
         self._condition_data_schema: ConditionDataSchema | None = None
@@ -66,8 +66,8 @@ class DataManager:
     def _init_target_data_schema(self) -> TargetDataSchema:
         """"""  # noqa
         return TargetDataSchema(
-            categorical_target_covariates=self._categorical_target_covariates,
-            continuous_target_covariates=self._continuous_target_covariates,
+            categorical_covs_dict=self._categorical_covs_dict,
+            continuous_covs_dict=self._continuous_covs_dict,
         )
 
     def _init_indexer(self) -> HierarchicalIndexer:

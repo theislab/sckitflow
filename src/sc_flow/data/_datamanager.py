@@ -1,7 +1,17 @@
 from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 
+import pandas as pd
+from anndata import AnnData
+
 from sc_flow._types import TargetCovariatesEncoding
+from sc_flow.data._data_structures import (
+    ConditionDataContainer,
+    IndexedContainer,
+    StateDataContainer,
+    TargetDataContainer,
+)
+from sc_flow.data._hierarchical_indexer import HierarchicalIndexer
 from sc_flow.data.contracts import ConditionDataContract, StateDataContract, TargetDataContract
 
 __all__ = ["DataManager"]
@@ -29,6 +39,55 @@ class DataManager:
         self._target_data_contract = TargetDataContract(
             categorical_target_covariates=self.categorical_target_covariates,
             continuous_target_covariates=self.continuous_target_covariates,
+        )
+        self._indexer = HierarchicalIndexer(
+            groups_cols=None,  # TODO: add attributes for base groups
+            conditions_cols=self.condition_data_contract.all_condition_categories,
+        )
+
+    def _get_index(self, adata: AnnData) -> pd.MultiIndex:
+        """"""  # noqa
+        return self._indexer.create_index(adata.obs)
+
+    def _get_state_data(
+        self,
+        adata: AnnData,
+    ) -> StateDataContainer:
+        """"""  # noqa
+        return self.state_data_contract.enforce_contract(adata)
+
+    def _get_condition_data(
+        self,
+        adata: AnnData,
+    ) -> ConditionDataContainer:
+        """"""  # noqa
+        return self.condition_data_contract.enforce_contract(adata)
+
+    def _get_target_data(
+        self,
+        adata: AnnData,
+    ) -> TargetDataContainer:
+        """"""  # noqa
+        return self.target_data_contract.enforce_contract(adata)
+
+    def _get_data(
+        self,
+        adata: AnnData,
+    ) -> IndexedContainer:
+        """"""  # noqa
+
+        # retrieving data
+        state_data = self._get_state_data(adata)
+        condition_data = self._get_condition_data(adata)
+        target_data = self._get_target_data(adata)
+
+        # retrieving index and return indexed data
+        index = self._get_index(adata)
+        return IndexedContainer(
+            index,
+            state_data,
+            target_data=target_data,
+            condition_data=condition_data,
         )
 
     @property

@@ -1,6 +1,8 @@
-from typing import Any, Literal
+from collections.abc import Mapping
+from typing import Any, Literal, TypeAlias, TypeVar
 
 import numpy as np
+import pandas as pd
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 BackendId = Literal["torch", "jax"]
@@ -30,6 +32,20 @@ CouplingSpaceReps = Literal[
 
 TargetCovariatesEncodingId = Literal["label", "one-hot", "identity"]
 
-MappedArray = dict[str, np.ndarray]
+MappedArray: TypeAlias = dict[str, np.ndarray]
 
 TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
+
+
+MappedLevelIndex: TypeAlias = Mapping[tuple[Any, ...], pd.MultiIndex]
+NamedMappedLevelIndex: TypeAlias = Mapping[str, str | MappedLevelIndex]
+
+T = TypeVar("T", "MappedLevelIndex", "NamedMappedLevelIndex")
+NestedMappedLevelIndex: TypeAlias = Mapping[
+    tuple[Any, ...],
+    "NestedMappedLevelIndex | T",
+]
+NamedNestedMappedLevelIndex: TypeAlias = Mapping[
+    str,
+    "NamedNestedMappedLevelIndex | T",
+]

@@ -52,7 +52,7 @@ class DataManager:
             groups_encoding=groups_encoding,
         )
         self._indexer: HierarchicalIndexer = self._init_indexer(
-            groups_cols=None,
+            groups_cols=self._groups_data_schema.groups,
             conditions_cols=self._condition_data_schema.all_condition_categories,
         )
         self._selector = IndexSelector.init_from_indexer(self._indexer)

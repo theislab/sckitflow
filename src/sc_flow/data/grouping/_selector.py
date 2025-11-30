@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -26,15 +27,15 @@ class IndexSelector:
 
     @staticmethod
     def _parse_query_dict(
-        query_dict: dict[str, str],
-    ) -> tuple[str, ...]:
+        query_dict: dict[str, Any],
+    ) -> tuple[Any]:
         """"""  # noqa
         return tuple(query_dict[cond] for cond in sorted(query_dict.keys()))
 
     def _get_level_query_mask(
         self,
         level_name: str,
-        query_dict: dict[str, str],
+        query_dict: dict[str, Any],
         index: pd.MultiIndex,
     ) -> pd.Series | np.ndarray:
         """"""  # noqa
@@ -55,9 +56,9 @@ class IndexSelector:
     def _prepare_partial_level_query_dict(
         self,
         level_name: str,
-        query_dict: dict[str, str],
+        query_dict: dict[str, Any],
         index: pd.MultiIndex,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """"""  # noqa
         # retrieving all level columns
         level_cols = self.registry[level_name]  # noqa
@@ -69,16 +70,16 @@ class IndexSelector:
 
     def _prepare_partial_query_dict(
         self,
-        query_dict: dict[str, dict[str, str]],
+        query_dict: dict[str, dict[str, Any]],
         index: pd.MultiIndex,
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         """"""  # noqa
         raise NotImplementedError
 
     def _query_level_with_dict(
         self,
         level_name: str,
-        query_dict: dict[str, str],
+        query_dict: dict[str, Any],
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa
@@ -87,7 +88,7 @@ class IndexSelector:
 
     def _query_with_dict(
         self,
-        query_dict: dict[str, dict[str, str]],
+        query_dict: dict[str, dict[str, Any]],
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa
@@ -108,7 +109,7 @@ class IndexSelector:
     def _verify_level_query_dict(
         self,
         level_name: str,
-        query_dict: dict[str, str],
+        query_dict: dict[str, Any],
     ) -> None:
         """"""  # noqa
         check_sequence_query_against_reference(
@@ -117,7 +118,7 @@ class IndexSelector:
 
     def _verify_query_dict(
         self,
-        query_dict: dict[str, dict[str, str]],
+        query_dict: dict[str, dict[str, Any]],
     ) -> None:
         """"""  # noqa
         check_sequence_query_against_reference(query_dict.keys(), self.registry.keys())
@@ -127,7 +128,7 @@ class IndexSelector:
     def query_level(
         self,
         level_name: str,
-        query_dict: dict[str, str],
+        query_dict: dict[str, Any],
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa
@@ -140,7 +141,7 @@ class IndexSelector:
 
     def query(
         self,
-        query_dict: dict[str, dict[str, str]],
+        query_dict: dict[str, dict[str, Any]],
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa

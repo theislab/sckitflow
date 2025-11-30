@@ -8,7 +8,7 @@ from sc_flow.data.schemas._base_schema import BaseDataSchema
 __all__ = ["StateDataSchema"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class StateDataSchema(BaseDataSchema):
     """"""  # noqa
 

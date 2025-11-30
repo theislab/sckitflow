@@ -12,7 +12,7 @@ from sc_flow.data._utils import get_covariates_encoders_from_dict
 from sc_flow.data.schemas._base_schema import BaseDataSchema
 
 
-@dataclass
+@dataclass(frozen=True)
 class GroupsDataSchema(BaseDataSchema):
     """"""  # noqa
 

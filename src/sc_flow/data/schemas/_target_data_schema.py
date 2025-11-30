@@ -14,7 +14,7 @@ from sc_flow.data.schemas._base_schema import BaseDataSchema
 __all__ = ["TargetDataSchema"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class TargetDataSchema(BaseDataSchema):
     """"""  # noqa
 

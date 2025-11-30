@@ -1,9 +1,11 @@
+from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 import pandas as pd
 
+from sc_flow._types import MappedLevelIndex, NamedMappedLevelIndex, NamedNestedMappedLevelIndex, NestedMappedLevelIndex
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._query import QueryFactory
 
@@ -34,18 +36,18 @@ class IndexSelector:
         level_name: str,
         query_dict: dict[str, Any],
         index: pd.MultiIndex,
-    ) -> pd.Series | np.ndarray:
+    ) -> np.ndarray:
         """"""  # noqa
         self._query_factory.verify_level_query_dict(level_name, query_dict)
         query_value = self._query_factory.query_dict_to_tuple(query_dict)
         level_values = index.get_level_values(level_name)
-        return level_values == query_value
+        return np.asarray(level_values == query_value)
 
-    def _get_unique_level_values(self, level_name: str, index: pd.MultiIndex) -> tuple[tuple[Any]]:
+    def _get_unique_level_values(self, level_name: str, index: pd.MultiIndex) -> Iterator[tuple[Any, ...]]:
         """"""  # noqa
         self._query_factory.verify_valid_level_name(level_name, reference=index.names)
-        level_values = index.get_level_values(level_name).values
-        return map(tuple, set(level_values))
+        level_values = index.get_level_values(level_name)
+        return map(tuple, level_values.unique())
 
     def _query_level_with_dict(
         self,
@@ -83,35 +85,55 @@ class IndexSelector:
             )
         return index
 
-    def _unique_level_vals_to_dict(self, level_name: str, index: pd.MultiIndex) -> tuple[tuple[Any]]:
+    def _unique_level_vals_to_dict(
+        self,
+        level_name: str,
+        index: pd.MultiIndex,
+    ) -> MappedLevelIndex | NamedMappedLevelIndex:
         """"""  # noqa
         unique_level_values = self._get_unique_level_values(level_name, index)
-        return {values: self._query_level_with_tuple(level_name, values, index) for values in unique_level_values}
+        data_dict = {values: self._query_level_with_tuple(level_name, values, index) for values in unique_level_values}
+        return data_dict
+
+    def _recursive_call_level_index_to_nested_dict(
+        self,
+        level_name: str,
+        level_unique_values_dict: MappedLevelIndex | NamedMappedLevelIndex,
+    ) -> NestedMappedLevelIndex | NamedNestedMappedLevelIndex:
+        """"""  # noqa
+        hierarchy_index = self.hierarchy_levels.index(level_name)
+        next_level_name = self.hierarchy_levels[hierarchy_index + 1]
+        data_dict = {
+            values: self._level_index_to_nested_dict(
+                next_level_name,
+                values_index,
+                return_level_names=False,
+            )
+            for values, values_index in level_unique_values_dict.items()
+        }
+        return data_dict
 
     def _level_index_to_nested_dict(
         self,
         level_name: str,
         index: pd.MultiIndex,
-    ) -> dict:
+    ) -> NestedMappedLevelIndex | NamedNestedMappedLevelIndex:
         """"""  # noqa
 
         # preparing level data
         self._query_factory.verify_valid_level_name(level_name, reference=index.names)
         hierarchy_index = self.hierarchy_levels.index(level_name)
-        current_level_unique_values_dict = self._unique_level_vals_to_dict(level_name, index)
-        # last level (create dict)
+        level_unique_values_dict = self._unique_level_vals_to_dict(
+            level_name,
+            index,
+        )
         if hierarchy_index == (self.n_hierarchy_levels - 1):
-            return current_level_unique_values_dict
-        # intermediate level (recursive call on each leaf)
+            return level_unique_values_dict
         else:
-            next_level_name = self.hierarchy_levels[hierarchy_index + 1]
-            return {
-                values: self._level_index_to_nested_dict(
-                    next_level_name,
-                    values_index,
-                )
-                for values, values_index in current_level_unique_values_dict.items()
-            }
+            return self._recursive_call_level_index_to_nested_dict(
+                level_name,
+                level_unique_values_dict,
+            )
 
     def query_level_with_dict(
         self,
@@ -120,7 +142,7 @@ class IndexSelector:
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa
-        query_dict = self._prepare_partial_level_query_dict(level_name, query_dict)
+        query_dict = self._query_factory.prepare_partial_level_query_dict(level_name, query_dict)
         return self._query_level_with_dict(
             level_name,
             query_dict,
@@ -133,21 +155,19 @@ class IndexSelector:
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa
-        query_dict = self._prepare_partial_query_dict(query_dict)
+        query_dict = self._query_factory.prepare_partial_query_dict(query_dict)
         return self._query_with_dict(query_dict, index)
 
     def level_index_to_nested_dict(
-        self,
-        level_name: str,
-        index: pd.MultiIndex,
-    ) -> None:
+        self, level_name: str, index: pd.MultiIndex, return_level_names: bool = True
+    ) -> NestedMappedLevelIndex | NamedNestedMappedLevelIndex:
         """"""  # noqa
-        return self._level_index_to_nested_dict(level_name, index)
+        return self._level_index_to_nested_dict(level_name, index, return_level_names=return_level_names)
 
     def index_to_nested_dict(
         self,
         index: pd.MultiIndex,
-    ) -> None:
+    ) -> NestedMappedLevelIndex | NamedNestedMappedLevelIndex:
         """"""  # noqa
         return self._level_index_to_nested_dict(self.hierarchy_levels[0], index)
 

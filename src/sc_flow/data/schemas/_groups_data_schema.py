@@ -48,12 +48,12 @@ class GroupsDataSchema(BaseDataSchema):
         self._verify_groups(adata)
         self._verify_groups_reps(adata)
 
-    def _get_covs_df_dict(
+    def _get_covs_df(
         self,
         adata: AnnData,
-    ) -> dict[str, pd.DataFrame]:
+    ) -> pd.DataFrame:
         """"""  # noqa
-        return {col: adata.obs.loc[:, [col]] for col in self.groups}
+        return adata.obs.loc[:, self.groups]
 
     def _get_covs_repr_dict(
         self,
@@ -71,8 +71,8 @@ class GroupsDataSchema(BaseDataSchema):
 
     def _get_data(self, adata: AnnData) -> CategoricalData:
         """"""  # noqa
-        covs_df_dict = self._get_covs_df_dict(adata)
-        repr_dict = self._get_covs_repr_dict(adata)
+        covs_df_dict: pd.DataFrame = self._get_covs_df(adata)
+        repr_dict: dict[str, MappedArray] = self._get_covs_repr_dict(adata)
         encoders_dict: Mapping[str, TargetCovariatesEncoderCls] = get_covariates_encoders_from_dict(
             self.groups_encoding, covs_df_dict
         )

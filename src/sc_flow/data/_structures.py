@@ -30,7 +30,7 @@ class CategoricalData(BaseData):
     """"""  # noqa
 
     ann_df: pd.DataFrame
-    repr_dict: MappedArray | dict[str, MappedArray] = dc_field(default_factory=lambda: {})
+    repr_dict: dict[str, MappedArray] = dc_field(default_factory=lambda: {})
     categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] = dc_field(default_factory=lambda: {})
 
 

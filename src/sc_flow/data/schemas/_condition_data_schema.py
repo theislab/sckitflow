@@ -8,7 +8,7 @@ from anndata import AnnData
 from sc_flow._types import MappedArray
 from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._structures import CategoricalData, CombinationData, ConditionData
+from sc_flow.data._structures import CombinationData, ConditionData
 from sc_flow.data.schemas._base_schema import BaseDataSchema
 
 __all__ = ["ConditionDataSchema"]
@@ -77,12 +77,12 @@ class ConditionDataSchema(BaseDataSchema):
         for covariate in self.conditions_covariates:
             self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
-    def _get_covariates_df_dict(
+    def _get_covariates_df(
         self,
         adata: AnnData,
     ) -> dict[str, pd.DataFrame]:
         """"""  # noqa
-        return {condition_name: adata.obs.loc[:, covariates] for condition_name, covariates in self.conditions.items()}
+        return adata.obs.loc[:, self.all_condition_categories]
 
     def _get_repr_dict(self, adata: AnnData) -> dict[str, MappedArray]:
         """"""  # noqa
@@ -95,13 +95,9 @@ class ConditionDataSchema(BaseDataSchema):
         adata: AnnData,
     ) -> CombinationData:
         """"""  # noqa
-        covariates_df_dict = self._get_covariates_df_dict(adata)
+        covariates_df = self._get_covariates_df(adata)
         repr_dict = self._get_repr_dict(adata)
-        data_dict = {
-            condition_name: CategoricalData(covariates_df, repr_dict=repr_dict[condition_name])
-            for condition_name, covariates_df in covariates_df_dict.items()
-        }
-        return CombinationData(data_dict)
+        return CombinationData(covariates_df, repr_dict=repr_dict)
 
     def _get_continuous_covariates(
         self,

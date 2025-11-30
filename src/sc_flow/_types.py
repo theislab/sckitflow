@@ -38,14 +38,9 @@ TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
 
 
 MappedLevelIndex: TypeAlias = Mapping[tuple[Any, ...], pd.MultiIndex]
-NamedMappedLevelIndex: TypeAlias = Mapping[str, str | MappedLevelIndex]
 
-T = TypeVar("T", "MappedLevelIndex", "NamedMappedLevelIndex")
+T = TypeVar("T", bound="MappedLevelIndex")
 NestedMappedLevelIndex: TypeAlias = Mapping[
     tuple[Any, ...],
     "NestedMappedLevelIndex | T",
-]
-NamedNestedMappedLevelIndex: TypeAlias = Mapping[
-    str,
-    "NamedNestedMappedLevelIndex | T",
 ]

@@ -75,7 +75,9 @@ class CompiledData(BaseData):
     @property
     def ann_df(self) -> pd.DataFrame:
         """"""  # noqa
-        return self.condition_data.condition_reps.ann_df
+        conditions_df = self.condition_data.condition_reps.ann_df
+        groups_df = self.groups_data.ann_df
+        return pd.concat((conditions_df, groups_df), axis=1)
 
 
 @dataclass(frozen=True)

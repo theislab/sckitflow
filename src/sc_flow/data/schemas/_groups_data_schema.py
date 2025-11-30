@@ -36,12 +36,12 @@ class GroupsDataSchema(BaseDataSchema):
     def _verify_groups(self, adata: AnnData) -> None:
         """"""  # noqa
         for group in self.groups:
-            self._check_key_found_in_adata_field(adata, "obs", group)
+            self._check_key_found_in_adata_field(adata, group, "obs")
 
     def _verify_groups_reps(self, adata: AnnData) -> None:
         """"""  # noqa
         for rep in self.groups_reps.values():
-            self._check_key_found_in_adata_field(adata, "uns", rep)
+            self._check_key_found_in_adata_field(adata, rep, "uns")
 
     def _verify_schema(self, adata):
         """"""  # noqa

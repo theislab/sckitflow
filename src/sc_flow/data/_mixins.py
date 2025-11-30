@@ -9,7 +9,7 @@ from sc_flow._utils import apply_fn_to_mapping
 __all__ = ["DataMixin", "ArrayMixin", "BatchMixin"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class DataMixin(dict):
     """"""  # noqa
 
@@ -91,14 +91,14 @@ class DataMixin(dict):
         return type(next(iter(self.values())))
 
 
-@dataclass
+@dataclass(frozen=True)
 class ArrayMixin(DataMixin):
     """"""  # noqa
 
     required_type: ClassVar[type[Any]] = np.ndarray | np.generic
 
 
-@dataclass
+@dataclass(frozen=True)
 class BatchMixin(ArrayMixin):
     """"""  # noqa
 

@@ -9,7 +9,7 @@ from sc_flow.data.grouping._indexer import HierarchicalIndexer
 __all__ = ["IndexSelector"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class IndexSelector:
     """"""  # noqa
 

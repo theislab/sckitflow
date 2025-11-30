@@ -9,7 +9,7 @@ from sc_flow.data._structures import BaseData
 __all__ = ["BaseDataSchema"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class BaseDataSchema(abc.ABC):
     """"""  # noqa
 

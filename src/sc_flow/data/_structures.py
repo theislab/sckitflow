@@ -18,14 +18,14 @@ __all__ = [
 ]
 
 
-@dataclass
+@dataclass(frozen=True)
 class BaseData:
     """"""  # noqa
 
     pass
 
 
-@dataclass
+@dataclass(frozen=True)
 class CategoricalData(BaseData):
     """"""  # noqa
 
@@ -34,19 +34,19 @@ class CategoricalData(BaseData):
     categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] = dc_field(default_factory=lambda: {})
 
 
-@dataclass
+@dataclass(frozen=True)
 class CombinationData(CategoricalData):
     """"""  # noqa
 
 
-@dataclass
+@dataclass(frozen=True)
 class StateData(BaseData):
     """"""  # noqa
 
     X: np.ndarray
 
 
-@dataclass
+@dataclass(frozen=True)
 class TargetData(BaseData):
     """"""  # noqa
 
@@ -54,7 +54,7 @@ class TargetData(BaseData):
     continuous_covariates: BatchMixin | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConditionData(BaseData):
     """"""  # noqa
 
@@ -62,7 +62,7 @@ class ConditionData(BaseData):
     condition_covariates: BatchMixin | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class CompiledData(BaseData):
     """"""  # noqa
 

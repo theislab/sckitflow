@@ -14,7 +14,7 @@ from sc_flow.data.schemas._base_schema import BaseDataSchema
 __all__ = ["ConditionDataSchema"]
 
 
-@dataclass
+@dataclass(frozen=True)
 class ConditionDataSchema(BaseDataSchema):
     """Implements the logic for conditioning."""
 

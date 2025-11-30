@@ -1,9 +1,8 @@
 from dataclasses import dataclass
-from typing import Any
 
 import pandas as pd
 
-from sc_flow.data._structures import CompiledData, MatchedData
+from sc_flow.data._structures import CompiledData, NestedMatchedData
 from sc_flow.data.grouping._selector import IndexSelector
 
 __all__ = [
@@ -22,22 +21,22 @@ class DataCollection:
         self._index = index
         self._selector = selector
 
-        self._groups_data_dict: dict[tuple[Any], MatchedData] = self._get_groups_data_dict()
+        self._matched_data: NestedMatchedData = self._get_groups_data_dict()
 
-    def _get_groups_data_dict(self) -> dict[tuple[Any], MatchedData]:
+    def _get_groups_data_dict(self) -> NestedMatchedData:
         """"""  # noqa
-        nested_indices = self._selector.index_to_nested_dict(self.index)
-        return nested_indices
-
-    @property
-    def groups_data_dict(self) -> dict[tuple[Any], MatchedData]:
-        """"""  # noqa
-        return self._groups_data_dict
+        mapped_index = self._selector.index_to_nested_dict(self.index)
+        return NestedMatchedData.init_from_nested_index(self._data, mapped_index)
 
     @property
     def data(self) -> CompiledData:
         """"""  # noqa
         return self._data
+
+    @property
+    def matched_data(self) -> NestedMatchedData:
+        """"""  # noqa
+        return self._matched_data
 
     @property
     def index(self) -> pd.MultiIndex:

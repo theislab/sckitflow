@@ -15,6 +15,7 @@ __all__ = [
     "TargetData",
     "ConditionData",
     "CompiledData",
+    "MatchedData",
 ]
 
 
@@ -75,3 +76,8 @@ class CompiledData(BaseData):
     def ann_df(self) -> pd.DataFrame:
         """"""  # noqa
         return self.condition_data.condition_reps.ann_df
+
+
+@dataclass(frozen=True)
+class MatchedData:
+    """"""  # noqa

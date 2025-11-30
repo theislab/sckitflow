@@ -171,9 +171,10 @@ class DataManager:
     ) -> pd.MultiIndex:
         """"""  # noqa
         compiled_data: CompiledData = self._get_compiled_data(adata)
+        index: pd.DataFrame = self.indexer.create_index(compiled_data.ann_df)
         return TrainCollection(
             compiled_data,
-            self.indexer,
+            index,
             self.selector,
         )
 

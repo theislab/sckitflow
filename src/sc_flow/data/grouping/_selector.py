@@ -57,16 +57,19 @@ class IndexSelector:
         self,
         level_name: str,
         query_dict: dict[str, Any],
-        index: pd.MultiIndex,
     ) -> dict[str, Any]:
         """"""  # noqa
         # retrieving all level columns
-        level_cols = self.registry[level_name]  # noqa
+        level_cols = sorted(self.registry[level_name])
 
-        # retrieving queried level columns
-        queried_level_cols = sorted(query_dict.keys())  # noqa
-
-        raise NotImplementedError
+        # expanding query dict
+        expanded_query_dict = {}
+        for col in level_cols:
+            if col not in query_dict:
+                expanded_query_dict[col] = slice(None)
+            else:
+                expanded_query_dict[col] = query_dict[col]
+        return expanded_query_dict
 
     def _prepare_partial_query_dict(
         self,
@@ -125,7 +128,25 @@ class IndexSelector:
         for level_name, level_query_dict in query_dict.items():
             self._verify_level_query_dict(level_name, level_query_dict)
 
-    def query_level(
+    def get_query_dict_from_tuple(
+        self,
+        values: tuple[Any],
+        level_name: str,
+    ) -> dict[str, Any]:
+        """"""  # noqa
+        if level_name not in self.registry_keys:
+            msg = f"Level {level_name} not found. Available options are {self.registry_keys}."
+            raise KeyError(msg)
+        level_columns = sorted(self.registry[level_name])
+        if len(values) != len(level_columns):
+            msg = (
+                f"The number of provided values is wrong, got {len(values)}"
+                f", expected {len(level_columns)} for level {level_name}"
+            )
+            raise ValueError(msg)
+        return {col: values[idx] for idx, col in enumerate(level_columns)}
+
+    def query_level_with_dict(
         self,
         level_name: str,
         query_dict: dict[str, Any],
@@ -139,14 +160,14 @@ class IndexSelector:
             index,
         )
 
-    def query(
+    def query_with_dict(
         self,
         query_dict: dict[str, dict[str, Any]],
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa
         query_dict = self._prepare_partial_query_dict(query_dict)
-        return self._query_level_with_dict(
+        return self._query_with_dict(
             query_dict,
             index,
         )

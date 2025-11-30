@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from sc_flow.data._structures import CompiledData, NestedMatchedData
+from sc_flow.data._structures import CompiledData, NestedCompiledData, NestedMatchedData
 from sc_flow.data.grouping._selector import IndexSelector
 
 __all__ = [
@@ -26,7 +26,8 @@ class DataCollection:
     def _get_groups_data_dict(self) -> NestedMatchedData:
         """"""  # noqa
         mapped_index = self._selector.index_to_nested_dict(self.index)
-        return NestedMatchedData.init_from_nested_index(self._data, mapped_index)
+        # return NestedMatchedData.init_from_data(self._data, self.index, mapped_index)
+        return NestedCompiledData.init_from_data(self._data, self.index, mapped_index)
 
     @property
     def data(self) -> CompiledData:

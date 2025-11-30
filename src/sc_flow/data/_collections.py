@@ -22,7 +22,12 @@ class DataCollection:
         self._index = index
         self._selector = selector
 
-        self._groups_data_dict: dict[tuple[Any], MatchedData] = self._selector.index_to_nested_dict(self.index)
+        self._groups_data_dict: dict[tuple[Any], MatchedData] = self._get_groups_data_dict()
+
+    def _get_groups_data_dict(self) -> dict[tuple[Any], MatchedData]:
+        """"""  # noqa
+        nested_indices = self._selector.index_to_nested_dict(self.index)
+        return nested_indices
 
     @property
     def groups_data_dict(self) -> dict[tuple[Any], MatchedData]:

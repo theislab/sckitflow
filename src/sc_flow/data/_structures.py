@@ -26,14 +26,37 @@ T = TypeVar("T", bound="BaseData")
 class BaseData(abc.ABC):
     """"""  # noqa
 
-    @abc.abstractmethod
-    def slice_with_index(
-        self,
+    @staticmethod
+    def _get_query_idxs(
         reference_index: pd.MultiIndex,
         query_index: pd.MultiIndex,
+    ) -> np.ndarray:
+        return reference_index.get_indexer(query_index)
+
+    @abc.abstractmethod
+    def _slice_with_array(
+        self,
+        idxs: np.ndarray,
     ) -> "BaseData":
         """"""  # noqa
         raise NotImplementedError
+
+    def slice_with_array(
+        self,
+        idxs: np.ndarray,
+    ) -> "BaseData":
+        """"""  # noqa
+        return self._slice_with_array(idxs)
+
+    def slice_with_index(
+        self, reference_index: pd.MultiIndex, query_index: pd.MultiIndex, return_index_array: bool = False
+    ) -> "BaseData | tuple[BaseData, np.ndarray]":
+        """"""  # noqa
+        idxs = self._get_query_idxs(reference_index, query_index)
+        query_data = self._slice_with_array(idxs)
+        if return_index_array:
+            return query_data, idxs
+        return query_data
 
 
 @dataclass(frozen=True)
@@ -44,13 +67,13 @@ class CategoricalData(BaseData):
     repr_dict: dict[str, MappedArray] = dc_field(default_factory=lambda: {})
     categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] = dc_field(default_factory=lambda: {})
 
-    def slice_with_index(
+    def _slice_with_array(
         self,
-        reference_index: pd.MultiIndex,
-        query_index: pd.MultiIndex,
+        idxs: np.ndarray,
     ) -> "CategoricalData":
         """"""  # noqa
-        raise NotImplementedError
+        ann_df = self.ann_df.iloc[idxs]
+        return self.__class__(ann_df, self.repr_dict, self.categorical_encoders)
 
 
 @dataclass(frozen=True)
@@ -59,13 +82,13 @@ class StateData(BaseData):
 
     X: np.ndarray
 
-    def slice_with_index(
+    def _slice_with_array(
         self,
-        reference_index: pd.MultiIndex,
-        query_index: pd.MultiIndex,
+        idxs: np.ndarray,
     ) -> "StateData":
         """"""  # noqa
-        raise NotImplementedError
+        X = self.X[idxs]
+        return self.__class__(X)
 
 
 @dataclass(frozen=True)
@@ -75,13 +98,20 @@ class TargetData(BaseData):
     categorical_covariates: CategoricalData | None = None
     continuous_covariates: BatchMixin | None = None
 
-    def slice_with_index(
+    def _slice_with_array(
         self,
-        reference_index: pd.MultiIndex,
-        query_index: pd.MultiIndex,
+        idxs: np.ndarray,
     ) -> "TargetData":
         """"""  # noqa
-        raise NotImplementedError
+        categorical_covariates = (
+            None if self.categorical_covariates is None else self.categorical_covariates.slice_with_array(idxs)
+        )
+        continuous_covariates = (
+            None if self.continuous_covariates is None else self.continuous_covariates.apply(lambda e: e[idxs])
+        )
+        return self.__class__(
+            categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates
+        )
 
 
 @dataclass(frozen=True)
@@ -91,13 +121,16 @@ class ConditionData(BaseData):
     condition_reps: CategoricalData | None = None
     condition_covariates: BatchMixin | None = None
 
-    def slice_with_index(
+    def _slice_with_array(
         self,
-        reference_index: pd.MultiIndex,
-        query_index: pd.MultiIndex,
+        idxs: np.ndarray,
     ) -> "ConditionData":
         """"""  # noqa
-        raise NotImplementedError
+        condition_reps = None if self.condition_reps is None else self.condition_reps.slice_with_array(idxs)
+        condition_covariates = (
+            None if self.condition_covariates is None else self.condition_covariates.apply(lambda e: e[idxs])
+        )
+        return self.__class__(condition_reps=condition_reps, condition_covariates=condition_covariates)
 
 
 @dataclass(frozen=True)
@@ -116,16 +149,15 @@ class CompiledData(BaseData):
         groups_df = self.groups_data.ann_df
         return pd.concat((conditions_df, groups_df), axis=1)
 
-    def slice_with_index(
+    def _slice_with_array(
         self,
-        reference_index: pd.MultiIndex,
-        query_index: pd.MultiIndex,
+        idxs: np.ndarray,
     ) -> "CompiledData":
         """"""  # noqa
-        state_data = self.state_data.slice_with_index(reference_index, query_index)
-        target_data = self.target_data.slice_with_index(reference_index, query_index)
-        condition_data = self.condition_data.slice_with_index(reference_index, query_index)
-        groups_data = self.groups_data.slice_with_index(reference_index, query_index)
+        state_data = self.state_data.slice_with_array(idxs)
+        target_data = None if self.target_data is None else self.target_data.slice_with_array(idxs)
+        condition_data = None if self.condition_data is None else self.condition_data.slice_with_array(idxs)
+        groups_data = None if self.groups_data is None else self.groups_data.slice_with_array(idxs)
         return self.__class__(
             state_data, target_data=target_data, condition_data=condition_data, groups_data=groups_data
         )
@@ -160,7 +192,7 @@ class NestedData(Generic[T]):
             msg = f"Leaf data is expected to be of type {cls.dtype}, found {type(data)}."
             raise TypeError(msg)
         data_dict = {
-            values: data.slice_with_index(query_index, reference_index) for values, query_index in mapped_index.items()
+            values: data.slice_with_index(reference_index, query_index) for values, query_index in mapped_index.items()
         }
         return NestedData(data_dict)
 

@@ -10,10 +10,10 @@ __all__ = ["DataMixin", "ArrayMixin", "BatchMixin"]
 
 
 @dataclass(frozen=True)
-class DataMixin(dict):
+class DataMixin:
     """"""  # noqa
 
-    required_type: ClassVar[type[Any] | None] = None
+    required_type: ClassVar[type[Any] | None] = object
     mapping: Mapping[str, Any] | None = None
 
     def __init__(self, required_type: type[Any] | None = None, mapping: Mapping[str, Any] | None = None) -> None:
@@ -47,12 +47,12 @@ class DataMixin(dict):
         """"""  # noqa
         # checking that we have the required type when specified
         if self.required_type is not None:
-            if not issubclass(self.data_type, self.required_type):
+            if self.data_type is not self.required_type:
                 msg = f"Data is of the wrong type. Got {self.data_type}, expected {self.required_type}."
                 raise TypeError(msg)
 
         # iterating over each key to check that the type is the same
-        for key, value in self.items():
+        for key, value in self.mapping.items():
             if not isinstance(value, self.data_type):
                 msg = f"The values should share the same type. Got {type(value)} for {key}, expected {self.data_type}."
                 raise TypeError(msg)
@@ -63,7 +63,6 @@ class DataMixin(dict):
         *args,
         fields: None | Collection[str] = None,
         drop_unused_fields: bool = False,
-        recursive: bool = True,
         output_type: type[Any] | None = None,
         **kwargs,
     ):
@@ -74,19 +73,18 @@ class DataMixin(dict):
             *args,
             fields=fields,
             drop_unused_fields=drop_unused_fields,
-            recursive=recursive,
             **kwargs,
         )
         output_type = self.data_type if output_type is None else output_type
+        self.__class__.required_type = output_type
         return self.__class__(
-            required_type=output_type,
             mapping=mapping,
         )
 
     @property
     def data_type(self) -> type[Any]:
         """"""  # noqa
-        if len(self) == 0:
+        if len(self.mapping) == 0:
             return self.required_type
         return type(next(iter(self.values())))
 
@@ -104,18 +102,13 @@ class BatchMixin(ArrayMixin):
 
     minimum_dims: ClassVar[int] = 1
 
-    def __post_init__(self):
-        """"""  # noqa
-        super().__post_init__()
-        self.reference_dims = map(tuple, next(iter(self.values())).shape[: self.minimum_dims])
-
     def _verify_inputs(self) -> None:
         """"""  # noqa
         # calling method of parent class for usual checks
         super()._verify_inputs()
 
         # iterating over the elements
-        for key, value in self.items():
+        for key, value in self.mapping.items():
             # verifying that the required dimensions match
             self._verify_shape(key, value)
 
@@ -143,3 +136,13 @@ class BatchMixin(ArrayMixin):
                     f"Found data of shape{data.shape}"
                 )
                 raise ValueError(msg)
+
+    @property
+    def reference_dims(
+        self,
+    ) -> Collection[int]:
+        """"""  # noqa
+        if len(self.mapping):
+            reference_array = next(iter(self.mapping.values()))
+            return reference_array.shape[: self.minimum_dims]
+        return []

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
-from sc_flow._constants import CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
+from sc_flow._constants import BASE_LEVEL_NAME, CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
 from sc_flow._utils import check_sequence_query_against_reference
 
 __all__ = ["HierarchicalIndexer"]
@@ -54,6 +54,7 @@ class HierarchicalIndexer:
     def create_index(self, df: pd.DataFrame) -> pd.MultiIndex:
         """Creates a hierarchical index from the input dataframe."""
         level_frames = {}
+        level_frames[BASE_LEVEL_NAME] = df.index
 
         for level_name, level_cols in self._registry.items():
             # constructing empty array and filling it with dummy value

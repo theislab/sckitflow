@@ -21,5 +21,6 @@ TARGET_COUPLING_STATE_QUAD = "tgt_yy_cell_coupling"
 
 SOURCE_IDXS_KEY = "src_idxs"
 
+BASE_LEVEL_NAME = "base"
 GROUP_LEVEL_NAME = "groups"
 CONDITION_LEVEL_NAME = "conditions"

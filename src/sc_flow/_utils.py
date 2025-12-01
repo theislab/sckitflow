@@ -186,7 +186,6 @@ def apply_fn_to_mapping(
     *args,
     fields: None | Collection[str] = None,
     drop_unused_fields: bool = False,
-    recursive: bool = True,
     **kwargs,
 ) -> Mapping[str, Any]:
     """Applies a function to a mapping of objects."""
@@ -199,14 +198,13 @@ def apply_fn_to_mapping(
         # applying function
         if key in fields:
             # recursive call
-            if recursive and isinstance(value, mapping.__class__):
+            if isinstance(value, mapping.__class__):
                 value = apply_fn_to_mapping(
                     value,
                     function,
                     *args,
                     fields=fields,
                     drop_unused_fields=drop_unused_fields,
-                    recursive=recursive,
                     **kwargs,
                 )
             else:

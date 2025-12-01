@@ -86,7 +86,7 @@ class TargetDataSchema(BaseDataSchema):
         covariates_dict = {}
         for covariate in self.continuous_covs_dict:
             covariates_dict[covariate] = adata.obsm[covariate]
-        raise BatchMixin(covariates_dict)
+        return BatchMixin(covariates_dict)
 
     def _get_data(
         self,
@@ -94,7 +94,7 @@ class TargetDataSchema(BaseDataSchema):
     ) -> TargetData:
         """"""  # noqa
         categorical_covariates: CategoricalData = self._get_categorical_covariates(adata)
-        continuous_covariates: BatchMixin = self._get_categorical_covariates(adata)
+        continuous_covariates: BatchMixin = self._get_continuous_covariates(adata)
         return TargetData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
 
     @property

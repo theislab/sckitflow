@@ -104,7 +104,7 @@ class ConditionDataSchema(BaseDataSchema):
         adata: AnnData,
     ) -> BatchMixin:
         """"""  # noqa
-        return {covariate_name: adata.obsm[covariate_name] for covariate_name in self.conditions_covariates}
+        return BatchMixin({covariate_name: adata.obsm[covariate_name] for covariate_name in self.conditions_covariates})
 
     def _verify_schema(
         self,

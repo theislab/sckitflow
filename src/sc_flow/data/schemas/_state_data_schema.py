@@ -34,5 +34,6 @@ class StateDataSchema(BaseDataSchema):
         """"""  # noqa
         if self.sample_rep is None:
             X = adata.X
-        X = adata.obsm[self.sample_rep]
+        else:
+            X = adata.obsm[self.sample_rep]
         return StateData(X)

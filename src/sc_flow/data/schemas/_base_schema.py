@@ -37,6 +37,13 @@ class BaseDataSchema(abc.ABC):
             raise KeyError(f"Key '{identifier}' not found in adata.{adata_field_key}. Available keys: {available}")
 
     @abc.abstractmethod
+    def _verify_args(
+        self,
+    ) -> None:
+        """"""  # noqa
+        raise NotImplementedError
+
+    @abc.abstractmethod
     def _verify_schema(
         self,
         adata: AnnData,

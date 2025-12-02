@@ -12,7 +12,16 @@ __all__ = ["StateDataSchema"]
 class StateDataSchema(BaseDataSchema):
     """"""  # noqa
 
-    sample_rep: str | None = None
+    def __init__(
+        self,
+        sample_rep: str | None = None,
+    ) -> None:
+        """"""  # noqa
+        self._sample_rep = sample_rep
+
+    def _verify_args(self) -> None:
+        """"""  # noqa
+        pass
 
     def _verify_schema(
         self,

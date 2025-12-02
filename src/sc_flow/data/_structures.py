@@ -1,5 +1,5 @@
 import abc
-from collections.abc import Hashable, Mapping
+from collections.abc import Collection, Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Any, ClassVar, Generic, TypeVar
@@ -11,11 +11,16 @@ from sc_flow._types import MappedArray, NestedMappedLevelIndex, TargetCovariates
 from sc_flow.data._mixins import BatchMixin
 
 __all__ = [
+    "BaseData",
     "CategoricalData",
     "StateData",
     "TargetData",
     "ConditionData",
     "CompiledData",
+    "NestedData",
+    "NestedCompiledData",
+    "MatchedData",
+    "NestedMatchedData",
 ]
 
 
@@ -173,7 +178,7 @@ class NestedData(Generic[T]):
     @classmethod
     def init_from_data(
         cls,
-        data: BaseData,
+        data: T,
         reference_index: pd.MultiIndex,
         mapped_index: NestedMappedLevelIndex,
     ) -> "NestedData":
@@ -183,7 +188,7 @@ class NestedData(Generic[T]):
     @classmethod
     def _get_leaf_mapped_data_from_dict(
         cls,
-        data: BaseData,
+        data: T,
         reference_index: pd.MultiIndex,
         mapped_index: NestedMappedLevelIndex,
     ) -> "NestedData":
@@ -199,12 +204,12 @@ class NestedData(Generic[T]):
     @classmethod
     def _get_mapped_data_from_dict(
         cls,
-        data: BaseData,
+        data: T,
         reference_index: pd.MultiIndex,
         mapped_index: NestedMappedLevelIndex,
     ) -> "NestedData":
         if isinstance(mapped_index, NestedData):
-            return cls._get_leaf_mapped_data_from_dict(
+            return cls._get_mapped_data_from_dict(
                 data,
                 reference_index,
                 mapped_index,
@@ -231,16 +236,25 @@ class MatchedData:
     def init_from_data(
         cls,
         data: CompiledData,
-        levels_source_value_dict: dict[str, Any],
+        index: pd.MultiIndex,
+        mapped_index: dict[str, Any],
+        conditions: dict[str, Collection[str]],
+        control_values_dict: dict[str, str] | None,
     ) -> "MatchedData":
         """"""  # noqa
         target_data: NestedCompiledData = cls._init_target_distributions(
             data,
-            levels_source_value_dict,
+            index,
+            mapped_index,
+            conditions,
+            control_values_dict,
         )
         source_data: CompiledData | None = cls._init_source_distribution(
             data,
-            levels_source_value_dict,
+            index,
+            mapped_index,
+            conditions,
+            control_values_dict,
         )
         return cls(target_data, source_data=source_data)
 
@@ -248,7 +262,10 @@ class MatchedData:
     def _init_target_distributions(
         cls,
         data: CompiledData,
+        index: pd.MultiIndex,
         levels_source_value_dict: dict[str, Any],
+        conditions: dict[str, Collection[str]],
+        control_values_dict: dict[str, str] | None,
     ) -> NestedCompiledData:
         """"""  # noqa
         raise NotImplementedError
@@ -257,7 +274,10 @@ class MatchedData:
     def _init_source_distribution(
         cls,
         data: CompiledData,
+        index: pd.MultiIndex,
         levels_source_value_dict: dict[str, Any],
+        conditions: dict[str, Collection[str]],
+        control_values_dict: dict[str, str] | None,
     ) -> CompiledData:
         """"""  # noqa
         raise NotImplementedError

@@ -1,92 +1,100 @@
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection, Hashable, Mapping
 from dataclasses import dataclass
-from typing import Any, ClassVar
+from dataclasses import field as dc_field
+from typing import Any, ClassVar, Generic, TypeVar
 
 import numpy as np
-
-from sc_flow._utils import apply_fn_to_mapping
 
 __all__ = ["DataMixin", "ArrayMixin", "BatchMixin"]
 
 
+T = TypeVar("T")
+
+
 @dataclass(frozen=True)
-class DataMixin:
+class DataMixin(Generic[T]):
     """"""  # noqa
 
-    required_type: ClassVar[type[Any] | None] = object
-    mapping: Mapping[str, Any] | None = None
-
-    def __init__(self, required_type: type[Any] | None = None, mapping: Mapping[str, Any] | None = None) -> None:
-        """"""  # noqa
-        # update data type if provided
-        if required_type is not None:
-            self.__class__.required_type = required_type
-
-        # initialize dict parent with same items
-        super().__init__(mapping)
-
-        # run verification
-        self.__post_init__()
+    required_key_type: ClassVar[type[Any]] = str
+    required_value_type: ClassVar[type[Any]] = object
+    mapping: Mapping[Hashable, "T | DataMixin"] = dc_field(default_factory=lambda: {})
 
     def __post_init__(self) -> None:
         """"""  # noqa
-        # creating empty dictionary
-        if self.mapping is None:
-            self.mapping = {}
-
-        # verifying that the keys are strings
-        for key in self.mapping.keys():
-            if not isinstance(key, str):
-                msg = ""
-                raise ValueError(msg)
-
         # verifying inputs
         self._verify_inputs()
 
     def _verify_inputs(self) -> None:
         """"""  # noqa
-        # checking that we have the required type when specified
-        if self.required_type is not None:
-            if self.data_type is not self.required_type:
-                msg = f"Data is of the wrong type. Got {self.data_type}, expected {self.required_type}."
-                raise TypeError(msg)
-
         # iterating over each key to check that the type is the same
         for key, value in self.mapping.items():
-            if not isinstance(value, self.data_type):
-                msg = f"The values should share the same type. Got {type(value)} for {key}, expected {self.data_type}."
+            if not isinstance(value, self.required_value_type):
+                msg = f"The values should respect the pre-defined type. Got {type(value)} for {key}, expected {self.data_type}."
                 raise TypeError(msg)
+            if not isinstance(key, self.required_key_type):
+                msg = f"The keys should respect the pre-defined type. Got {type(value)} for {key}, expected {self.data_type}."
+                raise TypeError(msg)
+
+    def _apply_to_level(
+        self,
+        level_value: "T | DataMixin",
+        function: Callable[[Any], Any],
+        *args,
+        output_key_type: type[Any] | None = None,
+        output_value_type: type[Any] | None = None,
+        **kwargs,
+    ) -> "T":
+        """"""  # noqa
+        if isinstance(level_value, DataMixin):
+            return self._apply(
+                level_value,
+                function,
+                *args,
+                output_key_type=output_key_type,
+                output_value_type=output_value_type,
+            )
+        return function(level_value, *args, **kwargs)
+
+    def _apply(
+        self,
+        mapping: Mapping[Hashable, "T | DataMixin"],
+        function: Callable[[Any], Any],
+        *args,
+        output_key_type: type[Any] | None = None,
+        output_value_type: type[Any] | None = None,
+        **kwargs,
+    ) -> "DataMixin":
+        """"""  # noqa
+        out_dict = {}
+        if isinstance(mapping, DataMixin):
+            mapping = mapping.mapping
+        for key, value in mapping.items():
+            out_dict[key] = self._apply_to_level(
+                value, function, *args, output_key_type=output_key_type, output_value_type=output_value_type, **kwargs
+            )
+        output_key_type = self.required_key_type if output_key_type is None else output_key_type
+        output_value_type = self.required_value_type if output_value_type is None else output_value_type
+        self.__class__.required_key_type = output_key_type
+        self.__class__.required_value_type = output_value_type
+        return self.__class__(out_dict)
 
     def apply(
         self,
         function: Callable[[Any], Any],
         *args,
-        fields: None | Collection[str] = None,
-        drop_unused_fields: bool = False,
-        output_type: type[Any] | None = None,
+        output_key_type: type[Any] | None = None,
+        output_value_type: type[Any] | None = None,
         **kwargs,
-    ):
+    ) -> "DataMixin":
         """"""  # noqa
-        mapping = apply_fn_to_mapping(
+        return self._apply(
             self.mapping,
             function,
             *args,
-            fields=fields,
-            drop_unused_fields=drop_unused_fields,
+            output_key_type=output_key_type,
+            output_value_type=output_value_type,
             **kwargs,
         )
-        output_type = self.data_type if output_type is None else output_type
-        self.__class__.required_type = output_type
-        return self.__class__(
-            mapping=mapping,
-        )
-
-    @property
-    def data_type(self) -> type[Any]:
-        """"""  # noqa
-        if len(self.mapping) == 0:
-            return self.required_type
-        return type(next(iter(self.values())))
 
 
 @dataclass(frozen=True)

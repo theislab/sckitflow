@@ -126,12 +126,11 @@ class IndexSelector:
         )
         if hierarchy_index == (self.n_hierarchy_levels - 1):
             return level_unique_values_dict
-        else:
-            next_level_name = self.hierarchy_levels[hierarchy_index + 1]
-            return self._recursive_call_level_index_to_nested_dict(
-                next_level_name,
-                level_unique_values_dict,
-            )
+        next_level_name = self.hierarchy_levels[hierarchy_index + 1]
+        return self._recursive_call_level_index_to_nested_dict(
+            next_level_name,
+            level_unique_values_dict,
+        )
 
     def query_level_with_dict(
         self,

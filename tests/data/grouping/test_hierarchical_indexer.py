@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 from anndata import AnnData
 
-from sc_flow.data._indexer import HierarchicalIndexer
+from sc_flow.data.grouping._indexer import HierarchicalIndexer
 
 wrong_key = "wrong_key"
 

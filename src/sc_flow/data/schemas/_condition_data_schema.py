@@ -36,33 +36,6 @@ class ConditionDataSchema(BaseDataSchema):
             allow_missing_from_reference=False,
         )
 
-    @property
-    def all_condition_categories(
-        self,
-    ) -> Collection[str]:
-        """"""  # noqa
-        if self.conditions is None:
-            return ()
-        return tuple(cat for condition in self._conditions.values() for cat in condition)
-
-    @property
-    def condition_category_to_realm(
-        self,
-    ) -> dict[str, str]:
-        """"""  # noqa
-        cat2realm = {}
-        for condition, condition_cats in self._conditions.items():
-            for cat in condition_cats:
-                cat2realm[cat] = condition
-        return cat2realm
-
-    @property
-    def allows_ot_coupling(
-        self,
-    ) -> bool:
-        """"""  # noqa
-        return self._conditions_covariates is None
-
     def _verify_categorical_covariates(
         self,
         adata: AnnData,
@@ -130,6 +103,33 @@ class ConditionDataSchema(BaseDataSchema):
         categorical_covariates = self._get_categorical_covariates(adata)
         continuous_covariates = self._get_continuous_covariates(adata)
         return ConditionData(condition_reps=categorical_covariates, condition_covariates=continuous_covariates)
+
+    @property
+    def all_condition_categories(
+        self,
+    ) -> Collection[str]:
+        """"""  # noqa
+        if self.conditions is None:
+            return ()
+        return tuple(cat for condition in self._conditions.values() for cat in condition)
+
+    @property
+    def condition_category_to_realm(
+        self,
+    ) -> dict[str, str]:
+        """"""  # noqa
+        cat2realm = {}
+        for condition, condition_cats in self._conditions.items():
+            for cat in condition_cats:
+                cat2realm[cat] = condition
+        return cat2realm
+
+    @property
+    def allows_ot_coupling(
+        self,
+    ) -> bool:
+        """"""  # noqa
+        return self._conditions_covariates is None
 
     @property
     def conditions(self) -> dict[str, Collection[str]]:

@@ -30,16 +30,21 @@ class StateDataSchema(BaseDataSchema):
         :type adata: class: `AnnData`
         """
         # when we provide the sample rep key it should appear in `self.adata.obsm`
-        if self.sample_rep is not None:
-            self._check_key_found_in_adata_field(adata, self.sample_rep, "obsm")
+        if self._sample_rep is not None:
+            self._check_key_found_in_adata_field(adata, self._sample_rep, "obsm")
 
     def _get_data(
         self,
         adata: AnnData,
     ) -> StateData:
         """"""  # noqa
-        if self.sample_rep is None:
+        if self._sample_rep is None:
             X = adata.X
         else:
-            X = adata.obsm[self.sample_rep]
+            X = adata.obsm[self._sample_rep]
         return StateData(X)
+
+    @property
+    def sample_rep(self) -> str:
+        """"""  # noqa
+        return self._sample_rep

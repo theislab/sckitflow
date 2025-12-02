@@ -18,11 +18,11 @@ class TargetDataSchema(BaseDataSchema):
     def __init__(
         self,
         categorical_covs_dict: dict[str, TargetCovariatesEncodingId] | None = None,
-        continuous_covs_dict: Collection[str] | None = None,
+        continuous_covs: Collection[str] | None = None,
     ) -> None:
         """"""  # noqa
         self._categorical_covs_dict = {} if categorical_covs_dict is None else categorical_covs_dict
-        self._continuous_covs_dict = {} if continuous_covs_dict is None else continuous_covs_dict
+        self._continuous_covs = [] if continuous_covs is None else continuous_covs
 
     def _verify_schema_categorical_covariates(
         self,
@@ -87,7 +87,7 @@ class TargetDataSchema(BaseDataSchema):
     ) -> BatchMixin:
         """"""  # noqa
         covariates_dict = {}
-        for covariate in self.continuous_covs_dict:
+        for covariate in self._continuous_covs:
             covariates_dict[covariate] = adata.obsm[covariate]
         return BatchMixin(covariates_dict)
 
@@ -104,3 +104,13 @@ class TargetDataSchema(BaseDataSchema):
     def categorical_covariates(self) -> tuple[str]:
         """"""  # noqa
         return tuple(self.categorical_covs_dict.keys())
+
+    @property
+    def categorical_covs_dict(self) -> dict[str, TargetCovariatesEncodingId]:
+        """"""  # noqa
+        return self._categorical_covs_dict
+
+    @property
+    def continuous_covs(self) -> Collection[str]:
+        """"""  # noqa
+        return self._continuous_covs

@@ -86,3 +86,18 @@ class GroupsDataSchema(BaseDataSchema):
             repr_dict=repr_dict,
             categorical_encoders=encoders_dict,
         )
+
+    @property
+    def groups(self) -> Collection[str]:
+        """"""  # noqa
+        return self._groups
+
+    @property
+    def groups_reps(self) -> dict[str, str]:
+        """"""  # noqa
+        return self._groups_reps
+
+    @property
+    def groups_encoding(self) -> dict[str, TargetCovariatesEncodingId]:
+        """"""  # noqa
+        return self._groups_encoding

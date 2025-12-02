@@ -1,6 +1,7 @@
 import pytest
 from anndata import AnnData
 
+from sc_flow.data._structures import StateData
 from sc_flow.data.schemas import StateDataSchema
 
 inval_key: str = "invalid_key"
@@ -24,6 +25,7 @@ class TestConditionDataSchema:
                 data = schema.get_data(adata)
             return None
         data = schema.get_data(adata)
+        assert isinstance(data, StateData)
         if sample_rep == "X_repr":
             target_shape = (n_obs, n_feats_obsm_repr)
         else:

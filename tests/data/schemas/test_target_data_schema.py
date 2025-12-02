@@ -27,7 +27,9 @@ class TestTargetDataSchema:
     ) -> None:
         """"""
         if categorical_covs_dict is not None and inval_key in categorical_covs_dict.values():
-            with pytest.raises(ValueError, match="Covariate Encoder .* not available"):
+            with pytest.raises(
+                ValueError, match=r"Encoder identifier .* for target covariate encoding is not supported"
+            ):
                 _schema = TargetDataSchema(categorical_covs_dict=categorical_covs_dict)
             return None
         _schema = TargetDataSchema(categorical_covs_dict=categorical_covs_dict)
@@ -50,10 +52,12 @@ class TestTargetDataSchema:
         continuous_covs: Collection[str] | None,
     ) -> None:
         """"""
-        if categorical_covs_dict is not None and inval_key in categorical_covs_dict.values():
-            with pytest.raises(ValueError, match="Covariate Encoder .* not available"):
-                schema = TargetDataSchema(categorical_covs_dict=categorical_covs_dict, continuous_covs=continuous_covs)
-            return None
         schema = TargetDataSchema(categorical_covs_dict=categorical_covs_dict, continuous_covs=continuous_covs)
+        if (categorical_covs_dict is not None and inval_key in categorical_covs_dict) or (
+            continuous_covs is not None and inval_key in continuous_covs
+        ):
+            with pytest.raises(KeyError, match=r"Key .* not found in adata"):
+                data = schema.get_data(adata)
+            return None
         data = schema.get_data(adata)
         assert isinstance(data, TargetData)

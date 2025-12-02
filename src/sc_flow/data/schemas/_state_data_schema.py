@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-
 from anndata import AnnData
 
 from sc_flow.data._structures import StateData
@@ -8,7 +6,6 @@ from sc_flow.data.schemas._base_schema import BaseDataSchema
 __all__ = ["StateDataSchema"]
 
 
-@dataclass(frozen=True)
 class StateDataSchema(BaseDataSchema):
     """"""  # noqa
 

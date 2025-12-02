@@ -89,11 +89,11 @@ class IndexSelector:
         self,
         level_name: str,
         index: pd.MultiIndex,
-    ) -> MappedLevelIndex:
+    ) -> NestedMappedLevelIndex:
         """"""  # noqa
         unique_level_values = self._get_unique_level_values(level_name, index)
         data_dict = {values: self._query_level_with_tuple(level_name, values, index) for values in unique_level_values}
-        return data_dict
+        return NestedMappedLevelIndex(data_dict)
 
     def _recursive_call_level_index_to_nested_dict(
         self,
@@ -106,9 +106,9 @@ class IndexSelector:
                 level_name,
                 values_index,
             )
-            for values, values_index in level_unique_values_dict.items()
+            for values, values_index in level_unique_values_dict.mapping.items()
         }
-        return data_dict
+        return NestedMappedLevelIndex(data_dict)
 
     def _level_index_to_nested_dict(
         self,

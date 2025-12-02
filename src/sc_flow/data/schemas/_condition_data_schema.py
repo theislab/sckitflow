@@ -1,6 +1,4 @@
 from collections.abc import Collection
-from dataclasses import dataclass
-from dataclasses import field as dc_field
 
 import pandas as pd
 from anndata import AnnData
@@ -14,15 +12,22 @@ from sc_flow.data.schemas._base_schema import BaseDataSchema
 __all__ = ["ConditionDataSchema"]
 
 
-@dataclass(frozen=True)
 class ConditionDataSchema(BaseDataSchema):
     """Implements the logic for conditioning."""
 
-    conditions: dict[str, Collection[str]] = dc_field(default_factory=lambda: {})
-    conditions_reps: dict[str, str] = dc_field(default_factory=lambda: {})
-    conditions_covariates: Collection[str] = dc_field(default_factory=lambda: [])
+    def __init__(
+        self,
+        conditions: dict[str, Collection[str]] | None = None,
+        conditions_reps: dict[str, str] | None = None,
+        conditions_covariates: Collection[str] | None = None,
+    ) -> None:
+        """"""  # noqa
+        self._conditions = {} if conditions is None else conditions
+        self._conditions_reps = {} if conditions_reps is None else conditions_reps
+        self._conditions_covariates = [] if conditions_covariates is None else conditions_covariates
+        self._verify_args()
 
-    def __post_init__(self) -> None:
+    def _verify_args(self) -> None:
         """"""  # noqa
         check_sequence_query_against_reference(
             self.conditions_reps.keys(),
@@ -38,7 +43,7 @@ class ConditionDataSchema(BaseDataSchema):
         """"""  # noqa
         if self.conditions is None:
             return ()
-        return tuple(cat for condition in self.conditions.values() for cat in condition)
+        return tuple(cat for condition in self._conditions.values() for cat in condition)
 
     @property
     def condition_category_to_realm(
@@ -46,7 +51,7 @@ class ConditionDataSchema(BaseDataSchema):
     ) -> dict[str, str]:
         """"""  # noqa
         cat2realm = {}
-        for condition, condition_cats in self.conditions.items():
+        for condition, condition_cats in self._conditions.items():
             for cat in condition_cats:
                 cat2realm[cat] = condition
         return cat2realm
@@ -56,15 +61,15 @@ class ConditionDataSchema(BaseDataSchema):
         self,
     ) -> bool:
         """"""  # noqa
-        return self.conditions_covariates is None
+        return self._conditions_covariates is None
 
     def _verify_categorical_covariates(
         self,
         adata: AnnData,
     ) -> None:
         """"""  # noqa
-        for condition_realm, condition_rep in self.conditions_reps.items():
-            if condition_realm not in self.conditions:
+        for condition_realm, condition_rep in self._conditions_reps.items():
+            if condition_realm not in self._conditions:
                 msg = f"Condition {condition_realm} not found."
                 raise ValueError(msg)
             self._check_key_found_in_adata_field(adata, condition_rep, "uns")
@@ -74,7 +79,7 @@ class ConditionDataSchema(BaseDataSchema):
         adata: AnnData,
     ) -> None:
         """"""  # noqa
-        for covariate in self.conditions_covariates:
+        for covariate in self._conditions_covariates:
             self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
     def _get_covariates_df(
@@ -87,7 +92,8 @@ class ConditionDataSchema(BaseDataSchema):
     def _get_repr_dict(self, adata: AnnData) -> dict[str, MappedArray]:
         """"""  # noqa
         return {
-            condition_name: adata.uns[condition_repr] for condition_name, condition_repr in self.conditions_reps.items()
+            condition_name: adata.uns[condition_repr]
+            for condition_name, condition_repr in self._conditions_reps.items()
         }
 
     def _get_categorical_covariates(
@@ -104,7 +110,9 @@ class ConditionDataSchema(BaseDataSchema):
         adata: AnnData,
     ) -> BatchMixin:
         """"""  # noqa
-        return BatchMixin({covariate_name: adata.obsm[covariate_name] for covariate_name in self.conditions_covariates})
+        return BatchMixin(
+            {covariate_name: adata.obsm[covariate_name] for covariate_name in self._conditions_covariates}
+        )
 
     def _verify_schema(
         self,
@@ -122,3 +130,15 @@ class ConditionDataSchema(BaseDataSchema):
         categorical_covariates = self._get_categorical_covariates(adata)
         continuous_covariates = self._get_continuous_covariates(adata)
         return ConditionData(condition_reps=categorical_covariates, condition_covariates=continuous_covariates)
+
+    @property
+    def conditions(self) -> dict[str, Collection[str]]:
+        return self._conditions
+
+    @property
+    def conditions_reps(self) -> dict[str, str]:
+        return self._conditions_reps
+
+    @property
+    def conditions_covariates(self) -> Collection[str]:
+        return self._conditions_covariates

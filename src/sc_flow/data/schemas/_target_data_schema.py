@@ -1,6 +1,4 @@
 from collections.abc import Collection, Mapping
-from dataclasses import dataclass
-from dataclasses import field as dc_field
 
 import pandas as pd
 from anndata import AnnData
@@ -14,12 +12,17 @@ from sc_flow.data.schemas._base_schema import BaseDataSchema
 __all__ = ["TargetDataSchema"]
 
 
-@dataclass(frozen=True)
 class TargetDataSchema(BaseDataSchema):
     """"""  # noqa
 
-    categorical_covs_dict: dict[str, TargetCovariatesEncodingId] = dc_field(default_factory=lambda: {})
-    continuous_covs_dict: Collection[str] = dc_field(default_factory=lambda: [])
+    def __init__(
+        self,
+        categorical_covs_dict: dict[str, TargetCovariatesEncodingId] | None = None,
+        continuous_covs_dict: Collection[str] | None = None,
+    ) -> None:
+        """"""  # noqa
+        self._categorical_covs_dict = {} if categorical_covs_dict is None else categorical_covs_dict
+        self._continuous_covs_dict = {} if continuous_covs_dict is None else continuous_covs_dict
 
     def _verify_schema_categorical_covariates(
         self,

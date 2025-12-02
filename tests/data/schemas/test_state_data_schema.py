@@ -9,7 +9,7 @@ inval_key: str = "invalid_key"
 
 class TestConditionDataSchema:
     @pytest.mark.parametrize("sample_rep", [None, "X_repr", inval_key])
-    def test_init(
+    def test_get_data(
         self,
         n_obs: int,
         n_feats_obsm_repr: int,

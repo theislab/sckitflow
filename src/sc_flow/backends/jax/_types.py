@@ -14,12 +14,15 @@ from jax import Array as JaxArray
 
 ArrayLike = NumpyArray | JaxArray
 
+MappedArray = dict[str, ArrayLike]
+
 TTimeFeaturesFn = Callable[[ArrayLike, int], ArrayLike]
 
 TMeanFn = Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]
 TDriftFn = Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], ArrayLike]
 TSigmaFn = Callable[[ArrayLike], ArrayLike]
 
+TVfFn = Callable[[ArrayLike, ArrayLike], ArrayLike]
 
 class TConditioningFn(Protocol):
     def __call__(

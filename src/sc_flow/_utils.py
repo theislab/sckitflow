@@ -1,5 +1,5 @@
 import inspect
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection
 from typing import Any, get_args, get_origin
 
 __all__ = [
@@ -8,7 +8,6 @@ __all__ = [
     "verify_fn_args",
     "verify_fn_kwargs_dictionary",
     "verify_fn_signature",
-    "apply_fn_to_mapping",
     "check_sequence_query_against_reference",
 ]
 
@@ -178,42 +177,6 @@ def verify_fn_signature(
         raise TypeError(msg)
     verify_fn_args(fn, Tfn, omitted_args=omitted_args)
     verify_fn_kwargs_dictionary(fn, kwargs_dict)
-
-
-def apply_fn_to_mapping(
-    mapping: Mapping[str, Any],
-    function: Callable[[Any], Any],
-    *args,
-    fields: None | Collection[str] = None,
-    drop_unused_fields: bool = False,
-    **kwargs,
-) -> Mapping[str, Any]:
-    """Applies a function to a mapping of objects."""
-    # handling optional fields
-    if fields is None:
-        fields = mapping.keys()
-    # applying the function
-    out_dict = {}
-    for key, value in mapping.items():
-        # applying function
-        if key in fields:
-            # recursive call
-            if isinstance(value, mapping.__class__):
-                value = apply_fn_to_mapping(
-                    value,
-                    function,
-                    *args,
-                    fields=fields,
-                    drop_unused_fields=drop_unused_fields,
-                    **kwargs,
-                )
-            else:
-                value = function(value, *args, **kwargs)
-            out_dict[key] = value
-        # optionally storing unused keys
-        elif not drop_unused_fields:
-            out_dict[key] = value
-    return mapping.__class__(**out_dict)
 
 
 def check_sequence_query_against_reference(

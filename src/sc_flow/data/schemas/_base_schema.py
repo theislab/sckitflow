@@ -1,5 +1,4 @@
 import abc
-from dataclasses import dataclass
 from typing import Literal
 
 from anndata import AnnData
@@ -9,7 +8,6 @@ from sc_flow.data._structures import BaseData
 __all__ = ["BaseDataSchema"]
 
 
-@dataclass(frozen=True)
 class BaseDataSchema(abc.ABC):
     """"""  # noqa
 

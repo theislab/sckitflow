@@ -1,5 +1,6 @@
 from collections.abc import Mapping
-from typing import Any, Literal, TypeAlias
+from dataclasses import dataclass
+from typing import Any, Literal, TypeAlias, TypeVar
 
 import numpy as np
 import pandas as pd
@@ -37,9 +38,14 @@ MappedArray: TypeAlias = dict[str, np.ndarray]
 TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
 
 
-MappedLevelIndex: TypeAlias = Mapping[tuple[Any, ...], pd.MultiIndex]
+@dataclass
+class MappedLevelIndex:
+    mapping: Mapping[tuple[Any, ...], pd.MultiIndex]
 
-NestedMappedLevelIndex: TypeAlias = Mapping[
-    tuple[Any, ...],
-    "NestedMappedLevelIndex | MappedLevelIndex",
-]
+
+_T = TypeVar("_T", bound="NestedMappedLevelIndex")
+
+
+@dataclass
+class NestedMappedLevelIndex:
+    mapping: Mapping[tuple[Any, ...], "_T | MappedLevelIndex"]

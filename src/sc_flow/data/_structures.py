@@ -36,6 +36,7 @@ class BaseData(abc.ABC):
         reference_index: pd.MultiIndex,
         query_index: pd.MultiIndex,
     ) -> np.ndarray:
+        """"""  # noqa
         return reference_index.get_indexer(query_index)
 
     @abc.abstractmethod
@@ -78,7 +79,7 @@ class CategoricalData(BaseData):
     ) -> "CategoricalData":
         """"""  # noqa
         ann_df = self.ann_df.iloc[idxs]
-        return self.__class__(ann_df, self.repr_dict, self.categorical_encoders)
+        return self.__class__(ann_df, repr_dict=self.repr_dict, categorical_encoders=self.categorical_encoders)
 
 
 @dataclass(frozen=True)
@@ -191,15 +192,12 @@ class NestedData(Generic[T]):
         data: T,
         reference_index: pd.MultiIndex,
         mapped_index: NestedMappedLevelIndex,
-    ) -> "NestedData":
+    ) -> T:
         """"""  # noqa
         if not isinstance(data, cls.dtype):
             msg = f"Leaf data is expected to be of type {cls.dtype}, found {type(data)}."
             raise TypeError(msg)
-        data_dict = {
-            values: data.slice_with_index(reference_index, query_index) for values, query_index in mapped_index.items()
-        }
-        return NestedData(data_dict)
+        return data.slice_with_index(reference_index, mapped_index)
 
     @classmethod
     def _get_mapped_data_from_dict(
@@ -208,14 +206,13 @@ class NestedData(Generic[T]):
         reference_index: pd.MultiIndex,
         mapped_index: NestedMappedLevelIndex,
     ) -> "NestedData":
-        if isinstance(mapped_index, NestedData):
-            return cls._get_mapped_data_from_dict(
-                data,
-                reference_index,
-                mapped_index,
-            )
-        else:
-            return cls._get_leaf_mapped_data_from_dict(data, reference_index, mapped_index)
+        out_dict = {}
+        for key, value in mapped_index.mapping.items():
+            if isinstance(value, NestedMappedLevelIndex):
+                out_dict[key] = cls._get_mapped_data_from_dict(data, reference_index, value)
+            else:
+                out_dict[key] = cls._get_leaf_mapped_data_from_dict(data, reference_index, value)
+        return NestedData(out_dict)
 
 
 @dataclass(frozen=True)

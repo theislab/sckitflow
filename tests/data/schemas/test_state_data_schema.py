@@ -22,6 +22,7 @@ class TestConditionDataSchema:
         if sample_rep == inval_key:
             with pytest.raises(KeyError, match=f"Key '{sample_rep}' not found in adata.obsm"):
                 data = schema.get_data(adata)
+            return None
         data = schema.get_data(adata)
         if sample_rep == "X_repr":
             target_shape = (n_obs, n_feats_obsm_repr)

@@ -1,4 +1,5 @@
 from collections.abc import Collection, Mapping
+from typing import get_args
 
 import pandas as pd
 from anndata import AnnData
@@ -23,6 +24,18 @@ class TargetDataSchema(BaseDataSchema):
         """"""  # noqa
         self._categorical_covs_dict = {} if categorical_covs_dict is None else categorical_covs_dict
         self._continuous_covs = [] if continuous_covs is None else continuous_covs
+        self._verify_args()
+
+    def _verify_args(self) -> None:
+        """"""  # noqa
+        if self._categorical_covs_dict is not None:
+            for encoder_id in self._categorical_covs_dict.values():
+                if encoder_id not in get_args(TargetCovariatesEncodingId):
+                    msg = (
+                        f"Encoder identifier {encoder_id} for target covariate encoding is not supported."
+                        'Possible options are `"label", "one-hot"`'
+                    )
+                    raise ValueError(msg)
 
     def _verify_schema_categorical_covariates(
         self,
@@ -33,15 +46,9 @@ class TargetDataSchema(BaseDataSchema):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        if self.categorical_covs_dict is not None:
-            for target_covariate, encoder_id in self.categorical_covs_dict.items():
+        if self._categorical_covs_dict is not None:
+            for target_covariate in self._categorical_covs_dict.keys():
                 self._check_key_found_in_adata_field(adata, target_covariate, "obs")
-                if encoder_id not in ["label", "one-hot"]:
-                    msg = (
-                        f"Encoder identifier {encoder_id} for target covariate encoding is not supported."
-                        'Possible options are `"label", "one-hot"`'
-                    )
-                    raise ValueError(msg)
 
     def _verify_schema_continuous_covariates(
         self,
@@ -52,8 +59,8 @@ class TargetDataSchema(BaseDataSchema):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        if self.continuous_covs_dict is not None:
-            for target_covariate in self.continuous_covs_dict:
+        if self._continuous_covs is not None:
+            for target_covariate in self._continuous_covs:
                 self._check_key_found_in_adata_field(adata, target_covariate, "obsm")
 
     def _verify_schema(
@@ -73,11 +80,11 @@ class TargetDataSchema(BaseDataSchema):
 
     def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData:
         """"""  # noqa
-        if self.categorical_covs_dict is None:
+        if self._categorical_covs_dict is None:
             return None
         covariates_df: pd.DataFrame = self._get_covariates_df(adata)
         encoders_dict: Mapping[str, TargetCovariatesEncoderCls] = get_covariates_encoders_from_dict(
-            self.categorical_covs_dict, covariates_df
+            self._categorical_covs_dict, covariates_df
         )
         return CategoricalData(covariates_df, categorical_encoders=encoders_dict)
 

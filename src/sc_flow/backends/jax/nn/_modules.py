@@ -8,9 +8,11 @@ import jax.numpy as jnp
 from flax.typing import Axes, Initializer
 
 from sc_flow._constants import DEFAULT_NUM_RESNET_LAYERS
+from sc_flow.backends.jax._types import ArrayLike
 
 __all__ = [
     "BaseModule",
+    "FunctionalModule",
     "MLP",
     "Resnet1d",
 ]
@@ -34,6 +36,19 @@ class BaseModule(abc.ABC, nn.Module):
         :return: The output of the forward computation pass.
         :rtype: class: `torch.nn.Module`
         """
+
+class FunctionalModule(BaseModule):
+    """Class for wrapping :class: `torch.nn.Modules` around callables."""
+    fn: Callable[[ArrayLike], ArrayLike]
+    
+    def setup(self) -> None:
+        """TODO."""
+        pass
+
+    def __call__(self, x, *args, **kwargs):
+        """TODO."""
+        out = self.fn(x, *args, **kwargs)
+        return out
 
 
 class MLP(BaseModule):

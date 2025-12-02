@@ -47,7 +47,7 @@ class TestTargetDataSchema:
         self,
         adata: AnnData,
         categorical_covs_dict: dict[str, TargetCovariatesEncodingId] | None,
-        continuous_covs: Collection[str] | None = None,
+        continuous_covs: Collection[str] | None,
     ) -> None:
         """"""
         if categorical_covs_dict is not None and inval_key in categorical_covs_dict.values():

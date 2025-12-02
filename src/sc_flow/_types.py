@@ -1,5 +1,5 @@
 from collections.abc import Mapping
-from typing import Any, Literal, TypeAlias, TypeVar
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
 import pandas as pd
@@ -39,8 +39,7 @@ TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
 
 MappedLevelIndex: TypeAlias = Mapping[tuple[Any, ...], pd.MultiIndex]
 
-T = TypeVar("T", bound="MappedLevelIndex")
 NestedMappedLevelIndex: TypeAlias = Mapping[
     tuple[Any, ...],
-    "NestedMappedLevelIndex | T",
+    "NestedMappedLevelIndex | MappedLevelIndex",
 ]

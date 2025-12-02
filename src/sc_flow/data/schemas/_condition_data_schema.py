@@ -129,7 +129,7 @@ class ConditionDataSchema(BaseDataSchema):
         self,
     ) -> bool:
         """"""  # noqa
-        return self._conditions_covariates is None
+        return len(self._conditions_covariates) == 0
 
     @property
     def conditions(self) -> dict[str, Collection[str]]:

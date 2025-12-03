@@ -1,5 +1,4 @@
 from collections.abc import Collection, Mapping
-from typing import get_args
 
 import pandas as pd
 from anndata import AnnData
@@ -28,14 +27,7 @@ class TargetDataSchema(BaseDataSchema):
 
     def _verify_args(self) -> None:
         """"""  # noqa
-        if self._categorical_covs_dict is not None:
-            for encoder_id in self._categorical_covs_dict.values():
-                if encoder_id not in get_args(TargetCovariatesEncodingId):
-                    msg = (
-                        f"Encoder identifier {encoder_id} for target covariate encoding is not supported."
-                        'Possible options are `"label", "one-hot"`'
-                    )
-                    raise ValueError(msg)
+        self._check_is_valid_encoder_id_dict(self._categorical_covs_dict)
 
     def _verify_schema_categorical_covariates(
         self,
@@ -46,9 +38,8 @@ class TargetDataSchema(BaseDataSchema):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        if self._categorical_covs_dict is not None:
-            for target_covariate in self._categorical_covs_dict.keys():
-                self._check_key_found_in_adata_field(adata, target_covariate, "obs")
+        for target_covariate in self._categorical_covs_dict.keys():
+            self._check_key_found_in_adata_field(adata, target_covariate, "obs")
 
     def _verify_schema_continuous_covariates(
         self,
@@ -59,9 +50,8 @@ class TargetDataSchema(BaseDataSchema):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
         """
-        if self._continuous_covs is not None:
-            for target_covariate in self._continuous_covs:
-                self._check_key_found_in_adata_field(adata, target_covariate, "obsm")
+        for target_covariate in self._continuous_covs:
+            self._check_key_found_in_adata_field(adata, target_covariate, "obsm")
 
     def _verify_schema(
         self,
@@ -80,8 +70,6 @@ class TargetDataSchema(BaseDataSchema):
 
     def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData:
         """"""  # noqa
-        if self._categorical_covs_dict is None:
-            return None
         covariates_df: pd.DataFrame = self._get_covariates_df(adata)
         encoders_dict: Mapping[str, TargetCovariatesEncoderCls] = get_covariates_encoders_from_dict(
             self._categorical_covs_dict, covariates_df

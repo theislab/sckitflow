@@ -64,6 +64,11 @@ def ko_rep_n_feats() -> int:
 
 
 @pytest.fixture
+def source_rep_n_feats() -> int:
+    return 512
+
+
+@pytest.fixture
 def n_feats_obsm_repr() -> int:
     return 200
 
@@ -101,7 +106,7 @@ def tgt_n_quad_dims_X(
 
 @pytest.fixture
 def uns_keys() -> Sequence[str]:
-    return ("drug", "ko")
+    return ("drug", "ko", "source_split")
 
 
 @pytest.fixture
@@ -219,12 +224,15 @@ def obsm_keys_to_dim(
 def uns_keys_to_nunique_prefix_and_dim(
     nunique_drugs: int,
     nunique_kos: int,
+    nunique_source_splits: int,
     drug_rep_n_feats: int,
     ko_rep_n_feats: int,
+    source_rep_n_feats: int,
 ) -> dict[str, int | str]:
     return {
         "drug": (nunique_drugs, "drug", drug_rep_n_feats),
         "ko": (nunique_kos, "ko", ko_rep_n_feats),
+        "source_split": (nunique_source_splits, "source_split", source_rep_n_feats),
     }
 
 

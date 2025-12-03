@@ -1,8 +1,9 @@
 import abc
-from typing import Literal
+from typing import Literal, get_args
 
 from anndata import AnnData
 
+from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._structures import BaseData
 
 __all__ = ["BaseDataSchema"]
@@ -10,6 +11,17 @@ __all__ = ["BaseDataSchema"]
 
 class BaseDataSchema(abc.ABC):
     """"""  # noqa
+
+    @staticmethod
+    def _check_is_valid_encoder_id_dict(encoder_id_dict: dict[str, str]) -> None:
+        """"""  # noqa
+        for encoder_id in encoder_id_dict.values():
+            if encoder_id not in get_args(TargetCovariatesEncodingId):
+                msg = (
+                    f"Encoder identifier {encoder_id} for target covariate encoding is not supported."
+                    'Possible options are `"label", "one-hot"`'
+                )
+                raise ValueError(msg)
 
     @staticmethod
     def _check_key_found_in_adata_field(

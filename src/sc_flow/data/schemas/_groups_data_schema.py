@@ -37,6 +37,7 @@ class GroupsDataSchema(BaseDataSchema):
         if len(shared_keys):
             msg = "Each group column should have only one representation"
             raise ValueError(msg)
+        self._check_is_valid_encoder_id_dict(self._groups_encoding)
 
     def _verify_groups(self, adata: AnnData) -> None:
         """"""  # noqa
@@ -66,13 +67,6 @@ class GroupsDataSchema(BaseDataSchema):
     ) -> dict[str, MappedArray]:
         """"""  # noqa
         return {col: adata.uns[rep] for col, rep in self._groups_reps.items()}
-
-    def _get_encoders_dict(
-        self,
-        adata: AnnData,
-    ) -> None:
-        """"""  # noqa
-        raise NotImplementedError
 
     def _get_data(self, adata: AnnData) -> CategoricalData:
         """"""  # noqa

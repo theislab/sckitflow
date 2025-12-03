@@ -39,7 +39,7 @@ def verify_repr(
     if groups_encoding is not None:
         for cov, encoder_id in groups_encoding.items():
             assert cov in data.categorical_encoders
-            encoder = data.categorical_encoders[encoder_id]
+            encoder = data.categorical_encoders[cov]
             if encoder_id == "one-hot":
                 assert isinstance(encoder, OneHotEncoder)
             if encoder_id == "label":
@@ -70,8 +70,8 @@ def verify_mixin(
     if covariates is None:
         return None
     for condition in covariates:
-        assert condition in data.condition_covariates.mapping
-        val = data.condition_covariates.mapping[condition]
+        assert condition in data.mapping
+        val = data.mapping[condition]
         emb_dim = obsm_keys_to_dim[condition]
         expected_shape = (N, emb_dim)
         assert val.shape == expected_shape

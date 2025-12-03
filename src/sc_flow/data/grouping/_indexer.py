@@ -38,8 +38,8 @@ class HierarchicalIndexer:
         conditions_cols: Collection[str] | None = None,
     ) -> None:
         """"""  # noqa
-        self._groups_cols = groups_cols
-        self._conditions_cols = conditions_cols
+        self._groups_cols = [] if groups_cols is None else groups_cols
+        self._conditions_cols = [] if conditions_cols is None else conditions_cols
 
         self._init_registry()
 

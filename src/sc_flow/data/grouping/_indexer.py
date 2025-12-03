@@ -1,5 +1,4 @@
 from collections.abc import Collection
-from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
@@ -10,7 +9,6 @@ from sc_flow._utils import check_sequence_query_against_reference
 __all__ = ["HierarchicalIndexer"]
 
 
-@dataclass
 class HierarchicalIndexer:
     """Class for hierarchical indexing of dataframes in subpopulations
 
@@ -34,20 +32,24 @@ class HierarchicalIndexer:
     :type conditions_cols: class: `Collection[str] | None`
     """
 
-    groups_cols: Collection[str] | None = None
-    conditions_cols: Collection[str] | None = None
-
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        groups_cols: Collection[str] | None = None,
+        conditions_cols: Collection[str] | None = None,
+    ) -> None:
         """"""  # noqa
+        self._groups_cols = groups_cols
+        self._conditions_cols = conditions_cols
+
         self._init_registry()
 
     def _init_registry(self) -> None:
         """Creates registry mapping each level to their respective columns."""
         self._registry: dict[str, tuple[str, ...] | None] = {
-            GROUP_LEVEL_NAME: self.groups_cols if self.groups_cols is None else sorted(self.groups_cols),
-            CONDITION_LEVEL_NAME: self.conditions_cols
-            if self.conditions_cols is None
-            else sorted(self.conditions_cols),
+            GROUP_LEVEL_NAME: self._groups_cols if self._groups_cols is None else sorted(self._groups_cols),
+            CONDITION_LEVEL_NAME: self._conditions_cols
+            if self._conditions_cols is None
+            else sorted(self._conditions_cols),
         }
         self._hierarchy_levels: list[str] = [GROUP_LEVEL_NAME, CONDITION_LEVEL_NAME]
 
@@ -111,6 +113,16 @@ class HierarchicalIndexer:
     def reset_registry(self) -> None:
         """Resets the levels registry created at initialization."""
         self._init_registry()
+
+    @property
+    def groups_cols(self) -> Collection[str]:
+        """"""  # noqa
+        return self._groups_cols
+
+    @property
+    def conditions_cols(self) -> Collection[str]:
+        """"""  # noqa
+        return self._conditions_cols
 
     @property
     def hierarchy_levels(self) -> list[str]:

@@ -35,11 +35,11 @@ class TestHierarchicalIndexer:
         assert len(indexer.registry) == 2, indexer.registry.keys()
 
         if groups_cols is not None and wrong_key in groups_cols:
-            with pytest.raises(KeyError, match=r"Columns .* not in dataframe\."):
+            with pytest.raises(ValueError, match=r"The following query columns dont appear in the reference:"):
                 idxs = indexer.create_index(adata.obs)
             return None
         if conditions_cols is not None and wrong_key in conditions_cols:
-            with pytest.raises(KeyError, match=r"Columns .* not in dataframe\."):
+            with pytest.raises(ValueError, match=r"The following query columns dont appear in the reference:"):
                 idxs = indexer.create_index(adata.obs)
             return None
         idxs = indexer.create_index(adata.obs)
@@ -49,7 +49,7 @@ class TestHierarchicalIndexer:
 
     @pytest.mark.parametrize("level_name", ["groups", "knockout"])
     @pytest.mark.parametrize(
-        "level_columns",
+        "level_cols",
         [
             None,
             ["koA", "koB"],
@@ -61,7 +61,7 @@ class TestHierarchicalIndexer:
         self,
         adata: AnnData,
         level_name: str,
-        level_columns: Collection[str] | None,
+        level_cols: Collection[str] | None,
         allow_override: bool,
     ) -> None:
         indexer = HierarchicalIndexer(
@@ -71,18 +71,18 @@ class TestHierarchicalIndexer:
 
         if not allow_override and level_name == "groups":
             with pytest.raises(ValueError, match=r"Level .* already present, cannot override\."):
-                indexer.update_registry(level_name, level_columns=level_columns, allow_override=allow_override)
+                indexer.update_registry(level_name, level_cols=level_cols, allow_override=allow_override)
             return None
-        indexer.update_registry(level_name, level_columns=level_columns, allow_override=allow_override)
+        indexer.update_registry(level_name, level_cols=level_cols, allow_override=allow_override)
         if level_name == "groups":
             assert len(indexer.registry) == 2, indexer.registry.keys()
         else:
             assert len(indexer.registry) == 3, indexer.registry.keys()
 
-        if level_columns is not None and wrong_key in level_columns:
-            with pytest.raises(KeyError, match=r"Columns .* not in dataframe\."):
+        if level_cols is not None and wrong_key in level_cols:
+            with pytest.raises(ValueError, match=r"The following query columns dont appear in the reference:"):
                 idxs = indexer.create_index(adata.obs)
             return None
         idxs = indexer.create_index(adata.obs)
 
-        self.verify_level_index(level_name, level_columns, idxs)
+        self.verify_level_index(level_name, level_cols, idxs)

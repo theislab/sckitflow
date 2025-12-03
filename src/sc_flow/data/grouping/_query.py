@@ -1,5 +1,4 @@
 from collections.abc import Collection
-from dataclasses import dataclass
 from typing import Any
 
 from sc_flow._utils import check_sequence_query_against_reference
@@ -7,11 +6,12 @@ from sc_flow._utils import check_sequence_query_against_reference
 __all__ = ["QueryFactory"]
 
 
-@dataclass(frozen=True)
 class QueryFactory:
     """"""  # noqa
 
-    registry: dict[str, tuple[str, ...] | None]
+    def __init__(self, registry: dict[str, tuple[str, ...] | None]) -> None:
+        """"""  # noqa
+        self._registry = registry
 
     @staticmethod
     def query_dict_to_tuple(
@@ -56,7 +56,10 @@ class QueryFactory:
         """"""  # noqa
         self.verify_valid_level_name(level_name, reference=self.registry_keys)
         check_sequence_query_against_reference(
-            query_dict.keys(), self.registry[level_name], allow_missing_from_query=False
+            query_dict.keys(),
+            self._registry[level_name],
+            allow_missing_from_query=True,
+            allow_missing_from_reference=False,
         )
 
     def verify_query_dict(
@@ -74,7 +77,7 @@ class QueryFactory:
         query_dict: dict[str, Any],
     ) -> dict[str, Any]:
         """"""  # noqa
-        level_cols = sorted(self.registry[level_name])
+        level_cols = sorted(self._registry[level_name])
         expanded_query_dict = {}
         for col in level_cols:
             expanded_query_dict[col] = query_dict.get(col, slice(None))
@@ -93,6 +96,10 @@ class QueryFactory:
         return expanded_query_dict
 
     @property
+    def registry(self) -> dict[str, tuple[str, ...] | None]:
+        return self._registry
+
+    @property
     def registry_keys(self) -> tuple[str]:
         """Returns the keys of the registry as a tuple."""
-        return tuple(self.registry.keys())
+        return tuple(self._registry.keys())

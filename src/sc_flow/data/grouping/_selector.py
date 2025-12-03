@@ -16,12 +16,16 @@ __all__ = ["IndexSelector"]
 class IndexSelector:
     """"""  # noqa
 
-    registry: dict[str, tuple[str, ...] | None]
-    hierarchy_levels: list[str]
-
-    def __post_init__(self) -> None:
+    def __init__(
+        self,
+        registry: dict[str, tuple[str, ...] | None],
+        hierarchy_levels: list[str],
+    ) -> None:
         """"""  # noqa
-        self._query_factory = QueryFactory(self.registry)
+        self._registry = registry
+        self._hierarchy_levels = hierarchy_levels
+
+        self._query_factory = QueryFactory(self._registry)
 
     @classmethod
     def init_from_indexer(cls, indexer: HierarchicalIndexer) -> "IndexSelector":
@@ -66,7 +70,7 @@ class IndexSelector:
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa
-        query_dict = self._query_factory.query_tuple_to_dict(self.registry, values, level_name)
+        query_dict = self._query_factory.query_tuple_to_dict(self._registry, values, level_name)
         return self._query_level_with_dict(level_name, query_dict, index)
 
     def _query_with_dict(
@@ -75,8 +79,7 @@ class IndexSelector:
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa
-        self._query_factory.verify_query_dict(query_dict)
-        for level_name in self.hierarchy_levels:
+        for level_name in self._hierarchy_levels:
             level_query_dict = query_dict[level_name]
             index = self._query_level_with_dict(
                 level_name,
@@ -119,14 +122,14 @@ class IndexSelector:
 
         # preparing level data
         self._query_factory.verify_valid_level_name(level_name, reference=index.names)
-        hierarchy_index = self.hierarchy_levels.index(level_name)
+        hierarchy_index = self._hierarchy_levels.index(level_name)
         level_unique_values_dict = self._unique_level_vals_to_dict(
             level_name,
             index,
         )
         if hierarchy_index == (self.n_hierarchy_levels - 1):
             return level_unique_values_dict
-        next_level_name = self.hierarchy_levels[hierarchy_index + 1]
+        next_level_name = self._hierarchy_levels[hierarchy_index + 1]
         return self._recursive_call_level_index_to_nested_dict(
             next_level_name,
             level_unique_values_dict,
@@ -139,6 +142,7 @@ class IndexSelector:
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa
+        self._query_factory.verify_level_query_dict(level_name, query_dict)
         query_dict = self._query_factory.prepare_partial_level_query_dict(level_name, query_dict)
         return self._query_level_with_dict(
             level_name,
@@ -152,6 +156,7 @@ class IndexSelector:
         index: pd.MultiIndex,
     ) -> pd.MultiIndex:
         """"""  # noqa
+        self._query_factory.verify_query_dict(query_dict)
         query_dict = self._query_factory.prepare_partial_query_dict(query_dict)
         return self._query_with_dict(query_dict, index)
 
@@ -164,17 +169,27 @@ class IndexSelector:
         index: pd.MultiIndex,
     ) -> NestedMappedLevelIndex:
         """"""  # noqa
-        return self._level_index_to_nested_dict(self.hierarchy_levels[0], index)
+        return self._level_index_to_nested_dict(self._hierarchy_levels[0], index)
+
+    @property
+    def registry(self) -> dict[str, tuple[str] | None]:
+        """Retrieves the registry associated to the indexer."""
+        return self._registry
+
+    @property
+    def hierarchy_levels(self) -> list[str]:
+        """"""  # noqa
+        return self._hierarchy_levels
 
     @property
     def n_hierarchy_levels(self) -> int:
         """"""  # noqa
-        return len(self.hierarchy_levels)
+        return len(self._hierarchy_levels)
 
     @property
     def registry_keys(self) -> tuple[str]:
         """Returns the keys of the registry as a tuple."""
-        return tuple(self.registry.keys())
+        return tuple(self._registry.keys())
 
     @property
     def query_factory(self) -> QueryFactory:

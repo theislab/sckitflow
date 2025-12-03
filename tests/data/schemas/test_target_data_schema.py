@@ -7,6 +7,8 @@ from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._structures import TargetData
 from sc_flow.data.schemas import TargetDataSchema
 
+from ..shared import verify_categorical_data, verify_mixin  # noqa
+
 inval_key: str = "invalid_key"
 
 
@@ -48,6 +50,8 @@ class TestTargetDataSchema:
     def test_get_data(
         self,
         adata: AnnData,
+        uns_keys_to_nunique_prefix_and_dim: dict[str, tuple[int, str, int]],
+        obsm_keys_to_dim: dict[str, int],
         categorical_covs_dict: dict[str, TargetCovariatesEncodingId] | None,
         continuous_covs: Collection[str] | None,
     ) -> None:
@@ -61,3 +65,18 @@ class TestTargetDataSchema:
             return None
         data = schema.get_data(adata)
         assert isinstance(data, TargetData)
+        # categorical targets
+        if categorical_covs_dict is not None:
+            expected_df_cols = list(categorical_covs_dict.keys())
+        else:
+            expected_df_cols = []
+        verify_categorical_data(
+            data.categorical_covariates,
+            expected_df_cols,
+            uns_keys_to_nunique_prefix_and_dim,
+            groups_encoding=categorical_covs_dict,
+        )
+
+        # test continuous covariates
+        N = len(adata)
+        verify_mixin(data.continuous_covariates, N, obsm_keys_to_dim, continuous_covs)

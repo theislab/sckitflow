@@ -161,4 +161,4 @@ class TestConditionDataSchema:
         )
         # test condition covariates
         N = len(adata)
-        verify_mixin(data, N, obsm_keys_to_dim, conditions_covariates)
+        verify_mixin(data.condition_covariates, N, obsm_keys_to_dim, conditions_covariates)

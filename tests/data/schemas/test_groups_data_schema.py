@@ -8,6 +8,8 @@ from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._structures import CategoricalData
 from sc_flow.data.schemas import GroupsDataSchema
 
+from ..shared import verify_categorical_data  # noqa
+
 inval_key: str = "invalid_key"
 
 
@@ -102,6 +104,7 @@ class TestGroupsDataSchema:
     def test_get_data(
         self,
         adata: AnnData,
+        uns_keys_to_nunique_prefix_and_dim: dict[str, tuple[int, str, int]],
         groups: Collection[str] | None,
         groups_reps: dict[str, str] | None,
         groups_encoding: dict[str, TargetCovariatesEncodingId] | None,
@@ -124,3 +127,10 @@ class TestGroupsDataSchema:
             return None
         data = schema.get_data(adata)
         assert isinstance(data, CategoricalData)
+        verify_categorical_data(
+            data,
+            groups,
+            uns_keys_to_nunique_prefix_and_dim,
+            conditions_reps=groups_reps,
+            groups_encoding=groups_encoding,
+        )

@@ -30,7 +30,7 @@ class DataManager:
         conditions_covariates: Collection[str] | None = None,
         control_values_dict: dict[str, str] | None = None,
         target_categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
-        target_continuous_covs_dict: Collection[str] | None = None,
+        target_continuous_covs: Collection[str] | None = None,
         groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
         groups_encoding: dict[str, TargetCovariatesEncodingId | None] | None = None,
@@ -45,7 +45,7 @@ class DataManager:
         )
         self._target_data_schema: TargetDataSchema = self._init_target_data_schema(
             categorical_covs_dict=target_categorical_covs_dict,
-            continuous_covs_dict=target_continuous_covs_dict,
+            continuous_covs=target_continuous_covs,
         )
         self._groups_data_schema: GroupsDataSchema = self._init_groups_data_schema(
             groups=groups,

@@ -6,6 +6,7 @@ import pytest
 from anndata import AnnData
 
 from sc_flow._constants import CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
+from sc_flow._types import NestedMappedLevelIndex
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._selector import IndexSelector
 
@@ -49,8 +50,6 @@ class TestIndexSelector:
             conditions_cols=conditions_cols,
         )
         selector = IndexSelector.init_from_indexer(indexer)
-
-        # creating index
         index = indexer.create_index(adata.obs)
 
         # query index (fail cases)
@@ -154,9 +153,9 @@ class TestIndexSelector:
             conditions_cols=conditions_cols,
         )
         selector = IndexSelector.init_from_indexer(indexer)
-
-        # creating index
         index = indexer.create_index(adata.obs)
+
+        # query index (fail cases)
         if inval_key in query_dict:
             with pytest.raises(ValueError):
                 query_res = selector.query_with_dict(query_dict, index)
@@ -175,3 +174,25 @@ class TestIndexSelector:
             return None
         query_res = selector.query_with_dict(query_dict, index)
         assert isinstance(query_res, pd.MultiIndex)
+
+    @pytest.mark.parametrize("groups_cols", [None, ["source_split"]])
+    @pytest.mark.parametrize("conditions_cols", [None, ["drugA", "drugB"]])
+    @pytest.mark.parametrize("level_name", [CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME])
+    def test_level_index_to_nested_dict(
+        self,
+        adata: AnnData,
+        groups_cols: Collection[str] | None,
+        conditions_cols: Collection[str] | None,
+        level_name: str,
+    ) -> None:
+        # initialize indexer and selector
+        indexer = HierarchicalIndexer(
+            groups_cols=groups_cols,
+            conditions_cols=conditions_cols,
+        )
+        selector = IndexSelector.init_from_indexer(indexer)
+        index = indexer.create_index(adata.obs)
+
+        # create nested dictionary (fail cases)
+        nested_dict = selector.level_index_to_nested_dict(level_name, index)
+        assert isinstance(nested_dict, NestedMappedLevelIndex)

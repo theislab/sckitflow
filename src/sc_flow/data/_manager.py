@@ -81,12 +81,12 @@ class DataManager:
     def _init_target_data_schema(
         self,
         categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
-        continuous_covs_dict: Collection[str] | None = None,
+        continuous_covs: Collection[str] | None = None,
     ) -> TargetDataSchema:
         """"""  # noqa
         return TargetDataSchema(
             categorical_covs_dict={} if categorical_covs_dict is None else categorical_covs_dict,
-            continuous_covs_dict=[] if continuous_covs_dict is None else continuous_covs_dict,
+            continuous_covs=[] if continuous_covs is None else continuous_covs,
         )
 
     def _init_groups_data_schema(

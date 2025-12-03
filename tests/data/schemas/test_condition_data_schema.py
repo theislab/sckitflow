@@ -6,6 +6,8 @@ from anndata import AnnData
 from sc_flow.data._structures import ConditionData
 from sc_flow.data.schemas import ConditionDataSchema
 
+from ..shared import verify_categorical_data, verify_mixin  # noqa
+
 inval_key: str = "invalid_key"
 
 
@@ -145,24 +147,18 @@ class TestConditionDataSchema:
 
         data = schema.get_data(adata)
         assert isinstance(data, ConditionData)
-        # condition reps
+
+        # test condition reps
         if conditions is not None:
-            for condition in conditions:
-                # repr dictionary
-                assert condition in data.condition_reps.repr_dict
-                cond_repr_dict = data.condition_reps.repr_dict[condition]
-                for v in cond_repr_dict.values():
-                    emb_dim = uns_keys_to_nunique_prefix_and_dim[condition][-1]
-                    expected_shape = (1, emb_dim)
-                    assert v.shape == expected_shape
-                # annotation df
-                condition_cols = conditions[condition]
-                for cond in condition_cols:
-                    assert cond in data.condition_reps.ann_df.columns
-        # condition covariates
-        if conditions_covariates is not None:
-            for condition in conditions_covariates:
-                val = data.condition_covariates.mapping[condition]
-                emb_dim = obsm_keys_to_dim[condition]
-                expected_shape = (len(adata), emb_dim)
-                assert val.shape == expected_shape
+            expected_df_cols = [col for val in conditions.values() for col in val]
+        else:
+            expected_df_cols = []
+        verify_categorical_data(
+            data.condition_reps,
+            expected_df_cols,
+            uns_keys_to_nunique_prefix_and_dim,
+            conditions_reps=conditions_reps,
+        )
+        # test condition covariates
+        N = len(adata)
+        verify_mixin(data, N, obsm_keys_to_dim, conditions_covariates)

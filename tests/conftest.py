@@ -228,7 +228,7 @@ def uns_keys_to_nunique_prefix_and_dim(
     drug_rep_n_feats: int,
     ko_rep_n_feats: int,
     source_rep_n_feats: int,
-) -> dict[str, int | str]:
+) -> dict[str, tuple[int, str, int]]:
     return {
         "drug": (nunique_drugs, "drug", drug_rep_n_feats),
         "ko": (nunique_kos, "ko", ko_rep_n_feats),

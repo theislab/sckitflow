@@ -116,6 +116,8 @@ class TestConditionDataSchema:
     def test_get_data(
         self,
         adata: AnnData,
+        uns_keys_to_nunique_prefix_and_dim: dict[str, tuple[int, str, int]],
+        obsm_keys_to_dim: dict[str, int],
         conditions: dict[str, Collection[str]] | None,
         conditions_reps: dict[str, str] | None,
         conditions_covariates: Collection[str] | None,
@@ -143,3 +145,24 @@ class TestConditionDataSchema:
 
         data = schema.get_data(adata)
         assert isinstance(data, ConditionData)
+        # condition reps
+        if conditions is not None:
+            for condition in conditions:
+                # repr dictionary
+                assert condition in data.condition_reps.repr_dict
+                cond_repr_dict = data.condition_reps.repr_dict[condition]
+                for v in cond_repr_dict.values():
+                    emb_dim = uns_keys_to_nunique_prefix_and_dim[condition][-1]
+                    expected_shape = (1, emb_dim)
+                    assert v.shape == expected_shape
+                # annotation df
+                condition_cols = conditions[condition]
+                for cond in condition_cols:
+                    assert cond in data.condition_reps.ann_df.columns
+        # condition covariates
+        if conditions_covariates is not None:
+            for condition in conditions_covariates:
+                val = data.condition_covariates.mapping[condition]
+                emb_dim = obsm_keys_to_dim[condition]
+                expected_shape = (len(adata), emb_dim)
+                assert val.shape == expected_shape

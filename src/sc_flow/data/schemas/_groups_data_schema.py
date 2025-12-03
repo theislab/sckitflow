@@ -9,6 +9,8 @@ from sc_flow.data._structures import CategoricalData
 from sc_flow.data._utils import get_covariates_encoders_from_dict
 from sc_flow.data.schemas._base_schema import BaseDataSchema
 
+__all__ = ["GroupsDataSchema"]
+
 
 class GroupsDataSchema(BaseDataSchema):
     """"""  # noqa

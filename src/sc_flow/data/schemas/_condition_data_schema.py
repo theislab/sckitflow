@@ -109,8 +109,6 @@ class ConditionDataSchema(BaseDataSchema):
         self,
     ) -> Collection[str]:
         """"""  # noqa
-        if self.conditions is None:
-            return ()
         return tuple(cat for condition in self._conditions.values() for cat in condition)
 
     @property

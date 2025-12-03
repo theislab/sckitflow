@@ -19,6 +19,7 @@ nunique_source_splits = 5
 paired_condition_n_feats = 100
 drug_rep_n_feats = 512
 ko_rep_n_feats = 512
+source_rep_n_feats = 512
 n_feats_obsm_repr = 200
 continuous_target_dim = 10
 src_dim = 16
@@ -69,6 +70,7 @@ obsm_keys_to_dim = {
 uns_keys_to_nunique_prefix_and_dim = {
     "drug": (nunique_drugs, "drug", drug_rep_n_feats),
     "ko": (nunique_kos, "ko", ko_rep_n_feats),
+    "source_split": (nunique_source_splits, "source_split", source_rep_n_feats),
 }
 
 

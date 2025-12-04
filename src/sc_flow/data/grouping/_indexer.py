@@ -1,6 +1,5 @@
 from collections.abc import Collection
 
-import numpy as np
 import pandas as pd
 
 from sc_flow._constants import BASE_LEVEL_NAME, CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
@@ -59,20 +58,11 @@ class HierarchicalIndexer:
         level_frames[BASE_LEVEL_NAME] = df.index
 
         for level_name, level_cols in self._registry.items():
-            # constructing empty array and filling it with dummy value
-            if level_cols is None:
-                dummy_val = f"{level_name}_dummy"
-                level_data = np.full((len(df), 1), dummy_val, dtype=object)
-
-            # use level data when provided
-            else:
-                # sanity check
-                check_sequence_query_against_reference(
-                    level_cols, df.columns, allow_missing_from_query=True, allow_missing_from_reference=False
-                )
-                level_data = df[level_cols].to_numpy()
-
-            # updating levels
+            # sanity check
+            check_sequence_query_against_reference(
+                level_cols, df.columns, allow_missing_from_query=True, allow_missing_from_reference=False
+            )
+            level_data = df[level_cols].to_numpy()
             level_frames[level_name] = map(tuple, level_data)
 
         # constructing multi index
@@ -107,7 +97,7 @@ class HierarchicalIndexer:
             raise ValueError(msg)
 
         # update registry and hirarchy dict
-        self._registry[level_name] = level_cols if level_cols is None else sorted(level_cols)
+        self._registry[level_name] = [] if level_cols is None else sorted(level_cols)
         self._hierarchy_levels.insert(level_hierarchy, level_name)
 
     def reset_registry(self) -> None:

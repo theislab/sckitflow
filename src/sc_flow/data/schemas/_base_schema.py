@@ -10,16 +10,29 @@ __all__ = ["BaseDataSchema"]
 
 
 class BaseDataSchema(abc.ABC):
-    """"""  # noqa
+    """Abstract base class for enforcing and verifying data configurations on :class:`AnnData` objects.
+
+    The derived classese will need to override the following abstract methods to be instantiated:
+        * `_verify_args`, to verify the validity of the configurations provided at initialization.
+        * `_verify_schema`, to verify the schema defined by the class on the input :class: `sc.AnnData`.
+        * `_get_data`, to extract the data from the input :class: `sc.AnnData`.
+    It would also be preferable to define also an immutable data structure for the returned object.
+    """
 
     @staticmethod
     def _check_is_valid_encoder_id_dict(encoder_id_dict: dict[str, str]) -> None:
-        """"""  # noqa
+        """Verifies that the provided dictionary of covariate encoder identifiers is provided.
+
+        :param encoder_id_dict: The input dictionary, mapping each covariate to the string
+            identifier for its encoder.
+        :type encoder_id_dict: class: `encoder_id_dict: dict[str, str]`
+        """
+        valid_encoder_ids: tuple[str] = get_args(TargetCovariatesEncodingId)
         for encoder_id in encoder_id_dict.values():
-            if encoder_id not in get_args(TargetCovariatesEncodingId):
+            if encoder_id not in valid_encoder_ids:
                 msg = (
                     f"Encoder identifier {encoder_id} for target covariate encoding is not supported."
-                    'Possible options are `"label", "one-hot"`'
+                    f"Possible options are {valid_encoder_ids}"
                 )
                 raise ValueError(msg)
 
@@ -50,7 +63,7 @@ class BaseDataSchema(abc.ABC):
     def _verify_args(
         self,
     ) -> None:
-        """"""  # noqa
+        """Verifies the validity of arguments set at initialization."""
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -58,7 +71,11 @@ class BaseDataSchema(abc.ABC):
         self,
         adata: AnnData,
     ) -> None:
-        """"""  # noqa
+        """Verifies the schema on the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -66,13 +83,21 @@ class BaseDataSchema(abc.ABC):
         self,
         adata: AnnData,
     ) -> BaseData:
-        """"""  # noqa
+        """Enforces the schema on the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
         raise NotImplementedError
 
     def get_data(
         self,
         adata: AnnData,
     ) -> BaseData:
-        """"""  # noqa
+        """Verifies and enforces the schema on the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
         self._verify_schema(adata)
         return self._get_data(adata)

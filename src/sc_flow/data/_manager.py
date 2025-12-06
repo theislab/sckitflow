@@ -54,7 +54,7 @@ class DataManager:
         )
         self._indexer: HierarchicalIndexer = self._init_indexer(
             groups_cols=self._groups_data_schema.groups,
-            conditions_cols=self._condition_data_schema.all_condition_categories,
+            conditions_cols=self._condition_data_schema.all_condition_cols,
         )
         self._selector = IndexSelector.init_from_indexer(self._indexer)
 

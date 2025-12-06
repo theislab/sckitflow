@@ -1,11 +1,12 @@
 from collections.abc import Collection
 from typing import Any
 
+import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
 
-from sc_flow._constants import CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
+from sc_flow._constants import BASE_LEVEL_NAME, CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
 from sc_flow._types import NestedMappedLevelIndex
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._selector import IndexSelector
@@ -14,6 +15,72 @@ inval_key = "wrong_key"
 
 
 class TestIndexSelector:
+    def _validate_correct_unique_values(
+        self,
+        df: pd.DataFrame,
+        nested_dict: NestedMappedLevelIndex,
+        cols: Collection[str] | None,
+    ) -> None:
+        """"""
+        if cols is not None and len(cols) > 0:
+            unique_groups = df.loc[:, cols].drop_duplicates().values
+            unique_groups = map(tuple, unique_groups)
+        else:
+            unique_groups = [()] * len(df)
+        assert set(nested_dict.mapping.keys()) == set(unique_groups)
+
+    def _extract_df(self, reference_df, cols, key):
+        """Subset the dataframe corresponding to this group key."""
+        if not cols:
+            return reference_df, []
+        mask = (reference_df.loc[:, cols].values == np.asarray(key)).all(-1)
+        df = reference_df.loc[mask]
+        values = list(map(tuple, df.loc[:, cols].values))
+        return df, values
+
+    def _build_expected_index(self, cond_df, group_vals, cond_vals):
+        """Create the expected MultiIndex for comparison."""
+        tuples = []
+        groups_vals = group_vals if len(group_vals) > 0 else [()] * len(cond_df)
+        cond_vals = cond_vals if len(cond_vals) > 0 else [()] * len(cond_df)
+        for idx, gvals, cvals in zip(cond_df.index, groups_vals, cond_vals, strict=False):
+            tuples.append((idx, gvals, cvals))
+        names = [BASE_LEVEL_NAME, GROUP_LEVEL_NAME, CONDITION_LEVEL_NAME]
+        return pd.MultiIndex.from_tuples(tuples, names=names)
+
+    def _validate_nested_dict(
+        self,
+        reference_df: pd.DataFrame,
+        nested_dict: NestedMappedLevelIndex,
+        groups_cols: Collection[str] | None,
+        conditions_cols: Collection[str] | None,
+    ) -> None:
+        # Validate top-level keys
+        self._validate_correct_unique_values(reference_df, nested_dict, groups_cols)
+
+        # Iterate group keys
+        for group_key, group_node in nested_dict.mapping.items():
+            assert isinstance(group_node, NestedMappedLevelIndex)
+
+            # Group-level subset
+            group_df, group_values = self._extract_df(reference_df, groups_cols, group_key)
+
+            # Validate second-level keys
+            self._validate_correct_unique_values(group_df, group_node, conditions_cols)
+
+            # Iterate condition keys
+            for cond_key, cond_index in group_node.mapping.items():
+                cond_df, cond_values = self._extract_df(group_df, conditions_cols, cond_key)
+                expected_index = self._build_expected_index(
+                    cond_df,
+                    group_values,
+                    cond_values,
+                )
+
+                # Final checks
+                assert isinstance(cond_index, pd.MultiIndex)
+                assert set(cond_index) == set(expected_index)
+
     @pytest.mark.parametrize("groups_cols", [None, ["source_split"]])
     @pytest.mark.parametrize("conditions_cols", [None, ["drugA"], ["drugA", "drugB"]])
     @pytest.mark.parametrize("level_name", [CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME])
@@ -177,14 +244,13 @@ class TestIndexSelector:
 
     @pytest.mark.parametrize("groups_cols", [None, ["source_split"]])
     @pytest.mark.parametrize("conditions_cols", [None, ["drugA", "drugB"]])
-    @pytest.mark.parametrize("level_name", [CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME])
-    def test_level_index_to_nested_dict(
+    def test_index_to_nested_dict(
         self,
         adata: AnnData,
         groups_cols: Collection[str] | None,
         conditions_cols: Collection[str] | None,
-        level_name: str,
     ) -> None:
+        print(f"{groups_cols=}, {conditions_cols=}")
         # initialize indexer and selector
         indexer = HierarchicalIndexer(
             groups_cols=groups_cols,
@@ -194,5 +260,11 @@ class TestIndexSelector:
         index = indexer.create_index(adata.obs)
 
         # create nested dictionary (fail cases)
-        nested_dict = selector.level_index_to_nested_dict(level_name, index)
+        nested_dict = selector.index_to_nested_dict(index)
         assert isinstance(nested_dict, NestedMappedLevelIndex)
+        self._validate_nested_dict(
+            adata.obs,
+            nested_dict,
+            groups_cols,
+            conditions_cols,
+        )

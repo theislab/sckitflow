@@ -109,9 +109,7 @@ def broadcast_to_target_shape(
         else:
             input_array = jnp.expand_dims(input_array, -1)
             dims_to_expand.append(target_dim)
-    dims_to_expand = jnp.array(dims_to_expand)
-    print(f"broadcast_to_target_dim::{dims_to_expand.shape=}, {input_array.shape=}, {target_shape=}")
-    return jnp.tile(input_array, dims_to_expand)
+    return jnp.broadcast_to(input_array, target_shape)
 
 
 def make_concatenation_possible(
@@ -130,72 +128,10 @@ def make_concatenation_possible(
 
 
 def ensure_2d_tensor_with_singleton_trailing_dim(
-    input_tensor: ArrayLike,
+    input_array: ArrayLike,
 ):
     """"""  # noqa
 
-    if len(input_tensor.shape) == 0:
-        input_tensor = jnp.expand_dims(input_tensor, axis=0)
-    return broadcast_to_target_shape(input_tensor, (input_tensor.shape[0], 1))
-
-
-def get_jax_device(dev: TDevice) -> JaxDevice:
-    """Validate the JAX device passed as input and return the corresponding jax.Device object.
-
-    If the requested device is not found, falls back to CPU with a warning.
-    """
-    if isinstance(dev, str):
-        candidates = [d for d in jax.devices() if d.platform == dev]
-        if not candidates:
-            warnings.warn(
-                f"No available device found for platform '{dev}'. Falling back to CPU.", UserWarning, stacklevel=2
-            )
-            cpu_devices = [d for d in jax.devices() if d.platform == "cpu"]
-            if not cpu_devices:
-                raise RuntimeError("No CPU device available as fallback")
-            return cpu_devices[0]
-        return candidates[0]
-    else:
-        return dev
-
-
-def get_ode_solver(method: str | dfx.AbstractSolver | None) -> dfx.AbstractSolver:
-    """Retrieve the diffrax ODE solver corresponding to the given method name.
-
-    :param method: The name of the ODE solver method or a diffrax solver instance.
-    :type method: str | dfx.AbstractSolver | None
-
-    :returns: The corresponding diffrax ODE solver instance.
-    :rtype: dfx.AbstractSolver
-    """
-    if method is None:
-        return dfx.Euler()
-    elif isinstance(method, dfx.AbstractSolver):
-        return method
-
-    method_key = method.lower()
-    if method_key not in _ODE_SOLVER_REGISTRY:
-        raise ValueError(f"ODE solver '{method}' not found.")
-
-    return _ODE_SOLVER_REGISTRY[method_key]
-
-
-def get_sde_solver(method: str | dfx.AbstractSolver | None) -> dfx.AbstractSolver:
-    """Retrieve the diffrax SDE solver corresponding to the given method name.
-
-    :param method: The name of the SDE solver method or a diffrax solver instance.
-    :type method: str | dfx.AbstractSolver | None
-
-    :returns: The corresponding diffrax SDE solver instance.
-    :rtype: dfx.AbstractSolver
-    """
-    if method is None:
-        return dfx.Euler()
-    elif isinstance(method, dfx.AbstractSolver):
-        return method
-
-    method_key = method.lower()
-    if method_key not in _SDE_SOLVER_REGISTRY:
-        raise ValueError(f"SDE solver '{method}' not found.")
-
-    return _SDE_SOLVER_REGISTRY[method_key]
+    if len(input_array.shape) == 0:
+        input_array = jnp.expand_dims(input_array, axis=0)
+    return broadcast_to_target_shape(input_array, (input_array.shape[0], 1))

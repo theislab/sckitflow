@@ -2,8 +2,10 @@ import abc
 from dataclasses import field as dc_field
 from typing import Any, Literal
 
+from flax.training import train_state
 import flax.linen as nn
 import jax.numpy as jnp
+import optax
 
 from sc_flow._constants import (
     DEFAULT_CONDITION_ENCODER_OUTPUT_DIM,
@@ -490,6 +492,42 @@ class MLPVelocity(BaseVelocityField):
             return self(t, x, condition_dict=condition_dict, source=source)
 
         return _vf_fn
+
+    def create_train_state(
+        self,
+        rng: jax.Array,
+        optimizer: optax.OptState,
+        input_dim: int,
+        condition_dict: dict[str, jnp.ndarray],
+    ) -> train_state.TrainState:
+        """Create the training state for the velocity field.
+
+        :param rng: A random number generator.
+        :type rng: class: `jax.Array`
+
+        :param optimizer: The optimizer.
+        :type optimizer: class: `optax.OptState`
+
+        :param input_dim: The input dimensionality of the velocity field.
+        :type args: class: `int`
+
+        :param conditions: The condition dictionary.
+        :type conditions: class: `dict[str, jnp.ndarray]`
+        """
+        t, x_t = jnp.ones((1, 1)), jnp.ones((1, input_dim))
+        # TODO use max_combination_length?
+        # cond = {
+        #     pert_cov: jnp.ones((1, self.max_combination_length, condition.shape[-1]))
+        #     for pert_cov, condition in conditions.items()
+        # }
+        condition_dict = condition_dict
+        params = self.init(
+            rng,
+            t,
+            x_t,
+            condition_dict=condition_dict
+        )["params"]
+        return train_state.TrainState.create(apply_fn=self.apply, params=params, tx=optimizer)
 
     @property
     def is_conditional(

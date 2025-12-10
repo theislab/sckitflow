@@ -24,21 +24,21 @@ class BaseModule(abc.ABC, nn.Module):
     @abc.abstractmethod
     def __call__(
         self,
-        x: jnp.ndarray,
+        x: ArrayLike,
         *args,
         **kwargs,
-    ) -> jnp.ndarray:
+    ) -> ArrayLike:
         """Performs a forward computation pass on the module.
 
         :param x: The input tensor to the Neural Network.
-        :type x: class: `torch.Tensor`
+        :type x: class: `jnp.ndarray`
 
         :return: The output of the forward computation pass.
-        :rtype: class: `torch.nn.Module`
+        :rtype: class: `flax.linen.Module`
         """
 
 class FunctionalModule(BaseModule):
-    """Class for wrapping :class: `torch.nn.Modules` around callables."""
+    """Class for wrapping :class: `flax.linen.Modules` around callables."""
     fn: Callable[[ArrayLike], ArrayLike]
     
     def setup(self) -> None:

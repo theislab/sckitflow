@@ -1,10 +1,10 @@
 from typing import Any, Literal
 
-from torch import Tensor, device, linspace
+from torch import Tensor, device
 from torchdiffeq import odeint
 
-from sc_flow.backends.torch.nn import BaseVelocityField
-from sc_flow.backends.torch.solvers.solver import Solver
+from sc_flow.backends.jax.solvers.solver import Solver
+from sc_flow.backends.torch.nn._vf import BaseVelocityField
 
 
 class ODESolver(Solver):
@@ -12,45 +12,43 @@ class ODESolver(Solver):
 
     def __init__(
         self,
-        vf: BaseVelocityField,
-        num_time_steps: int = 500,
-        atol: float = 1e-5,
-        rtol: float = 1e-5,
         method: str = "euler",
         device_id: Literal["cuda", "cpu"] = "cpu",
     ) -> None:
         super().__init__()
-
-        self.vf = vf
-        self.num_time_steps = num_time_steps
-        self.atol = atol
-        self.rtol = rtol
         self.method = method
-
         self.device = device(device_id)
-        self.time = linspace(0.0, 1.0, self.num_time_steps).to(self.device)
 
     def solve(
         self,
+        vf: BaseVelocityField,
         source: Tensor,
-        return_trajectory: bool = False,
-        options: dict[str, Any] | None = None,
-        **vf_kwargs: Any,
+        time: Tensor,
+        *,
+        rtol: float,
+        atol: float,
+        vf_kwargs: dict[str, Any] | None = None,
+        solver_kwargs: dict[str, Any],
     ) -> Tensor:
-        """Solve the ODE defined by the velocity field."""
-        if options is None:
-            options = {}
+        """Integrate the ODE using torchdiffeq's odeint."""
+        if solver_kwargs is None:
+            solver_kwargs = {}
 
-        ode_func = self.vf.get_vf_fn(**vf_kwargs)
+        if vf_kwargs is None:
+            vf_kwargs = {}
+
+        diff_eqn = vf.get_vf_fn(**vf_kwargs)
+
         source = source.to(self.device)
+        time = time.to(self.device)
 
         trajectory = odeint(
-            ode_func,
+            diff_eqn,
             source,
-            self.time,
-            rtol=self.rtol,
-            atol=self.atol,
+            time,
+            rtol=rtol,
+            atol=atol,
             method=self.method,
-            options=options,
+            **solver_kwargs,
         )
-        return trajectory if return_trajectory else trajectory[-1]
+        return trajectory

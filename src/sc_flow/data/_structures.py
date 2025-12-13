@@ -1,14 +1,14 @@
 import abc
-from collections.abc import Collection, Hashable, Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar, TypeVar
 
 import numpy as np
 import pandas as pd
 
 from sc_flow._types import MappedArray, NestedMappedLevelIndex, TargetCovariatesEncoderCls
-from sc_flow.data._mixins import BatchMixin
+from sc_flow.data._mixins import BatchMixin, DataMixin
 
 __all__ = [
     "BaseData",
@@ -16,6 +16,7 @@ __all__ = [
     "StateData",
     "TargetData",
     "ConditionData",
+    "CouplingData",
     "CompiledData",
     "NestedData",
     "NestedCompiledData",
@@ -140,6 +141,27 @@ class ConditionData(BaseData):
 
 
 @dataclass(frozen=True)
+class CouplingData(BaseData):
+    target_lin: StateData
+    target_quad: StateData | None = None
+    source_lin: StateData | None = None
+    source_quad: StateData | None = None
+
+    def _slice_with_array(self, idxs) -> "CouplingData":
+        """"""  # noqa
+        target_lin = self.target_lin.slice_with_array(idxs)
+        target_quad = None if self.target_quad is None else self.target_quad.slice_with_array(idxs)
+        source_lin = None if self.source_lin is None else self.source_lin.slice_with_array(idxs)
+        source_quad = None if self.source_quad is None else self.source_quad.slice_with_array(idxs)
+        return self.__class__(
+            target_lin,
+            target_quad=target_quad,
+            source_lin=source_lin,
+            source_quad=source_quad,
+        )
+
+
+@dataclass(frozen=True)
 class CompiledData(BaseData):
     """"""  # noqa
 
@@ -147,6 +169,7 @@ class CompiledData(BaseData):
     target_data: TargetData | None = None
     condition_data: ConditionData | None = None
     groups_data: CategoricalData | None = None
+    coupling_data: CouplingData | None = None
 
     @property
     def ann_df(self) -> pd.DataFrame:
@@ -164,17 +187,22 @@ class CompiledData(BaseData):
         target_data = None if self.target_data is None else self.target_data.slice_with_array(idxs)
         condition_data = None if self.condition_data is None else self.condition_data.slice_with_array(idxs)
         groups_data = None if self.groups_data is None else self.groups_data.slice_with_array(idxs)
+        coupling_data = None if self.coupling_data is None else self.coupling_data.slice_with_array(idxs)
         return self.__class__(
-            state_data, target_data=target_data, condition_data=condition_data, groups_data=groups_data
+            state_data,
+            target_data=target_data,
+            condition_data=condition_data,
+            groups_data=groups_data,
+            coupling_data=coupling_data,
         )
 
 
 @dataclass(frozen=True)
-class NestedData(Generic[T]):
+class NestedData(DataMixin):
     """"""  # noqa
 
-    dtype: ClassVar[type] = BaseData
-    data: Mapping[Hashable, "T | NestedData[T]"]
+    required_key_type: ClassVar[type[Any]] = object
+    required_value_type: ClassVar[type] = BaseData
 
     @classmethod
     def init_from_data(

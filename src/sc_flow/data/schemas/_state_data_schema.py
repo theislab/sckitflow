@@ -38,10 +38,7 @@ class StateDataSchema(BaseDataSchema):
         adata: AnnData,
     ) -> StateData:
         """"""  # noqa
-        if self._sample_rep is None:
-            X = adata.X
-        else:
-            X = adata.obsm[self._sample_rep]
+        X = self._extract_array(adata, self._sample_rep)
         return StateData(X)
 
     @property

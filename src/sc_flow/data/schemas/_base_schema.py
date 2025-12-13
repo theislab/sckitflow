@@ -1,6 +1,7 @@
 import abc
 from typing import Literal, get_args
 
+import numpy as np
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
@@ -58,6 +59,15 @@ class BaseDataSchema(abc.ABC):
         if identifier not in adata_field:
             available = list(adata_field.keys())
             raise KeyError(f"Key '{identifier}' not found in adata.{adata_field_key}. Available keys: {available}")
+
+    @staticmethod
+    def _extract_array(adata: AnnData, repr: str | None = None) -> np.ndarray:
+        """Extracts the data array from the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
+        return adata.X if repr is None else adata.obsm[repr]
 
     @abc.abstractmethod
     def _verify_args(

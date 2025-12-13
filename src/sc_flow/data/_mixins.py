@@ -24,6 +24,10 @@ class DataMixin(Generic[T]):
         # verifying inputs
         self._verify_inputs()
 
+    def __getitem__(self, key: Hashable) -> "T | DataMixin[T]":
+        """"""  # noqa
+        return self.mapping[key]
+
     def _verify_inputs(self) -> None:
         """"""  # noqa
         # iterating over each key to check that the type is the same

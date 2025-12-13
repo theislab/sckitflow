@@ -4,7 +4,7 @@ import pandas as pd
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
-from sc_flow.data._collections import TrainCollection, ValidationCollection
+from sc_flow.data._collections import DataCollection
 from sc_flow.data._structures import (
     CategoricalData,
     CompiledData,
@@ -166,28 +166,16 @@ class DataManager:
         """"""  # noqa
         return self._get_compiled_data(adata)
 
-    def get_train_collection(
+    def get_collection(
         self,
         adata: AnnData,
-    ) -> pd.MultiIndex:
+    ) -> DataCollection:
         """"""  # noqa
         compiled_data: CompiledData = self._get_compiled_data(adata)
         index: pd.DataFrame = self.indexer.create_index(compiled_data.ann_df)
-        return TrainCollection(
+        return DataCollection(
             compiled_data,
             index,
-            self.selector,
-        )
-
-    def get_val_collection(
-        self,
-        adata: AnnData,
-    ) -> pd.MultiIndex:
-        """"""  # noqa
-        compiled_data: CompiledData = self._get_compiled_data(adata)
-        return ValidationCollection(
-            compiled_data,
-            self.indexer,
             self.selector,
         )
 

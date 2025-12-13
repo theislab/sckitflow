@@ -1,5 +1,3 @@
-from dataclasses import dataclass
-
 import pandas as pd
 
 from sc_flow.data._structures import CompiledData, NestedCompiledData, NestedMatchedData
@@ -7,8 +5,6 @@ from sc_flow.data.grouping._selector import IndexSelector
 
 __all__ = [
     "DataCollection",
-    "TrainCollection",
-    "ValidationCollection",
 ]
 
 
@@ -48,21 +44,3 @@ class DataCollection:
     def selector(self) -> IndexSelector:
         """"""  # noqa
         return self._selector
-
-
-@dataclass
-class TrainCollection(DataCollection):
-    """"""  # noqa
-
-    def __init__(self, data: CompiledData, index: pd.MultiIndex, selector: IndexSelector) -> None:
-        """"""  # noqa
-        super().__init__(data, index, selector)
-
-
-@dataclass
-class ValidationCollection(DataCollection):
-    """"""  # noqa
-
-    def __init__(self, data: CompiledData, index: pd.MultiIndex, selector: IndexSelector) -> None:
-        """"""  # noqa
-        super().__init__(data, index, selector)

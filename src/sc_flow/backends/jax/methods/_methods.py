@@ -222,27 +222,25 @@ class BaseMethod:
         rng = jax.random.key(0) if rng is None else rng
 
         if self.generate_from_noise:
-            # TODO
-            # latent = self.noise_distribution(rng, (x.shape[0], ))
-            # def vf(t: float, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
-            #     params = self.vf_state.params
-            #     x_0, condition = args
-            #     return self.vf_state.apply_fn({"params": params}, t, x, x_0, condition) # create extra vf for genot?
+            latent = self.noise_distribution(rng, x.shape)
+            def vf(t: float, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
+                params = self.vf_state.params
+                source, condition = args
+                return self.vf_state.apply_fn({"params": params}, t, x, condition, source)
 
-            # def solve_ode(latent: jnp.ndarray, x: jnp.ndarray, condition: dict[str, jnp.ndarray]) -> jnp.ndarray:
-            #     term = diffrax.ODETerm(vf)
-            #     sol = diffrax.diffeqsolve(
-            #         term,
-            #         t0=0.0,
-            #         t1=1.0,
-            #         y0=latent,
-            #         args=(x, condition),
-            #         **kwargs,
-            #     )
-            #     return sol.ys[0] # TODO correct index?
-            
+            def solve_ode(latent: jnp.ndarray, x: jnp.ndarray, condition: dict[str, jnp.ndarray]) -> jnp.ndarray:
+                term = diffrax.ODETerm(vf)
+                sol = diffrax.diffeqsolve(
+                    term,
+                    t0=0.0,
+                    t1=1.0,
+                    y0=latent,
+                    args=(x, condition),
+                    **kwargs,
+                )
+                return sol.ys[0]
+            x_pred = solve_ode(latent, x, condition)
             # x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, 0, None]))(latent, x, condition)
-            pass
         else:
             def vf(t: ArrayLike, x: ArrayLike, args: tuple[dict[str, ArrayLike], ArrayLike]) -> jnp.ndarray:
                 params = self.vf_state.params
@@ -264,3 +262,50 @@ class BaseMethod:
             # x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None]))(x, condition)
             x_pred = solve_ode(x, condition)
         return x_pred
+    
+    def validation_step( # pass rng?
+        self,
+        batch: dict[str, ArrayLike], 
+    ) -> ArrayLike:
+        """Validation step of the trainer.
+
+        Parameters
+        ----------
+        batch
+            Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
+            ``condition``.
+        Returns
+        -------
+            prediction: The dictionary of matched predictions and targets to compute validation on
+        """
+        (source, _), _ = self._prepare_data(batch)
+        condition = batch.get("condition")
+
+        x_pred = self.predict(
+            x=source,
+            condition=condition,
+            batched=False,
+        )
+        return x_pred
+    
+    def train_step(
+        self,
+        batch: dict[str, ArrayLike],
+        rng_step_fn: ArrayLike | None = None,
+    ) -> float:
+        """Training step of the trainer.
+
+        Parameters
+        ----------
+        batch
+            Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
+            ``condition``.
+        rng_step_fn
+            Random number generator for the step function.
+        Returns
+        -------
+            float: The value of the loss computed on a batch
+        """
+        rng = jax.random.key(0) if rng_step_fn is None else rng_step_fn
+        loss = self.step_fn(rng, batch)
+        return float(loss)

@@ -7,26 +7,54 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax.training import train_state
-from ott.solvers import utils as solver_utils  # TODO: consider implementing this here
 
 import sc_flow.methods as basemethods
 from sc_flow.backends.jax._types import ArrayLike
-from sc_flow.backends.jax.methods import _utils
+from sc_flow.backends.jax.nn._vf import BaseVelocityField
+from sc_flow.backends.jax.probability_paths import BaseProbabilityPath
 
 __all__ = ["BaseMethod"] 
 
-LinTerm = tuple[jnp.ndarray, jnp.ndarray] # Arraylike instead of jnp.ndarray?
+LinTerm = tuple[jnp.ndarray, jnp.ndarray]
 QuadTerm = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None, jnp.ndarray | None]
 GENOTDataMatchFn = Callable[[LinTerm], jnp.ndarray] | Callable[[QuadTerm], jnp.ndarray]
 
 
 class BaseMethod:
-    """TODO."""
+    """Base flow matching method.
+    
+    :param vf: The velocity field.
+    :type vf: class:`sc_flow.backends.jax.nn.BaseVelocityField`
+
+    :param probability_path: The probability path.
+    :type probability_path: class:`sc_flow.backends.jax.probability_paths.BaseProbabilityPath`
+
+    :param time_sampler: Function to sample time points.
+    :type time_sampler: Callable[[np.ndarray, int], np.ndarray]
+
+    :param match_fn: Function to compute matching indices.
+    :type match_fn: 
+
+    :param target_dim: Dimension of the target data.
+    :type target_dim: int
+
+    :param ema: Exponential moving average factor for target network updates. Default is 1 (no EMA).
+    :type ema: int, optional
+
+    :param generate_from_noise: Whether to generate the vf starting point from noise. Default is False.
+    :type generate_from_noise: bool, optional
+
+    :param control_key: Key in the condition dict to use as control. Default is None.
+    :type control_key: str | None, optional
+
+    :param noise_distribution: Function to sample noise. Default is standard normal distribution.
+    :type noise_distribution: Callable[[jax.Array, tuple[int, ...]], jnp.ndarray] | None, optional
+    """
 
     def __init__(
         self,
-        vf: Any,  # TODO: adapt type
-        probability_path: Any,  # TODO: adapt type
+        vf: BaseVelocityField,
+        probability_path: BaseProbabilityPath,
         time_sampler: Callable[[np.ndarray, int], np.ndarray],
         match_fn: Any, # TODO: adapt type
         target_dim: int,
@@ -81,25 +109,20 @@ class BaseMethod:
 
     def step_fn(
         self,
-        rng: jnp.ndarray,
+        rng: jax.Array,
         batch: dict[str, jnp.ndarray],
     ) -> float:
         """Single step function of the solver.
 
-        Parameters
-        ----------
-        rng
-            Random number generator.
-        batch
-            Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
+        :param rng: Random number generator.
+        :type rng: jax.Array
+        
+        :param batch: Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
             ``condition``.
-
-        Returns
-        -------
-        Loss value.
+        :type batch: dict[str, jnp.ndarray]
         """
-        rng = jax.random.split(rng, 5)
-        rng, rng_resample, rng_noise, rng_time, rng_step_fn = rng
+        rng = jax.random.split(rng, 3)
+        rng, rng_time, rng_step_fn = rng
 
         condition = batch.get("condition")
         (source, target), matching_data = self._prepare_data(batch)
@@ -172,13 +195,31 @@ class BaseMethod:
 
     def predict(
         self,
-        x: ArrayLike,
-        condition: dict[str, ArrayLike] | None = None,
+        x: dict[str, ArrayLike] | ArrayLike,
+        condition: dict[str, dict[str, ArrayLike]] | dict[str, ArrayLike] | None = None,
         rng: ArrayLike | None = None,
         batched: bool = False,
         **kwargs: Any,
-    ) -> ArrayLike | tuple[ArrayLike, diffrax.Solution]:
-        ''' TODO '''
+    ) -> dict[str, ArrayLike] | ArrayLike:
+        """Generate the push-forward of ``x`` under condition ``condition``.
+
+        This function solves the ODE learnt with
+        the :class:`~sc_flow.backends.jax.MLPUnconditionalVF`.
+
+        :param x: The source data to be transformed.
+        :type x: dict[str, ArrayLike] | ArrayLike
+
+        :param condition: The condition dictionary. If ``x`` is a dictionary,
+            this should be a dictionary of dictionaries with the same keys
+            as ``x``.
+        :type condition: dict[str, dict[str, ArrayLike]] | dict[str, ArrayLike] | None
+
+        :param rng: Random number generator. Default is None.
+        :type rng: ArrayLike | None, optional
+
+        :param batched: Whether to process the data in batches. Default is False.
+        :type batched: bool, optional
+        """
         if batched and not x:
             return {}
 
@@ -267,16 +308,11 @@ class BaseMethod:
         self,
         batch: dict[str, ArrayLike], 
     ) -> ArrayLike:
-        """Validation step of the trainer.
+        """Validation step of the method.
 
-        Parameters
-        ----------
-        batch
-            Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
+        :param batch: Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
             ``condition``.
-        Returns
-        -------
-            prediction: The dictionary of matched predictions and targets to compute validation on
+        :type batch: dict[str, ArrayLike]
         """
         (source, _), _ = self._prepare_data(batch)
         condition = batch.get("condition")
@@ -293,18 +329,14 @@ class BaseMethod:
         batch: dict[str, ArrayLike],
         rng_step_fn: ArrayLike | None = None,
     ) -> float:
-        """Training step of the trainer.
+        """Training step of the method.
 
-        Parameters
-        ----------
-        batch
-            Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
+        :param batch: Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
             ``condition``.
-        rng_step_fn
-            Random number generator for the step function.
-        Returns
-        -------
-            float: The value of the loss computed on a batch
+        :type batch: dict[str, ArrayLike]
+
+        :param rng_step_fn: Random number generator for the step function. Default is None.
+        :type rng_step_fn: ArrayLike | None, optional
         """
         rng = jax.random.key(0) if rng_step_fn is None else rng_step_fn
         loss = self.step_fn(rng, batch)

@@ -250,7 +250,6 @@ class TestIndexSelector:
         groups_cols: Collection[str] | None,
         conditions_cols: Collection[str] | None,
     ) -> None:
-        print(f"{groups_cols=}, {conditions_cols=}")
         # initialize indexer and selector
         indexer = HierarchicalIndexer(
             groups_cols=groups_cols,

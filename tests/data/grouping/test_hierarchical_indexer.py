@@ -11,15 +11,14 @@ wrong_key = "wrong_key"
 
 class TestHierarchicalIndexer:
     @staticmethod
-    def verify_level_index(
+    def _verify_level_index(
         level_name: str,
         level_cols: Collection[str],
         idxs: pd.MultiIndex,
     ) -> None:
         level_values = idxs.get_level_values(level_name)
         if level_cols is None:
-            dummy_val = f"{level_name}_dummy"
-            assert set(level_values) == {((dummy_val,))}
+            assert set(level_values) == {(())}
         else:
             assert len(level_cols) == len(level_values[0])
 
@@ -44,8 +43,8 @@ class TestHierarchicalIndexer:
             return None
         idxs = indexer.create_index(adata.obs)
 
-        self.verify_level_index("groups", groups_cols, idxs)
-        self.verify_level_index("conditions", conditions_cols, idxs)
+        self._verify_level_index("groups", groups_cols, idxs)
+        self._verify_level_index("conditions", conditions_cols, idxs)
 
     @pytest.mark.parametrize("level_name", ["groups", "knockout"])
     @pytest.mark.parametrize(
@@ -85,4 +84,4 @@ class TestHierarchicalIndexer:
             return None
         idxs = indexer.create_index(adata.obs)
 
-        self.verify_level_index(level_name, level_cols, idxs)
+        self._verify_level_index(level_name, level_cols, idxs)

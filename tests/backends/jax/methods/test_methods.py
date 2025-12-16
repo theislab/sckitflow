@@ -84,7 +84,7 @@ class TestJaxMethods:
         assert jnp.isscalar(loss) or np.isscalar(loss)
         assert jnp.isfinite(loss)
 
-    @pytest.mark.parametrize("generate_from_noise", [False])
+    @pytest.mark.parametrize("generate_from_noise", [True, False])
     @pytest.mark.parametrize("batched", [True, False])
     def test_predict_batched(self, generate_from_noise, batched):
         state_dim = 3

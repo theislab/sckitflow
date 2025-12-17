@@ -1,12 +1,12 @@
 import pytest
 import torch
+from tests.backends.torch.solvers.solver_test_utils import (
+    ConstantVelocityField,
+    DummyVelocityField,
+)
 from torch import Tensor
 
 from sc_flow.backends.torch.solvers import ODESolver
-from tests.backends.torch.solvers.solver_test_utils import (
-    DummyVelocityField,
-    ConstantVelocityField,
-)
 
 
 @pytest.fixture
@@ -65,9 +65,9 @@ def test_solve_with_different_methods(method: str, dummy_vf: DummyVelocityField)
     result = solver.solve(source=x_init)
 
     assert isinstance(result, Tensor)
-    assert torch.allclose(
-        torch.tensor([2.0, 1.0]), result, atol=1e-2
-    ), "The solution to dx/dt = 3 t^2 from 0 to 1 should be x0 + 1."
+    assert torch.allclose(torch.tensor([2.0, 1.0]), result, atol=1e-2), (
+        "The solution to dx/dt = 3 t^2 from 0 to 1 should be x0 + 1."
+    )
 
 
 def test_return_trajectory(dummy_vf: DummyVelocityField) -> None:

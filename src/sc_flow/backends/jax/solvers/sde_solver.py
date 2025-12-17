@@ -3,16 +3,15 @@ from typing import Any, Literal
 import diffrax as dfx
 import jax
 import jax.numpy as jnp
-from diffrax import Euler, ODETerm
+from diffrax import ControlTerm, Euler, ODETerm
 from jax.lib import xla_client
 
 from sc_flow.backends.jax._types import ArrayLike, TVfFn
-from sc_flow.backends.jax.nn import BaseVelocityField
 from sc_flow.backends.jax.solvers.solver import Solver
 
 
-class ODESolver(Solver):
-    """Base Class for ODE Solvers"""
+class SDESolver(Solver):
+    """Base Class for SDE Solvers"""
 
     def __init__(
         self,
@@ -35,13 +34,15 @@ class ODESolver(Solver):
 
     def solve(
         self,
-        vf: BaseVelocityField,
         source: ArrayLike,
+        drift_fn: TVfFn,
+        diffusion_fn: TVfFn,
+        brownian_motion: dfx.AbstractBrownianPath | None = None,
+        *,
         return_trajectory: bool = False,
         solver_kwargs: dict[str, Any] | None = None,
-        **vf_kwargs: Any,
     ) -> ArrayLike:
-        """Solve the ODE defined by the velocity field."""
+        """Solve the SDE defined by the drift and diffusion terms."""
         if solver_kwargs is None:
             solver_kwargs = {}
 
@@ -56,9 +57,18 @@ class ODESolver(Solver):
                     "options['stepsize_controller'] must be an instance of diffrax.AbstractStepSizeController."
                 )
 
-        vector_field: TVfFn = vf.get_vf_fn(**vf_kwargs)
-        terms = ODETerm(vector_field)
+        if brownian_motion is None:
+            brownian_motion = dfx.UnsafeBrownianPath(
+                t0=0.0,
+                t1=1.0,
+                shape=source.shape,
+                key=jax.random.PRNGKey(0),
+            )
 
+        terms = dfx.MultiTerm(
+            ODETerm(drift_fn),
+            ControlTerm(diffusion_fn, brownian_motion),
+        )
         source = jax.device_put(source, self.device)
 
         if return_trajectory:

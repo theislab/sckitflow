@@ -1,6 +1,8 @@
 import torch
 from torch import Tensor, nn
+
 from sc_flow.backends.torch.nn import BaseVelocityField
+
 
 class DummyVelocityField(BaseVelocityField):
     """
@@ -25,9 +27,8 @@ class DummyVelocityField(BaseVelocityField):
         x: Tensor,
         **kwargs,
     ) -> Tensor:
-        
         self.last_forward_kwargs = kwargs
-        
+
         return torch.ones_like(x) * 3.0 * t**2
 
     def get_vf_fn(self, **kwargs):
@@ -35,6 +36,7 @@ class DummyVelocityField(BaseVelocityField):
             return self.forward(t, x, **kwargs)
 
         return _vf_fn
+
 
 class ConstantVelocityField(BaseVelocityField):
     """
@@ -56,7 +58,6 @@ class ConstantVelocityField(BaseVelocityField):
         x: Tensor,
         **kwargs,
     ) -> Tensor:
-        
         return torch.ones_like(x) * self.a
 
     def get_vf_fn(self, **kwargs):

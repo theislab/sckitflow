@@ -3,8 +3,8 @@ from typing import Any, Literal
 from torch import Tensor, device
 from torchdiffeq import odeint
 
-from sc_flow.backends.jax.solvers.solver import Solver
 from sc_flow.backends.torch.nn._vf import BaseVelocityField
+from sc_flow.backends.torch.solvers.solver import Solver
 
 
 class ODESolver(Solver):

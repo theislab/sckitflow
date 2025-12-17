@@ -47,7 +47,7 @@ def ott_jax_time_features(
         msg = "The number of time features should be an even positive integer."
         raise ValueError(msg)
     t = ensure_2d_tensor_with_singleton_trailing_dim(t)
-    freq = 2 * jnp.arange(num_time_features // 2, device=t.device) * PI
+    freq = 2 * jnp.arange(num_time_features // 2) * PI
     t = t * freq
     return jnp.concatenate([jnp.cos(t), jnp.sin(t)], axis=-1)
 
@@ -85,7 +85,7 @@ def torch_cfm_time_features(
         msg = "The number of time features should be an even positive integer."
         raise ValueError(msg)
     t = ensure_2d_tensor_with_singleton_trailing_dim(t)
-    freqs = jnp.arange(num_time_features // 2, device=t.device) / (num_time_features // 2)
+    freqs = jnp.arange(num_time_features // 2) / (num_time_features // 2)
     freqs = -math.log(max_period) * freqs
     t = t * jnp.exp(freqs)
     return jnp.concatenate([jnp.cos(t), jnp.sin(t)], axis=-1)

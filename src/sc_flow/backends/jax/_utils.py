@@ -133,5 +133,5 @@ def ensure_2d_tensor_with_singleton_trailing_dim(
     """"""  # noqa
 
     if len(input_array.shape) == 0:
-        input_array = jnp.expand_dims(input_array, axis=0)
+        return jnp.expand_dims(input_array, axis=0)
     return broadcast_to_target_shape(input_array, (input_array.shape[0], 1))

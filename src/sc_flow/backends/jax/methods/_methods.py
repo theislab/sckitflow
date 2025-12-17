@@ -256,7 +256,6 @@ class BaseMethod:
         rng: jnp.ndarray | None = None,
         **kwargs: Any,
     ) -> jnp.ndarray | tuple[jnp.ndarray, diffrax.Solution]:
-        ''' TODO '''
         kwargs.setdefault("dt0", None)
         kwargs.setdefault("solver", diffrax.Tsit5())
         kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
@@ -280,8 +279,7 @@ class BaseMethod:
                     **kwargs,
                 )
                 return sol.ys[0]
-            x_pred = solve_ode(latent, x, condition)
-            # x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, 0, None]))(latent, x, condition)
+            x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, 0, None]))(latent, x, condition)
         else:
             def vf(t: ArrayLike, x: ArrayLike, args: tuple[dict[str, ArrayLike], ArrayLike]) -> jnp.ndarray:
                 params = self.vf_state.params
@@ -300,11 +298,10 @@ class BaseMethod:
                 ) 
                 return sol.ys[0]
 
-            # x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None]))(x, condition)
-            x_pred = solve_ode(x, condition)
+            x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None]))(x, condition)
         return x_pred
     
-    def validation_step( # pass rng?
+    def validation_step(
         self,
         batch: dict[str, ArrayLike], 
     ) -> ArrayLike:

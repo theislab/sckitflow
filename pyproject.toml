@@ -29,6 +29,7 @@ dependencies = [
   "jax",
   "ott-jax",
 
+  "pytest",
   # for debug logging (referenced from the issue template)
   "session-info2",
   "torch",

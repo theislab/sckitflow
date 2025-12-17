@@ -13,6 +13,9 @@ class Solver(ABC, nn.Module):
     def solve(
         self,
         source: ArrayLike | None = None,
+        return_trajectory: bool = False,
+        *,
+        solver_kwargs: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> ArrayLike:
         """Solve method to be implemented by subclasses."""

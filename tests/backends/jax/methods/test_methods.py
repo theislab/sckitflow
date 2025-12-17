@@ -15,24 +15,6 @@ class DummyVFState(train_state.TrainState):
 vf_rng = jax.random.PRNGKey(0)
 batch_size = 4
 dim = 3
-src = {
-    ("drug_1",): np.random.rand(10, 5),
-    ("drug_2",): np.random.rand(10, 5),
-}
-cond = {
-    ("drug_1",): {"drug": np.random.rand(1, 1, 3)},
-    ("drug_2",): {"drug": np.random.rand(1, 1, 3)},
-}
-
-class DummyProbabilityPath:
-    def compute_xt(self, rng, t, source, target):
-        # linear interpolation: x_t = (1 - t) * source + t * target
-        t = t.reshape(-1, 1)
-        return (1.0 - t) * source + t * target
-
-    def compute_ut(self, t, x_t, source, target):
-        # simple ground truth vector field (difference)
-        return target - source
 
 # TODO replace with actual independent coupling function once merged
 def independent_coupling(
@@ -52,7 +34,7 @@ class TestJaxMethods:
     @pytest.mark.parametrize("control_key", [None, "src_cell_data"])
     def test_step_fn_runs_without_error(self, generate_from_noise, control_key):
         vf = MLPUnconditionalVF(
-            state_dim=3,
+            state_dim=32,
         )
         probability_path = LinearDiracProbabilityPath(sigma=1.0)
         match_fn = independent_coupling

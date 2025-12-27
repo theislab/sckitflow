@@ -1,5 +1,5 @@
 import abc
-from collections.abc import Collection, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Any, ClassVar, TypeVar
@@ -21,11 +21,12 @@ __all__ = [
     "NestedData",
     "NestedCompiledData",
     "MatchedData",
-    "NestedMatchedData",
 ]
 
 
-T = TypeVar("T", bound="BaseData")
+T = TypeVar(
+    "T", "BaseData", "CategoricalData", "StateData", "TargetData", "ConditionData", "CouplingData", "MatchedData"
+)
 
 
 @dataclass(frozen=True)
@@ -198,7 +199,7 @@ class CompiledData(BaseData):
 
 
 @dataclass(frozen=True)
-class NestedData(DataMixin):
+class NestedData(BaseData, DataMixin):
     """"""  # noqa
 
     required_key_type: ClassVar[type[Any]] = object
@@ -222,7 +223,7 @@ class NestedData(DataMixin):
         mapped_index: NestedMappedLevelIndex,
     ) -> T:
         """"""  # noqa
-        if not isinstance(data, cls.dtype):
+        if not isinstance(data, cls.required_value_type):
             msg = f"Leaf data is expected to be of type {cls.dtype}, found {type(data)}."
             raise TypeError(msg)
         return data.slice_with_index(reference_index, mapped_index)
@@ -240,14 +241,17 @@ class NestedData(DataMixin):
                 out_dict[key] = cls._get_mapped_data_from_dict(data, reference_index, value)
             else:
                 out_dict[key] = cls._get_leaf_mapped_data_from_dict(data, reference_index, value)
-        return NestedData(out_dict)
+        return cls(out_dict)
+
+    def _slice_with_array(self, idxs):
+        return self._apply(self.mapping, lambda e: e.slice_with_array(idxs))
 
 
 @dataclass(frozen=True)
 class NestedCompiledData(NestedData):
     """"""  # noqa
 
-    dtype: ClassVar[type] = CompiledData
+    required_value_type: ClassVar[type] = "CompiledData | NestedCompiledData"
 
 
 @dataclass(frozen=True)
@@ -256,60 +260,3 @@ class MatchedData:
 
     target_data: NestedCompiledData
     source_data: CompiledData | None = None
-
-    @classmethod
-    def init_from_data(
-        cls,
-        data: CompiledData,
-        index: pd.MultiIndex,
-        mapped_index: dict[str, Any],
-        conditions: dict[str, Collection[str]],
-        control_values_dict: dict[str, str] | None,
-    ) -> "MatchedData":
-        """"""  # noqa
-        target_data: NestedCompiledData = cls._init_target_distributions(
-            data,
-            index,
-            mapped_index,
-            conditions,
-            control_values_dict,
-        )
-        source_data: CompiledData | None = cls._init_source_distribution(
-            data,
-            index,
-            mapped_index,
-            conditions,
-            control_values_dict,
-        )
-        return cls(target_data, source_data=source_data)
-
-    @classmethod
-    def _init_target_distributions(
-        cls,
-        data: CompiledData,
-        index: pd.MultiIndex,
-        levels_source_value_dict: dict[str, Any],
-        conditions: dict[str, Collection[str]],
-        control_values_dict: dict[str, str] | None,
-    ) -> NestedCompiledData:
-        """"""  # noqa
-        raise NotImplementedError
-
-    @classmethod
-    def _init_source_distribution(
-        cls,
-        data: CompiledData,
-        index: pd.MultiIndex,
-        levels_source_value_dict: dict[str, Any],
-        conditions: dict[str, Collection[str]],
-        control_values_dict: dict[str, str] | None,
-    ) -> CompiledData:
-        """"""  # noqa
-        raise NotImplementedError
-
-
-@dataclass(frozen=True)
-class NestedMatchedData(NestedData):
-    """"""  # noqa
-
-    dtype: ClassVar[type] = MatchedData

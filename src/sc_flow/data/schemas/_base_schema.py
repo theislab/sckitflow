@@ -13,7 +13,7 @@ __all__ = ["BaseDataSchema"]
 class BaseDataSchema(abc.ABC):
     """Abstract base class for enforcing and verifying data configurations on :class:`AnnData` objects.
 
-    The derived classese will need to override the following abstract methods to be instantiated:
+    The derived classes will need to override the following abstract methods to be instantiated:
         * `_verify_args`, to verify the validity of the configurations provided at initialization.
         * `_verify_schema`, to verify the schema defined by the class on the input :class: `sc.AnnData`.
         * `_get_data`, to extract the data from the input :class: `sc.AnnData`.

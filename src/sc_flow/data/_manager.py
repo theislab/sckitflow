@@ -3,12 +3,12 @@ from collections.abc import Collection, Mapping
 import pandas as pd
 from anndata import AnnData
 
-from sc_flow._types import TargetCovariatesEncodingId
-from sc_flow.data._collections import DataCollection
+from sc_flow._types import NestedMappedLevelIndex, TargetCovariatesEncodingId
 from sc_flow.data._structures import (
     CategoricalData,
     CompiledData,
     ConditionData,
+    NestedData,
     StateData,
     TargetData,
 )
@@ -37,6 +37,7 @@ class DataManager:
     ) -> None:
         """"""  # noqa
 
+        self._control_values_dict = control_values_dict
         self._state_data_schema: StateDataSchema = self._init_state_data_schema(sample_rep=sample_rep)
         self._condition_data_schema: ConditionDataSchema = self._init_condition_data_schema(
             conditions=conditions,
@@ -159,25 +160,26 @@ class DataManager:
             groups_data=groups_data,
         )
 
-    def get_compiled_data(
+    def get_matched_data(
         self,
         adata: AnnData,
-    ) -> CompiledData:
+    ) -> NestedData:
         """"""  # noqa
-        return self._get_compiled_data(adata)
-
-    def get_collection(
-        self,
-        adata: AnnData,
-    ) -> DataCollection:
-        """"""  # noqa
-        compiled_data: CompiledData = self._get_compiled_data(adata)
-        index: pd.DataFrame = self.indexer.create_index(compiled_data.ann_df)
-        return DataCollection(
-            compiled_data,
+        data: CompiledData = self._get_compiled_data(adata)
+        index: pd.DataFrame = self._indexer.create_index(data.ann_df)
+        mapped_index: NestedMappedLevelIndex = self._selector.index_to_nested_dict(index)
+        return NestedData.init_from_data(
+            data,
             index,
-            self.selector,
+            mapped_index,
+            # self._condition_data_schema.conditions,
+            # self._control_values_dict
         )
+
+    @property
+    def control_values_dict(self) -> dict[str, str] | None:
+        """"""  # noqa
+        return self._control_values_dict
 
     @property
     def indexer(self) -> HierarchicalIndexer:

@@ -9,6 +9,7 @@ __all__ = ["DataMixin", "ArrayMixin", "BatchMixin"]
 
 
 T = TypeVar("T")
+C = TypeVar("C", bound="DataMixin")
 
 
 @dataclass(frozen=True)
@@ -17,7 +18,7 @@ class DataMixin(Generic[T]):
 
     required_key_type: ClassVar[type[Any]] = str
     required_value_type: ClassVar[type[Any]] = object
-    mapping: Mapping[Hashable, "T | DataMixin"] = dc_field(default_factory=lambda: {})
+    mapping: Mapping[Hashable, T | C] = dc_field(default_factory=lambda: {})
 
     def __post_init__(self) -> None:
         """"""  # noqa
@@ -33,10 +34,10 @@ class DataMixin(Generic[T]):
         # iterating over each key to check that the type is the same
         for key, value in self.mapping.items():
             if not isinstance(value, self.required_value_type):
-                msg = f"The values should respect the pre-defined type. Got {type(value)} for {key}, expected {self.data_type}."
+                msg = f"The values should respect the pre-defined type. Got {type(value)} for {key}, expected {self.required_value_type}."
                 raise TypeError(msg)
             if not isinstance(key, self.required_key_type):
-                msg = f"The keys should respect the pre-defined type. Got {type(value)} for {key}, expected {self.data_type}."
+                msg = f"The keys should respect the pre-defined type. Got {type(value)} for {key}, expected {self.required_value_type}."
                 raise TypeError(msg)
 
     def _apply_to_level(

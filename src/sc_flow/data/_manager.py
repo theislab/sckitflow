@@ -6,8 +6,8 @@ from anndata import AnnData
 from sc_flow._types import NestedMappedLevelIndex, TargetCovariatesEncodingId
 from sc_flow.data._structures import (
     CategoricalData,
-    CompiledData,
     ConditionData,
+    DistributionData,
     NestedData,
     StateData,
     TargetData,
@@ -145,7 +145,7 @@ class DataManager:
     def _get_compiled_data(
         self,
         adata: AnnData,
-    ) -> CompiledData:
+    ) -> DistributionData:
         """"""  # noqa
 
         # retrieving data
@@ -153,7 +153,7 @@ class DataManager:
         condition_data: ConditionData = self._get_condition_data(adata)
         groups_data: CategoricalData = self._get_groups_data(adata)
         target_data: TargetData = self._get_target_data(adata)
-        return CompiledData(
+        return DistributionData(
             state_data,
             target_data=target_data,
             condition_data=condition_data,
@@ -165,7 +165,7 @@ class DataManager:
         adata: AnnData,
     ) -> NestedData:
         """"""  # noqa
-        data: CompiledData = self._get_compiled_data(adata)
+        data: DistributionData = self._get_compiled_data(adata)
         index: pd.DataFrame = self._indexer.create_index(data.ann_df)
         mapped_index: NestedMappedLevelIndex = self._selector.index_to_nested_dict(index)
         return NestedData.init_from_data(

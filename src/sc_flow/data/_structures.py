@@ -17,9 +17,9 @@ __all__ = [
     "TargetData",
     "ConditionData",
     "CouplingData",
-    "CompiledData",
+    "DistributionData",
     "NestedData",
-    "NestedCompiledData",
+    "NestedDistributionData",
     "MatchedData",
 ]
 
@@ -163,7 +163,7 @@ class CouplingData(BaseData):
 
 
 @dataclass(frozen=True)
-class CompiledData(BaseData):
+class DistributionData(BaseData):
     """"""  # noqa
 
     state_data: StateData
@@ -182,7 +182,7 @@ class CompiledData(BaseData):
     def _slice_with_array(
         self,
         idxs: np.ndarray,
-    ) -> "CompiledData":
+    ) -> "DistributionData":
         """"""  # noqa
         state_data = self.state_data.slice_with_array(idxs)
         target_data = None if self.target_data is None else self.target_data.slice_with_array(idxs)
@@ -248,15 +248,15 @@ class NestedData(BaseData, DataMixin):
 
 
 @dataclass(frozen=True)
-class NestedCompiledData(NestedData):
+class NestedDistributionData(NestedData):
     """"""  # noqa
 
-    required_value_type: ClassVar[type] = "CompiledData | NestedCompiledData"
+    required_value_type: ClassVar[type] = "DistributionData | NestedDistributionData"
 
 
 @dataclass(frozen=True)
 class MatchedData:
     """"""  # noqa
 
-    target_data: NestedCompiledData
-    source_data: CompiledData | None = None
+    target_data: NestedDistributionData
+    source_data: DistributionData | None = None

@@ -4,13 +4,12 @@ import pandas as pd
 from anndata import AnnData
 
 from sc_flow._types import NestedMappedLevelIndex, TargetCovariatesEncodingId
+from sc_flow.data._matched_data import NestedData
 from sc_flow.data._structures import (
     CategoricalData,
-    ConditionData,
     DistributionData,
-    NestedData,
+    MixedTypeData,
     StateData,
-    TargetData,
 )
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._selector import IndexSelector
@@ -124,7 +123,7 @@ class DataManager:
     def _get_condition_data(
         self,
         adata: AnnData,
-    ) -> ConditionData:
+    ) -> MixedTypeData:
         """"""  # noqa
         return self._condition_data_schema.get_data(adata)
 
@@ -138,7 +137,7 @@ class DataManager:
     def _get_target_data(
         self,
         adata: AnnData,
-    ) -> TargetData:
+    ) -> MixedTypeData:
         """"""  # noqa
         return self._target_data_schema.get_data(adata)
 
@@ -150,9 +149,9 @@ class DataManager:
 
         # retrieving data
         state_data: StateData = self._get_state_data(adata)
-        condition_data: ConditionData = self._get_condition_data(adata)
+        condition_data: MixedTypeData = self._get_condition_data(adata)
+        target_data: MixedTypeData = self._get_target_data(adata)
         groups_data: CategoricalData = self._get_groups_data(adata)
-        target_data: TargetData = self._get_target_data(adata)
         return DistributionData(
             state_data,
             target_data=target_data,
@@ -172,8 +171,8 @@ class DataManager:
             data,
             index,
             mapped_index,
-            # self._condition_data_schema.conditions,
-            # self._control_values_dict
+            self._condition_data_schema.conditions,
+            self._control_values_dict,
         )
 
     @property

@@ -6,7 +6,7 @@ from anndata import AnnData
 from sc_flow._types import MappedArray
 from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._structures import CategoricalData, ConditionData
+from sc_flow.data._structures import CategoricalData, MixedTypeData
 from sc_flow.data.schemas._base_schema import BaseDataSchema
 
 __all__ = ["ConditionDataSchema"]
@@ -93,7 +93,7 @@ class ConditionDataSchema(BaseDataSchema):
                 ... )
                 >>> condition_data = condition_schema.get_data(adata)
                 >>> type(condition_data)
-                ... sc_flow.data._structures.ConditionData
+                ... sc_flow.data._structures.MixedTypeData
 
         * Multi-Dimensional Continuous Covariates.
 
@@ -134,7 +134,7 @@ class ConditionDataSchema(BaseDataSchema):
                 ... )
                 >>> condition_data = condition_schema.get_data(adata)
                 >>> type(condition_data)
-                ... sc_flow.data._structures.ConditionData
+                ... sc_flow.data._structures.MixedTypeData
 
             Naturally, it is also possible to only use the continuous covariates, when there is no additional information
             available for the conditioning. To achieve this, all it is required is to drop all the arguments associated to
@@ -146,7 +146,7 @@ class ConditionDataSchema(BaseDataSchema):
                 ... )
                 >>> condition_data = condition_schema.get_data(adata)
                 >>> type(condition_data)
-                ... sc_flow.data._structures.ConditionData
+                ... sc_flow.data._structures.MixedTypeData
 
         :param conditions: Mapping from each condition level to the corresponding columns, as described in
             the dedicated section above. Defaults to `None`.
@@ -248,7 +248,7 @@ class ConditionDataSchema(BaseDataSchema):
         self._verify_categorical_covariates(adata)
         self._verify_continuous_covariates(adata)
 
-    def _get_data(self, adata: AnnData) -> ConditionData:
+    def _get_data(self, adata: AnnData) -> MixedTypeData:
         """Retrieves the schema-resolved condition information from the input data.
 
         :param adata: The input data.
@@ -256,7 +256,7 @@ class ConditionDataSchema(BaseDataSchema):
         """
         categorical_covariates = self._get_categorical_covariates(adata)
         continuous_covariates = self._get_continuous_covariates(adata)
-        return ConditionData(condition_reps=categorical_covariates, condition_covariates=continuous_covariates)
+        return MixedTypeData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
 
     @property
     def all_condition_cols(self) -> tuple[str]:

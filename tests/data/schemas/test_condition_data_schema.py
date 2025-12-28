@@ -3,7 +3,7 @@ from collections.abc import Collection
 import pytest
 from anndata import AnnData
 
-from sc_flow.data._structures import ConditionData
+from sc_flow.data._structures import MixedTypeData
 from sc_flow.data.schemas import ConditionDataSchema
 
 from ..shared import verify_categorical_data, verify_mixin  # noqa
@@ -78,9 +78,9 @@ class TestConditionDataSchema:
         )
         # check attributes
         if conditions_covariates is None:
-            assert schema.allows_ot_coupling
+            assert schema.allows_grouping
         else:
-            assert not schema.allows_ot_coupling
+            assert not schema.allows_grouping
         assert schema.conditions is not None
         if conditions is None:
             assert len(schema.conditions) == 0
@@ -146,7 +146,7 @@ class TestConditionDataSchema:
             return None
 
         data = schema.get_data(adata)
-        assert isinstance(data, ConditionData)
+        assert isinstance(data, MixedTypeData)
 
         # test condition reps
         if conditions is not None:
@@ -154,11 +154,11 @@ class TestConditionDataSchema:
         else:
             expected_df_cols = []
         verify_categorical_data(
-            data.condition_reps,
+            data.categorical_covariates,
             expected_df_cols,
             uns_keys_to_nunique_prefix_and_dim,
             conditions_reps=conditions_reps,
         )
         # test condition covariates
         N = len(adata)
-        verify_mixin(data.condition_covariates, N, obsm_keys_to_dim, conditions_covariates)
+        verify_mixin(data.continuous_covariates, N, obsm_keys_to_dim, conditions_covariates)

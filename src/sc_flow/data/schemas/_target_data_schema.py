@@ -5,7 +5,7 @@ from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._structures import CategoricalData, TargetData
+from sc_flow.data._structures import CategoricalData, MixedTypeData
 from sc_flow.data._utils import get_covariates_encoders_from_dict
 from sc_flow.data.schemas._base_schema import BaseDataSchema
 
@@ -89,11 +89,11 @@ class TargetDataSchema(BaseDataSchema):
     def _get_data(
         self,
         adata: AnnData,
-    ) -> TargetData:
+    ) -> MixedTypeData:
         """"""  # noqa
         categorical_covariates: CategoricalData = self._get_categorical_covariates(adata)
         continuous_covariates: BatchMixin = self._get_continuous_covariates(adata)
-        return TargetData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
+        return MixedTypeData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
 
     @property
     def categorical_covariates(self) -> tuple[str]:

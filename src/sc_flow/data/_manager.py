@@ -4,11 +4,11 @@ import pandas as pd
 from anndata import AnnData
 
 from sc_flow._types import NestedMappedLevelIndex, TargetCovariatesEncodingId
-from sc_flow.data._matched_data import NestedData
 from sc_flow.data._structures import (
     CategoricalData,
     DistributionData,
     MixedTypeData,
+    NestedData,
     StateData,
 )
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
@@ -167,10 +167,12 @@ class DataManager:
         data: DistributionData = self._get_compiled_data(adata)
         index: pd.DataFrame = self._indexer.create_index(data.ann_df)
         mapped_index: NestedMappedLevelIndex = self._selector.index_to_nested_dict(index)
+        n_levels = len(self._indexer.hierarchy_levels)
         return NestedData.init_from_data(
             data,
             index,
             mapped_index,
+            n_levels,
             self._condition_data_schema.conditions,
             self._control_values_dict,
         )

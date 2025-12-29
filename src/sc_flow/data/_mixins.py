@@ -1,6 +1,7 @@
 from collections.abc import Callable, Collection, Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
+from types import MappingProxyType
 from typing import Any, ClassVar, Generic, TypeVar
 
 import numpy as np
@@ -19,7 +20,7 @@ class DataMixin(Generic[T]):
     strict: ClassVar[bool] = True
     required_key_type: ClassVar[type[Any]] = str
     required_value_type: ClassVar[type[Any]] = object
-    mapping: Mapping[Hashable, T | C] = dc_field(default_factory=lambda: {})
+    mapping: Mapping[Hashable, T | C] = dc_field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         """"""  # noqa

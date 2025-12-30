@@ -1,4 +1,5 @@
 from collections.abc import Collection, Mapping
+from typing import Any
 
 import pandas as pd
 from anndata import AnnData
@@ -112,6 +113,14 @@ class DataManager:
             groups_cols=[] if groups_cols is None else groups_cols,  # TODO: add attributes for base groups
             conditions_cols=[] if conditions_cols is None else conditions_cols,
         )
+
+    def _get_control_key(self) -> tuple[Any]:
+        control_query_dict = {
+            cond: self._control_values_dict[level]
+            for level, conditions in self._condition_data_schema.conditions
+            for cond in conditions
+        }
+        return self._selector.query_factory.query_dict_to_tuple(control_query_dict)
 
     def _get_state_data(
         self,

@@ -4,7 +4,7 @@ from typing import Any
 import pandas as pd
 from anndata import AnnData
 
-from sc_flow._types import NestedMappedLevelIndex, TargetCovariatesEncodingId
+from sc_flow._types import MappedLevelIndex, TargetCovariatesEncodingId
 from sc_flow.data._structures import (
     CategoricalData,
     DistributionData,
@@ -167,7 +167,7 @@ class DataManager:
         """"""  # noqa
         data: DistributionData = self._get_compiled_data(adata)
         index: pd.DataFrame = self._indexer.create_index(data.ann_df)
-        mapped_index: NestedMappedLevelIndex = self._selector.index_to_nested_dict(index)
+        mapped_index: MappedLevelIndex = self._selector.index_to_nested_dict(index)
         return NestedData.init_from_data(data, index, mapped_index, source_key=self.source_key)
 
     @property

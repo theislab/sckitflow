@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from sc_flow._types import NestedMappedLevelIndex
+from sc_flow._types import MappedLevelIndex
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._query import QueryFactory
 
@@ -92,17 +92,17 @@ class IndexSelector:
         self,
         level_name: str,
         index: pd.MultiIndex,
-    ) -> NestedMappedLevelIndex:
+    ) -> MappedLevelIndex:
         """"""  # noqa
         unique_level_values = self._get_unique_level_values(level_name, index)
         data_dict = {values: self._query_level_with_tuple(level_name, values, index) for values in unique_level_values}
-        return NestedMappedLevelIndex(data_dict)
+        return MappedLevelIndex(data_dict)
 
     def _level_index_to_nested_dict(
         self,
         level_name: str,
         index: pd.MultiIndex,
-    ) -> NestedMappedLevelIndex:
+    ) -> MappedLevelIndex:
         """"""  # noqa
 
         # preparing level data
@@ -115,7 +115,7 @@ class IndexSelector:
         if hierarchy_index == (self.n_hierarchy_levels - 1):
             return level_unique_values_dict
         next_level_name = self._hierarchy_levels[hierarchy_index + 1]
-        return NestedMappedLevelIndex(
+        return MappedLevelIndex(
             {
                 values: self._level_index_to_nested_dict(
                     next_level_name,
@@ -150,14 +150,14 @@ class IndexSelector:
         query_dict = self._query_factory.prepare_partial_query_dict(query_dict)
         return self._query_with_dict(query_dict, index)
 
-    def level_index_to_nested_dict(self, level_name: str, index: pd.MultiIndex) -> NestedMappedLevelIndex:
+    def level_index_to_nested_dict(self, level_name: str, index: pd.MultiIndex) -> MappedLevelIndex:
         """"""  # noqa
         return self._level_index_to_nested_dict(level_name, index)
 
     def index_to_nested_dict(
         self,
         index: pd.MultiIndex,
-    ) -> NestedMappedLevelIndex:
+    ) -> MappedLevelIndex:
         """"""  # noqa
         return self._level_index_to_nested_dict(self._hierarchy_levels[0], index)
 

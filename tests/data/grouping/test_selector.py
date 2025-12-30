@@ -7,7 +7,7 @@ import pytest
 from anndata import AnnData
 
 from sc_flow._constants import BASE_LEVEL_NAME, CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
-from sc_flow._types import NestedMappedLevelIndex
+from sc_flow._types import MappedLevelIndex
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._selector import IndexSelector
 
@@ -18,7 +18,7 @@ class TestIndexSelector:
     def _validate_correct_unique_values(
         self,
         df: pd.DataFrame,
-        nested_dict: NestedMappedLevelIndex,
+        nested_dict: MappedLevelIndex,
         cols: Collection[str] | None,
     ) -> None:
         """"""
@@ -51,7 +51,7 @@ class TestIndexSelector:
     def _validate_nested_dict(
         self,
         reference_df: pd.DataFrame,
-        nested_dict: NestedMappedLevelIndex,
+        nested_dict: MappedLevelIndex,
         groups_cols: Collection[str] | None,
         conditions_cols: Collection[str] | None,
     ) -> None:
@@ -60,7 +60,7 @@ class TestIndexSelector:
 
         # Iterate group keys
         for group_key, group_node in nested_dict.mapping.items():
-            assert isinstance(group_node, NestedMappedLevelIndex)
+            assert isinstance(group_node, MappedLevelIndex)
 
             # Group-level subset
             group_df, group_values = self._extract_df(reference_df, groups_cols, group_key)
@@ -260,7 +260,7 @@ class TestIndexSelector:
 
         # create nested dictionary (fail cases)
         nested_dict = selector.index_to_nested_dict(index)
-        assert isinstance(nested_dict, NestedMappedLevelIndex)
+        assert isinstance(nested_dict, MappedLevelIndex)
         self._validate_nested_dict(
             adata.obs,
             nested_dict,

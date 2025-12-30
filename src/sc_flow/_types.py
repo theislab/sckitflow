@@ -38,14 +38,9 @@ MappedArray: TypeAlias = dict[str, np.ndarray]
 TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
 
 
+_T = TypeVar("_T", bound="MappedLevelIndex")
+
+
 @dataclass
 class MappedLevelIndex:
-    mapping: Mapping[tuple[Any, ...], pd.MultiIndex]
-
-
-_T = TypeVar("_T", bound="NestedMappedLevelIndex")
-
-
-@dataclass
-class NestedMappedLevelIndex:
-    mapping: Mapping[tuple[Any, ...], "_T | MappedLevelIndex"]
+    mapping: Mapping[tuple[Any, ...], "_T | pd.MultiIndex"]

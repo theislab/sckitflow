@@ -8,7 +8,7 @@ from typing import Any, ClassVar, Literal, overload
 import numpy as np
 import pandas as pd
 
-from sc_flow._types import MappedArray, MappedLevelIndex, NestedMappedLevelIndex, TargetCovariatesEncoderCls
+from sc_flow._types import MappedArray, MappedLevelIndex, TargetCovariatesEncoderCls
 from sc_flow.data._mixins import BatchMixin, DataMixin
 
 __all__ = [
@@ -409,7 +409,7 @@ class NestedData(DataMixin):
         cls,
         data: DistributionData,
         reference_index: pd.MultiIndex,
-        mapped_index: NestedMappedLevelIndex,
+        mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
         """Initialized the recursive mapping from the input."""
@@ -440,12 +440,12 @@ class NestedData(DataMixin):
         cls,
         data: DistributionData,
         reference_index: pd.MultiIndex,
-        mapped_index: NestedMappedLevelIndex,
+        mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
         out_dict = {}
         for key, value in mapped_index.mapping.items():
-            if isinstance(value, MappedLevelIndex) or all(isinstance(v, pd.MultiIndex) for v in value.mapping.values()):
+            if all(isinstance(v, pd.MultiIndex) for v in value.mapping.values()):
                 out_dict[key] = cls._get_leaf_mapped_data_from_dict(data, reference_index, value, source_key)
             else:
                 out_dict[key] = cls._get_mapped_data_from_dict(data, reference_index, value, source_key)

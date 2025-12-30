@@ -114,14 +114,6 @@ class DataManager:
             conditions_cols=[] if conditions_cols is None else conditions_cols,
         )
 
-    def _get_control_key(self) -> tuple[Any]:
-        control_query_dict = {
-            cond: self._control_values_dict[level]
-            for level, conditions in self._condition_data_schema.conditions
-            for cond in conditions
-        }
-        return self._selector.query_factory.query_dict_to_tuple(control_query_dict)
-
     def _get_state_data(
         self,
         adata: AnnData,
@@ -176,11 +168,7 @@ class DataManager:
         data: DistributionData = self._get_compiled_data(adata)
         index: pd.DataFrame = self._indexer.create_index(data.ann_df)
         mapped_index: NestedMappedLevelIndex = self._selector.index_to_nested_dict(index)
-        return NestedData.init_from_data(
-            data,
-            index,
-            mapped_index,
-        )
+        return NestedData.init_from_data(data, index, mapped_index, source_key=self.source_key)
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:
@@ -211,3 +199,15 @@ class DataManager:
     def target_data_schema(self) -> ConditionDataSchema:
         """"""  # noqa
         return self._condition_data_schema
+
+    @property
+    def source_key(self) -> tuple[Any]:
+        """"""  # noqa
+        if self._control_values_dict is None:
+            return None
+        control_query_dict = {
+            cond: self._control_values_dict[level]
+            for level, conditions in self._condition_data_schema.conditions.items()
+            for cond in conditions
+        }
+        return self._selector.query_factory.query_dict_to_tuple(control_query_dict)

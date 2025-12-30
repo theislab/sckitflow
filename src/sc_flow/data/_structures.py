@@ -3,12 +3,12 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from types import MappingProxyType
-from typing import ClassVar, Literal, overload
+from typing import Any, ClassVar, Literal, overload
 
 import numpy as np
 import pandas as pd
 
-from sc_flow._types import MappedArray, NestedMappedLevelIndex, TargetCovariatesEncoderCls
+from sc_flow._types import MappedArray, MappedLevelIndex, NestedMappedLevelIndex, TargetCovariatesEncoderCls
 from sc_flow.data._mixins import BatchMixin, DataMixin
 
 __all__ = [
@@ -410,22 +410,30 @@ class NestedData(DataMixin):
         data: DistributionData,
         reference_index: pd.MultiIndex,
         mapped_index: NestedMappedLevelIndex,
+        source_key: tuple[Any] | None = None,
     ) -> "NestedData":
         """Initialized the recursive mapping from the input."""
-        return cls._get_mapped_data_from_dict(data, reference_index, mapped_index)
+        return cls._get_mapped_data_from_dict(data, reference_index, mapped_index, source_key)
 
     @classmethod
     def _get_leaf_mapped_data_from_dict(
         cls,
         data: DistributionData,
         reference_index: pd.MultiIndex,
-        mapped_index: NestedMappedLevelIndex,
+        mapped_index: MappedLevelIndex,
+        source_key: tuple[Any] | None = None,
     ) -> DistributionData:
-        if not isinstance(data, cls.required_value_type):
-            msg = f"Leaf data is expected to be of type {cls.required_value_type}, found {type(data)}."
-            raise TypeError(msg)
-        data = data.slice_with_index(reference_index, mapped_index)
-        return data
+        if source_key is not None:
+            source_idxs = mapped_index.mapping.pop(source_key)
+            source_data = data.slice_with_index(reference_index, source_idxs)
+        else:
+            source_data = None
+        return cls(
+            {
+                key: MatchedData(data.slice_with_index(reference_index, value), source_data=source_data)
+                for key, value in mapped_index.mapping.items()
+            }
+        )
 
     @classmethod
     def _get_mapped_data_from_dict(
@@ -433,11 +441,13 @@ class NestedData(DataMixin):
         data: DistributionData,
         reference_index: pd.MultiIndex,
         mapped_index: NestedMappedLevelIndex,
+        source_key: tuple[Any] | None = None,
     ) -> "NestedData":
         out_dict = {}
         for key, value in mapped_index.mapping.items():
-            if isinstance(value, NestedMappedLevelIndex):
-                out_dict[key] = cls._get_mapped_data_from_dict(data, reference_index, value)
+            if isinstance(value, MappedLevelIndex) or all(isinstance(v, pd.MultiIndex) for v in value.mapping.values()):
+                out_dict[key] = cls._get_leaf_mapped_data_from_dict(data, reference_index, value, source_key)
             else:
-                out_dict[key] = cls._get_leaf_mapped_data_from_dict(data, reference_index, value)
+                out_dict[key] = cls._get_mapped_data_from_dict(data, reference_index, value, source_key)
+
         return cls(out_dict)

@@ -92,7 +92,7 @@ class BaseDataSchema(abc.ABC):
     def _get_data(
         self,
         adata: AnnData,
-    ) -> BaseData:
+    ) -> BaseData | None:
         """Enforces the schema on the input :class: `AnnData`.
 
         :param adata: The input data.
@@ -103,7 +103,7 @@ class BaseDataSchema(abc.ABC):
     def get_data(
         self,
         adata: AnnData,
-    ) -> BaseData:
+    ) -> BaseData | None:
         """Verifies and enforces the schema on the input :class: `AnnData`.
 
         :param adata: The input data.

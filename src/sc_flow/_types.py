@@ -44,3 +44,7 @@ _T = TypeVar("_T", bound="MappedLevelIndex")
 @dataclass
 class MappedLevelIndex:
     mapping: Mapping[tuple[Any, ...], "_T | pd.MultiIndex"]
+
+    @property
+    def is_leaf(self) -> bool:
+        return all(isinstance(v, pd.MultiIndex) for v in self.mapping.values())

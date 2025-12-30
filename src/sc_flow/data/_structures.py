@@ -166,17 +166,17 @@ class MixedTypeData(BaseData):
     categorical_covariates: CategoricalData | None = None
     continuous_covariates: BatchMixin | None = None
 
-    # def __post_init__(self) -> None:
-    #     if self.categorical_covariates is not None and self.continuous_covariates is not None:
-    #         n_obs_cat = self.categorical_covariates.ann_df.shape[0]
-    #         n_obs_cont = next(iter(self.continuous_covariates.apply(lambda e: e.shape[0]).mapping.values()))
-    #         if n_obs_cat != n_obs_cont:
-    #             msg = (
-    #                 "Shape mismatch between categorical and continuous covariates. "
-    #                 f"Found {n_obs_cat} observations for categorical covariates and "
-    #                 f"{n_obs_cont} observations for the continuous covariates."
-    #             )
-    #             raise ValueError(msg)
+    def __post_init__(self) -> None:
+        if self.categorical_covariates is not None and self.continuous_covariates is not None:
+            n_obs_cat = self.categorical_covariates.ann_df.shape[0]
+            n_obs_cont = self.continuous_covariates.n_obs
+            if n_obs_cat != n_obs_cont:
+                msg = (
+                    "Shape mismatch between categorical and continuous covariates. "
+                    f"Found {n_obs_cat} observations for categorical covariates and "
+                    f"{n_obs_cont} observations for the continuous covariates."
+                )
+                raise ValueError(msg)
 
     def _slice_with_array(
         self,
@@ -199,11 +199,7 @@ class MixedTypeData(BaseData):
             return self.categorical_covariates.n_obs
 
         if self.continuous_covariates is not None:
-            dims = self.continuous_covariates.reference_dims
-            if len(dims) > 1:
-                msg = f"Continuous covariates should have only one reference dim, found {len(dims)}"
-                raise ValueError(msg)
-            return dims[0]
+            return self.continuous_covariates.n_obs
         msg = f"{self.__class__.__name__} must contain at least one covariate container."
         raise ValueError(msg)
 
@@ -235,20 +231,12 @@ class StateData(BaseData):
 class CouplingData(BaseData):
     """Container class for coupling data.
 
-    :param target_lin: Container for the linear term of samples from the target distribution.
-    :type target_lin: class: `StateData`
+    :param state_lin: Container for the linear term of samples.
+    :type state_lin: class: `StateData`
 
-    :param target_quad: Container for the quadratic term of samples from the target distribution.
+    :param state_quad: Container for the quadratic term of samples.
         Defaults to `None`.
-    :type target_quad: class: `StateData | None`
-
-    :param source_lin: Container for the linear term of samples from the target distribution.
-        Defaults to `None`.
-    :type source_lin: class: `StateData | None`
-
-    :param source_quad: Container for the quadratic term of samples from the target distribution.
-        Defaults to `None`.
-    :type source_quad: class: `StateData | None`
+    :type state_quad: class: `StateData | None`
     """
 
     state_lin: StateData
@@ -422,16 +410,18 @@ class NestedData(DataMixin):
         reference_index: pd.MultiIndex,
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
-    ) -> DistributionData:
+    ) -> "NestedData":
         if source_key is not None:
-            source_idxs = mapped_index.mapping.pop(source_key)
+            source_idxs = mapped_index.mapping[source_key]
             source_data = data.slice_with_index(reference_index, source_idxs)
+            rest_idxs = {k: v for k, v in mapped_index.mapping.items() if k != source_key}
         else:
             source_data = None
+            rest_idxs = mapped_index.mapping
         return cls(
             {
                 key: MatchedData(data.slice_with_index(reference_index, value), source_data=source_data)
-                for key, value in mapped_index.mapping.items()
+                for key, value in rest_idxs.items()
             }
         )
 
@@ -445,7 +435,7 @@ class NestedData(DataMixin):
     ) -> "NestedData":
         out_dict = {}
         for key, value in mapped_index.mapping.items():
-            if all(isinstance(v, pd.MultiIndex) for v in value.mapping.values()):
+            if value.is_leaf:
                 out_dict[key] = cls._get_leaf_mapped_data_from_dict(data, reference_index, value, source_key)
             else:
                 out_dict[key] = cls._get_mapped_data_from_dict(data, reference_index, value, source_key)

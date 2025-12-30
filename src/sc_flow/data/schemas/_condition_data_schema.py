@@ -214,7 +214,7 @@ class ConditionDataSchema(BaseDataSchema):
             for condition_level, condition_repr in self._conditions_reps.items()
         }
 
-    def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData:
+    def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData | None:
         """Retrieves the categorical condition covariates from the input `AnnData`.
 
         Categorical covariates are in this case represented as a lookup table
@@ -225,16 +225,20 @@ class ConditionDataSchema(BaseDataSchema):
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
+        if not self.has_categorical_covariates:
+            return None
         covariates_df = self._get_covariates_df(adata)
         repr_dict = self._get_repr_dict(adata)
         return CategoricalData(covariates_df, repr_dict=repr_dict)
 
-    def _get_continuous_covariates(self, adata: AnnData) -> BatchMixin:
+    def _get_continuous_covariates(self, adata: AnnData) -> BatchMixin | None:
         """Retrieves the continuous condition covariates from the input `AnnData`.
 
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
+        if not self.has_continuous_covariates:
+            return None
         return BatchMixin(
             {covariate_name: adata.obsm[covariate_name] for covariate_name in self._conditions_covariates}
         )
@@ -248,7 +252,7 @@ class ConditionDataSchema(BaseDataSchema):
         self._verify_categorical_covariates(adata)
         self._verify_continuous_covariates(adata)
 
-    def _get_data(self, adata: AnnData) -> MixedTypeData:
+    def _get_data(self, adata: AnnData) -> MixedTypeData | None:
         """Retrieves the schema-resolved condition information from the input data.
 
         :param adata: The input data.
@@ -256,6 +260,8 @@ class ConditionDataSchema(BaseDataSchema):
         """
         categorical_covariates = self._get_categorical_covariates(adata)
         continuous_covariates = self._get_continuous_covariates(adata)
+        if categorical_covariates is None and continuous_covariates is None:
+            return None
         return MixedTypeData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
 
     @property
@@ -294,3 +300,13 @@ class ConditionDataSchema(BaseDataSchema):
     def conditions_covariates(self) -> Collection[str]:
         """Exposes to `conditions_covariates` parameter set at initialization."""
         return self._conditions_covariates
+
+    @property
+    def has_categorical_covariates(self) -> bool:
+        """"""  # noqa
+        return len(self._conditions) > 0
+
+    @property
+    def has_continuous_covariates(self) -> bool:
+        """"""  # noqa
+        return len(self._conditions_covariates) > 0

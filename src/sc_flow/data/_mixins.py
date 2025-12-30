@@ -82,9 +82,11 @@ class DataMixin(Generic[T]):
             )
         output_key_type = self.required_key_type if output_key_type is None else output_key_type
         output_value_type = self.required_value_type if output_value_type is None else output_value_type
-        self.__class__.required_key_type = output_key_type
-        self.__class__.required_value_type = output_value_type
-        return self.__class__(out_dict)
+        return type(
+            self.__class__.__name__,
+            (self.__class__,),
+            {"required_key_type": output_key_type, "required_value_type": output_value_type},
+        )(out_dict)
 
     def apply(
         self,
@@ -109,7 +111,7 @@ class DataMixin(Generic[T]):
 class ArrayMixin(DataMixin):
     """"""  # noqa
 
-    required_type: ClassVar[type[Any]] = np.ndarray | np.generic
+    required_value_type: ClassVar[type[Any]] = np.ndarray | np.generic
 
 
 @dataclass(frozen=True)
@@ -162,3 +164,11 @@ class BatchMixin(ArrayMixin):
             reference_array = next(iter(self.mapping.values()))
             return reference_array.shape[: self.minimum_dims]
         return []
+
+    @property
+    def n_obs(self) -> int:
+        """"""  # noqa
+        if len(self.reference_dims) != 1:
+            msg = f"Continuous covariates should have only one reference dim, found {len(self.reference_dims)}"
+            raise ValueError(msg)
+        return self.reference_dims[0]

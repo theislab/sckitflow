@@ -68,8 +68,10 @@ class TargetDataSchema(BaseDataSchema):
         """"""  # noqa
         return adata.obs.loc[:, self.categorical_covariates]
 
-    def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData:
+    def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData | None:
         """"""  # noqa
+        if not self.has_categorical_covariates:
+            return None
         covariates_df: pd.DataFrame = self._get_covariates_df(adata)
         encoders_dict: Mapping[str, TargetCovariatesEncoderCls] = get_covariates_encoders_from_dict(
             self._categorical_covs_dict, covariates_df
@@ -81,6 +83,8 @@ class TargetDataSchema(BaseDataSchema):
         adata: AnnData,
     ) -> BatchMixin:
         """"""  # noqa
+        if not self.has_continuous_covariates:
+            return None
         covariates_dict = {}
         for covariate in self._continuous_covs:
             covariates_dict[covariate] = adata.obsm[covariate]
@@ -89,10 +93,12 @@ class TargetDataSchema(BaseDataSchema):
     def _get_data(
         self,
         adata: AnnData,
-    ) -> MixedTypeData:
+    ) -> MixedTypeData | None:
         """"""  # noqa
         categorical_covariates: CategoricalData = self._get_categorical_covariates(adata)
         continuous_covariates: BatchMixin = self._get_continuous_covariates(adata)
+        if categorical_covariates is None and continuous_covariates is None:
+            return None
         return MixedTypeData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
 
     @property
@@ -109,3 +115,13 @@ class TargetDataSchema(BaseDataSchema):
     def continuous_covs(self) -> Collection[str]:
         """"""  # noqa
         return self._continuous_covs
+
+    @property
+    def has_categorical_covariates(self) -> bool:
+        """"""  # noqa
+        return len(self._categorical_covs_dict) > 0
+
+    @property
+    def has_continuous_covariates(self) -> bool:
+        """"""  # noqa
+        return len(self._continuous_covs) > 0

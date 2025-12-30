@@ -134,7 +134,7 @@ class CategoricalData(BaseData):
     """
 
     ann_df: pd.DataFrame
-    repr_dict: dict[str, MappedArray] = dc_field(default_factory=lambda: MappingProxyType({}))
+    repr_dict: Mapping[str, MappedArray] = dc_field(default_factory=lambda: MappingProxyType({}))
     categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] = dc_field(
         default_factory=lambda: MappingProxyType({})
     )
@@ -204,7 +204,8 @@ class MixedTypeData(BaseData):
                 msg = f"Continuous covariates should have only one reference dim, found {len(dims)}"
                 raise ValueError(msg)
             return dims[0]
-        return 0
+        msg = f"{self.__class__.__name__} must contain at least one covariate container."
+        raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -250,52 +251,68 @@ class CouplingData(BaseData):
     :type source_quad: class: `StateData | None`
     """
 
-    target_lin: StateData
-    target_quad: StateData | None = None
-    source_lin: StateData | None = None
-    source_quad: StateData | None = None
+    state_lin: StateData
+    state_quad: StateData | None = None
 
     def __post_init__(self):
-        if self.target_quad is not None:
-            self.target_lin._assert_same_n_obs(self.target_quad)
-
-        if self.source_lin is not None:
-            n_dims_source = self.source_lin.X.shape[1]
-            n_dims_target = self.target_lin.X.shape[1]
-            if n_dims_source != n_dims_target:
-                msg = (
-                    "The linear terms should share the same number of spatial dimensions for "
-                    f"source and target, found {n_dims_source} dimensions for source and "
-                    f"{n_dims_target} dimensions for target."
-                )
-                raise ValueError(msg)
-
-            if self.source_quad is not None:
-                self.source_lin._assert_same_n_obs(self.source_quad)
+        if self.state_quad is not None:
+            self.state_lin._assert_same_n_obs(self.state_quad)
 
     def _slice_with_array(self, idxs) -> "CouplingData":
-        target_lin = self.target_lin.slice_with_array(idxs)
-        target_quad = None if self.target_quad is None else self.target_quad.slice_with_array(idxs)
-        source_lin = None if self.source_lin is None else self.source_lin.slice_with_array(idxs)
-        source_quad = None if self.source_quad is None else self.source_quad.slice_with_array(idxs)
+        state_lin = self.state_lin.slice_with_array(idxs)
+        state_quad = None if self.state_quad is None else self.state_quad.slice_with_array(idxs)
         return self.__class__(
-            target_lin,
-            target_quad=target_quad,
-            source_lin=source_lin,
-            source_quad=source_quad,
+            state_lin,
+            state_quad=state_quad,
         )
 
-    @property
-    def n_obs_source(self) -> int:
-        """Returns the number of observations associated with the data object for source samples."""
-        if self.source_lin is not None:
-            return self.source_lin.n_obs
-        return 0
+    def assert_same_spatial_dims(
+        self,
+        other: "CouplingData",
+    ) -> None:
+        n_dims_self = self.state_lin.X.shape[1]
+        n_dims_other = other.state_lin.X.shape[1]
+        if n_dims_self != n_dims_other:
+            msg = (
+                "Coupling data should share the same number of spatial "
+                f"dimensions for the linear term, found {n_dims_self} and {n_dims_other}."
+            )
+            raise ValueError(msg)
+
+    @classmethod
+    def init_from_state_data(
+        cls,
+        state_data: StateData,
+        n_shared_dims: int | None = None,
+    ) -> "CouplingData":
+        """Initializes the coupling data from base state data and number of shared dimensions.
+
+        :param state_data: The underlying state data.
+        :type state_data: class: `StateData`
+
+        :param n_shared_dims: The number of shared dimensions. Defaults to `None` (all dimensions).
+        :type n_shared_dims: class: `int | None`
+        """
+        n_dims = state_data.X.shape[1]
+        if n_shared_dims is not None:
+            if n_shared_dims >= n_dims:
+                msg = (
+                    "The number of shared spatial dimensions should "
+                    "be strictly smaller the the number of available dimenions. "
+                    f"Queried {n_shared_dims} on state data of shape {state_data.X.shape}"
+                )
+                raise ValueError(msg)
+            state_lin = StateData(state_data.X[:, :n_shared_dims])
+            state_quad = StateData(state_data.X[:, n_shared_dims:])
+        else:
+            state_lin = state_data
+            state_quad = None
+        return cls(state_lin, state_quad)
 
     @property
-    def n_obs_target(self) -> int:
+    def n_obs(self) -> int:
         """Returns the number of observations associated with the data object for target samples."""
-        return self.target_lin.n_obs
+        return self.state_lin.n_obs
 
 
 @dataclass(frozen=True)
@@ -322,6 +339,7 @@ class DistributionData(BaseData):
     target_data: MixedTypeData | None = None
     condition_data: MixedTypeData | None = None
     groups_data: CategoricalData | None = None
+    coupling_data: CouplingData | None = None
 
     def __post_init__(self) -> None:
         if self.target_data is not None:
@@ -330,6 +348,8 @@ class DistributionData(BaseData):
             self.state_data._assert_same_n_obs(self.condition_data)
         if self.groups_data is not None:
             self.state_data._assert_same_n_obs(self.groups_data)
+        if self.coupling_data is not None:
+            self.state_data._assert_same_n_obs(self.coupling_data)
 
     def _slice_with_array(
         self,
@@ -339,11 +359,13 @@ class DistributionData(BaseData):
         target_data = None if self.target_data is None else self.target_data.slice_with_array(idxs)
         condition_data = None if self.condition_data is None else self.condition_data.slice_with_array(idxs)
         groups_data = None if self.groups_data is None else self.groups_data.slice_with_array(idxs)
+        coupling_data = None if self.coupling_data is None else self.coupling_data.slice_with_array(idxs)
         return self.__class__(
             state_data,
             target_data=target_data,
             condition_data=condition_data,
             groups_data=groups_data,
+            coupling_data=coupling_data,
         )
 
     @property
@@ -363,31 +385,16 @@ class DistributionData(BaseData):
 
 
 @dataclass(frozen=True)
-class MatchedData(BaseData):
+class MatchedData:
     """Container class for matched data."""
 
     target_data: DistributionData
     source_data: DistributionData | None = None
-    coupling_data: CouplingData | None = None
 
-    def __post_init__(self):
-        if self.coupling_data is not None:
-            self.target_data._assert_same_n_obs(self.coupling_data.target_lin)
-            if self.coupling_data.target_quad is not None:
-                self.target_data._assert_same_n_obs(self.coupling_data.target_quad)
-
-            if self.source_data is not None:
-                if self.coupling_data.source_lin is None:
-                    msg = "When passing source data, coupling should contain source linear terms."
-                    raise ValueError(msg)
-                self.source_data._assert_same_n_obs(self.coupling_data.source_lin)
-                if self.coupling_data.source_quad is not None:
-                    self.source_data._assert_same_n_obs(self.coupling_data.source_quad)
-
-    @property
-    def n_obs(self) -> int:
-        """Returns the number of observations associated with the data object."""
-        return self.target_data.n_obs
+    def __post_init__(self) -> None:
+        if self.source_data is not None:
+            if self.target_data.coupling_data is not None and self.source_data.coupling_data is not None:
+                self.target_data.coupling_data.assert_same_spatial_dims(self.source_data.coupling_data)
 
 
 @dataclass(frozen=True)

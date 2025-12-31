@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 
 from sc_flow._types import MappedArray, MappedLevelIndex, TargetCovariatesEncoderCls
-from sc_flow.data._mixins import BatchMixin, DataMixin
+from sc_flow.data._mixins import BatchMixin, MappedTree
 
 __all__ = [
     "BaseData",
@@ -507,7 +507,7 @@ class MatchedData:
 
 
 @dataclass(frozen=True)
-class NestedData(DataMixin):
+class NestedData(MappedTree):
     """Recursively mapped container for matched data."""
 
     required_key_type: ClassVar[type] = tuple

@@ -6,15 +6,15 @@ from typing import Any, ClassVar, Generic, TypeVar
 
 import numpy as np
 
-__all__ = ["DataMixin", "ArrayMixin", "BatchMixin"]
+__all__ = ["MappedTree", "ArrayMixin", "BatchMixin"]
 
 
 T = TypeVar("T")
-C = TypeVar("C", bound="DataMixin")
+C = TypeVar("C", bound="MappedTree")
 
 
 @dataclass(frozen=True)
-class DataMixin(Generic[T]):
+class MappedTree(Generic[T]):
     """"""  # noqa
 
     strict: ClassVar[bool] = True
@@ -28,7 +28,7 @@ class DataMixin(Generic[T]):
         if self.strict:
             self._verify_inputs()
 
-    def __getitem__(self, key: Hashable) -> "T | DataMixin[T]":
+    def __getitem__(self, key: Hashable) -> "T | MappedTree[T]":
         """"""  # noqa
         return self.mapping[key]
 
@@ -36,7 +36,7 @@ class DataMixin(Generic[T]):
         """"""  # noqa
         # iterating over each key to check that the type is the same
         for key, value in self.mapping.items():
-            if not isinstance(value, self.required_value_type | DataMixin):
+            if not isinstance(value, self.required_value_type | MappedTree):
                 msg = f"The values should respect the pre-defined type. Got {type(value)} for {key}, expected {self.required_value_type}."
                 raise TypeError(msg)
             if not isinstance(key, self.required_key_type):
@@ -45,7 +45,7 @@ class DataMixin(Generic[T]):
 
     def _apply_to_level(
         self,
-        level_value: "T | DataMixin",
+        level_value: "T | MappedTree",
         function: Callable[[Any], Any],
         *args,
         output_key_type: type[Any] | None = None,
@@ -53,7 +53,7 @@ class DataMixin(Generic[T]):
         **kwargs,
     ) -> "T":
         """"""  # noqa
-        if isinstance(level_value, DataMixin):
+        if isinstance(level_value, MappedTree):
             return self._apply(
                 level_value,
                 function,
@@ -65,16 +65,16 @@ class DataMixin(Generic[T]):
 
     def _apply(
         self,
-        mapping: Mapping[Hashable, "T | DataMixin"],
+        mapping: Mapping[Hashable, "T | MappedTree"],
         function: Callable[[Any], Any],
         *args,
         output_key_type: type[Any] | None = None,
         output_value_type: type[Any] | None = None,
         **kwargs,
-    ) -> "DataMixin":
+    ) -> "MappedTree":
         """"""  # noqa
         out_dict = {}
-        if isinstance(mapping, DataMixin):
+        if isinstance(mapping, MappedTree):
             mapping = mapping.mapping
         for key, value in mapping.items():
             out_dict[key] = self._apply_to_level(
@@ -95,7 +95,7 @@ class DataMixin(Generic[T]):
         output_key_type: type[Any] | None = None,
         output_value_type: type[Any] | None = None,
         **kwargs,
-    ) -> "DataMixin":
+    ) -> "MappedTree":
         """"""  # noqa
         return self._apply(
             self.mapping,
@@ -108,7 +108,7 @@ class DataMixin(Generic[T]):
 
 
 @dataclass(frozen=True)
-class ArrayMixin(DataMixin):
+class ArrayMixin(MappedTree):
     """"""  # noqa
 
     required_value_type: ClassVar[type[Any]] = np.ndarray | np.generic

@@ -36,7 +36,7 @@ class DataMixin(Generic[T]):
         """"""  # noqa
         # iterating over each key to check that the type is the same
         for key, value in self.mapping.items():
-            if not isinstance(value, self.required_value_type):
+            if not isinstance(value, self.required_value_type | DataMixin):
                 msg = f"The values should respect the pre-defined type. Got {type(value)} for {key}, expected {self.required_value_type}."
                 raise TypeError(msg)
             if not isinstance(key, self.required_key_type):

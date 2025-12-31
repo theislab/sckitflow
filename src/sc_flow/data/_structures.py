@@ -18,6 +18,8 @@ __all__ = [
     "MixedTypeData",
     "CouplingData",
     "DistributionData",
+    "MatchedData",
+    "NestedData",
 ]
 
 
@@ -25,12 +27,15 @@ __all__ = [
 class BaseData(abc.ABC):
     """Base class for data containers."""
 
+    def __len__(self) -> int:
+        return self.n_obs
+
     @staticmethod
     def _get_query_idxs(
         reference_index: pd.MultiIndex,
         query_index: pd.MultiIndex,
     ) -> np.ndarray:
-        """Retrieved the corresponding indices from a given query and a reference index.
+        """Retrieves the corresponding indices from a given query and a reference index.
 
         :param reference_index: The reference index.
         :type reference_index: class: `pd.MultiIndex`
@@ -39,15 +44,20 @@ class BaseData(abc.ABC):
         :type query_index: class: `pd.MultiIndex`
         """
         if not reference_index.is_unique:
-            raise ValueError("Reference index must be unique.")
+            msg = "Reference index must be unique."
+            raise ValueError(msg)
+        if not query_index.is_unique:
+            msg = "Query index must be unique."
+            raise ValueError(msg)
         return reference_index.get_indexer(query_index)
 
     def _assert_same_n_obs(
         self,
-        query_container: "BaseData",
+        other: "BaseData",
     ) -> None:
+        """Checks that the current object shares the same number of observations as another."""
         n_obs_ref = self.n_obs
-        n_obs_query = query_container.n_obs
+        n_obs_query = other.n_obs
         if n_obs_ref != n_obs_query:
             msg = (
                 "Query and reference should share the same number of observations, "
@@ -83,7 +93,20 @@ class BaseData(abc.ABC):
     def slice_with_index(
         self, reference_index: pd.MultiIndex, query_index: pd.MultiIndex, return_index: bool = False
     ) -> "BaseData | tuple[BaseData, np.ndarray]":
-        """"""  # noqa
+        """Slices the underlying data using reference and query indices.
+
+        Optionally returns the array storing the computed indices.
+
+        :param reference_index: The reference index.
+        :type reference_index: class: `pd.MultiIndex`
+
+        :param query_index: The query index.
+        :type query_index: class: `pd.MultiIndex`
+
+        :param return_index: Whether to return the `np.ndarray` storing the indices, to avoid recomputing.
+            Defaults to `False`.
+        :type return_index: class: `bool`
+        """
         idxs = self._get_query_idxs(reference_index, query_index)
         if np.any(idxs < 0):
             msg = "Query index contains entries not present in reference index."
@@ -103,13 +126,12 @@ class BaseData(abc.ABC):
         :param idxs: The array storing the indices used for slicing.
         :type idxs: class: `np.ndarray`
         """
-        idxs = np.asarray(idxs)
+        idxs = np.asarray(idxs, dtype=int)
         return self._slice_with_array(idxs)
 
     @property
     @abc.abstractmethod
     def n_obs(self) -> int:
-        """"""  # noqa
         raise NotImplementedError
 
 
@@ -148,7 +170,6 @@ class CategoricalData(BaseData):
 
     @property
     def n_obs(self) -> int:
-        """Returns the number of observations associated with the data object."""
         return self.ann_df.shape[0]
 
 
@@ -194,7 +215,6 @@ class MixedTypeData(BaseData):
 
     @property
     def n_obs(self) -> int:
-        """Returns the number of observations associated with the data object."""
         if self.categorical_covariates is not None:
             return self.categorical_covariates.n_obs
 
@@ -223,7 +243,6 @@ class StateData(BaseData):
 
     @property
     def n_obs(self) -> int:
-        """Returns the number of observations associated with the data object."""
         return self.X.shape[0]
 
 
@@ -246,7 +265,7 @@ class CouplingData(BaseData):
         if self.state_quad is not None:
             self.state_lin._assert_same_n_obs(self.state_quad)
 
-    def _slice_with_array(self, idxs) -> "CouplingData":
+    def _slice_with_array(self, idxs: np.ndarray) -> "CouplingData":
         state_lin = self.state_lin.slice_with_array(idxs)
         state_quad = None if self.state_quad is None else self.state_quad.slice_with_array(idxs)
         return self.__class__(
@@ -258,6 +277,12 @@ class CouplingData(BaseData):
         self,
         other: "CouplingData",
     ) -> None:
+        """Checks that the current coupling data shares the same number of spatial dimensions with another.
+
+        The check is done over the linear term only, as this will be the factor in the product space that
+        will be shared by both source and target distributions. The remaining quadratic terms do not need
+        to align.
+        """
         n_dims_self = self.state_lin.X.shape[1]
         n_dims_other = other.state_lin.X.shape[1]
         if n_dims_self != n_dims_other:
@@ -299,7 +324,6 @@ class CouplingData(BaseData):
 
     @property
     def n_obs(self) -> int:
-        """Returns the number of observations associated with the data object for target samples."""
         return self.state_lin.n_obs
 
 
@@ -358,7 +382,7 @@ class DistributionData(BaseData):
 
     @property
     def ann_df(self) -> pd.DataFrame:
-        """"""  # noqa
+        """Returns the annotation data frame constructed jointly from condition and groups data."""
         dfs = []
         if self.condition_data and self.condition_data.categorical_covariates:
             dfs.append(self.condition_data.categorical_covariates.ann_df)
@@ -368,7 +392,6 @@ class DistributionData(BaseData):
 
     @property
     def n_obs(self) -> int:
-        """Returns the number of observations associated with the data object."""
         return self.state_data.n_obs
 
 

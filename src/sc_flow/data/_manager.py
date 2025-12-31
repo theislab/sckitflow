@@ -198,7 +198,7 @@ class DataManager:
     @property
     def target_data_schema(self) -> ConditionDataSchema:
         """"""  # noqa
-        return self._condition_data_schema
+        return self._target_data_schema
 
     @property
     def source_key(self) -> tuple[Any]:

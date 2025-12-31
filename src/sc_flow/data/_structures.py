@@ -126,7 +126,8 @@ class BaseData(abc.ABC):
         :param idxs: The array storing the indices used for slicing.
         :type idxs: class: `np.ndarray`
         """
-        idxs = np.asarray(idxs, dtype=int)
+        if not isinstance(idxs, np.ndarray):
+            idxs = np.asarray(idxs, dtype=int)
         return self._slice_with_array(idxs)
 
     @property
@@ -141,7 +142,7 @@ class CategoricalData(BaseData):
 
     Any categorical data is defined over a set of column, stored in a :class: `pandas.DataFrame`.
     There are two possible ways to represent categorical variables using this container.
-    The first one is to pass pre-computed representations, with the :param: `repr_dict` argument.
+    The first one is to pass pre-computed representations, with the :param repr_dict: argument.
     Otherwise it is possible to specify some pre-defined encoders to transform the categorical
     values stored in the data frame into suitable representations.
 
@@ -160,6 +161,22 @@ class CategoricalData(BaseData):
     categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] = dc_field(
         default_factory=lambda: MappingProxyType({})
     )
+
+    def __repr__(self) -> str:
+        n_obs, n_vars = self.ann_df.shape
+        cols = list(self.ann_df.columns)
+
+        repr_keys = list(self.repr_dict.keys())
+        encoder_keys = list(self.categorical_encoders.keys())
+
+        return (
+            f"{self.__class__.__name__}("
+            f"n_obs={n_obs}, "
+            f"n_vars={n_vars}, "
+            f"columns={cols}, "
+            f"repr_dict_keys={repr_keys}, "
+            f"categorical_encoders_keys={encoder_keys})"
+        )
 
     def _slice_with_array(
         self,
@@ -199,6 +216,26 @@ class MixedTypeData(BaseData):
                 )
                 raise ValueError(msg)
 
+    def __repr__(self) -> str:
+        parts = [f"n_obs={self.n_obs}"]
+
+        if self.categorical_covariates is not None:
+            cat = self.categorical_covariates
+            cols = list(cat.ann_df.columns)
+            parts.append(f"categorical(n_vars={len(cols)}, columns={cols})")
+        else:
+            parts.append("categorical=None")
+
+        if self.continuous_covariates is not None:
+            cont = self.continuous_covariates
+            keys = list(cont.mapping.keys())
+            spatial_dims = {k: v.shape[1] for k, v in cont.mapping.items()}
+            parts.append(f"continuous(keys={keys}, spatial_dims={spatial_dims})")
+        else:
+            parts.append("continuous=None")
+
+        return f"{self.__class__.__name__}(" + ", ".join(parts)
+
     def _slice_with_array(
         self,
         idxs: np.ndarray,
@@ -234,6 +271,12 @@ class StateData(BaseData):
 
     X: np.ndarray
 
+    def __repr__(self) -> str:
+        shape = self.X.shape
+        n_obs = shape[0]
+        spatial_dims = shape[1:] if len(shape) > 1 else ()
+        return f"{self.__class__.__name__}(n_obs={n_obs}, spatial_dims={spatial_dims})"
+
     def _slice_with_array(
         self,
         idxs: np.ndarray,
@@ -264,6 +307,22 @@ class CouplingData(BaseData):
     def __post_init__(self):
         if self.state_quad is not None:
             self.state_lin._assert_same_n_obs(self.state_quad)
+
+    def __repr__(self) -> str:
+        parts = [f"n_obs={self.n_obs}"]
+
+        lin_shape = self.state_lin.X.shape
+        lin_dims = lin_shape[1:] if len(lin_shape) > 1 else ()
+        parts.append(f"linear(spatial_dims={lin_dims})")
+
+        if self.state_quad is not None:
+            quad_shape = self.state_quad.X.shape
+            quad_dims = quad_shape[1:] if len(quad_shape) > 1 else ()
+            parts.append(f"quadratic(spatial_dims={quad_dims})")
+        else:
+            parts.append("quadratic=None")
+
+        return f"{self.__class__.__name__}({', '.join(parts)})"
 
     def _slice_with_array(self, idxs: np.ndarray) -> "CouplingData":
         state_lin = self.state_lin.slice_with_array(idxs)
@@ -363,6 +422,22 @@ class DistributionData(BaseData):
         if self.coupling_data is not None:
             self.state_data._assert_same_n_obs(self.coupling_data)
 
+    def __repr__(self) -> str:
+        parts = [f"\n * n_obs={self.n_obs}"]
+        to_plot = [
+            ("state", self.state_data),
+            ("target", self.target_data),
+            ("condition", self.condition_data),
+            ("groups", self.groups_data),
+            ("coupling", self.coupling_data),
+        ]
+        for prefix, comp in to_plot:
+            if comp is None:
+                parts.append(f"{prefix}={comp}")
+            else:
+                parts.append(f"{prefix}={comp!r}")
+        return f"{self.__class__.__name__}:" + "\n ".join(parts)
+
     def _slice_with_array(
         self,
         idxs: np.ndarray,
@@ -399,13 +474,36 @@ class DistributionData(BaseData):
 class MatchedData:
     """Container class for matched data."""
 
-    target_data: DistributionData
-    source_data: DistributionData | None = None
+    target_distribution: DistributionData
+    source_distribution: DistributionData | None = None
 
     def __post_init__(self) -> None:
-        if self.source_data is not None:
-            if self.target_data.coupling_data is not None and self.source_data.coupling_data is not None:
-                self.target_data.coupling_data.assert_same_spatial_dims(self.source_data.coupling_data)
+        if self.source_distribution is not None:
+            if (
+                self.target_distribution.coupling_data is not None
+                and self.source_distribution.coupling_data is not None
+            ):
+                self.target_distribution.coupling_data.assert_same_spatial_dims(self.source_distribution.coupling_data)
+
+    def __repr__(self) -> str:
+        target_repr = "\n".join("\t" + line for line in repr(self.target_distribution).splitlines())
+        parts = [f" * (target) -> {target_repr}"]
+
+        if self.source_distribution is not None:
+            source_repr = "\n".join("\t" + line for line in repr(self.source_distribution).splitlines())
+            parts.append(f" * (source) -> {source_repr}")
+
+        return f"{self.__class__.__name__}:\n" + "\n".join(parts)
+
+    @property
+    def target_distr(self) -> DistributionData:
+        """Alias for :attr: `self.target_distribution`."""
+        return self.target_distribution
+
+    @property
+    def source_distr(self) -> DistributionData | None:
+        """Alias for :attr: `self.source_distribution`."""
+        return self.source_distribution
 
 
 @dataclass(frozen=True)
@@ -424,10 +522,10 @@ class NestedData(DataMixin):
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
         """Initialized the recursive mapping from the input."""
-        return cls._get_mapped_data_from_dict(data, reference_index, mapped_index, source_key)
+        return cls._init_tree(data, reference_index, mapped_index, source_key)
 
     @classmethod
-    def _get_leaf_mapped_data_from_dict(
+    def _init_leaf_node(
         cls,
         data: DistributionData,
         reference_index: pd.MultiIndex,
@@ -436,31 +534,31 @@ class NestedData(DataMixin):
     ) -> "NestedData":
         if source_key is not None:
             source_idxs = mapped_index.mapping[source_key]
-            source_data = data.slice_with_index(reference_index, source_idxs)
+            source_distribution = data.slice_with_index(reference_index, source_idxs)
             rest_idxs = {k: v for k, v in mapped_index.mapping.items() if k != source_key}
         else:
-            source_data = None
+            source_distribution = None
             rest_idxs = mapped_index.mapping
         return cls(
             {
-                key: MatchedData(data.slice_with_index(reference_index, value), source_data=source_data)
+                key: MatchedData(data.slice_with_index(reference_index, value), source_distribution=source_distribution)
                 for key, value in rest_idxs.items()
             }
         )
 
     @classmethod
-    def _get_mapped_data_from_dict(
+    def _init_tree(
         cls,
         data: DistributionData,
         reference_index: pd.MultiIndex,
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
-        out_dict = {}
-        for key, value in mapped_index.mapping.items():
-            if value.is_leaf:
-                out_dict[key] = cls._get_leaf_mapped_data_from_dict(data, reference_index, value, source_key)
-            else:
-                out_dict[key] = cls._get_mapped_data_from_dict(data, reference_index, value, source_key)
-
-        return cls(out_dict)
+        return cls(
+            {
+                key: cls._init_leaf_node(data, reference_index, value, source_key)
+                if value.is_leaf
+                else cls._init_tree(data, reference_index, value, source_key)
+                for key, value in mapped_index.mapping.items()
+            }
+        )

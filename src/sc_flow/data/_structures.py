@@ -510,8 +510,8 @@ class MatchedData:
 class NestedData(DataMixin):
     """Recursively mapped container for matched data."""
 
-    strict: ClassVar[bool] = False
-    required_value_type: ClassVar[type] = DistributionData
+    required_key_type: ClassVar[type] = tuple
+    required_value_type: ClassVar[type] = MatchedData
 
     @classmethod
     def init_from_data(

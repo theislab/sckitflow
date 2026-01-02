@@ -410,7 +410,8 @@ class DistributionData(BaseData):
     target_data: MixedTypeData | None = None
     condition_data: MixedTypeData | None = None
     groups_data: CategoricalData | None = None
-    coupling_data: CouplingData | None = None
+    source_coupling_data: CouplingData | None = None
+    target_coupling_data: CouplingData | None = None
 
     def __post_init__(self) -> None:
         if self.target_data is not None:
@@ -419,8 +420,10 @@ class DistributionData(BaseData):
             self.state_data._assert_same_n_obs(self.condition_data)
         if self.groups_data is not None:
             self.state_data._assert_same_n_obs(self.groups_data)
-        if self.coupling_data is not None:
-            self.state_data._assert_same_n_obs(self.coupling_data)
+        if self.source_coupling_data is not None:
+            self.state_data._assert_same_n_obs(self.source_coupling_data)
+        if self.target_coupling_data is not None:
+            self.state_data._assert_same_n_obs(self.target_coupling_data)
 
     def __repr__(self) -> str:
         parts = [f"\n * n_obs={self.n_obs}"]
@@ -429,7 +432,8 @@ class DistributionData(BaseData):
             ("target", self.target_data),
             ("condition", self.condition_data),
             ("groups", self.groups_data),
-            ("coupling", self.coupling_data),
+            ("source_coupling", self.source_coupling_data),
+            ("target_coupling", self.target_coupling_data),
         ]
         for prefix, comp in to_plot:
             if comp is None:
@@ -446,13 +450,19 @@ class DistributionData(BaseData):
         target_data = None if self.target_data is None else self.target_data.slice_with_array(idxs)
         condition_data = None if self.condition_data is None else self.condition_data.slice_with_array(idxs)
         groups_data = None if self.groups_data is None else self.groups_data.slice_with_array(idxs)
-        coupling_data = None if self.coupling_data is None else self.coupling_data.slice_with_array(idxs)
+        source_coupling_data = (
+            None if self.source_coupling_data is None else self.source_coupling_data.slice_with_array(idxs)
+        )
+        target_coupling_data = (
+            None if self.target_coupling_data is None else self.target_coupling_data.slice_with_array(idxs)
+        )
         return self.__class__(
             state_data,
             target_data=target_data,
             condition_data=condition_data,
             groups_data=groups_data,
-            coupling_data=coupling_data,
+            source_coupling_data=source_coupling_data,
+            target_coupling_data=target_coupling_data,
         )
 
     @property
@@ -480,10 +490,12 @@ class MatchedData:
     def __post_init__(self) -> None:
         if self.source_distribution is not None:
             if (
-                self.target_distribution.coupling_data is not None
-                and self.source_distribution.coupling_data is not None
+                self.target_distribution.target_coupling_data is not None
+                and self.source_distribution.source_coupling_data is not None
             ):
-                self.target_distribution.coupling_data.assert_same_spatial_dims(self.source_distribution.coupling_data)
+                self.target_distribution.target_coupling_data.assert_same_spatial_dims(
+                    self.source_distribution.source_coupling_data
+                )
 
     def __repr__(self) -> str:
         target_repr = "\n".join("\t" + line for line in repr(self.target_distribution).splitlines())

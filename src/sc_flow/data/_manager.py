@@ -146,7 +146,7 @@ class DataManager:
         """"""  # noqa
         return self._condition_data_schema.get_data(adata)
 
-    def _get_coupling_data(self, adata: AnnData) -> tuple[CouplingData | None, CouplingData]:
+    def _get_coupling_data(self, adata: AnnData) -> tuple[CouplingData, CouplingData]:
         """"""  # noqa
         return self._coupling_data_schema.get_data(adata)
 

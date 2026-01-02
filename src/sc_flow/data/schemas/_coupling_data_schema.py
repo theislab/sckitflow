@@ -90,7 +90,7 @@ class CouplingDataSchema(BaseDataSchema):
         X = X[:, self._n_shared_dims :]
         return StateData(X)
 
-    def _get_data(self, adata: AnnData) -> CouplingData:
+    def _get_data(self, adata: AnnData) -> tuple[CouplingData | None, CouplingData]:
         """Enforces the schema on the input :class: `AnnData`.
 
         :param adata: The input data.
@@ -100,7 +100,12 @@ class CouplingDataSchema(BaseDataSchema):
         target_quad: StateData | None = self._get_target_quad_data(adata)
         source_lin: StateData | None = self._get_source_lin_data(adata)
         source_quad: StateData | None = self._get_source_quad_data(adata)
-        return CouplingData(target_lin, target_quad=target_quad, source_lin=source_lin, source_quad=source_quad)
+        target_coupling = CouplingData(target_lin, state_quad=target_quad)
+        if source_lin is not None:
+            source_coupling = CouplingData(source_lin, state_quad=source_quad)
+        else:
+            source_coupling = None
+        return source_coupling, target_coupling
 
     @property
     def source_rep(self) -> str | None:

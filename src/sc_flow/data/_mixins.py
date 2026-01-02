@@ -17,7 +17,6 @@ C = TypeVar("C", bound="MappedTree")
 class MappedTree(Generic[T]):
     """"""  # noqa
 
-    strict: ClassVar[bool] = True
     required_key_type: ClassVar[type[Any]] = str
     required_value_type: ClassVar[type[Any]] = object
     mapping: Mapping[Hashable, T | C] = dc_field(default_factory=lambda: MappingProxyType({}))
@@ -25,8 +24,7 @@ class MappedTree(Generic[T]):
     def __post_init__(self) -> None:
         """"""  # noqa
         # verifying inputs
-        if self.strict:
-            self._verify_inputs()
+        self._verify_inputs()
 
     def __getitem__(self, key: Hashable) -> "T | MappedTree[T]":
         """"""  # noqa

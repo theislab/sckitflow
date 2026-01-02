@@ -7,6 +7,7 @@ from anndata import AnnData
 from sc_flow._types import MappedLevelIndex, TargetCovariatesEncodingId
 from sc_flow.data._structures import (
     CategoricalData,
+    CouplingData,
     DistributionData,
     MixedTypeData,
     NestedData,
@@ -14,7 +15,13 @@ from sc_flow.data._structures import (
 )
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._selector import IndexSelector
-from sc_flow.data.schemas import ConditionDataSchema, GroupsDataSchema, StateDataSchema, TargetDataSchema
+from sc_flow.data.schemas import (
+    ConditionDataSchema,
+    CouplingDataSchema,
+    GroupsDataSchema,
+    StateDataSchema,
+    TargetDataSchema,
+)
 
 __all__ = ["DataManager"]
 
@@ -34,6 +41,8 @@ class DataManager:
         groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
         groups_encoding: dict[str, TargetCovariatesEncodingId | None] | None = None,
+        n_shared_dims: int | None = None,
+        source_rep: str | None = None,
     ) -> None:
         """"""  # noqa
 
@@ -43,6 +52,9 @@ class DataManager:
             conditions=conditions,
             conditions_reps=conditions_reps,
             conditions_covariates=conditions_covariates,
+        )
+        self._coupling_data_schema: CouplingDataSchema = self._init_coupling_data_schema(
+            source_rep=source_rep, target_rep=sample_rep, n_shared_dims=n_shared_dims
         )
         self._target_data_schema: TargetDataSchema = self._init_target_data_schema(
             categorical_covs_dict=target_categorical_covs_dict,
@@ -78,6 +90,12 @@ class DataManager:
             conditions_reps={} if conditions_reps is None else conditions_reps,
             conditions_covariates=[] if conditions_covariates is None else conditions_covariates,
         )
+
+    def _init_coupling_data_schema(
+        self, source_rep: str | None = None, target_rep: str | None = None, n_shared_dims: int | None = None
+    ) -> CouplingDataSchema:
+        """"""  # noqa
+        return CouplingDataSchema(source_rep=source_rep, target_rep=target_rep, n_shared_dims=n_shared_dims)
 
     def _init_target_data_schema(
         self,
@@ -128,6 +146,10 @@ class DataManager:
         """"""  # noqa
         return self._condition_data_schema.get_data(adata)
 
+    def _get_coupling_data(self, adata: AnnData) -> tuple[CouplingData | None, CouplingData]:
+        """"""  # noqa
+        return self._coupling_data_schema.get_data(adata)
+
     def _get_groups_data(
         self,
         adata: AnnData,
@@ -153,11 +175,14 @@ class DataManager:
         condition_data: MixedTypeData = self._get_condition_data(adata)
         target_data: MixedTypeData = self._get_target_data(adata)
         groups_data: CategoricalData = self._get_groups_data(adata)
+        source_coupling_data, target_coupling_data = self._get_coupling_data(adata)
         return DistributionData(
             state_data,
             target_data=target_data,
             condition_data=condition_data,
             groups_data=groups_data,
+            source_coupling_data=source_coupling_data,
+            target_coupling_data=target_coupling_data,
         )
 
     def get_matched_data(

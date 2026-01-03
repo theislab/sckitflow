@@ -1,4 +1,4 @@
-from sc_flow.data.schemas._base_schema import BaseDataSchema
+from sc_flow.data.schemas._base_schema import DataSchema, StrictDataSchema
 from sc_flow.data.schemas._condition_data_schema import ConditionDataSchema
 from sc_flow.data.schemas._coupling_data_schema import CouplingDataSchema
 from sc_flow.data.schemas._groups_data_schema import GroupsDataSchema
@@ -6,7 +6,8 @@ from sc_flow.data.schemas._state_data_schema import StateDataSchema
 from sc_flow.data.schemas._target_data_schema import TargetDataSchema
 
 __all__ = [
-    "BaseDataSchema",
+    "DataSchema",
+    "StrictDataSchema",
     "ConditionDataSchema",
     "CouplingDataSchema",
     "GroupsDataSchema",

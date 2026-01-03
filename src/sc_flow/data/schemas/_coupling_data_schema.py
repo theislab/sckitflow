@@ -19,6 +19,7 @@ class CouplingDataSchema(StrictDataSchema):
         self._source_rep = source_rep
         self._target_rep = target_rep
         self._n_shared_dims = n_shared_dims
+        super().__init__()
 
     def _verify_args(self) -> None:
         """Verifies the validity of arguments set at initialization."""
@@ -52,7 +53,14 @@ class CouplingDataSchema(StrictDataSchema):
             source_shape = (adata.X if self._source_rep is None else adata.obsm[self._source_rep]).shape
             target_shape = (adata.X if self._target_rep is None else adata.obsm[self._target_rep]).shape
             # verifying it with respect to the number of shared dimensions
-            if self._n_shared_dims > source_shape[1] or self._n_shared_dims > target_shape[1]:
+            if self._n_shared_dims > source_shape[1]:
+                msg = (
+                    "Number of shared dims should be smaller than the number of source spatial dimensions. "
+                    f"Found {source_shape[1]} spatial dimensions for the data, but {self._n_shared_dims} "
+                    "shared dimensions were requested."
+                )
+                raise ValueError(msg)
+            if self._n_shared_dims > target_shape[1]:
                 msg = ""
                 raise ValueError(msg)
 

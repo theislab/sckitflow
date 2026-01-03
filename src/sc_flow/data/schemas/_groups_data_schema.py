@@ -25,7 +25,7 @@ class GroupsDataSchema(StrictDataSchema):
         self._groups = [] if groups is None else groups
         self._groups_reps = {} if groups_reps is None else groups_reps
         self._groups_encoding = {} if groups_encoding is None else groups_encoding
-        self._verify_args()
+        super().__init__()
 
     def _verify_args(self) -> None:
         """"""  # noqa

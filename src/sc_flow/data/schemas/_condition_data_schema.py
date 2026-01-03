@@ -163,7 +163,7 @@ class ConditionDataSchema(StrictDataSchema):
         self._conditions = {} if conditions is None else conditions
         self._conditions_reps = {} if conditions_reps is None else conditions_reps
         self._conditions_covariates = () if conditions_covariates is None else conditions_covariates
-        self._verify_args()
+        super().__init__()
 
     def _verify_args(self) -> None:
         """Verifies that :attr:`self.conditions` and :attr:`self.condition_reps` share the same keys."""

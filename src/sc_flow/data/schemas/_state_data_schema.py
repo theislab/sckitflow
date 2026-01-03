@@ -1,6 +1,6 @@
 from anndata import AnnData
 
-from sc_flow.data._structures import StateData
+from sc_flow.data.containers._state import StateData
 from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["StateDataSchema"]

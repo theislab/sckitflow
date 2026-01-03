@@ -1,6 +1,6 @@
 from anndata import AnnData
 
-from sc_flow.data._structures import CouplingData, StateData
+from sc_flow.data.containers._coupling import CouplingData, StateData
 from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["CouplingDataSchema"]

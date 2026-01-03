@@ -5,8 +5,9 @@ from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._structures import CategoricalData, MixedTypeData
 from sc_flow.data._utils import get_covariates_encoders_from_dict
+from sc_flow.data.containers._categorical import CategoricalData
+from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["TargetDataSchema"]

@@ -5,7 +5,7 @@ import numpy as np
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
-from sc_flow.data._structures import BaseData
+from sc_flow.data.containers._base import BaseData
 
 __all__ = ["DataSchema", "StrictDataSchema"]
 

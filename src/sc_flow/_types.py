@@ -1,9 +1,6 @@
-from collections.abc import Mapping
-from dataclasses import dataclass
-from typing import Any, Literal, TypeAlias, TypeVar
+from typing import Any, Literal, TypeAlias
 
 import numpy as np
-import pandas as pd
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 BackendId = Literal["torch", "jax"]
@@ -36,15 +33,3 @@ TargetCovariatesEncodingId = Literal["label", "one-hot", "identity"]
 MappedArray: TypeAlias = dict[str, np.ndarray]
 
 TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
-
-
-_T = TypeVar("_T", bound="MappedLevelIndex")
-
-
-@dataclass
-class MappedLevelIndex:
-    mapping: Mapping[tuple[Any, ...], "_T | pd.MultiIndex"]
-
-    @property
-    def is_leaf(self) -> bool:
-        return all(isinstance(v, pd.MultiIndex) for v in self.mapping.values())

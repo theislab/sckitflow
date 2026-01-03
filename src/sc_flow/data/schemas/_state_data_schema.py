@@ -1,12 +1,12 @@
 from anndata import AnnData
 
 from sc_flow.data._structures import StateData
-from sc_flow.data.schemas._base_schema import BaseDataSchema
+from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["StateDataSchema"]
 
 
-class StateDataSchema(BaseDataSchema):
+class StateDataSchema(StrictDataSchema):
     """"""  # noqa
 
     def __init__(

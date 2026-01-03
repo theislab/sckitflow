@@ -7,10 +7,10 @@ from anndata import AnnData
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._structures import BaseData
 
-__all__ = ["BaseDataSchema"]
+__all__ = ["DataSchema", "StrictDataSchema"]
 
 
-class BaseDataSchema(abc.ABC):
+class DataSchema(abc.ABC):
     """Abstract base class for enforcing and verifying data configurations on :class:`AnnData` objects.
 
     The derived classes will need to override the following abstract methods to be instantiated:
@@ -19,6 +19,46 @@ class BaseDataSchema(abc.ABC):
         * `_get_data`, to extract the data from the input :class: `sc.AnnData`.
     It would also be preferable to define also an immutable data structure for the returned object.
     """
+
+    @staticmethod
+    def _extract_array(adata: AnnData, repr: str | None = None) -> np.ndarray:
+        """Extracts the data array from the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
+        return adata.X if repr is None else adata.obsm[repr]
+
+    @abc.abstractmethod
+    def _get_data(
+        self,
+        adata: AnnData,
+    ) -> BaseData | tuple[BaseData | None, ...] | None:
+        """Enforces the schema on the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
+        raise NotImplementedError
+
+    def get_data(
+        self,
+        adata: AnnData,
+    ) -> BaseData | tuple[BaseData, ...] | None:
+        """Verifies and enforces the schema on the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
+        return self._get_data(adata)
+
+
+class StrictDataSchema(DataSchema, abc.ABC):
+    """"""  # noqa
+
+    def __init__(self) -> None:
+        """"""  # noqa
+        self._verify_args()
 
     @staticmethod
     def _check_is_valid_encoder_id_dict(encoder_id_dict: dict[str, str]) -> None:
@@ -60,15 +100,6 @@ class BaseDataSchema(abc.ABC):
             available = list(adata_field.keys())
             raise KeyError(f"Key '{identifier}' not found in adata.{adata_field_key}. Available keys: {available}")
 
-    @staticmethod
-    def _extract_array(adata: AnnData, repr: str | None = None) -> np.ndarray:
-        """Extracts the data array from the input :class: `AnnData`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        return adata.X if repr is None else adata.obsm[repr]
-
     @abc.abstractmethod
     def _verify_args(
         self,
@@ -88,18 +119,6 @@ class BaseDataSchema(abc.ABC):
         """
         raise NotImplementedError
 
-    @abc.abstractmethod
-    def _get_data(
-        self,
-        adata: AnnData,
-    ) -> BaseData | tuple[BaseData | None, ...] | None:
-        """Enforces the schema on the input :class: `AnnData`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        raise NotImplementedError
-
     def get_data(
         self,
         adata: AnnData,
@@ -110,4 +129,4 @@ class BaseDataSchema(abc.ABC):
         :type adata: class: `AnnData`
         """
         self._verify_schema(adata)
-        return self._get_data(adata)
+        return super().get_data(adata)

@@ -15,6 +15,7 @@ class StateDataSchema(StrictDataSchema):
     ) -> None:
         """"""  # noqa
         self._sample_rep = sample_rep
+        super().__init__()
 
     def _verify_args(self) -> None:
         """"""  # noqa

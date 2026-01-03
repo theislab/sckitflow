@@ -23,7 +23,7 @@ class TargetDataSchema(StrictDataSchema):
         """"""  # noqa
         self._categorical_covs_dict = {} if categorical_covs_dict is None else categorical_covs_dict
         self._continuous_covs = [] if continuous_covs is None else continuous_covs
-        self._verify_args()
+        super().__init__()
 
     def _verify_args(self) -> None:
         """"""  # noqa

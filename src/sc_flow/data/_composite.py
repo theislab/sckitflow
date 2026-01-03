@@ -3,8 +3,7 @@ from typing import Any, ClassVar, TypeVar
 
 import pandas as pd
 
-from sc_flow._types import MappedLevelIndex
-from sc_flow.data._mixins import MappedTree
+from sc_flow.data._mixins import MappedLevelIndex, MappedTree
 from sc_flow.data.containers._distribution import DistributionData
 
 __all__ = ["MatchedData", "NestedData"]

@@ -5,7 +5,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from sc_flow._types import MappedLevelIndex
+from sc_flow.data._mixins import MappedLevelIndex
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._query import QueryFactory
 

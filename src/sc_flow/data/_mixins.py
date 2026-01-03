@@ -5,8 +5,9 @@ from types import MappingProxyType
 from typing import Any, ClassVar, Generic, TypeVar
 
 import numpy as np
+import pandas as pd
 
-__all__ = ["MappedTree", "ArrayMixin", "BatchMixin"]
+__all__ = ["MappedTree", "MappedLevelIndex", "ArrayMixin", "BatchMixin"]
 
 
 T = TypeVar("T")
@@ -103,6 +104,16 @@ class MappedTree(Generic[T]):
             output_value_type=output_value_type,
             **kwargs,
         )
+
+    @property
+    def is_leaf(self) -> bool:
+        return all(isinstance(v, self.required_value_type) for v in self.mapping.values())
+
+
+@dataclass(frozen=True)
+class MappedLevelIndex(MappedTree):
+    required_key_type: ClassVar[type[Any]] = tuple
+    required_value_type: ClassVar[type[Any]] = pd.MultiIndex
 
 
 @dataclass(frozen=True)

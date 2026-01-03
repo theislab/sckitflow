@@ -4,8 +4,9 @@ from typing import Any
 import pandas as pd
 from anndata import AnnData
 
-from sc_flow._types import MappedLevelIndex, TargetCovariatesEncodingId
+from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._composite import NestedData
+from sc_flow.data._mixins import MappedLevelIndex
 from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.containers._coupling import CouplingData
 from sc_flow.data.containers._distribution import DistributionData

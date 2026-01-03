@@ -6,7 +6,8 @@ from anndata import AnnData
 from sc_flow._types import MappedArray
 from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._structures import CategoricalData, MixedTypeData
+from sc_flow.data.containers._categorical import CategoricalData
+from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["ConditionDataSchema"]

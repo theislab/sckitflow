@@ -5,14 +5,12 @@ import pandas as pd
 from anndata import AnnData
 
 from sc_flow._types import MappedLevelIndex, TargetCovariatesEncodingId
-from sc_flow.data._structures import (
-    CategoricalData,
-    CouplingData,
-    DistributionData,
-    MixedTypeData,
-    NestedData,
-    StateData,
-)
+from sc_flow.data._composite import NestedData
+from sc_flow.data.containers._categorical import CategoricalData
+from sc_flow.data.containers._coupling import CouplingData
+from sc_flow.data.containers._distribution import DistributionData
+from sc_flow.data.containers._mixed_type import MixedTypeData
+from sc_flow.data.containers._state import StateData
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._selector import IndexSelector
 from sc_flow.data.schemas import (

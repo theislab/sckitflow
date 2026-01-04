@@ -21,13 +21,6 @@ ConditioningLayersId = Literal["concat", "resnet1d"]
 LayersDict = dict[str, Any]
 NestedLayersDict = dict[str, LayersDict]
 
-CouplingSpaceReps = Literal[
-    "src_coupling_lin",
-    "tgt_coupling_lin",
-    "src_coupling_quad",
-    "tgt_coupling_quad",
-]
-
 TargetCovariatesEncodingId = Literal["label", "one-hot", "identity"]
 
 MappedArray: TypeAlias = dict[str, np.ndarray]

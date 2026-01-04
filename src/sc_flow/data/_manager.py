@@ -26,7 +26,7 @@ __all__ = ["DataManager"]
 
 
 class DataManager:
-    """"""  # noqa
+    """Class for managing data configurations."""
 
     def __init__(
         self,
@@ -43,8 +43,59 @@ class DataManager:
         n_shared_dims: int | None = None,
         source_rep: str | None = None,
     ) -> None:
-        """"""  # noqa
+        """Initializes the object.
 
+        :param sample_rep: String identifier for the state representation.
+            When provided, it should appear as key in `.obsm` attribute of annotated data objects.
+            Otherwise, the representation will fall back to `.X`. Defaults to `None`.
+        :type sample_rep: class: `str | None`
+
+        :param conditions: Mapping from each condition level to the corresponding columns,
+            used to initialize the conditioning data schema. Defaults to `None`.
+        :type conditions: class: `dict[str, Collection[str]] | None`
+
+        :param conditions_reps: Mapping from each condition level to the corresponding representation,
+            used to initialize the conditioning dat aschema. Defaults to `None`.
+        :type conditions_reps: class: `dict[str, str] | None`
+
+        :param conditions_covariates: Collection of continuous condition covariates,
+            used to initialize the conditioning data schema. Defaults to `None`.
+        :type conditions_covariates: class: `Collection[str] | None`
+
+        :param control_values_dict: Dictionary mapping each condition level to the
+            corresponding value used to indicate control observations. Defaults to `None`.
+        :type control_values_dict: class: `dict[str, str] | None`
+
+        :param target_categorical_covs_dict: Mapping indicating the encoding used to tranform categorical
+            target covariates, used to initialize the target data schema. Defaults to `None`.
+        :type target_categorical_covs_dict: class: `Mapping[str, TargetCovariatesEncodingId] | None = None`
+
+        :param target_continuous_covs: Collection of string identifiers for the continuous target covariates,
+            used to initialize the target data schema. Defaults to `None`.
+        :type target_continuous_covs: class: `Mapping[str, TargetCovariatesEncodingId] | None = None`
+
+        :param groups: Collection of string identifiers for grouping columns, used to initialize the
+            grouping data schema. Defaults to `None`.
+        :type groups: class: `Collection[str] | None`
+
+        :param groups_reps: Mapping for pre-computed representations of grouping covariates,
+            used to initialize the target data schema. Defaults to `None`.
+        :type groups_reps: class: `dict[str, str] | None`
+
+        :param groups_encoding: Mapping for tranformations on grouping covariates,
+            used to initialize the target data schema. Defaults to `None`.
+        :type groups_encoding: class: `dict[str, TargetCovariatesEncodingId | None] | None`
+
+        :param n_shared_dims: The number of shared dimensions to be considered when matching
+            distributions over incomparable spaces, used to initialize the
+            coupling data schema. Defaults to `None`.
+        :type n_shared_dims: class: `int | None`
+
+        :param source_rep: String identifier for the state representation of source states,
+            used when matching distributions over incomparable spaces. Used to initialize
+            the coupling data schema. Defaults to `None`.
+        :type source_rep: class: `str | None`
+        """
         self._control_values_dict = control_values_dict
         self._state_data_schema: StateDataSchema = self._init_state_data_schema(sample_rep=sample_rep)
         self._condition_data_schema: ConditionDataSchema = self._init_condition_data_schema(
@@ -74,7 +125,6 @@ class DataManager:
         self,
         sample_rep: str | None = None,
     ) -> StateDataSchema:
-        """"""  # noqa
         return StateDataSchema(sample_rep=sample_rep)
 
     def _init_condition_data_schema(
@@ -83,7 +133,6 @@ class DataManager:
         conditions_reps: dict[str, str] | None = None,
         conditions_covariates: Collection[str] | None = None,
     ) -> ConditionDataSchema:
-        """"""  # noqa
         return ConditionDataSchema(
             conditions={} if conditions is None else conditions,
             conditions_reps={} if conditions_reps is None else conditions_reps,
@@ -93,7 +142,6 @@ class DataManager:
     def _init_coupling_data_schema(
         self, source_rep: str | None = None, target_rep: str | None = None, n_shared_dims: int | None = None
     ) -> CouplingDataSchema:
-        """"""  # noqa
         return CouplingDataSchema(source_rep=source_rep, target_rep=target_rep, n_shared_dims=n_shared_dims)
 
     def _init_target_data_schema(
@@ -101,7 +149,6 @@ class DataManager:
         categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
         continuous_covs: Collection[str] | None = None,
     ) -> TargetDataSchema:
-        """"""  # noqa
         return TargetDataSchema(
             categorical_covs_dict={} if categorical_covs_dict is None else categorical_covs_dict,
             continuous_covs=[] if continuous_covs is None else continuous_covs,
@@ -113,7 +160,6 @@ class DataManager:
         groups_reps: dict[str, str] | None = None,
         groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
     ) -> GroupsDataSchema:
-        """"""  # noqa
         return GroupsDataSchema(
             groups=[] if groups is None else groups,
             groups_reps={} if groups_reps is None else groups_reps,
@@ -125,7 +171,6 @@ class DataManager:
         groups_cols: Collection[str] | None = None,
         conditions_cols: Collection[str] | None = None,
     ) -> HierarchicalIndexer:
-        """"""  # noqa
         return HierarchicalIndexer(
             groups_cols=[] if groups_cols is None else groups_cols,  # TODO: add attributes for base groups
             conditions_cols=[] if conditions_cols is None else conditions_cols,
@@ -135,41 +180,33 @@ class DataManager:
         self,
         adata: AnnData,
     ) -> StateData:
-        """"""  # noqa
         return self._state_data_schema.get_data(adata)
 
     def _get_condition_data(
         self,
         adata: AnnData,
     ) -> MixedTypeData:
-        """"""  # noqa
         return self._condition_data_schema.get_data(adata)
 
     def _get_coupling_data(self, adata: AnnData) -> tuple[CouplingData, CouplingData]:
-        """"""  # noqa
         return self._coupling_data_schema.get_data(adata)
 
     def _get_groups_data(
         self,
         adata: AnnData,
     ) -> CategoricalData:
-        """"""  # noqa
         return self._groups_data_schema.get_data(adata)
 
     def _get_target_data(
         self,
         adata: AnnData,
     ) -> MixedTypeData:
-        """"""  # noqa
         return self._target_data_schema.get_data(adata)
 
-    def _get_compiled_data(
+    def _get_distribution_data(
         self,
         adata: AnnData,
     ) -> DistributionData:
-        """"""  # noqa
-
-        # retrieving data
         state_data: StateData = self._get_state_data(adata)
         condition_data: MixedTypeData = self._get_condition_data(adata)
         target_data: MixedTypeData = self._get_target_data(adata)
@@ -184,49 +221,86 @@ class DataManager:
             target_coupling_data=target_coupling_data,
         )
 
-    def get_matched_data(
+    def _get_matched_distributions(
         self,
-        adata: AnnData,
+        data: DistributionData,
     ) -> NestedData:
-        """"""  # noqa
-        data: DistributionData = self._get_compiled_data(adata)
         index: pd.DataFrame = self._indexer.create_index(data.ann_df)
         mapped_index: MappedLevelIndex = self._selector.index_to_nested_dict(index)
         return NestedData.init_from_data(data, index, mapped_index, source_key=self.source_key)
 
+    def get_matched_distributions(
+        self,
+        data: DistributionData,
+    ) -> NestedData:
+        """Hierachically splits a distribution data container into matched subpopulations.
+
+        :param data: The distribution data container for the whole population.
+        :type data: class: `DistributionData`
+        """
+        return self._get_matched_distributions(data)
+
+    def get_distribution_data(
+        self,
+        adata: AnnData,
+    ) -> DistributionData:
+        """Compiles an annotated data object into a distribution data container.
+
+        :param adata: The annotated data object to compile.
+        :type adata: class: `AnnData`
+        """
+        return self._get_distribution_data(adata)
+
+    def compile_adata(
+        self,
+        adata: AnnData,
+    ) -> NestedData:
+        """Compiles the annotated data objects and returns the split and matched subpopulations.
+
+        :param adata: The annotated data object to compile and split.
+        :type adata: class: `AnnData`
+        """
+        data: DistributionData = self._get_distribution_data(adata)
+        return self._get_matched_distributions(data)
+
     @property
     def control_values_dict(self) -> dict[str, str] | None:
-        """"""  # noqa
+        """Exposes the homonymous attribute set at initialization."""
         return self._control_values_dict
 
     @property
     def indexer(self) -> HierarchicalIndexer:
-        """"""  # noqa
+        """Returns the indexer used to compute the hierarchical splits."""
         return self._indexer
 
     @property
     def selector(self) -> IndexSelector:
-        """"""  # noqa
+        """Returns the selector used to slice with the hierarchical splits."""
         return self._selector
 
     @property
     def state_data_schema(self) -> StateDataSchema:
-        """"""  # noqa
+        """Exposes the state data schema."""
         return self._state_data_schema
 
     @property
     def condition_data_schema(self) -> ConditionDataSchema:
-        """"""  # noqa
+        """Exposes the condition data schema."""
         return self._condition_data_schema
 
     @property
-    def target_data_schema(self) -> ConditionDataSchema:
-        """"""  # noqa
+    def coupling_data_schema(self) -> CouplingDataSchema:
+        """Exposes the coupling data schema."""
+        return self._coupling_data_schema
+
+    @property
+    def target_data_schema(self) -> TargetDataSchema:
+        """Exposes the target data schema."""
         return self._target_data_schema
 
     @property
-    def source_key(self) -> tuple[Any]:
-        """"""  # noqa
+    def source_key(self) -> tuple[Any] | None:
+        """Returns the key used to define the source subpopulations."""
         if self._control_values_dict is None:
             return None
         control_query_dict = {

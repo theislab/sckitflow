@@ -106,3 +106,9 @@ class NestedData(MappedTree):
                 for key, value in mapped_index.mapping.items()
             }
         )
+
+    def flatten(self) -> list[MatchedData]:
+        """Flattens itself into a list of :class: `MatchedData`"""
+        if not self.is_leaf:
+            return [v for val in self.mapping.values() for v in val.flatten()]
+        return list(self.mapping.values())

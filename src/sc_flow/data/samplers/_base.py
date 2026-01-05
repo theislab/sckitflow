@@ -25,7 +25,7 @@ class Sampler(abc.ABC):
         *args,
         replace_samples: bool = False,
         replace_nodes: bool = False,
-        use_groups_weights: bool = True,
+        use_nodes_weights: bool = True,
     ) -> None:
         """Initializes the sampler.
 
@@ -38,13 +38,13 @@ class Sampler(abc.ABC):
         :param replace_nodes:
         :type replace_nodes: class: `bool`
 
-        :param use_groups_weights:
-        :type use_groups_weights: class: `bool`
+        :param use_nodes_weights:
+        :type use_nodes_weights: class: `bool`
         """
         self._tree = tree
         self._replace_samples = replace_samples
         self._replace_nodes = replace_nodes
-        self._use_groups_weights = use_groups_weights
+        self._use_nodes_weights = use_nodes_weights
 
     @abc.abstractmethod
     def _dispatch_sample(self, group: BatchDType) -> BatchDType:
@@ -62,7 +62,7 @@ class Sampler(abc.ABC):
         return np.random.choice(
             self.flattened_data,
             n_nodes,
-            p=self.groups_p if self._use_groups_weights else None,
+            p=self.groups_p if self._use_nodes_weights else None,
             replace=self._replace_nodes,
         )
 
@@ -119,8 +119,8 @@ class Sampler(abc.ABC):
         return self._replace_nodes
 
     @property
-    def use_groups_weights(self) -> bool:
-        return self._use_groups_weights
+    def use_nodes_weights(self) -> bool:
+        return self._use_nodes_weights
 
     @cached_property
     def flattened_data(self) -> list[BatchDType]:
@@ -143,11 +143,11 @@ class FSampler(Sampler):
         f: Callable[[BatchDType], BatchDType],
         replace_samples: bool = False,
         replace_nodes: bool = False,
-        use_groups_weights: bool = True,
+        use_nodes_weights: bool = True,
     ) -> None:
         """"""  # noqa
         super().__init__(
-            data, replace_samples=replace_samples, replace_nodes=replace_nodes, use_groups_weights=use_groups_weights
+            data, replace_samples=replace_samples, replace_nodes=replace_nodes, use_nodes_weights=use_nodes_weights
         )
         self._f = f
 

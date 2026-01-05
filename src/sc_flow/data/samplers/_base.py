@@ -48,16 +48,20 @@ class Sampler(abc.ABC):
 
     @abc.abstractmethod
     def _dispatch_sample(self, group: BatchDType) -> BatchDType:
-        """"""  # noqa
+        """Processes the batch before returning it."""
 
     def _sample_nodes(
         self,
-        n_groups: int,
+        n_nodes: int,
     ) -> np.ndarray[BatchDType]:
-        """"""  # noqa
+        """Samples an array of leaf nodes from the tree.
+
+        :param n_nodes: The number of nodes to sample.
+        :type n_nodes: class: `int`
+        """
         return np.random.choice(
             self.flattened_data,
-            n_groups,
+            n_nodes,
             p=self.groups_p if self._use_groups_weights else None,
             replace=self._replace_nodes,
         )
@@ -68,8 +72,11 @@ class Sampler(abc.ABC):
         distr: DistributionDType,
         batch_size: int,
     ) -> np.ndarray:
-        """"""  # noqa
-        return np.random.choice(distr.n_obs, batch_size, replace=self._replace_samples)
+        """Samples a random mask to select a batch of observations from a node.
+
+        :param batch_size:
+        """
+        return np.random.choice(len(distr), batch_size, replace=self._replace_samples)
 
     def _sample_observations(
         self,
@@ -83,19 +90,19 @@ class Sampler(abc.ABC):
 
         # sample masks and slice
         target_mask = self._sample_mask(target_distr, batch_size)
-        target_distr = target_distr.slice_with_array(target_mask)
+        target_distr = target_distr[target_mask]
         if source_distr is not None:
             source_mask = self._sample_mask(source_distr, batch_size)
-            source_distr = source_distr.slice_with_array(source_mask)
+            source_distr = source_distr[source_mask]
         return self.BATCH_DATA_CLS(target_distr, source_distribution=source_distr)
 
     def _sample(
         self,
-        n_groups: int,
+        n_nodes: int,
         batch_size: int,
     ) -> np.ndarray[BatchDType]:
         """"""  # noqa
-        groups = self._sample_nodes(n_groups)
+        groups = self._sample_nodes(n_nodes)
         return np.vectorize(self._sample_observations)(groups, batch_size)
 
     @property

@@ -14,7 +14,7 @@ class TrainSampler(Sampler):
         tree: TreeDType,
         *args,
         batch_size: int = DEFAULT_BATCH_SIZE,
-        n_groups: int = DEFAULT_N_GROUPS,
+        n_nodes: int = DEFAULT_N_GROUPS,
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_groups_weights: bool = True,
@@ -28,11 +28,11 @@ class TrainSampler(Sampler):
             use_groups_weights=use_groups_weights,
         )
         self._batch_size = batch_size
-        self._n_groups = n_groups
+        self._n_nodes = n_nodes
 
     def sample(self) -> np.ndarray[BatchDType]:
         """"""  # noqa
-        sample = self._sample(self._n_groups, self._batch_size)
+        sample = self._sample(self._n_nodes, self._batch_size)
         return self._dispatch_sample(sample)
 
     @property
@@ -41,9 +41,9 @@ class TrainSampler(Sampler):
         return self._batch_size
 
     @property
-    def n_groups(self) -> int:
+    def n_nodes(self) -> int:
         """"""  # noqa
-        return self._n_groups
+        return self._n_nodes
 
 
 class FTrainSampler(TrainSampler, FSampler): ...

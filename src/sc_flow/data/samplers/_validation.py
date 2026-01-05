@@ -16,7 +16,7 @@ class ValidationSampler(Sampler, Iterable):
         tree: TreeDType,
         *args,
         max_n_obs: int = DEFAULT_MAX_N_OBS,
-        n_groups: int = DEFAULT_N_GROUPS,
+        n_nodes: int = DEFAULT_N_GROUPS,
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_groups_weights: bool = True,
@@ -30,12 +30,12 @@ class ValidationSampler(Sampler, Iterable):
             use_groups_weights=use_groups_weights,
         )
         self._max_n_obs = max_n_obs
-        self._n_groups = n_groups
+        self._n_nodes = n_nodes
         self._samples = self._register_samples()
 
     def _register_samples(self) -> np.ndarray[BatchDType]:
         """"""  # noqa
-        return self._sample(self._n_groups, self._max_n_obs)
+        return self._sample(self._n_nodes, self._max_n_obs)
 
     def __len__(self) -> int:
         """"""  # noqa
@@ -56,9 +56,9 @@ class ValidationSampler(Sampler, Iterable):
         return self._max_n_obs
 
     @property
-    def n_groups(self) -> int:
+    def n_nodes(self) -> int:
         """"""  # noqa
-        return self._n_groups
+        return self._n_nodes
 
 
 class FValidationSampler(ValidationSampler, FSampler): ...

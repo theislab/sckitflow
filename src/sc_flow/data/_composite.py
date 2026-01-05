@@ -51,6 +51,16 @@ class MatchedData:
         return self.source_distribution
 
     @property
+    def target(self) -> DistributionDType:
+        """Alias for :attr: `self.target_distribution`."""
+        return self.target_distribution
+
+    @property
+    def source(self) -> DistributionDType | None:
+        """Alias for :attr: `self.source_distribution`."""
+        return self.source_distribution
+
+    @property
     def n_source_obs(self) -> int | None:
         """"""  # noqa
         if self.source_distribution is None:

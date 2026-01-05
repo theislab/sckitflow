@@ -3,6 +3,7 @@ from typing import Any, ClassVar, TypeVar
 
 import pandas as pd
 
+from sc_flow._runtime import attempt_tqdm_import
 from sc_flow.data._mixins import MappedLevelIndex, MappedTree
 from sc_flow.data.containers._distribution import DistributionData
 
@@ -98,6 +99,7 @@ class NestedData(MappedTree):
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
+        # split source distribution apart
         if source_key is not None:
             source_idxs = mapped_index.mapping[source_key]
             source_distribution = data.slice_with_index(reference_index, source_idxs)
@@ -105,12 +107,26 @@ class NestedData(MappedTree):
         else:
             source_distribution = None
             rest_idxs = mapped_index.mapping
-        return cls(
-            {
-                key: MatchedData(data.slice_with_index(reference_index, value), source_distribution=source_distribution)
-                for key, value in rest_idxs.items()
-            }
-        )
+
+        # lazily import tqdm
+        tqdm = attempt_tqdm_import()
+        if tqdm is not None:
+            pbar = tqdm(rest_idxs)
+        else:
+            pbar = None
+
+        # construct data dictionary
+        data_dict = {}
+        for key, value in rest_idxs.items():
+            # update progress bar
+            if pbar is not None:
+                pbar.update()
+
+            # update dictionary
+            data_dict[key] = MatchedData(
+                data.slice_with_index(reference_index, value), source_distribution=source_distribution
+            )
+        return cls(data_dict)
 
     @classmethod
     def _init_tree(

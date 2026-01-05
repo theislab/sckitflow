@@ -59,12 +59,13 @@ class MixedTypeData(BaseData):
         self,
         idxs: np.ndarray,
     ) -> "MixedTypeData":
+        def _take(e, idxs=idxs):
+            return np.take(e, idxs, axis=0)
+
         categorical_covariates = (
             None if self.categorical_covariates is None else self.categorical_covariates.slice_with_array(idxs)
         )
-        continuous_covariates = (
-            None if self.continuous_covariates is None else self.continuous_covariates.apply(lambda e: e[idxs])
-        )
+        continuous_covariates = None if self.continuous_covariates is None else self.continuous_covariates.apply(_take)
         return self.__class__(
             categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates
         )

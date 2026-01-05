@@ -44,3 +44,12 @@ def raise_runtime_error_on_backend_failed_import():
     if BACKEND == "jax" and JAX_IMPORT_FAILED:
         msg = "Failed to import jax backend."
         raise RuntimeError(msg)
+
+
+def attempt_tqdm_import():
+    try:
+        from tqdm.auto import tqdm
+    except ImportError:
+        set_tqdm_import_failed(True)
+        tqdm = None
+    return tqdm

@@ -3,7 +3,6 @@ from functools import cached_property
 from typing import TypeVar
 
 import numpy as np
-import pandas as pd
 
 from sc_flow.data._composite import DistributionDType, MatchedData, NestedData
 
@@ -55,9 +54,7 @@ class Sampler(abc.ABC):
         batch_size: int,
     ) -> np.ndarray:
         """"""  # noqa
-        index: pd.Index = distr.index
-        idxs = np.random.choice(index, batch_size, replace=self._replace_samples)
-        return index.get_indexer(idxs)  # possible bottleneck
+        return np.random.choice(distr.n_obs, batch_size, replace=self._replace_samples)
 
     def _sample_observations(
         self,

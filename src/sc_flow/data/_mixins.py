@@ -109,6 +109,12 @@ class MappedTree(Generic[T]):
     def is_leaf(self) -> bool:
         return all(isinstance(v, self.required_value_type) for v in self.mapping.values())
 
+    def flatten(self) -> tuple[T]:
+        """Flattens itself into a list of nodes."""
+        if not self.is_leaf:
+            return tuple([v for val in self.mapping.values() for v in val.flatten()])
+        return tuple(self.mapping.values())
+
 
 @dataclass(frozen=True)
 class MappedLevelIndex(MappedTree):

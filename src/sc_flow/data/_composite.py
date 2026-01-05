@@ -6,18 +6,18 @@ import pandas as pd
 from sc_flow.data._mixins import MappedLevelIndex, MappedTree
 from sc_flow.data.containers._distribution import DistributionData
 
-__all__ = ["MatchedData", "NestedData"]
+__all__ = ["DistributionDType", "MatchedData", "NestedData"]
 
 
-T = TypeVar("T", bound=DistributionData)
+DistributionDType = TypeVar("T", bound=DistributionData)
 
 
 @dataclass(frozen=True)
 class MatchedData:
     """Container class for matched data."""
 
-    target_distribution: T
-    source_distribution: T | None = None
+    target_distribution: DistributionDType
+    source_distribution: DistributionDType | None = None
 
     def __post_init__(self) -> None:
         if self.source_distribution is not None:
@@ -40,14 +40,36 @@ class MatchedData:
         return f"{self.__class__.__name__}:\n" + "\n".join(parts)
 
     @property
-    def target_distr(self) -> T:
+    def target_distr(self) -> DistributionDType:
         """Alias for :attr: `self.target_distribution`."""
         return self.target_distribution
 
     @property
-    def source_distr(self) -> T | None:
+    def source_distr(self) -> DistributionDType | None:
         """Alias for :attr: `self.source_distribution`."""
         return self.source_distribution
+
+    @property
+    def n_source_obs(self) -> int | None:
+        """"""  # noqa
+        if self.source_distribution is None:
+            return None
+        return self.source_distribution.n_obs
+
+    @property
+    def n_target_obs(self) -> int:
+        """"""  # noqa
+        return self.target_distribution.n_obs
+
+    @property
+    def n_src_obs(self) -> int:
+        """"""  # noqa
+        return self.n_source_obs
+
+    @property
+    def n_tgt_obs(self) -> int:
+        """"""  # noqa
+        return self.n_target_obs
 
 
 @dataclass(frozen=True)
@@ -106,9 +128,3 @@ class NestedData(MappedTree):
                 for key, value in mapped_index.mapping.items()
             }
         )
-
-    def flatten(self) -> list[MatchedData]:
-        """Flattens itself into a list of :class: `MatchedData`"""
-        if not self.is_leaf:
-            return [v for val in self.mapping.values() for v in val.flatten()]
-        return list(self.mapping.values())

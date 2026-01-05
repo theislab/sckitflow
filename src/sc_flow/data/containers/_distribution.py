@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from functools import cached_property
 
 import numpy as np
 import pandas as pd
@@ -104,3 +105,8 @@ class DistributionData(BaseData):
     @property
     def n_obs(self) -> int:
         return self.state_data.n_obs
+
+    @cached_property
+    def index(self) -> pd.Index:
+        """"""  # noqa
+        return self.ann_df.index

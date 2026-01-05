@@ -93,6 +93,10 @@ class DistributionData(BaseData):
         )
 
     @property
+    def n_obs(self) -> int:
+        return self.state_data.n_obs
+
+    @cached_property
     def ann_df(self) -> pd.DataFrame:
         """Returns the annotation data frame constructed jointly from condition and groups data."""
         dfs = []
@@ -101,10 +105,6 @@ class DistributionData(BaseData):
         if self.groups_data:
             dfs.append(self.groups_data.ann_df)
         return pd.concat(dfs, axis=1) if dfs else pd.DataFrame()
-
-    @property
-    def n_obs(self) -> int:
-        return self.state_data.n_obs
 
     @cached_property
     def index(self) -> pd.Index:

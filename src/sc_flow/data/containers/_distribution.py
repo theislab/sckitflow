@@ -69,9 +69,9 @@ class DistributionData(BaseData):
                 parts.append(f"{prefix}={comp!r}")
         return f"{self.__class__.__name__}:" + "\n ".join(parts)
 
-    def _slice_with_array(
+    def _slice(
         self,
-        idxs: np.ndarray,
+        idxs: np.ndarray | slice,
     ) -> "DistributionData":
         state_data = self.state_data.slice_with_array(idxs)
         target_data = None if self.target_data is None else self.target_data.slice_with_array(idxs)

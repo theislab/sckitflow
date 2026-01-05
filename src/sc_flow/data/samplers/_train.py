@@ -7,7 +7,7 @@ __all__ = ["TrainSampler", "FTrainSampler"]
 
 
 class TrainSampler(Sampler):
-    """"""  # noqa
+    """Abstract class for train samplers."""
 
     def __init__(
         self,
@@ -19,7 +19,33 @@ class TrainSampler(Sampler):
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
     ) -> None:
-        """"""  # noqa
+        """Initializes the training sampler.
+
+        :param tree: Tree storing the split and matched subpopulations.
+        :type tree: class: `TreeDType`
+
+        :param batch_size: The number of observations to sample for each node in a batch.
+            Defaults to :constant sc_flow._constants.DEFAULT_BATCH_SIZE:.
+        :type batch_size: class: `int`
+
+        :param n_nodes: The number of nodes to sample for each batch.
+            Defaults to :constant sc_flow._constants.DEFAULT_N_GROUPS:.
+        :type n_nodes: class: `int`
+
+        :param replace_samples: Whether to sample observations with replacement
+            from each node. Defaults to `False`.
+        :type replace_samples: class: `bool`
+
+        :param replace_nodes: Whether to sample nodes with replacement
+            from the tree. Defaults to `False`.
+        :type replace_nodes: class: `bool`
+
+        :param use_nodes_weights: Whether to use nodes weights in order to sample them.
+            Each node weight is computed as its relative frequency over the whole tree.
+            In order to compute the relative frequency of a node of matched distributions,
+            only the target one is considered. Defaults to `True`.
+        :type use_nodes_weights: class: `bool`
+        """
         super().__init__(
             tree,
             *args,
@@ -31,19 +57,20 @@ class TrainSampler(Sampler):
         self._n_nodes = n_nodes
 
     def sample(self) -> np.ndarray[BatchDType]:
-        """"""  # noqa
+        """Samples a batch of data from the tree."""
         sample = self._sample(self._n_nodes, self._batch_size)
         return self._dispatch_sample(sample)
 
     @property
     def batch_size(self) -> int:
-        """"""  # noqa
+        """Exposes the :param batch_size: attribute set at initialization."""
         return self._batch_size
 
     @property
     def n_nodes(self) -> int:
-        """"""  # noqa
+        """Exposes the :param n_nodes: attribute set at initialization."""
         return self._n_nodes
 
 
-class FTrainSampler(TrainSampler, FSampler): ...
+class FTrainSampler(TrainSampler, FSampler):
+    """Concrete train sampler using an input callable to process the batch."""

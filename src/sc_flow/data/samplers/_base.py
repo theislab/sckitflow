@@ -15,7 +15,13 @@ BatchDType = TypeVar("BatchDType", bound=MatchedData)
 
 
 class Sampler(abc.ABC):
-    """Base class for sampler objects."""
+    """Abstract base class for sampler objects.
+
+    Subclasses need to override the :method _dispatch_sample: method.
+
+    :param BATCH_DATA_CLS: The class used to store the matched distributions.
+    :type BATCH_DATA_CLS: class: `type[BatchDType]`
+    """
 
     BATCH_DATA_CLS: type[BatchDType] = MatchedData
 
@@ -29,16 +35,21 @@ class Sampler(abc.ABC):
     ) -> None:
         """Initializes the sampler.
 
-        :param tree:
+        :param tree: Tree storing the split and matched subpopulations.
         :type tree: class: `TreeDType`
 
-        :param replace_samples:
+        :param replace_samples: Whether to sample observations with replacement
+            from each node. Defaults to `False`.
         :type replace_samples: class: `bool`
 
-        :param replace_nodes:
+        :param replace_nodes: Whether to sample nodes with replacement
+            from the tree. Defaults to `False`.
         :type replace_nodes: class: `bool`
 
-        :param use_nodes_weights:
+        :param use_nodes_weights: Whether to use nodes weights in order to sample them.
+            Each node weight is computed as its relative frequency over the whole tree.
+            In order to compute the relative frequency of a node of matched distributions,
+            only the target one is considered. Defaults to `True`.
         :type use_nodes_weights: class: `bool`
         """
         self._tree = tree
@@ -66,15 +77,15 @@ class Sampler(abc.ABC):
             replace=self._replace_nodes,
         )
 
-    # possible bottleneck
     def _sample_mask(
         self,
         distr: DistributionDType,
         batch_size: int,
     ) -> np.ndarray:
-        """Samples a random mask to select a batch of observations from a node.
+        """Samples a random mask to select a batch of observations from a distribution.
 
-        :param batch_size:
+        :param batch_size: The number of observations to load in the batch.
+        :type batch_size: class: `int`
         """
         return np.random.choice(len(distr), batch_size, replace=self._replace_samples)
 
@@ -83,7 +94,7 @@ class Sampler(abc.ABC):
         group: BatchDType,
         batch_size: int,
     ) -> BatchDType:
-        """"""  # noqa
+        """Samples a batch of observations from a node of matched distributions."""
         # retrieve individual distributions
         target_distr: DistributionDType = group.target
         source_distr: DistributionDType | None = group.source
@@ -101,35 +112,52 @@ class Sampler(abc.ABC):
         n_nodes: int,
         batch_size: int,
     ) -> np.ndarray[BatchDType]:
-        """"""  # noqa
+        """Samples a batch of data from the tree.
+
+        Sampling is done hierarchically, whereby a sed of nodes is sampled first
+        and a subset of observations is selected from each sampled node.
+
+        :param n_nodes: The number of nodes to sample.
+        :type n_nodes: class: `int`
+
+        :param batch_size: The number of observations to load in the batch.
+        :type batch_size: class: `int`
+        """
         groups = self._sample_nodes(n_nodes)
         return np.vectorize(self._sample_observations)(groups, batch_size)
 
     @property
     def tree(self) -> NestedData:
-        """"""  # noqa
+        """Returns the underlying data tree."""
         return self._tree
 
     @property
     def replace_samples(self) -> bool:
+        """Exposes the :param replace_samples: attribute set at initialization."""
         return self._replace_samples
 
     @property
     def replace_nodes(self) -> bool:
+        """Exposes the :param replace_nodes: attribute set at initialization."""
         return self._replace_nodes
 
     @property
     def use_nodes_weights(self) -> bool:
+        """Exposes the :param use_nodes_weights: attribute set at initialization."""
         return self._use_nodes_weights
 
     @cached_property
     def flattened_data(self) -> list[BatchDType]:
-        """"""  # noqa
+        """Caches the flattened array of leaf nodes of the data tree."""
         return self._tree.flatten()
 
     @cached_property
     def groups_p(self) -> np.ndarray:
-        """"""  # noqa
+        """Returns the array of relative frequencies of each node.
+
+        The relative frequency is computed by taking into account the number of observations
+        in the target distribution.
+        """
 
         def _get_len_target(e: BatchDType):
             return len(e.target)
@@ -139,7 +167,7 @@ class Sampler(abc.ABC):
 
 
 class FSampler(Sampler):
-    """"""  # noqa
+    """Concrete class using an input callable to process the batch."""
 
     def __init__(
         self,
@@ -149,17 +177,38 @@ class FSampler(Sampler):
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
     ) -> None:
-        """"""  # noqa
+        """Initializes the sampler.
+
+        :param tree: Tree storing the split and matched subpopulations.
+        :type tree: class: `TreeDType`
+
+        :param f: The function used to post-process the batch of matched data.
+        :type f: class: `Callable[[BatchDType], BatchDType]`
+
+        :param replace_samples: Whether to sample observations with replacement
+            from each node. Defaults to `False`.
+        :type replace_samples: class: `bool`
+
+        :param replace_nodes: Whether to sample nodes with replacement
+            from the tree. Defaults to `False`.
+        :type replace_nodes: class: `bool`
+
+        :param use_nodes_weights: Whether to use nodes weights in order to sample them.
+            Each node weight is computed as its relative frequency over the whole tree.
+            In order to compute the relative frequency of a node of matched distributions,
+            only the target one is considered. Defaults to `True`.
+        :type use_nodes_weights: class: `bool`
+        """
         super().__init__(
             data, replace_samples=replace_samples, replace_nodes=replace_nodes, use_nodes_weights=use_nodes_weights
         )
         self._f = f
 
     def _dispatch_sample(self, group):
-        """"""  # noqa
+        """Processes the batch before returning it."""
         return self._f(group)
 
     @property
     def f(self) -> Callable[[BatchDType], BatchDType]:
-        """"""  # noqa
+        """Exposes the :param f: attribute set at initialization."""
         return self._f

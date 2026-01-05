@@ -9,7 +9,7 @@ __all__ = ["ValidationSampler", "FValidationSampler"]
 
 
 class ValidationSampler(Sampler, Iterable):
-    """"""  # noqa
+    """Abstract class for validation samplers."""
 
     def __init__(
         self,
@@ -21,7 +21,33 @@ class ValidationSampler(Sampler, Iterable):
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
     ) -> None:
-        """"""  # noqa
+        """Initializes the training sampler.
+
+        :param tree: Tree storing the split and matched subpopulations.
+        :type tree: class: `TreeDType`
+
+        :param max_n_obs: The maximum number of observations to sample for each node in a batch.
+            Defaults to :constant sc_flow._constants.DEFAULT_BATCH_SIZE:.
+        :type max_n_obs: class: `int`
+
+        :param n_nodes: The number of nodes to sample for each batch.
+            Defaults to :constant sc_flow._constants.DEFAULT_N_GROUPS:.
+        :type n_nodes: class: `int`
+
+        :param replace_samples: Whether to sample observations with replacement
+            from each node. Defaults to `False`.
+        :type replace_samples: class: `bool`
+
+        :param replace_nodes: Whether to sample nodes with replacement
+            from the tree. Defaults to `False`.
+        :type replace_nodes: class: `bool`
+
+        :param use_nodes_weights: Whether to use nodes weights in order to sample them.
+            Each node weight is computed as its relative frequency over the whole tree.
+            In order to compute the relative frequency of a node of matched distributions,
+            only the target one is considered. Defaults to `True`.
+        :type use_nodes_weights: class: `bool`
+        """
         super().__init__(
             tree,
             *args,
@@ -34,15 +60,13 @@ class ValidationSampler(Sampler, Iterable):
         self._samples = self._register_samples()
 
     def _register_samples(self) -> np.ndarray[BatchDType]:
-        """"""  # noqa
+        """Pre-registres the samples for validation."""
         return self._sample(self._n_nodes, self._max_n_obs)
 
     def __len__(self) -> int:
-        """"""  # noqa
         return len(self._samples)
 
     def __getitem__(self, idx: slice) -> np.ndarray[BatchDType]:
-        """"""  # noqa
         samples = self._samples[idx]
         return self._dispatch_sample(samples)
 
@@ -52,13 +76,14 @@ class ValidationSampler(Sampler, Iterable):
 
     @property
     def max_n_obs(self) -> int:
-        """"""  # noqa
+        """Exposes the :param max_n_obs: attribute set at initialization."""
         return self._max_n_obs
 
     @property
     def n_nodes(self) -> int:
-        """"""  # noqa
+        """Exposes the :param n_nodes: attribute set at initialization."""
         return self._n_nodes
 
 
-class FValidationSampler(ValidationSampler, FSampler): ...
+class FValidationSampler(ValidationSampler, FSampler):
+    """Concrete validation sampler using an input callable to process the batch."""

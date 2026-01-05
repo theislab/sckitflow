@@ -3,9 +3,9 @@ from collections.abc import Iterable, Iterator
 import numpy as np
 
 from sc_flow._constants import DEFAULT_MAX_N_OBS, DEFAULT_N_GROUPS
-from sc_flow.data.samplers._base import BatchDType, Sampler, TreeDType
+from sc_flow.data.samplers._base import BatchDType, FSampler, Sampler, TreeDType
 
-__all__ = ["ValidationSampler"]
+__all__ = ["ValidationSampler", "FValidationSampler"]
 
 
 class ValidationSampler(Sampler, Iterable):
@@ -13,7 +13,8 @@ class ValidationSampler(Sampler, Iterable):
 
     def __init__(
         self,
-        data: TreeDType,
+        tree: TreeDType,
+        *args,
         max_n_obs: int = DEFAULT_MAX_N_OBS,
         n_groups: int = DEFAULT_N_GROUPS,
         replace_samples: bool = False,
@@ -22,7 +23,11 @@ class ValidationSampler(Sampler, Iterable):
     ) -> None:
         """"""  # noqa
         super().__init__(
-            data, replace_samples=replace_samples, replace_groups=replace_groups, use_groups_weights=use_groups_weights
+            tree,
+            *args,
+            replace_samples=replace_samples,
+            replace_groups=replace_groups,
+            use_groups_weights=use_groups_weights,
         )
         self._max_n_obs = max_n_obs
         self._n_groups = n_groups
@@ -54,3 +59,6 @@ class ValidationSampler(Sampler, Iterable):
     def n_groups(self) -> int:
         """"""  # noqa
         return self._n_groups
+
+
+class FValidationSampler(ValidationSampler, FSampler): ...

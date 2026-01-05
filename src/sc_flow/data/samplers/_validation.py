@@ -18,7 +18,7 @@ class ValidationSampler(Sampler, Iterable):
         max_n_obs: int = DEFAULT_MAX_N_OBS,
         n_groups: int = DEFAULT_N_GROUPS,
         replace_samples: bool = False,
-        replace_groups: bool = False,
+        replace_nodes: bool = False,
         use_groups_weights: bool = True,
     ) -> None:
         """"""  # noqa
@@ -26,7 +26,7 @@ class ValidationSampler(Sampler, Iterable):
             tree,
             *args,
             replace_samples=replace_samples,
-            replace_groups=replace_groups,
+            replace_nodes=replace_nodes,
             use_groups_weights=use_groups_weights,
         )
         self._max_n_obs = max_n_obs

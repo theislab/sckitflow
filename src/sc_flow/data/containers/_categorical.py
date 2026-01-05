@@ -54,9 +54,9 @@ class CategoricalData(BaseData):
             f"categorical_encoders_keys={encoder_keys})"
         )
 
-    def _slice_with_array(
+    def _slice(
         self,
-        idxs: np.ndarray,
+        idxs: np.ndarray | slice,
     ) -> "CategoricalData":
         ann_df = self.ann_df.iloc[idxs]
         return self.__class__(ann_df, repr_dict=self.repr_dict, categorical_encoders=self.categorical_encoders)

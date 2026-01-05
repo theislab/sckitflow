@@ -23,9 +23,9 @@ class StateData(BaseData):
         spatial_dims = shape[1:] if len(shape) > 1 else ()
         return f"{self.__class__.__name__}(n_obs={n_obs}, spatial_dims={spatial_dims})"
 
-    def _slice_with_array(
+    def _slice(
         self,
-        idxs: np.ndarray,
+        idxs: np.ndarray | slice,
     ) -> "StateData":
         X = self.X[idxs]
         return self.__class__(X)

@@ -55,9 +55,9 @@ class MixedTypeData(BaseData):
 
         return f"{self.__class__.__name__}(" + ", ".join(parts)
 
-    def _slice_with_array(
+    def _slice(
         self,
-        idxs: np.ndarray,
+        idxs: np.ndarray | slice,
     ) -> "MixedTypeData":
         def _take(e, idxs=idxs):
             return np.take(e, idxs, axis=0)

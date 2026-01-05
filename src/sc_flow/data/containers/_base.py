@@ -15,6 +15,9 @@ class BaseData(abc.ABC):
     def __len__(self) -> int:
         return self.n_obs
 
+    def __getitem__(self, idx: np.ndarray | slice) -> "BaseData":
+        return self._slice(idx)
+
     @staticmethod
     def _get_query_idxs(
         reference_index: pd.MultiIndex,
@@ -52,9 +55,9 @@ class BaseData(abc.ABC):
             raise ValueError(msg)
 
     @abc.abstractmethod
-    def _slice_with_array(
+    def _slice(
         self,
-        idxs: np.ndarray,
+        idxs: np.ndarray | slice,
     ) -> "BaseData":
         """Slices the underlying data with an array.
 
@@ -97,7 +100,7 @@ class BaseData(abc.ABC):
             msg = "Query index contains entries not present in reference index."
             raise KeyError(msg)
 
-        query_data = self._slice_with_array(idxs)
+        query_data = self._slice(idxs)
         if return_index:
             return query_data, idxs
         return query_data
@@ -113,7 +116,7 @@ class BaseData(abc.ABC):
         """
         if not isinstance(idxs, np.ndarray):
             idxs = np.asarray(idxs, dtype=int)
-        return self._slice_with_array(idxs)
+        return self._slice(idxs)
 
     @property
     @abc.abstractmethod

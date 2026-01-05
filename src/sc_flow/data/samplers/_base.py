@@ -24,20 +24,33 @@ class Sampler(abc.ABC):
         tree: TreeDType,
         *args,
         replace_samples: bool = False,
-        replace_groups: bool = False,
+        replace_nodes: bool = False,
         use_groups_weights: bool = True,
     ) -> None:
-        """"""  # noqa
+        """Initializes the sampler.
+
+        :param tree:
+        :type tree: class: `TreeDType`
+
+        :param replace_samples:
+        :type replace_samples: class: `bool`
+
+        :param replace_nodes:
+        :type replace_nodes: class: `bool`
+
+        :param use_groups_weights:
+        :type use_groups_weights: class: `bool`
+        """
         self._tree = tree
         self._replace_samples = replace_samples
-        self._replace_groups = replace_groups
+        self._replace_nodes = replace_nodes
         self._use_groups_weights = use_groups_weights
 
     @abc.abstractmethod
     def _dispatch_sample(self, group: BatchDType) -> BatchDType:
         """"""  # noqa
 
-    def _sample_groups(
+    def _sample_nodes(
         self,
         n_groups: int,
     ) -> np.ndarray[BatchDType]:
@@ -46,7 +59,7 @@ class Sampler(abc.ABC):
             self.flattened_data,
             n_groups,
             p=self.groups_p if self._use_groups_weights else None,
-            replace=self._replace_groups,
+            replace=self._replace_nodes,
         )
 
     # possible bottleneck
@@ -82,7 +95,7 @@ class Sampler(abc.ABC):
         batch_size: int,
     ) -> np.ndarray[BatchDType]:
         """"""  # noqa
-        groups = self._sample_groups(n_groups)
+        groups = self._sample_nodes(n_groups)
         return np.vectorize(self._sample_observations)(groups, batch_size)
 
     @property
@@ -95,8 +108,8 @@ class Sampler(abc.ABC):
         return self._replace_samples
 
     @property
-    def replace_groups(self) -> bool:
-        return self._replace_groups
+    def replace_nodes(self) -> bool:
+        return self._replace_nodes
 
     @property
     def use_groups_weights(self) -> bool:
@@ -122,12 +135,12 @@ class FSampler(Sampler):
         data: TreeDType,
         f: Callable[[BatchDType], BatchDType],
         replace_samples: bool = False,
-        replace_groups: bool = False,
+        replace_nodes: bool = False,
         use_groups_weights: bool = True,
     ) -> None:
         """"""  # noqa
         super().__init__(
-            data, replace_samples=replace_samples, replace_groups=replace_groups, use_groups_weights=use_groups_weights
+            data, replace_samples=replace_samples, replace_nodes=replace_nodes, use_groups_weights=use_groups_weights
         )
         self._f = f
 

@@ -16,7 +16,7 @@ class TrainSampler(Sampler):
         batch_size: int = DEFAULT_BATCH_SIZE,
         n_groups: int = DEFAULT_N_GROUPS,
         replace_samples: bool = False,
-        replace_groups: bool = False,
+        replace_nodes: bool = False,
         use_groups_weights: bool = True,
     ) -> None:
         """"""  # noqa
@@ -24,7 +24,7 @@ class TrainSampler(Sampler):
             tree,
             *args,
             replace_samples=replace_samples,
-            replace_groups=replace_groups,
+            replace_nodes=replace_nodes,
             use_groups_weights=use_groups_weights,
         )
         self._batch_size = batch_size

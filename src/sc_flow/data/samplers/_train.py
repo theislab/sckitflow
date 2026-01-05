@@ -17,7 +17,7 @@ class TrainSampler(Sampler):
         n_nodes: int = DEFAULT_N_GROUPS,
         replace_samples: bool = False,
         replace_nodes: bool = False,
-        use_groups_weights: bool = True,
+        use_nodes_weights: bool = True,
     ) -> None:
         """"""  # noqa
         super().__init__(
@@ -25,7 +25,7 @@ class TrainSampler(Sampler):
             *args,
             replace_samples=replace_samples,
             replace_nodes=replace_nodes,
-            use_groups_weights=use_groups_weights,
+            use_nodes_weights=use_nodes_weights,
         )
         self._batch_size = batch_size
         self._n_nodes = n_nodes

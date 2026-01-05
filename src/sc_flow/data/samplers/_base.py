@@ -1,4 +1,5 @@
 import abc
+from collections.abc import Callable
 from functools import cached_property
 from typing import TypeVar
 
@@ -6,7 +7,7 @@ import numpy as np
 
 from sc_flow.data._composite import DistributionDType, MatchedData, NestedData
 
-__all__ = ["TreeDType", "BatchDType", "Sampler"]
+__all__ = ["TreeDType", "BatchDType", "Sampler", "FSampler"]
 
 
 TreeDType = TypeVar("CollectionDType", bound=NestedData)
@@ -20,13 +21,14 @@ class Sampler(abc.ABC):
 
     def __init__(
         self,
-        data: TreeDType,
+        tree: TreeDType,
+        *args,
         replace_samples: bool = False,
         replace_groups: bool = False,
         use_groups_weights: bool = True,
     ) -> None:
         """"""  # noqa
-        self._data = data
+        self._tree = tree
         self._replace_samples = replace_samples
         self._replace_groups = replace_groups
         self._use_groups_weights = use_groups_weights
@@ -84,9 +86,9 @@ class Sampler(abc.ABC):
         return np.vectorize(self._sample_observations)(groups, batch_size)
 
     @property
-    def data(self) -> NestedData:
+    def tree(self) -> NestedData:
         """"""  # noqa
-        return self._data
+        return self._tree
 
     @property
     def replace_samples(self) -> bool:
@@ -103,10 +105,37 @@ class Sampler(abc.ABC):
     @cached_property
     def flattened_data(self) -> list[BatchDType]:
         """"""  # noqa
-        return self._data.flatten()
+        return self._tree.flatten()
 
     @cached_property
     def groups_p(self) -> np.ndarray:
         """"""  # noqa
         counts = np.vectorize(lambda e: e.n_target_obs)(self.flattened_data)
         return counts / counts.sum()
+
+
+class FSampler(Sampler):
+    """"""  # noqa
+
+    def __init__(
+        self,
+        data: TreeDType,
+        f: Callable[[BatchDType], BatchDType],
+        replace_samples: bool = False,
+        replace_groups: bool = False,
+        use_groups_weights: bool = True,
+    ) -> None:
+        """"""  # noqa
+        super().__init__(
+            data, replace_samples=replace_samples, replace_groups=replace_groups, use_groups_weights=use_groups_weights
+        )
+        self._f = f
+
+    def _dispatch_sample(self, group):
+        """"""  # noqa
+        return self._f(group)
+
+    @property
+    def f(self) -> Callable[[BatchDType], BatchDType]:
+        """"""  # noqa
+        return self._f

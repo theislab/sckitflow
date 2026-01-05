@@ -1,9 +1,9 @@
 import numpy as np
 
 from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
-from sc_flow.data.samplers._base import BatchDType, Sampler, TreeDType
+from sc_flow.data.samplers._base import BatchDType, FSampler, Sampler, TreeDType
 
-__all__ = ["TrainSampler"]
+__all__ = ["TrainSampler", "FTrainSampler"]
 
 
 class TrainSampler(Sampler):
@@ -11,7 +11,8 @@ class TrainSampler(Sampler):
 
     def __init__(
         self,
-        data: TreeDType,
+        tree: TreeDType,
+        *args,
         batch_size: int = DEFAULT_BATCH_SIZE,
         n_groups: int = DEFAULT_N_GROUPS,
         replace_samples: bool = False,
@@ -20,7 +21,11 @@ class TrainSampler(Sampler):
     ) -> None:
         """"""  # noqa
         super().__init__(
-            data, replace_samples=replace_samples, replace_groups=replace_groups, use_groups_weights=use_groups_weights
+            tree,
+            *args,
+            replace_samples=replace_samples,
+            replace_groups=replace_groups,
+            use_groups_weights=use_groups_weights,
         )
         self._batch_size = batch_size
         self._n_groups = n_groups
@@ -39,3 +44,6 @@ class TrainSampler(Sampler):
     def n_groups(self) -> int:
         """"""  # noqa
         return self._n_groups
+
+
+class FTrainSampler(TrainSampler, FSampler): ...

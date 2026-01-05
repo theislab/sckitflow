@@ -85,8 +85,8 @@ class Sampler(abc.ABC):
     ) -> BatchDType:
         """"""  # noqa
         # retrieve individual distributions
-        target_distr: DistributionDType = group.target_distr
-        source_distr: DistributionDType | None = group.source_distr
+        target_distr: DistributionDType = group.target
+        source_distr: DistributionDType | None = group.source
 
         # sample masks and slice
         target_mask = self._sample_mask(target_distr, batch_size)

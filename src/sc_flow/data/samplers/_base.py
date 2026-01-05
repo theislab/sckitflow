@@ -5,7 +5,9 @@ from typing import TypeVar
 
 import numpy as np
 
+from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
 from sc_flow.data._composite import DistributionDType, MatchedData, NestedData
+from sc_flow.data._utils import sample_indices_uniformly
 
 __all__ = ["TreeDType", "BatchDType", "Sampler", "FSampler"]
 
@@ -77,22 +79,26 @@ class Sampler(abc.ABC):
             replace=self._replace_nodes,
         )
 
-    def _sample_mask(
+    def _sample_indices_uniformly(
         self,
-        distr: DistributionDType,
-        batch_size: int,
+        n_obs: int,
+        batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> np.ndarray:
         """Samples a random mask to select a batch of observations from a distribution.
 
         :param batch_size: The number of observations to load in the batch.
         :type batch_size: class: `int`
         """
-        return np.random.choice(len(distr), batch_size, replace=self._replace_samples)
+        return sample_indices_uniformly(n_obs, batch_size, replace=self._replace_samples)
+
+    def _sample_from_distr(self, distr: DistributionDType, batch_size: int = DEFAULT_BATCH_SIZE) -> DistributionDType:
+        mask = self._sample_indices_uniformly(len(distr), batch_size)
+        return distr[mask]
 
     def _sample_observations(
         self,
         group: BatchDType,
-        batch_size: int,
+        batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> BatchDType:
         """Samples a batch of observations from a node of matched distributions."""
         # retrieve individual distributions
@@ -100,17 +106,15 @@ class Sampler(abc.ABC):
         source_distr: DistributionDType | None = group.source
 
         # sample masks and slice
-        target_mask = self._sample_mask(target_distr, batch_size)
-        target_distr = target_distr[target_mask]
+        target_distr = self._sample_from_distr(target_distr, batch_size)
         if source_distr is not None:
-            source_mask = self._sample_mask(source_distr, batch_size)
-            source_distr = source_distr[source_mask]
+            source_distr = self._sample_from_distr(source_distr, batch_size)
         return self.BATCH_DATA_CLS(target_distr, source_distribution=source_distr)
 
     def _sample(
         self,
-        n_nodes: int,
-        batch_size: int,
+        n_nodes: int = DEFAULT_N_GROUPS,
+        batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> np.ndarray[BatchDType]:
         """Samples a batch of data from the tree.
 

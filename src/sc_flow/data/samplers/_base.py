@@ -130,7 +130,11 @@ class Sampler(abc.ABC):
     @cached_property
     def groups_p(self) -> np.ndarray:
         """"""  # noqa
-        counts = np.vectorize(lambda e: e.n_target_obs)(self.flattened_data)
+
+        def _get_len_target(e: BatchDType):
+            return len(e.target)
+
+        counts = np.vectorize(_get_len_target)(self.flattened_data)
         return counts / counts.sum()
 
 

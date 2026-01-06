@@ -17,12 +17,9 @@ BatchDType = TypeVar("BatchDType")
 
 
 class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
-    """Abstract base class for sampler objects.
+    """Abstract base class for sampler objects on trees.
 
     Subclasses need to override the :method _dispatch_sample: method.
-
-    :param BATCH_DATA_CLS: The class used to store the matched distributions.
-    :type BATCH_DATA_CLS: class: `type[NodeDType]`
     """
 
     def __init__(
@@ -77,7 +74,7 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
             replace=self._replace_nodes,
         )
 
-    def _sample_indices_uniformly(
+    def _sample_indices(
         self,
         n_obs: int,
         batch_size: int = DEFAULT_BATCH_SIZE,
@@ -93,7 +90,7 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
             return np.random.permutation(n_obs)[:batch_size]
 
     def _sample_from_distr(self, distr: DistributionDType, batch_size: int = DEFAULT_BATCH_SIZE) -> DistributionDType:
-        mask = self._sample_indices_uniformly(len(distr), batch_size)
+        mask = self._sample_indices(len(distr), batch_size)
         return distr[mask]
 
     def _sample_observations(
@@ -127,11 +124,7 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         :type batch_size: class: `int`
         """
         groups = self._sample_nodes(n_nodes)
-        return np.vectorize(self._sample_observations)(groups, batch_size)
-
-    def sample(self) -> np.ndarray[BatchDType]:
-        """Samples a batch of data from the tree."""
-        return self._sample(self._n_nodes, self._batch_size)
+        return np.array([self._sample_observations(group, batch_size) for group in groups])
 
     @property
     def tree(self) -> TreeDType:
@@ -154,9 +147,9 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         return self._use_nodes_weights
 
     @cached_property
-    def flattened_data(self) -> tuple[NodeDType]:
+    def flattened_data(self) -> np.ndarray[NodeDType]:
         """Caches the flattened array of leaf nodes of the data tree."""
-        return self._tree.flatten()
+        return np.array(self._tree.flatten())
 
     @cached_property
     def groups_p(self) -> np.ndarray:

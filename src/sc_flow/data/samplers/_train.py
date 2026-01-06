@@ -1,5 +1,7 @@
+import numpy as np
+
 from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
-from sc_flow.data.samplers._base import FSampler, Sampler, TreeDType
+from sc_flow.data.samplers._base import BatchDType, FSampler, Sampler, TreeDType
 
 __all__ = ["TrainSampler", "FTrainSampler"]
 
@@ -53,6 +55,10 @@ class TrainSampler(Sampler):
         )
         self._batch_size = batch_size
         self._n_nodes = n_nodes
+
+    def sample(self) -> np.ndarray[BatchDType]:
+        """Samples a batch of data from the tree."""
+        return self._sample(self._n_nodes, self._batch_size)
 
     @property
     def batch_size(self) -> int:

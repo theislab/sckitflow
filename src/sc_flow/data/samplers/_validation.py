@@ -3,7 +3,7 @@ from collections.abc import Iterable, Iterator
 import numpy as np
 
 from sc_flow._constants import DEFAULT_MAX_N_OBS, DEFAULT_N_GROUPS
-from sc_flow.data.samplers._base import BatchDType, FSampler, Sampler, TreeDType
+from sc_flow.data.samplers._base import BatchDType, FSampler, NodeDType, Sampler, TreeDType
 
 __all__ = ["ValidationSampler", "FValidationSampler"]
 
@@ -57,20 +57,20 @@ class ValidationSampler(Sampler, Iterable):
         )
         self._max_n_obs = max_n_obs
         self._n_nodes = n_nodes
-        self._samples = self._register_samples()
+        self._data = self._register_data()
 
-    def _register_samples(self) -> np.ndarray[BatchDType]:
+    def _register_data(self) -> np.ndarray[BatchDType]:
         """Pre-registres the samples for validation."""
         return self._sample(self._n_nodes, self._max_n_obs)
 
     def __len__(self) -> int:
-        return len(self._samples)
+        return len(self._data)
 
     def __getitem__(self, idx: slice) -> np.ndarray[BatchDType]:
-        return self._samples[idx]
+        return self._data[idx]
 
     def __iter__(self) -> Iterator[BatchDType]:
-        yield from self._samples
+        yield from self._data
 
     @property
     def max_n_obs(self) -> int:
@@ -81,6 +81,11 @@ class ValidationSampler(Sampler, Iterable):
     def n_nodes(self) -> int:
         """Exposes the :param n_nodes: attribute set at initialization."""
         return self._n_nodes
+
+    @property
+    def data(self) -> np.ndarray[NodeDType]:
+        """"""  # noqa
+        return self._data
 
 
 class FValidationSampler(ValidationSampler, FSampler):

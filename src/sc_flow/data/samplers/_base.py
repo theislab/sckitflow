@@ -7,7 +7,6 @@ import numpy as np
 
 from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
 from sc_flow.data._composite import DistributionDType, MatchedData, NestedData
-from sc_flow.data._utils import sample_indices_uniformly
 
 __all__ = ["TreeDType", "NodeDType", "BatchDType", "Sampler", "FSampler"]
 
@@ -88,7 +87,10 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         :param batch_size: The number of observations to load in the batch.
         :type batch_size: class: `int`
         """
-        return sample_indices_uniformly(n_obs, batch_size, replace=self._replace_samples)
+        if self._replace_samples:
+            return np.random.randint(0, n_obs, batch_size)
+        else:
+            return np.random.permutation(n_obs)[:batch_size]
 
     def _sample_from_distr(self, distr: DistributionDType, batch_size: int = DEFAULT_BATCH_SIZE) -> DistributionDType:
         mask = self._sample_indices_uniformly(len(distr), batch_size)

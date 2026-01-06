@@ -4,7 +4,6 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
-from sc_flow._jit import maybe_jit_fn
 from sc_flow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
 
 __all__ = [
@@ -12,7 +11,6 @@ __all__ = [
     "get_covariate_encoder",
     "get_label_encoder",
     "get_one_hot_encoder",
-    "sample_indices_uniformly",
 ]
 
 
@@ -76,11 +74,3 @@ def get_one_hot_encoder(data: np.ndarray) -> OneHotEncoder:
         )
         raise ValueError(msg)
     return OneHotEncoder().fit(data)
-
-
-@maybe_jit_fn(jit_kwargs={"nopython": True})
-def sample_indices_uniformly(n_obs: int, batch_size: int, replace: bool) -> np.ndarray:
-    if replace:
-        return np.random.randint(0, n_obs, batch_size)
-    else:
-        return np.random.permutation(n_obs)[:batch_size]

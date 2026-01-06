@@ -54,7 +54,7 @@ def raise_runtime_error_on_backend_failed_import() -> None:
         raise RuntimeError(msg)
 
 
-def attempt_tqdm_import() -> ModuleType:
+def attempt_tqdm_import() -> ModuleType | None:
     try:
         from tqdm.auto import tqdm
     except ImportError:
@@ -63,7 +63,7 @@ def attempt_tqdm_import() -> ModuleType:
     return tqdm
 
 
-def attempt_numba_import() -> ModuleType:
+def attempt_numba_import() -> ModuleType | None:
     try:
         import numba as nb
     except ImportError:

@@ -127,6 +127,10 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         groups = self._sample_nodes(n_nodes)
         return np.vectorize(self._sample_observations)(groups, batch_size)
 
+    def sample(self) -> np.ndarray[BatchDType]:
+        """Samples a batch of data from the tree."""
+        return self._sample(self._n_nodes, self._batch_size)
+
     @property
     def tree(self) -> TreeDType:
         """Returns the underlying data tree."""

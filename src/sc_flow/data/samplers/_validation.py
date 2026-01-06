@@ -67,12 +67,10 @@ class ValidationSampler(Sampler, Iterable):
         return len(self._samples)
 
     def __getitem__(self, idx: slice) -> np.ndarray[BatchDType]:
-        samples = self._samples[idx]
-        return self._dispatch_sample(samples)
+        return self._samples[idx]
 
     def __iter__(self) -> Iterator[BatchDType]:
-        for group in self._samples:
-            yield self._dispatch_sample(group)
+        yield from self._samples
 
     @property
     def max_n_obs(self) -> int:

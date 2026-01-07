@@ -53,7 +53,7 @@ class DistributionData(BaseData):
             self.state_data._assert_same_n_obs(self.target_coupling_data)
 
     def __repr__(self) -> str:
-        parts = [f"\n * n_obs={self.n_obs}"]
+        parts = [f"\n * n_obs={len(self)}"]
         to_plot = [
             ("state", self.state_data),
             ("target", self.target_data),
@@ -69,7 +69,10 @@ class DistributionData(BaseData):
                 parts.append(f"{prefix}={comp!r}")
         return f"{self.__class__.__name__}:" + "\n ".join(parts)
 
-    def _slice(
+    def __len__(self) -> int:
+        return len(self.state_data)
+
+    def __getitem__(
         self,
         idxs: np.ndarray | slice,
     ) -> "DistributionData":
@@ -87,10 +90,6 @@ class DistributionData(BaseData):
             source_coupling_data=source_coupling_data,
             target_coupling_data=target_coupling_data,
         )
-
-    @property
-    def n_obs(self) -> int:
-        return self.state_data.n_obs
 
     @cached_property
     def ann_df(self) -> pd.DataFrame:

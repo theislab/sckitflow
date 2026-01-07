@@ -65,12 +65,12 @@ class MatchedData:
         """"""  # noqa
         if self.source_distribution is None:
             return None
-        return self.source_distribution.n_obs
+        return len(self.source_distribution)
 
     @property
     def n_target_obs(self) -> int:
         """"""  # noqa
-        return self.target_distribution.n_obs
+        return len(self.target_distribution)
 
     @property
     def n_src_obs(self) -> int:

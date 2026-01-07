@@ -135,6 +135,13 @@ class BatchMixin(ArrayMixin):
 
     minimum_dims: ClassVar[int] = 1
 
+    def __len__(self) -> int:
+        """"""  # noqa
+        if len(self.reference_dims) != 1:
+            msg = f"Continuous covariates should have only one reference dim, found {len(self.reference_dims)}"
+            raise ValueError(msg)
+        return self.reference_dims[0]
+
     def _verify_inputs(self) -> None:
         """"""  # noqa
         # calling method of parent class for usual checks
@@ -179,11 +186,3 @@ class BatchMixin(ArrayMixin):
             reference_array = next(iter(self.mapping.values()))
             return reference_array.shape[: self.minimum_dims]
         return []
-
-    @property
-    def n_obs(self) -> int:
-        """"""  # noqa
-        if len(self.reference_dims) != 1:
-            msg = f"Continuous covariates should have only one reference dim, found {len(self.reference_dims)}"
-            raise ValueError(msg)
-        return self.reference_dims[0]

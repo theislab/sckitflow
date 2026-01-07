@@ -54,13 +54,12 @@ class CategoricalData(BaseData):
             f"categorical_encoders_keys={encoder_keys})"
         )
 
-    def _slice(
+    def __getitem__(
         self,
         idxs: np.ndarray | slice,
     ) -> "CategoricalData":
         ann_df = self.ann_df.take(idxs)
         return self.__class__(ann_df, repr_dict=self.repr_dict, categorical_encoders=self.categorical_encoders)
 
-    @property
-    def n_obs(self) -> int:
+    def __len__(self) -> int:
         return self.ann_df.shape[0]

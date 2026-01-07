@@ -28,7 +28,7 @@ class CouplingData(BaseData):
             self.state_lin._assert_same_n_obs(self.state_quad)
 
     def __repr__(self) -> str:
-        parts = [f"n_obs={self.n_obs}"]
+        parts = [f"n_obs={len(self)}"]
 
         lin_shape = self.state_lin.X.shape
         lin_dims = lin_shape[1:] if len(lin_shape) > 1 else ()
@@ -43,7 +43,10 @@ class CouplingData(BaseData):
 
         return f"{self.__class__.__name__}({', '.join(parts)})"
 
-    def _slice(self, idxs: np.ndarray | slice) -> "CouplingData":
+    def __len__(self) -> int:
+        return len(self.state_lin)
+
+    def __getitem__(self, idxs: np.ndarray | slice) -> "CouplingData":
         state_lin = self.state_lin[idxs]
         state_quad = None if self.state_quad is None else self.state_quad[idxs]
         return self.__class__(
@@ -99,7 +102,3 @@ class CouplingData(BaseData):
             state_lin = state_data
             state_quad = None
         return cls(state_lin, state_quad)
-
-    @property
-    def n_obs(self) -> int:
-        return self.state_lin.n_obs

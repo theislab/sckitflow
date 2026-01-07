@@ -44,8 +44,8 @@ class CouplingData(BaseData):
         return f"{self.__class__.__name__}({', '.join(parts)})"
 
     def _slice(self, idxs: np.ndarray | slice) -> "CouplingData":
-        state_lin = self.state_lin.slice_with_array(idxs)
-        state_quad = None if self.state_quad is None else self.state_quad.slice_with_array(idxs)
+        state_lin = self.state_lin[idxs]
+        state_quad = None if self.state_quad is None else self.state_quad[idxs]
         return self.__class__(
             state_lin,
             state_quad=state_quad,

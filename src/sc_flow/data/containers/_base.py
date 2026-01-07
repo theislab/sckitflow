@@ -59,12 +59,12 @@ class BaseData(abc.ABC):
         self,
         idxs: np.ndarray | slice,
     ) -> "BaseData":
-        """Slices the underlying data with an array.
+        """Slices the underlying data.
 
         Needs to be overridden by children classes.
 
-        :param idxs: The array storing the indices used for slicing.
-        :type idxs: class: `np.ndarray`
+        :param idxs: The indices used for slicing.
+        :type idxs: class: `np.ndarray | slice`
         """
         raise NotImplementedError
 
@@ -104,19 +104,6 @@ class BaseData(abc.ABC):
         if return_index:
             return query_data, idxs
         return query_data
-
-    def slice_with_array(
-        self,
-        idxs: np.ndarray,
-    ) -> "BaseData":
-        """Slices the underlying data with an array.
-
-        :param idxs: The array storing the indices used for slicing.
-        :type idxs: class: `np.ndarray`
-        """
-        if not isinstance(idxs, np.ndarray):
-            idxs = np.asarray(idxs, dtype=int)
-        return self._slice(idxs)
 
     @property
     @abc.abstractmethod

@@ -58,7 +58,7 @@ class CategoricalData(BaseData):
         self,
         idxs: np.ndarray | slice,
     ) -> "CategoricalData":
-        ann_df = self.ann_df.take(idxs)
+        ann_df = self.ann_df.iloc[idxs]
         return self.__class__(ann_df, repr_dict=self.repr_dict, categorical_encoders=self.categorical_encoders)
 
     def __len__(self) -> int:

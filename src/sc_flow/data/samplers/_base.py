@@ -55,6 +55,10 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         self._use_nodes_weights = use_nodes_weights
 
     @abc.abstractmethod
+    def _preprocess_sample(self, group: NodeDType) -> BatchDType:
+        """Processes all the batches before sampling"""
+
+    @abc.abstractmethod
     def _dispatch_sample(self, group: NodeDType) -> BatchDType:
         """Processes the batch before returning it."""
 
@@ -149,7 +153,7 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
     @cached_property
     def flattened_data(self) -> np.ndarray[NodeDType]:
         """Caches the flattened array of leaf nodes of the data tree."""
-        return np.array(self._tree.flatten())
+        return np.array([self._preprocess_sample(node) for node in self._tree.flatten()])
 
     @cached_property
     def groups_p(self) -> np.ndarray:
@@ -168,7 +172,8 @@ class FSampler(Sampler[MatchedData, BatchDType]):
     def __init__(
         self,
         data: TreeDType,
-        f: Callable[[NodeDType], BatchDType],
+        dispatch_f: Callable[[BatchDType], BatchDType],
+        preprocess_f: Callable[[NodeDType], NodeDType] | None = None,
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
@@ -198,13 +203,23 @@ class FSampler(Sampler[MatchedData, BatchDType]):
         super().__init__(
             data, replace_samples=replace_samples, replace_nodes=replace_nodes, use_nodes_weights=use_nodes_weights
         )
-        self._f = f
+        self._preprocess_f = preprocess_f if preprocess_f is not None else lambda x: x
+        self._dispatch_f = dispatch_f
+
+    def _preprocess_sample(self, group: NodeDType) -> NodeDType:
+        """Processes all the nodes before sampling from them."""
+        return self._preprocess_f(group)
 
     def _dispatch_sample(self, group: NodeDType) -> BatchDType:
         """Processes the batch before returning it."""
-        return self._f(group)
+        return self._dispatch_f(group)
 
     @property
-    def f(self) -> Callable[[NodeDType], BatchDType]:
+    def preprocess_f(self) -> Callable[[NodeDType], BatchDType]:
         """Exposes the :param f: attribute set at initialization."""
-        return self._f
+        return self._preprocess_f
+
+    @property
+    def dispatch_f(self) -> Callable[[NodeDType], BatchDType]:
+        """Exposes the :param f: attribute set at initialization."""
+        return self._dispatch_f

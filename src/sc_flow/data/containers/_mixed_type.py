@@ -26,7 +26,7 @@ class MixedTypeData(BaseData):
     def __post_init__(self) -> None:
         if self.categorical_covariates is not None and self.continuous_covariates is not None:
             n_obs_cat = self.categorical_covariates.ann_df.shape[0]
-            n_obs_cont = self.continuous_covariates.n_obs
+            n_obs_cont = len(self.continuous_covariates)
             if n_obs_cat != n_obs_cont:
                 msg = (
                     "Shape mismatch between categorical and continuous covariates. "
@@ -36,7 +36,7 @@ class MixedTypeData(BaseData):
                 raise ValueError(msg)
 
     def __repr__(self) -> str:
-        parts = [f"n_obs={self.n_obs}"]
+        parts = [f"n_obs={len(self)}"]
 
         if self.categorical_covariates is not None:
             cat = self.categorical_covariates
@@ -55,7 +55,16 @@ class MixedTypeData(BaseData):
 
         return f"{self.__class__.__name__}(" + ", ".join(parts)
 
-    def _slice(
+    def __len__(self) -> int:
+        if self.categorical_covariates is not None:
+            return len(self.categorical_covariates)
+
+        if self.continuous_covariates is not None:
+            return len(self.continuous_covariates)
+        msg = f"{self.__class__.__name__} must contain at least one covariate container."
+        raise ValueError(msg)
+
+    def __getitem__(
         self,
         idxs: np.ndarray | slice,
     ) -> "MixedTypeData":
@@ -67,13 +76,3 @@ class MixedTypeData(BaseData):
         return self.__class__(
             categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates
         )
-
-    @property
-    def n_obs(self) -> int:
-        if self.categorical_covariates is not None:
-            return self.categorical_covariates.n_obs
-
-        if self.continuous_covariates is not None:
-            return self.continuous_covariates.n_obs
-        msg = f"{self.__class__.__name__} must contain at least one covariate container."
-        raise ValueError(msg)

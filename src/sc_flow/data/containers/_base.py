@@ -12,11 +12,15 @@ __all__ = ["BaseData"]
 class BaseData(abc.ABC):
     """Base class for data containers."""
 
+    @abc.abstractmethod
     def __len__(self) -> int:
-        return self.n_obs
+        """"""  # noqa
+        raise NotImplementedError
 
+    @abc.abstractmethod
     def __getitem__(self, idx: np.ndarray | slice) -> "BaseData":
-        return self._slice(idx)
+        """"""  # noqa
+        raise NotImplementedError
 
     @staticmethod
     def _get_query_idxs(
@@ -44,8 +48,8 @@ class BaseData(abc.ABC):
         other: "BaseData",
     ) -> None:
         """Checks that the current object shares the same number of observations as another."""
-        n_obs_ref = self.n_obs
-        n_obs_query = other.n_obs
+        n_obs_ref = len(self)
+        n_obs_query = len(other)
         if n_obs_ref != n_obs_query:
             msg = (
                 "Query and reference should share the same number of observations, "
@@ -53,20 +57,6 @@ class BaseData(abc.ABC):
                 "observations for query."
             )
             raise ValueError(msg)
-
-    @abc.abstractmethod
-    def _slice(
-        self,
-        idxs: np.ndarray | slice,
-    ) -> "BaseData":
-        """Slices the underlying data.
-
-        Needs to be overridden by children classes.
-
-        :param idxs: The indices used for slicing.
-        :type idxs: class: `np.ndarray | slice`
-        """
-        raise NotImplementedError
 
     @overload
     def slice_with_index(
@@ -100,12 +90,7 @@ class BaseData(abc.ABC):
             msg = "Query index contains entries not present in reference index."
             raise KeyError(msg)
 
-        query_data = self._slice(idxs)
+        query_data = self[idxs]
         if return_index:
             return query_data, idxs
         return query_data
-
-    @property
-    @abc.abstractmethod
-    def n_obs(self) -> int:
-        raise NotImplementedError

@@ -73,16 +73,12 @@ class DistributionData(BaseData):
         self,
         idxs: np.ndarray | slice,
     ) -> "DistributionData":
-        state_data = self.state_data.slice_with_array(idxs)
-        target_data = None if self.target_data is None else self.target_data.slice_with_array(idxs)
-        condition_data = None if self.condition_data is None else self.condition_data.slice_with_array(idxs)
-        groups_data = None if self.groups_data is None else self.groups_data.slice_with_array(idxs)
-        source_coupling_data = (
-            None if self.source_coupling_data is None else self.source_coupling_data.slice_with_array(idxs)
-        )
-        target_coupling_data = (
-            None if self.target_coupling_data is None else self.target_coupling_data.slice_with_array(idxs)
-        )
+        state_data = self.state_data[idxs]
+        target_data = None if self.target_data is None else self.target_data[idxs]
+        condition_data = None if self.condition_data is None else self.condition_data[idxs]
+        groups_data = None if self.groups_data is None else self.groups_data[idxs]
+        source_coupling_data = None if self.source_coupling_data is None else self.source_coupling_data[idxs]
+        target_coupling_data = None if self.target_coupling_data is None else self.target_coupling_data[idxs]
         return self.__class__(
             state_data,
             target_data=target_data,

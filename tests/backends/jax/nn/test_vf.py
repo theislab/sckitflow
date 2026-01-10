@@ -1,9 +1,9 @@
 from collections.abc import Callable
 from typing import Any
 
+import jax
 import pytest
 from jax import numpy as jnp
-import jax
 
 from sc_flow._types import TimeFeaturesId
 from sc_flow.backends.jax._types import TTimeFeaturesFn

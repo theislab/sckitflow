@@ -31,7 +31,6 @@ def init_module_from_dict(
     :param output_dim: (Optional) Output dimension for the module.
     :type output_dim: class: `int | None`
     """
-
     if isinstance(layers_dict, FrozenDict):
         layers_dict = dict(layers_dict)
     else:

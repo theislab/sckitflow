@@ -1,5 +1,3 @@
-# tests/backends/torch/solvers/test_ode_solver.py
-
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -100,7 +98,22 @@ def test_vf_kwargs_forwarded(poly_vf: PolyTimeVF, y0: Tensor, t01: Tensor) -> No
     assert poly_vf.last_get_vf_fn_kwargs["alpha"] == pytest.approx(0.42)
 
 
-_METHODS = ["euler", "midpoint", "rk4", "dopri5", "adams"]
+_METHODS = [
+    "dopri8",
+    "dopri5",
+    "bosh3",
+    "fehlberg2",
+    "adaptive_heun",
+    "euler",
+    "midpoint",
+    "heun2",
+    "heun3",
+    "rk4",
+    "explicit_adams",
+    "implicit_adams",
+    "fixed_adams",
+    "scipy_solver",
+]
 
 
 @pytest.mark.parametrize("method", _METHODS)

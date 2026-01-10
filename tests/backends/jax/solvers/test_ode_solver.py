@@ -6,7 +6,7 @@ import pytest
 
 from sc_flow.backends.jax._types import ArrayLike, TVfFn
 from sc_flow.backends.jax.nn import BaseVelocityField
-from sc_flow.backends.jax.solvers.ode_solver import ODESolver  # adjust path as needed
+from sc_flow.backends.jax.solvers.ode_solver import ODESolver
 
 
 class SimpleLinearVF(BaseVelocityField):

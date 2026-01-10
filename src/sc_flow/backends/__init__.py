@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from importlib import import_module
 
-__all__ = ["backends", "methods", "trainer"]
+__all__ = ["torch", "jax"]
 
 
 def __getattr__(name: str):

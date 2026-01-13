@@ -78,6 +78,8 @@ X_train_original = zscore.inverse_transform(X_train_normalized)
 
 Reduces dimensionality using Principal Component Analysis.
 
+`Note: Does not account for data sparsity right now`
+
 **Parameters:**
 - `n_components` (int or None): Number of principal components to keep
   - If None: Keep all components (no reduction)

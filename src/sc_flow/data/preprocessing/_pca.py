@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 import numpy as np
-from sklearn.decomposition import PCA
+import scanpy as sc
 
 from sc_flow.data.preprocessing._base import BasePreprocessor, PreprocessorParams
 
@@ -49,7 +49,7 @@ class PCAPreprocessor(BasePreprocessor):
         self.n_components = n_components
         self._params: PCAParams | None = None
 
-    def fit(self, X: np.ndarray) -> "PCAPreprocessor":
+    def fit(self, X: np.ndarray) -> "PCAParams":
         """Fit PCA by computing principal components.
 
         Args:
@@ -60,6 +60,7 @@ class PCAPreprocessor(BasePreprocessor):
             Self
         """
         # Validate
+        X = X.astype(np.float64)
         self._validate_input(X)
 
         _, n_features = X.shape
@@ -75,14 +76,19 @@ class PCAPreprocessor(BasePreprocessor):
             n_components = self.n_components
 
         # PCA
-        self._pca = PCA(n_components=n_components)
-        self._pca.fit(X)
+        X_mean = np.array(np.mean(X, axis=0))
+        X_centered = np.array(X - X_mean)
+        X_pca, PCs, variance_ratio, variance = sc.pp.pca(
+            X_centered, zero_center=False, return_info=True, n_comps=n_components
+        )
+        # self._pca = PCA(n_components=n_components)
+        # self._pca.fit(X)
 
         self._params = PCAParams(
-            mean=self._pca.mean_,
-            components=self._pca.components_,
-            explained_variance=self._pca.explained_variance_,
-            n_components=self._pca.n_components_,
+            mean=X_mean,
+            components=PCs,
+            explained_variance=variance,
+            n_components=n_components,
             is_fitted=True,
             n_features=X.shape[1],
         )
@@ -101,14 +107,18 @@ class PCAPreprocessor(BasePreprocessor):
             Transformed data in PC space, shape (n_samples, n_components).
         """
         # Validate
+        X = X.astype(np.float64)
         self.params._validate_fitted()
         self._validate_input(X)
         self.params._validate_n_features(X)
 
         # Transform
-        X_transformed = self._pca.transform(X)
+        # X_transformed = self._pca.transform(X)
 
-        return X_transformed
+        X_centered = np.array(X - self.params.mean)
+        X_pca = X_centered @ self.params.components.T
+
+        return X_pca
 
     def inverse_transform(self, X: np.ndarray) -> np.ndarray:
         """Reconstruct data from PC space.
@@ -133,7 +143,8 @@ class PCAPreprocessor(BasePreprocessor):
                 f"was fitted with {self.params.n_components} components."
             )
 
-        X_reconstructed = self._pca.inverse_transform(X)
+        # X_reconstructed = self._pca.inverse_transform(X)
+        X_reconstructed = X @ self.params.components + self.params.mean
 
         return X_reconstructed
 
@@ -147,6 +158,7 @@ class PCAPreprocessor(BasePreprocessor):
         -------
             Transformed data in PC space, shape (n_samples, n_components).
         """
+        X = X.astype(np.float64)
         self.fit(X)
         return self.transform(X)
 

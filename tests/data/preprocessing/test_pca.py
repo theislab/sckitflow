@@ -1,5 +1,6 @@
 import numpy as np
 import pytest
+import scanpy as sc
 
 from sc_flow.data.preprocessing import PCAPreprocessor
 
@@ -112,6 +113,23 @@ class TestPCAPreprocessor:
 
         with pytest.raises(ValueError, match="features"):
             pca.transform(X_test)
+
+    def test_manual_vs_ppca_transform(self):
+        """Test manual PCA computation matches PCAPreprocessor output."""
+        np.random.seed(42)
+        X = np.random.randn(100, 50)
+
+        # Manual PCA
+        X_mean = np.array(np.mean(X, axis=0))
+        X_centered = np.array(X - X_mean)
+        X_pca, _, _, _ = sc.pp.pca(X_centered, zero_center=False, return_info=True, n_comps=30)
+
+        # Using PCAPreprocessor
+        pca = PCAPreprocessor(n_components=30)
+        X_ppca_transformed = pca.fit_transform(X)
+
+        # Compare
+        assert np.allclose(X_pca, X_ppca_transformed, atol=1e-6)
 
     # def test_multiple_states(self):
     #     """Test fitting multiple times creates independent states."""

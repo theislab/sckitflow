@@ -1,9 +1,8 @@
 import abc
-from typing import Any, Literal
 from dataclasses import field as dc_field
+from typing import Any, Literal
 
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
 
 from sc_flow._constants import (
@@ -65,7 +64,6 @@ class BaseVelocityField(abc.ABC, nn.Module):
         **kwargs,
     ) -> TVfFn:
         """Compiles the velocity field function to be fed to external solvers."""
-
 
 
 class MLPUnconditionalVF(BaseVelocityField):
@@ -198,6 +196,7 @@ class MLPUnconditionalVF(BaseVelocityField):
         Only used when encoding source states. Defaults to `None`.
     :type source_encoder_output_dim: class: `int`
     """
+
     state_dim: int
     encode_state: bool = True
     encode_time: bool = True
@@ -234,12 +233,12 @@ class MLPUnconditionalVF(BaseVelocityField):
         are passed during initialization.
         """
         return (self.time_features_id is not None) or (self.time_features_fn is not None)
-    
+
     @property
     def use_source_encoder(self) -> bool:
         """Boolean flag indicating whether an MLP should be initialized to encode source states."""
         return self.source_encoder_mlp_kwargs is not None
-    
+
     @property
     def source_encoder_input_dim(self) -> int:
         """Returns the input dimensionality for the source encoder.
@@ -251,7 +250,7 @@ class MLPUnconditionalVF(BaseVelocityField):
         if input_dim is None:
             return self.state_dim
         return input_dim
-    
+
     @property
     def conditioning_dim(self) -> int | None:
         """Returns the dimensionality for the condition input of the conditioning layers."""
@@ -262,7 +261,7 @@ class MLPUnconditionalVF(BaseVelocityField):
         elif self.use_source_encoder:
             return self.resolved_source_encoder_output_dim
         return None
-    
+
     def get_num_time_features(
         self,
     ) -> int:
@@ -290,7 +289,7 @@ class MLPUnconditionalVF(BaseVelocityField):
                 raise TypeError(msg)
             return self.vf["condition_encoder"](condition_dict)
         return None
-    
+
     def get_encoded_source(
         self,
         source: ArrayLike | None,
@@ -302,10 +301,8 @@ class MLPUnconditionalVF(BaseVelocityField):
                 raise TypeError(msg)
             return self.vf["source_encoder"](source)
         return None
-    
-    def get_conditioning_input(
-        self, encoded_condition: ArrayLike, encoded_source: ArrayLike
-    ) -> ArrayLike | None:
+
+    def get_conditioning_input(self, encoded_condition: ArrayLike, encoded_source: ArrayLike) -> ArrayLike | None:
         """Retrieves the condition input for the conditioning layers."""
         if encoded_condition is not None and encoded_source is not None:
             return jnp.concatenate(
@@ -316,7 +313,7 @@ class MLPUnconditionalVF(BaseVelocityField):
         elif encoded_condition is not None and encoded_source is None:
             return encoded_source
         return None
-    
+
     def _make_time_features(
         self,
     ) -> FunctionalModule:
@@ -358,7 +355,6 @@ class MLPUnconditionalVF(BaseVelocityField):
         When :param: `encode_state` is set to `True` it will initialize a :class: `MLP` with the configurations
         specified in :param: `state_encoder_mlp_kwargs`. Returns an identity function wrapper otherwise otherwise.
         """
-
         if self.encode_state:
             return init_module_from_dict(
                 self.state_encoder_mlp_kwargs,
@@ -397,7 +393,7 @@ class MLPUnconditionalVF(BaseVelocityField):
             pooling_kwargs=self.condition_encoder_pooling_kwargs,
             output_layers_kwargs=self.condition_encoder_output_layers_kwargs,
         )
-    
+
     def _make_vf_decoder(
         self,
         decoder_input_dim: int,
@@ -428,7 +424,7 @@ class MLPUnconditionalVF(BaseVelocityField):
             input_dim=self.source_encoder_input_dim,
             output_dim=self.source_encoder_output_dim,
         )
-    
+
     def _make_vf(
         self,
     ) -> nn.Module:
@@ -450,7 +446,7 @@ class MLPUnconditionalVF(BaseVelocityField):
             modules["conditioning_layer"].output_dim,
         )
         return modules
-    
+
     def __call__(
         self,
         t: ArrayLike,

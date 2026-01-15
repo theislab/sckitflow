@@ -11,7 +11,8 @@ buck-out/
 .venv/
 __pycache__/
 .*cache/
-
+*.pyo
+*.py[cod]
 # Distribution / packaging
 /dist/
 

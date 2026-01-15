@@ -1,7 +1,7 @@
 from sc_flow.backends.jax.nn._modules import (
+    MLP,
     BaseModule,
     FunctionalModule,
-    MLP,
     Resnet1d,
 )
 

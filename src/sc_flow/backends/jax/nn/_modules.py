@@ -37,10 +37,12 @@ class BaseModule(abc.ABC, nn.Module):
         :rtype: class: `torch.nn.Module`
         """
 
+
 class FunctionalModule(BaseModule):
     """Class for wrapping :class: `torch.nn.Modules` around callables."""
+
     fn: Callable[[ArrayLike], ArrayLike]
-    
+
     def setup(self) -> None:
         """TODO."""
         pass
@@ -201,7 +203,7 @@ class MLP(BaseModule):
 
 
 class Resnet1d(BaseModule):
-    """Class for residual connections on 1-dimensional inputs.
+    r"""Class for residual connections on 1-dimensional inputs.
 
     The residual network formulation takes the following inputs:
         * Input States: :math: `\boldsymbol{x} \\in \\mathbb{R}^{n}`.

@@ -1,7 +1,7 @@
 import scanpy as sc
 from sklearn import datasets
 
-from sc_flow.data.dummy._base import BaseDummyDataset
+from sc_flow.dataset.dummy._base import BaseDummyDataset
 
 
 class CheckerboardDataset(BaseDummyDataset):
@@ -97,7 +97,7 @@ class CheckerboardDataset(BaseDummyDataset):
         Returns
         -------
         adata : sc.AnnData
-            Dataset with checkerboard pattern and cluster labels
+            Dataset with checkerboard pattern, row/column cluster assignments & metadata
         """
         # Step 1: Generate checkerboard data
         X, rows, cols = datasets.make_checkerboard(
@@ -116,6 +116,9 @@ class CheckerboardDataset(BaseDummyDataset):
         adata.varm["col_cluster"] = cols.T
 
         # Add checkerboard-specific metadata
+        adata.uns["dataset_info"]["extra_info"] = (
+            "The row & col cluster original shape is (n_clusters, X.shape[0]) & (n_clusters, X.shape[1]) respectively."
+        )
         adata.uns["dataset_info"]["n_clusters"] = n_clusters
         adata.uns["dataset_info"]["noise"] = noise
         adata.uns["dataset_info"]["minval"] = minval

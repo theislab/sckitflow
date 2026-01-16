@@ -1,7 +1,7 @@
 import scanpy as sc
 from sklearn import datasets
 
-from sc_flow.data.dummy._base import BaseDummyDataset
+from sc_flow.dataset.dummy._base import BaseDummyDataset
 
 
 class MoonsDataset(BaseDummyDataset):
@@ -57,10 +57,10 @@ class MoonsDataset(BaseDummyDataset):
         # Step 1: Generate moons using sklearn
         X, y = datasets.make_moons(n_samples=n_samples, noise=noise, random_state=random_state, shuffle=shuffle)
 
-        # Step 3: Wrap in AnnData format
+        # Step 2: Wrap in AnnData format
         adata = self._create_anndata(X, y)
 
-        # Add moons-specific metadata
+        # Step 3: Add moons-specific metadata
         adata.uns["dataset_info"]["noise"] = noise
         adata.uns["dataset_info"]["shuffle"] = shuffle
 

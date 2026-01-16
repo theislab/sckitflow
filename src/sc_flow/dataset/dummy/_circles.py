@@ -1,7 +1,7 @@
 import scanpy as sc
 from sklearn import datasets
 
-from sc_flow.data.dummy._base import BaseDummyDataset
+from sc_flow.dataset.dummy._base import BaseDummyDataset
 
 
 class CirclesDataset(BaseDummyDataset):

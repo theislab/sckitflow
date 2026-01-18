@@ -1,8 +1,6 @@
-import pytest
-import jax.numpy as jnp
 import jax
-from flax import linen as nn
-from flax.errors import ScopeParamNotFoundError
+import jax.numpy as jnp
+import pytest
 
 from sc_flow._types import LayersDict, NestedLayersDict
 from sc_flow.backends.jax.nn._set_encoder import SetEncoder

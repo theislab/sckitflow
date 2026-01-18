@@ -70,8 +70,8 @@ def make_concatenation_possible(
 ) -> tuple[ArrayLike, ArrayLike]:
     """"""  # noqa
 
-    dims_to_match = [d for d in target_array.shape[:concat_dims]]
-    dims_to_retain = [d for d in input_array.shape[concat_dims:]]
+    dims_to_match = list(target_array.shape[:concat_dims])
+    dims_to_retain = list(input_array.shape[concat_dims:])
     for idx in range(len(dims_to_match)):
         if idx + 1 > input_array.ndim - len(dims_to_retain):
             input_array = jnp.expand_dims(input_array, idx)

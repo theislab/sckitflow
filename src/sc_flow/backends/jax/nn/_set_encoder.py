@@ -22,20 +22,17 @@ class SetEncoder(BaseModule):
 
     def setup(self) -> None:
         """Initializes the set encoder modules."""
-        pooling_kwargs = {} if self.pooling_kwargs is None else self.pooling_kwargs
+        _pooling_kwargs = {} if self.pooling_kwargs is None else self.pooling_kwargs
         output_layers_kwargs = {} if self.output_layers_kwargs is None else self.output_layers_kwargs
 
         self.covariate_ids = list(self.input_layers.keys())
         self.input_encoder_list = [
-            init_module_from_dict(covariate_layers_dict)
-            for covariate_layers_dict in self.input_layers.values()
+            init_module_from_dict(covariate_layers_dict) for covariate_layers_dict in self.input_layers.values()
         ]
 
         self.pooling_layer = self._make_pooling_layer()
         self.output_layer = init_module_from_dict(
-            output_layers_kwargs,
-            input_dim=self.decoder_input_dim,
-            output_dim=self.output_dim
+            output_layers_kwargs, input_dim=self.decoder_input_dim, output_dim=self.output_dim
         )
 
     def _make_pooling_layer(self) -> nn.Module:
@@ -49,7 +46,7 @@ class SetEncoder(BaseModule):
         else:
             msg = f'Pooling mode {self.pooling_mode} is not supported, possible options are `["mean", "sum"]`'
             raise ValueError(msg)
-        
+
     def __call__(
         self,
         condition_dict: MappedArray,
@@ -65,9 +62,9 @@ class SetEncoder(BaseModule):
             if covariate_id not in self.covariate_ids:
                 msg = f"Input encoder not found for covariate {covariate_id}"
                 raise KeyError(msg)
-            encoded_covariates[covariate_id] = self.input_encoder_list[
-                self.covariate_ids.index(covariate_id)
-            ](condition_dict[covariate_id])
+            encoded_covariates[covariate_id] = self.input_encoder_list[self.covariate_ids.index(covariate_id)](
+                condition_dict[covariate_id]
+            )
 
         pooled_covariates = jnp.concatenate(tuple(encoded_covariates.values()), axis=-1)
         pooled_covariates = self.pooling_layer(pooled_covariates)

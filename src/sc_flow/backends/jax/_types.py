@@ -24,6 +24,7 @@ TSigmaFn = Callable[[ArrayLike], ArrayLike]
 
 TVfFn = Callable[[ArrayLike, ArrayLike], ArrayLike]
 
+
 class TConditioningFn(Protocol):
     def __call__(
         self,

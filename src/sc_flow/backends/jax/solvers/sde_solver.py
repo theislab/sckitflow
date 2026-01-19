@@ -1,3 +1,4 @@
+import warnings
 from typing import Any, Literal
 
 import diffrax as dfx
@@ -6,7 +7,6 @@ import jax.numpy as jnp
 from diffrax import ConstantStepSize, ControlTerm, Euler, ODETerm
 
 from sc_flow.backends.jax._types import ArrayLike, TVfFn
-from sc_flow.backends.jax.solvers._utils import validate_sde_solve_params
 from sc_flow.backends.jax.solvers.solver import Solver
 
 
@@ -122,7 +122,15 @@ class SDESolver(Solver):
                 key=jax.random.PRNGKey(0),
             )
 
-        validate_sde_solve_params(stepsize_controller, brownian_motion, adjoint)
+        if isinstance(brownian_motion, dfx.UnsafeBrownianPath) and not isinstance(
+            stepsize_controller, dfx.AbstractAdaptiveStepSizeController
+        ):
+            warnings.warn(
+                "Using UnsafeBrownianPath with fixed-step solver:\n"
+                "- Backpropagation through the SDE will not be supported.\n"
+                "- Output is nondeterministic w.r.t RNG key due to floating-point fluctuations.\n",
+                stacklevel=2,
+            )
 
         if adjoint is not None:
             solver_kwargs["adjoint"] = adjoint

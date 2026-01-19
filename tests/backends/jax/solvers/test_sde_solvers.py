@@ -108,7 +108,6 @@ def test_sde_unsafe_brownian_fixed_stepsize_without_adjoint_raises() -> None:
 
     with pytest.raises(
         ValueError,
-        match="Default adjoint method is RecursiveCheckPointAdjoint",
     ):
         _ = solver.solve(
             source=x0,

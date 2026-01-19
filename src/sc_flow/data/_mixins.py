@@ -1,30 +1,33 @@
 from collections.abc import Callable, Collection, Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
+from types import MappingProxyType
 from typing import Any, ClassVar, Generic, TypeVar
 
 import numpy as np
+import pandas as pd
 
-__all__ = ["DataMixin", "ArrayMixin", "BatchMixin"]
+__all__ = ["MappedTree", "MappedLevelIndex", "ArrayMixin", "BatchMixin"]
 
 
 T = TypeVar("T")
+C = TypeVar("C", bound="MappedTree")
 
 
 @dataclass(frozen=True)
-class DataMixin(Generic[T]):
+class MappedTree(Generic[T]):
     """"""  # noqa
 
     required_key_type: ClassVar[type[Any]] = str
     required_value_type: ClassVar[type[Any]] = object
-    mapping: Mapping[Hashable, "T | DataMixin"] = dc_field(default_factory=lambda: {})
+    mapping: Mapping[Hashable, T | C] = dc_field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         """"""  # noqa
         # verifying inputs
         self._verify_inputs()
 
-    def __getitem__(self, key: Hashable) -> "T | DataMixin[T]":
+    def __getitem__(self, key: Hashable) -> "T | MappedTree[T]":
         """"""  # noqa
         return self.mapping[key]
 
@@ -32,16 +35,16 @@ class DataMixin(Generic[T]):
         """"""  # noqa
         # iterating over each key to check that the type is the same
         for key, value in self.mapping.items():
-            if not isinstance(value, self.required_value_type):
-                msg = f"The values should respect the pre-defined type. Got {type(value)} for {key}, expected {self.data_type}."
+            if not isinstance(value, self.required_value_type | MappedTree):
+                msg = f"The values should respect the pre-defined type. Got {type(value)} for {key}, expected {self.required_value_type}."
                 raise TypeError(msg)
             if not isinstance(key, self.required_key_type):
-                msg = f"The keys should respect the pre-defined type. Got {type(value)} for {key}, expected {self.data_type}."
+                msg = f"The keys should respect the pre-defined type. Got {type(value)} for {key}, expected {self.required_value_type}."
                 raise TypeError(msg)
 
     def _apply_to_level(
         self,
-        level_value: "T | DataMixin",
+        level_value: "T | MappedTree",
         function: Callable[[Any], Any],
         *args,
         output_key_type: type[Any] | None = None,
@@ -49,7 +52,7 @@ class DataMixin(Generic[T]):
         **kwargs,
     ) -> "T":
         """"""  # noqa
-        if isinstance(level_value, DataMixin):
+        if isinstance(level_value, MappedTree):
             return self._apply(
                 level_value,
                 function,
@@ -61,16 +64,16 @@ class DataMixin(Generic[T]):
 
     def _apply(
         self,
-        mapping: Mapping[Hashable, "T | DataMixin"],
+        mapping: Mapping[Hashable, "T | MappedTree"],
         function: Callable[[Any], Any],
         *args,
         output_key_type: type[Any] | None = None,
         output_value_type: type[Any] | None = None,
         **kwargs,
-    ) -> "DataMixin":
+    ) -> "MappedTree":
         """"""  # noqa
         out_dict = {}
-        if isinstance(mapping, DataMixin):
+        if isinstance(mapping, MappedTree):
             mapping = mapping.mapping
         for key, value in mapping.items():
             out_dict[key] = self._apply_to_level(
@@ -78,9 +81,11 @@ class DataMixin(Generic[T]):
             )
         output_key_type = self.required_key_type if output_key_type is None else output_key_type
         output_value_type = self.required_value_type if output_value_type is None else output_value_type
-        self.__class__.required_key_type = output_key_type
-        self.__class__.required_value_type = output_value_type
-        return self.__class__(out_dict)
+        return type(
+            self.__class__.__name__,
+            (self.__class__,),
+            {"required_key_type": output_key_type, "required_value_type": output_value_type},
+        )(out_dict)
 
     def apply(
         self,
@@ -89,7 +94,7 @@ class DataMixin(Generic[T]):
         output_key_type: type[Any] | None = None,
         output_value_type: type[Any] | None = None,
         **kwargs,
-    ) -> "DataMixin":
+    ) -> "MappedTree":
         """"""  # noqa
         return self._apply(
             self.mapping,
@@ -100,12 +105,28 @@ class DataMixin(Generic[T]):
             **kwargs,
         )
 
+    @property
+    def is_leaf(self) -> bool:
+        return all(isinstance(v, self.required_value_type) for v in self.mapping.values())
+
+    def flatten(self) -> tuple[T]:
+        """Flattens itself into a list of nodes."""
+        if not self.is_leaf:
+            return tuple([v for val in self.mapping.values() for v in val.flatten()])
+        return tuple(self.mapping.values())
+
 
 @dataclass(frozen=True)
-class ArrayMixin(DataMixin):
+class MappedLevelIndex(MappedTree):
+    required_key_type: ClassVar[type[Any]] = tuple
+    required_value_type: ClassVar[type[Any]] = pd.MultiIndex
+
+
+@dataclass(frozen=True)
+class ArrayMixin(MappedTree):
     """"""  # noqa
 
-    required_type: ClassVar[type[Any]] = np.ndarray | np.generic
+    required_value_type: ClassVar[type[Any]] = np.ndarray | np.generic
 
 
 @dataclass(frozen=True)
@@ -113,6 +134,13 @@ class BatchMixin(ArrayMixin):
     """"""  # noqa
 
     minimum_dims: ClassVar[int] = 1
+
+    def __len__(self) -> int:
+        """"""  # noqa
+        if len(self.reference_dims) != 1:
+            msg = f"Continuous covariates should have only one reference dim, found {len(self.reference_dims)}"
+            raise ValueError(msg)
+        return self.reference_dims[0]
 
     def _verify_inputs(self) -> None:
         """"""  # noqa

@@ -5,14 +5,14 @@ from anndata import AnnData
 
 from sc_flow._types import MappedArray, TargetCovariatesEncoderCls, TargetCovariatesEncodingId
 from sc_flow._utils import check_sequence_query_against_reference
-from sc_flow.data._structures import CategoricalData
 from sc_flow.data._utils import get_covariates_encoders_from_dict
-from sc_flow.data.schemas._base_schema import BaseDataSchema
+from sc_flow.data.containers._categorical import CategoricalData
+from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["GroupsDataSchema"]
 
 
-class GroupsDataSchema(BaseDataSchema):
+class GroupsDataSchema(StrictDataSchema):
     """"""  # noqa
 
     def __init__(
@@ -25,7 +25,7 @@ class GroupsDataSchema(BaseDataSchema):
         self._groups = [] if groups is None else groups
         self._groups_reps = {} if groups_reps is None else groups_reps
         self._groups_encoding = {} if groups_encoding is None else groups_encoding
-        self._verify_args()
+        super().__init__()
 
     def _verify_args(self) -> None:
         """"""  # noqa

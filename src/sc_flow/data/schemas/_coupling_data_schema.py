@@ -1,12 +1,12 @@
 from anndata import AnnData
 
-from sc_flow.data._structures import CouplingData, StateData
-from sc_flow.data.schemas._base_schema import BaseDataSchema
+from sc_flow.data.containers._coupling import CouplingData, StateData
+from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["CouplingDataSchema"]
 
 
-class CouplingDataSchema(BaseDataSchema):
+class CouplingDataSchema(StrictDataSchema):
     """"""  # noqa
 
     def __init__(
@@ -19,6 +19,7 @@ class CouplingDataSchema(BaseDataSchema):
         self._source_rep = source_rep
         self._target_rep = target_rep
         self._n_shared_dims = n_shared_dims
+        super().__init__()
 
     def _verify_args(self) -> None:
         """Verifies the validity of arguments set at initialization."""
@@ -52,55 +53,40 @@ class CouplingDataSchema(BaseDataSchema):
             source_shape = (adata.X if self._source_rep is None else adata.obsm[self._source_rep]).shape
             target_shape = (adata.X if self._target_rep is None else adata.obsm[self._target_rep]).shape
             # verifying it with respect to the number of shared dimensions
-            if self._n_shared_dims >= source_shape[1] or self._n_shared_dims >= target_shape[1]:
+            if self._n_shared_dims > source_shape[1]:
+                msg = (
+                    "Number of shared dims should be smaller than the number of source spatial dimensions. "
+                    f"Found {source_shape[1]} spatial dimensions for the data, but {self._n_shared_dims} "
+                    "shared dimensions were requested."
+                )
+                raise ValueError(msg)
+            if self._n_shared_dims > target_shape[1]:
                 msg = ""
                 raise ValueError(msg)
 
-    def _get_target_lin_data(self, adata: AnnData) -> StateData:
-        """"""  # noqa
-        X = self._extract_array(adata, rep=self._target_rep)
-        if self.has_incomparable_spaces:
-            X = X[:, : self._n_shared_dims]
+    def _get_source_state_data(self, adata: AnnData) -> StateData:
+        X = self._extract_array(adata, repr=self._source_rep)
         return StateData(X)
 
-    def _get_target_quad_data(self, adata: AnnData) -> StateData | None:
+    def _get_target_state_data(self, adata: AnnData) -> StateData:
         """"""  # noqa
-        # early return when spaces are comparable
-        if not self.has_incomparable_spaces:
-            return None
-        X = self._extract_array(adata, rep=self._target_rep)
-        X = X[:, self._n_shared_dims :]
+        X = self._extract_array(adata, repr=self._target_rep)
         return StateData(X)
 
-    def _get_source_lin_data(self, adata: AnnData) -> StateData | None:
-        """"""  # noqa
-        # early return when spaces are comparable
-        if not self.has_incomparable_spaces:
-            return None
-        X = self._extract_array(adata, rep=self._source_rep)
-        X = X[:, : self._n_shared_dims]
-        return StateData(X)
-
-    def _get_source_quad_data(self, adata: AnnData) -> StateData | None:
-        """"""  # noqa
-        # early return when spaces are comparable
-        if not self.has_incomparable_spaces:
-            return None
-        X = self._extract_array(adata, rep=self._source_rep)
-        X = X[:, self._n_shared_dims :]
-        return StateData(X)
-
-    def _get_data(self, adata: AnnData) -> CouplingData:
+    def _get_data(self, adata: AnnData) -> tuple[CouplingData, CouplingData]:
         """Enforces the schema on the input :class: `AnnData`.
 
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
-        target_lin: StateData = self._get_target_lin_data(adata)
-        target_quad: StateData | None = self._get_target_quad_data(adata)
-        source_lin: StateData | None = self._get_source_lin_data(adata)
-        source_quad: StateData | None = self._get_source_quad_data(adata)
-        return CouplingData(target_lin, target_quad=target_quad, source_lin=source_lin, source_quad=source_quad)
+        source_state = self._get_source_state_data(adata)
+        target_state = self._get_target_state_data(adata)
+        if self._n_shared_dims is None:
+            source_coupling = CouplingData.init_from_state_data(target_state, n_shared_dims=self._n_shared_dims)
+        else:
+            source_coupling = CouplingData.init_from_state_data(source_state, n_shared_dims=self._n_shared_dims)
+        target_coupling = CouplingData.init_from_state_data(target_state, n_shared_dims=self._n_shared_dims)
+        return source_coupling, target_coupling
 
     @property
     def source_rep(self) -> str | None:

@@ -11,7 +11,7 @@ from sc_flow.backends.jax.solvers.solver import Solver
 
 
 class ODESolver(Solver):
-    """Class for solving neural Ordinary Differential Equations (ODEs).
+    r"""Class for solving neural Ordinary Differential Equations (ODEs).
 
     :param method: The numerical integration scheme used by diffrax.
         When ``None`` it will be set to :class:`diffrax.Euler`.
@@ -53,7 +53,7 @@ class ODESolver(Solver):
         solver_kwargs: dict[str, Any] | None = None,
         **vf_kwargs: Any,
     ) -> ArrayLike:
-        """Solve the ODE defined by a neural velocity field.
+        r"""Solve the ODE defined by a neural velocity field.
 
         This method constructs the vector field from :param:`vf` via
         :meth:`BaseVelocityField.get_vf_fn` and integrates the ODE over the interval

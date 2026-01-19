@@ -11,7 +11,7 @@ from sc_flow.backends.jax.solvers.solver import Solver
 
 
 class SDESolver(Solver):
-    """Class for solving neural Stochastic Differential Equations (SDEs).
+    r"""Class for solving neural Stochastic Differential Equations (SDEs).
 
     :param method: (Optional) The numerical integration scheme used for the SDE.
         When ``None`` it defaults to :class:`diffrax.Euler`.
@@ -55,7 +55,7 @@ class SDESolver(Solver):
         return_trajectory: bool = False,
         solver_kwargs: dict[str, Any] | None = None,
     ) -> ArrayLike:
-        """Solve the SDE defined by drift and diffusion vector fields.
+        r"""Solve the SDE defined by drift and diffusion vector fields.
 
         :param source: Initial state :math:`x_{t=0}` from which the SDE is integrated.
         :type source: class: `ArrayLike`

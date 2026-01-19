@@ -14,13 +14,10 @@ DEFAULT_BACKEND = "torch"
 
 DEFAULT_CONDITIONING_LAYER = "concat"
 
-SOURCE_COUPLING_STATE_LIN = "src_xy_cell_coupling"
-TARGET_COUPLING_STATE_LIN = "tgt_xy_cell_coupling"
-SOURCE_COUPLING_STATE_QUAD = "src_xx_cell_coupling"
-TARGET_COUPLING_STATE_QUAD = "tgt_yy_cell_coupling"
-
-SOURCE_IDXS_KEY = "src_idxs"
-
 BASE_LEVEL_NAME = "base"
 GROUP_LEVEL_NAME = "groups"
 CONDITION_LEVEL_NAME = "conditions"
+
+DEFAULT_BATCH_SIZE = 512
+DEFAULT_N_GROUPS = 10
+DEFAULT_MAX_N_OBS = 10_000

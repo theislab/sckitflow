@@ -6,7 +6,12 @@ from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncod
 
 from sc_flow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
 
-__all__ = ["get_covariates_encoders_from_dict", "get_covariate_encoder", "get_label_encoder", "get_one_hot_encoder"]
+__all__ = [
+    "get_covariates_encoders_from_dict",
+    "get_covariate_encoder",
+    "get_label_encoder",
+    "get_one_hot_encoder",
+]
 
 
 def get_covariates_encoders_from_dict(

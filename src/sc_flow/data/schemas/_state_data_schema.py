@@ -1,12 +1,12 @@
 from anndata import AnnData
 
-from sc_flow.data._structures import StateData
-from sc_flow.data.schemas._base_schema import BaseDataSchema
+from sc_flow.data.containers._state import StateData
+from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["StateDataSchema"]
 
 
-class StateDataSchema(BaseDataSchema):
+class StateDataSchema(StrictDataSchema):
     """"""  # noqa
 
     def __init__(
@@ -15,6 +15,7 @@ class StateDataSchema(BaseDataSchema):
     ) -> None:
         """"""  # noqa
         self._sample_rep = sample_rep
+        super().__init__()
 
     def _verify_args(self) -> None:
         """"""  # noqa

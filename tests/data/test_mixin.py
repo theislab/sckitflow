@@ -27,12 +27,13 @@ class TestMixins:
         mapping_fn: Callable[..., Mapping[str, Any]],
     ) -> None:
         # mismatch type
+        DataMixin.required_value_type = required_type
         if (required_type is float and mapping_fn.__name__ == "string_data_dict") or (
             required_type is str and mapping_fn.__name__ == "float_data_dict"
         ):
             with pytest.raises(TypeError, match="Data is of the wrong type"):
-                mixin = DataMixin(required_type=required_type, mapping=mapping_fn())
-        mixin = DataMixin(required_type=required_type, mapping=mapping_fn())
+                mixin = DataMixin(mapping=mapping_fn())
+        mixin = DataMixin(mapping=mapping_fn())
         if mapping_fn.__name__ == "string_data_dict":
             assert mixin.data_type is str
         else:
@@ -64,7 +65,8 @@ class TestMixins:
         output_type: type[Any] | None,
     ) -> None:
         # initialize mixin
-        mixin = DataMixin(float, float_data_dict())
+        DataMixin.required_value_type = float
+        mixin = DataMixin(float_data_dict())
 
         # fail cases
         if (function.__name__ == "double" and output_type is int) or (

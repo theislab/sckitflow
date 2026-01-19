@@ -6,13 +6,14 @@ from anndata import AnnData
 from sc_flow._types import MappedArray
 from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._structures import CategoricalData, ConditionData
-from sc_flow.data.schemas._base_schema import BaseDataSchema
+from sc_flow.data.containers._categorical import CategoricalData
+from sc_flow.data.containers._mixed_type import MixedTypeData
+from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["ConditionDataSchema"]
 
 
-class ConditionDataSchema(BaseDataSchema):
+class ConditionDataSchema(StrictDataSchema):
     """Data Schema Implementing the logic for conditioning."""
 
     def __init__(
@@ -76,11 +77,11 @@ class ConditionDataSchema(BaseDataSchema):
                 >>> from sc_flow.data import schemas, sim
                 >>> # annotated data
                 >>> adata = sim.get_dummy_adata()
-                AnnData object with n_obs × n_vars = 60000 × 400
-                obs: 'drugA', 'drugB', 'koA', 'koB', 'target', 'source_split', 'is_control'
-                uns: 'drug', 'ko', 'source_split'
-                obsm: 'drugA_time', 'drugA_dose', 'drugB_time', 'drugB_dose', 'koA_time', 'koA_dose', \
-                    'koB_time', 'koB_dose', 'paired_condition', 'X_repr', 'target_variable', 'X_src', 'X_tgt'
+                ... AnnData object with n_obs × n_vars = 60000 × 400
+                ... obs: 'drugA', 'drugB', 'koA', 'koB', 'target', 'source_split', 'is_control'
+                ... uns: 'drug', 'ko', 'source_split'
+                ... obsm: 'drugA_time', 'drugA_dose', 'drugB_time', 'drugB_dose', 'koA_time', 'koA_dose', \
+                ...     'koB_time', 'koB_dose', 'paired_condition', 'X_repr', 'target_variable', 'X_src', 'X_tgt'
                 >>> condition_schema = schemas.ConditionDataSchema(
                 ...     conditions={
                 ...         "drug_perturbation":["drugA", "drugB"],
@@ -93,7 +94,7 @@ class ConditionDataSchema(BaseDataSchema):
                 ... )
                 >>> condition_data = condition_schema.get_data(adata)
                 >>> type(condition_data)
-                sc_flow.data._structures.ConditionData
+                ... sc_flow.data._structures.MixedTypeData
 
         * Multi-Dimensional Continuous Covariates.
 
@@ -134,7 +135,7 @@ class ConditionDataSchema(BaseDataSchema):
                 ... )
                 >>> condition_data = condition_schema.get_data(adata)
                 >>> type(condition_data)
-                sc_flow.data._structures.ConditionData
+                ... sc_flow.data._structures.MixedTypeData
 
             Naturally, it is also possible to only use the continuous covariates, when there is no additional information
             available for the conditioning. To achieve this, all it is required is to drop all the arguments associated to
@@ -146,7 +147,7 @@ class ConditionDataSchema(BaseDataSchema):
                 ... )
                 >>> condition_data = condition_schema.get_data(adata)
                 >>> type(condition_data)
-                sc_flow.data._structures.ConditionData
+                ... sc_flow.data._structures.MixedTypeData
 
         :param conditions: Mapping from each condition level to the corresponding columns, as described in
             the dedicated section above. Defaults to `None`.
@@ -163,7 +164,7 @@ class ConditionDataSchema(BaseDataSchema):
         self._conditions = {} if conditions is None else conditions
         self._conditions_reps = {} if conditions_reps is None else conditions_reps
         self._conditions_covariates = () if conditions_covariates is None else conditions_covariates
-        self._verify_args()
+        super().__init__()
 
     def _verify_args(self) -> None:
         """Verifies that :attr:`self.conditions` and :attr:`self.condition_reps` share the same keys."""
@@ -187,7 +188,7 @@ class ConditionDataSchema(BaseDataSchema):
             self._check_key_found_in_adata_field(adata, condition_rep, "uns")
 
     def _verify_continuous_covariates(self, adata: AnnData) -> None:
-        """Verifies the conitnuous condition covariates on the input `AnnData`.
+        """Verifies the continuous condition covariates on the input `AnnData`.
 
         :param adata: The input data.
         :type adata: class: `AnnData`
@@ -196,7 +197,7 @@ class ConditionDataSchema(BaseDataSchema):
             self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
     def _get_covariates_df(self, adata: AnnData) -> dict[str, pd.DataFrame]:
-        """Extracts the columns for all the conditio level from the `.obs` attribute of the input `AnnData`
+        """Extracts the columns for all the condition level from the `.obs` attribute of the input `AnnData`
 
         :param adata: The input data.
         :type adata: class: `AnnData`
@@ -214,7 +215,7 @@ class ConditionDataSchema(BaseDataSchema):
             for condition_level, condition_repr in self._conditions_reps.items()
         }
 
-    def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData:
+    def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData | None:
         """Retrieves the categorical condition covariates from the input `AnnData`.
 
         Categorical covariates are in this case represented as a lookup table
@@ -225,22 +226,26 @@ class ConditionDataSchema(BaseDataSchema):
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
+        if not self.has_categorical_covariates:
+            return None
         covariates_df = self._get_covariates_df(adata)
         repr_dict = self._get_repr_dict(adata)
         return CategoricalData(covariates_df, repr_dict=repr_dict)
 
-    def _get_continuous_covariates(self, adata: AnnData) -> BatchMixin:
+    def _get_continuous_covariates(self, adata: AnnData) -> BatchMixin | None:
         """Retrieves the continuous condition covariates from the input `AnnData`.
 
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
+        if not self.has_continuous_covariates:
+            return None
         return BatchMixin(
             {covariate_name: adata.obsm[covariate_name] for covariate_name in self._conditions_covariates}
         )
 
     def _verify_schema(self, adata: AnnData) -> None:
-        """Verifies that input data satisfy the requirements defined by the schema.
+        """Verifies that input data satisfies the requirements defined by the schema.
 
         :param adata: The input data.
         :type adata: class: `AnnData`
@@ -248,7 +253,7 @@ class ConditionDataSchema(BaseDataSchema):
         self._verify_categorical_covariates(adata)
         self._verify_continuous_covariates(adata)
 
-    def _get_data(self, adata: AnnData) -> ConditionData:
+    def _get_data(self, adata: AnnData) -> MixedTypeData | None:
         """Retrieves the schema-resolved condition information from the input data.
 
         :param adata: The input data.
@@ -256,7 +261,9 @@ class ConditionDataSchema(BaseDataSchema):
         """
         categorical_covariates = self._get_categorical_covariates(adata)
         continuous_covariates = self._get_continuous_covariates(adata)
-        return ConditionData(condition_reps=categorical_covariates, condition_covariates=continuous_covariates)
+        if categorical_covariates is None and continuous_covariates is None:
+            return None
+        return MixedTypeData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
 
     @property
     def all_condition_cols(self) -> tuple[str]:
@@ -294,3 +301,13 @@ class ConditionDataSchema(BaseDataSchema):
     def conditions_covariates(self) -> Collection[str]:
         """Exposes to `conditions_covariates` parameter set at initialization."""
         return self._conditions_covariates
+
+    @property
+    def has_categorical_covariates(self) -> bool:
+        """"""  # noqa
+        return len(self._conditions) > 0
+
+    @property
+    def has_continuous_covariates(self) -> bool:
+        """"""  # noqa
+        return len(self._conditions_covariates) > 0

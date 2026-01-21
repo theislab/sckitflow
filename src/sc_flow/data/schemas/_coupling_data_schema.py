@@ -50,8 +50,8 @@ class CouplingDataSchema(StrictDataSchema):
             if self._source_rep is not None:
                 self._check_key_found_in_adata_field(adata, self._source_rep, "obsm")
             # extracting data shape
-            source_shape = (adata.X if self._source_rep is None else adata.obsm[self._source_rep]).shape
-            target_shape = (adata.X if self._target_rep is None else adata.obsm[self._target_rep]).shape
+            source_shape = self._extract_array(adata, repr=self._source_rep).shape
+            target_shape = self._extract_array(adata, repr=self._target_rep).shape
             # verifying it with respect to the number of shared dimensions
             if self._n_shared_dims > source_shape[1]:
                 msg = (
@@ -61,7 +61,11 @@ class CouplingDataSchema(StrictDataSchema):
                 )
                 raise ValueError(msg)
             if self._n_shared_dims > target_shape[1]:
-                msg = ""
+                msg = (
+                    "Number of shared dims should be smaller than the number of target spatial dimensions. "
+                    f"Found {target_shape[1]} spatial dimensions for the data, but {self._n_shared_dims} "
+                    "shared dimensions were requested."
+                )
                 raise ValueError(msg)
 
     def _get_source_state_data(self, adata: AnnData) -> StateData:
@@ -79,11 +83,11 @@ class CouplingDataSchema(StrictDataSchema):
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
-        source_state = self._get_source_state_data(adata)
         target_state = self._get_target_state_data(adata)
         if self._n_shared_dims is None:
             source_coupling = CouplingData.init_from_state_data(target_state, n_shared_dims=self._n_shared_dims)
         else:
+            source_state = self._get_source_state_data(adata)
             source_coupling = CouplingData.init_from_state_data(source_state, n_shared_dims=self._n_shared_dims)
         target_coupling = CouplingData.init_from_state_data(target_state, n_shared_dims=self._n_shared_dims)
         return source_coupling, target_coupling

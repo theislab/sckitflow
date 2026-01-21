@@ -167,7 +167,7 @@ class BaseMethod(basemethods.FlowMatching):
         :type rng_step_fn: TensorLike | None, optional
         """
         loss = self.step_fn(batch)
-        return float(loss.cpu().numpy())
+        return float(loss.cpu())
 
     def get_condition_embedding(self, condition: dict[str, torch.Tensor], return_as_numpy=True) -> torch.Tensor:
         pass

@@ -20,62 +20,7 @@ class DataSchema(abc.ABC):
     It would also be preferable to define also an immutable data structure for the returned object.
     """
 
-    @staticmethod
-    def _extract_array(adata: AnnData, repr: str | None = None) -> np.ndarray:
-        """Extracts the data array from the input :class: `AnnData`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        return adata.X if repr is None else adata.obsm[repr]
-
-    @abc.abstractmethod
-    def _get_data(
-        self,
-        adata: AnnData,
-    ) -> BaseData | tuple[BaseData | None, ...] | None:
-        """Enforces the schema on the input :class: `AnnData`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        raise NotImplementedError
-
-    def get_data(
-        self,
-        adata: AnnData,
-    ) -> BaseData | tuple[BaseData, ...] | None:
-        """Verifies and enforces the schema on the input :class: `AnnData`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        return self._get_data(adata)
-
-
-class StrictDataSchema(DataSchema, abc.ABC):
-    """"""  # noqa
-
-    def __init__(self) -> None:
-        """"""  # noqa
-        self._verify_args()
-
-    @staticmethod
-    def _check_is_valid_encoder_id_dict(encoder_id_dict: dict[str, str]) -> None:
-        """Verifies that the provided dictionary of covariate encoder identifiers is provided.
-
-        :param encoder_id_dict: The input dictionary, mapping each covariate to the string
-            identifier for its encoder.
-        :type encoder_id_dict: class: `encoder_id_dict: dict[str, str]`
-        """
-        valid_encoder_ids: tuple[str] = get_args(TargetCovariatesEncodingId)
-        for encoder_id in encoder_id_dict.values():
-            if encoder_id not in valid_encoder_ids:
-                msg = (
-                    f"Encoder identifier {encoder_id} for target covariate encoding is not supported."
-                    f"Possible options are {valid_encoder_ids}"
-                )
-                raise ValueError(msg)
+    _IS_STRICT: bool = False
 
     @staticmethod
     def _check_key_found_in_adata_field(
@@ -99,6 +44,71 @@ class StrictDataSchema(DataSchema, abc.ABC):
         if identifier not in adata_field:
             available = list(adata_field.keys())
             raise KeyError(f"Key '{identifier}' not found in adata.{adata_field_key}. Available keys: {available}")
+
+    def _extract_array(self, adata: AnnData, repr: str | None = None) -> np.ndarray:
+        """Extracts the data array from the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
+        if self._IS_STRICT and repr is not None:
+            print(f"checking key {repr}")
+            self._check_key_found_in_adata_field(adata, repr, "obsm")
+        return adata.X if repr is None else adata.obsm[repr]
+
+    @abc.abstractmethod
+    def _get_data(
+        self,
+        adata: AnnData,
+    ) -> BaseData | tuple[BaseData | None, ...] | None:
+        """Enforces the schema on the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
+        raise NotImplementedError
+
+    def extract_array(self, adata: AnnData, repr: str | None = None) -> np.ndarray:
+        """"""  # noqa
+        return self._extract_array(adata, repr=repr)
+
+    def get_data(
+        self,
+        adata: AnnData,
+    ) -> BaseData | tuple[BaseData, ...] | None:
+        """Verifies and enforces the schema on the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
+        return self._get_data(adata)
+
+
+class StrictDataSchema(DataSchema, abc.ABC):
+    """"""  # noqa
+
+    _IS_STRICT: bool = True
+
+    def __init__(self) -> None:
+        """"""  # noqa
+        self._verify_args()
+
+    @staticmethod
+    def _check_is_valid_encoder_id_dict(encoder_id_dict: dict[str, str]) -> None:
+        """Verifies that the provided dictionary of covariate encoder identifiers is provided.
+
+        :param encoder_id_dict: The input dictionary, mapping each covariate to the string
+            identifier for its encoder.
+        :type encoder_id_dict: class: `encoder_id_dict: dict[str, str]`
+        """
+        valid_encoder_ids: tuple[str] = get_args(TargetCovariatesEncodingId)
+        for encoder_id in encoder_id_dict.values():
+            if encoder_id not in valid_encoder_ids:
+                msg = (
+                    f"Encoder identifier {encoder_id} for target covariate encoding is not supported."
+                    f"Possible options are {valid_encoder_ids}"
+                )
+                raise ValueError(msg)
 
     @abc.abstractmethod
     def _verify_args(

@@ -37,7 +37,9 @@ class BaseMethod(basemethods.FlowMatching):
         time_sampler: Callable[[int], torch.Tensor],  # [[int], np.ndarray],
         solver: Solver | Any,
         match_fn: Any,  # TODO: adapt type
+        opt: torch.optim.Optimizer,
         ema: int = 1,
+        lr: float = 5e-4,
         generate_from_noise: bool = False,
         control_key: str | None = None,
         noise_distribution: Callable[[tuple[int, ...]], torch.Tensor] | None = None,
@@ -47,9 +49,12 @@ class BaseMethod(basemethods.FlowMatching):
         self.probability_path = probability_path
         self.time_sampler = time_sampler
         self.match_fn = match_fn
+        self.opt = opt
         self.ema = ema
+        self.lr = lr
         self.generate_from_noise = generate_from_noise
         self.control_key = control_key
+        self.opt = self.opt(self.vf.parameters(), lr=self.lr)
         self.solver = solver
         self.noise_distribution = noise_distribution or (lambda shape: torch.randn(size=shape))
         # TODO: add cfg
@@ -139,9 +144,11 @@ class BaseMethod(basemethods.FlowMatching):
                 u_t = self.probability_path.compute_ut(t, x_t, source, target)
                 return torch.mean((v_t - u_t) ** 2)
 
+            self.opt.zero_grad()
             with torch.autocast("cuda"):
                 loss = loss_fn(time, source, target, conditions)
             loss.backward()
+            self.opt.step()
             return loss
 
         return vf_step_fn

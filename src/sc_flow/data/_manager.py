@@ -185,7 +185,7 @@ class DataManager:
     def _get_condition_data(
         self,
         adata: AnnData,
-    ) -> MixedTypeData:
+    ) -> MixedTypeData | None:
         return self._condition_data_schema.get_data(adata)
 
     def _get_coupling_data(self, adata: AnnData) -> tuple[CouplingData, CouplingData]:
@@ -200,7 +200,7 @@ class DataManager:
     def _get_target_data(
         self,
         adata: AnnData,
-    ) -> MixedTypeData:
+    ) -> MixedTypeData | None:
         return self._target_data_schema.get_data(adata)
 
     def _get_distribution_data(
@@ -292,6 +292,11 @@ class DataManager:
     def coupling_data_schema(self) -> CouplingDataSchema:
         """Exposes the coupling data schema."""
         return self._coupling_data_schema
+
+    @property
+    def groups_data_schema(self) -> GroupsDataSchema:
+        """Exposes the coupling data schema."""
+        return self._groups_data_schema
 
     @property
     def target_data_schema(self) -> TargetDataSchema:

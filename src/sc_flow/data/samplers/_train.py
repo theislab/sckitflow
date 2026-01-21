@@ -1,5 +1,3 @@
-import numpy as np
-
 from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
 from sc_flow.data.samplers._base import BatchDType, FSampler, Sampler, TreeDType
 
@@ -18,6 +16,7 @@ class TrainSampler(Sampler):
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
+        **kwargs,
     ) -> None:
         """Initializes the training sampler.
 
@@ -56,7 +55,7 @@ class TrainSampler(Sampler):
         self._batch_size = batch_size
         self._n_nodes = n_nodes
 
-    def sample(self) -> np.ndarray[BatchDType]:
+    def sample(self) -> tuple[BatchDType]:
         """Samples a batch of data from the tree."""
         return self._sample(self._n_nodes, self._batch_size)
 

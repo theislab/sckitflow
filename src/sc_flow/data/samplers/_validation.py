@@ -20,6 +20,7 @@ class ValidationSampler(Sampler, Iterable):
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
+        **kwargs,
     ) -> None:
         """Initializes the training sampler.
 
@@ -59,14 +60,14 @@ class ValidationSampler(Sampler, Iterable):
         self._n_nodes = n_nodes
         self._data = self._register_data()
 
-    def _register_data(self) -> np.ndarray[BatchDType]:
+    def _register_data(self) -> tuple[BatchDType]:
         """Pre-registres the samples for validation."""
         return self._sample(self._n_nodes, self._max_n_obs)
 
     def __len__(self) -> int:
         return len(self._data)
 
-    def __getitem__(self, idx: slice) -> np.ndarray[BatchDType]:
+    def __getitem__(self, idx: slice) -> tuple[BatchDType]:
         return self._data[idx]
 
     def __iter__(self) -> Iterator[BatchDType]:

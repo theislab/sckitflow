@@ -1,6 +1,6 @@
 import abc
 from collections.abc import Callable
-from functools import cached_property
+from functools import cached_property, partial
 from typing import Generic, TypeVar
 
 import numpy as np
@@ -29,6 +29,7 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
+        **kwargs,
     ) -> None:
         """Initializes the sampler.
 
@@ -115,7 +116,7 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         self,
         n_nodes: int = DEFAULT_N_GROUPS,
         batch_size: int = DEFAULT_BATCH_SIZE,
-    ) -> np.ndarray[BatchDType]:
+    ) -> tuple[BatchDType]:
         """Samples a batch of data from the tree.
 
         Sampling is done hierarchically, whereby a sed of nodes is sampled first
@@ -127,8 +128,9 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         :param batch_size: The number of observations to load in the batch.
         :type batch_size: class: `int`
         """
-        groups = self._sample_nodes(n_nodes)
-        return np.array([self._sample_observations(group, batch_size) for group in groups])
+        nodes = self._sample_nodes(n_nodes)
+        sample_fn = partial(self._sample_observations, batch_size=batch_size)
+        return tuple(map(sample_fn, nodes))
 
     @property
     def tree(self) -> TreeDType:
@@ -172,8 +174,8 @@ class FSampler(Sampler[MatchedData, BatchDType]):
     def __init__(
         self,
         data: TreeDType,
-        dispatch_f: Callable[[BatchDType], BatchDType],
-        preprocess_f: Callable[[NodeDType], NodeDType] | None = None,
+        dispatch_fn: Callable[[BatchDType], BatchDType],
+        preprocess_fn: Callable[[NodeDType], NodeDType] | None = None,
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
@@ -203,23 +205,23 @@ class FSampler(Sampler[MatchedData, BatchDType]):
         super().__init__(
             data, replace_samples=replace_samples, replace_nodes=replace_nodes, use_nodes_weights=use_nodes_weights
         )
-        self._preprocess_f = preprocess_f if preprocess_f is not None else lambda x: x
-        self._dispatch_f = dispatch_f
+        self._preprocess_fn = preprocess_fn if preprocess_fn is not None else lambda x: x
+        self._dispatch_fn = dispatch_fn
 
     def _preprocess_sample(self, group: NodeDType) -> NodeDType:
         """Processes all the nodes before sampling from them."""
-        return self._preprocess_f(group)
+        return self._preprocess_fn(group)
 
     def _dispatch_sample(self, group: NodeDType) -> BatchDType:
         """Processes the batch before returning it."""
-        return self._dispatch_f(group)
+        return self._dispatch_fn(group)
 
     @property
-    def preprocess_f(self) -> Callable[[NodeDType], BatchDType]:
+    def preprocess_fn(self) -> Callable[[NodeDType], BatchDType]:
         """Exposes the :param f: attribute set at initialization."""
-        return self._preprocess_f
+        return self._preprocess_fn
 
     @property
-    def dispatch_f(self) -> Callable[[NodeDType], BatchDType]:
+    def dispatch_fn(self) -> Callable[[NodeDType], BatchDType]:
         """Exposes the :param f: attribute set at initialization."""
-        return self._dispatch_f
+        return self._dispatch_fn

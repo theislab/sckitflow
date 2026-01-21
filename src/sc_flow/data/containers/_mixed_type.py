@@ -69,7 +69,8 @@ class MixedTypeData(BaseData):
         idxs: np.ndarray | slice,
     ) -> "MixedTypeData":
         def _take(e, idxs=idxs):
-            return e[idxs]
+            e = e[idxs]
+            return e
 
         categorical_covariates = None if self.categorical_covariates is None else self.categorical_covariates[idxs]
         continuous_covariates = None if self.continuous_covariates is None else self.continuous_covariates.apply(_take)

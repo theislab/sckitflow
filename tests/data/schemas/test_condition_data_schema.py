@@ -3,7 +3,7 @@ from collections.abc import Collection
 import pytest
 from anndata import AnnData
 
-from sc_flow.data._structures import MixedTypeData
+from sc_flow.data.containers import MixedTypeData
 from sc_flow.data.schemas import ConditionDataSchema
 
 from ..shared import verify_categorical_data, verify_mixin  # noqa
@@ -12,8 +12,8 @@ inval_key: str = "invalid_key"
 
 
 class TestConditionDataSchema:
+    @staticmethod
     def _is_valid_args(
-        self,
         conditions: dict[str, Collection[str]],
         conditions_reps: dict[str, str],
     ) -> bool:
@@ -145,20 +145,26 @@ class TestConditionDataSchema:
                 data = schema.get_data(adata)
             return None
 
+        # get data
         data = schema.get_data(adata)
-        assert isinstance(data, MixedTypeData)
+        if conditions is None and conditions_covariates is None:
+            assert data is None
+            return
+        else:
+            assert isinstance(data, MixedTypeData)
 
         # test condition reps
         if conditions is not None:
             expected_df_cols = [col for val in conditions.values() for col in val]
+            verify_categorical_data(
+                data.categorical_covariates,
+                expected_df_cols,
+                uns_keys_to_nunique_prefix_and_dim,
+                conditions_reps=conditions_reps,
+            )
         else:
-            expected_df_cols = []
-        verify_categorical_data(
-            data.categorical_covariates,
-            expected_df_cols,
-            uns_keys_to_nunique_prefix_and_dim,
-            conditions_reps=conditions_reps,
-        )
+            assert data.categorical_covariates is None
+
         # test condition covariates
         N = len(adata)
         verify_mixin(data.continuous_covariates, N, obsm_keys_to_dim, conditions_covariates)

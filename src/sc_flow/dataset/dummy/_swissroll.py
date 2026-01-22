@@ -23,6 +23,8 @@ class SwissRollDataset(BaseDummyDataset):
         Whether to create a hole in the Swiss Roll
     """
 
+    _dataset_name = "swissroll"
+
     def __init__(
         self,
         random_state: int = 42,
@@ -31,11 +33,7 @@ class SwissRollDataset(BaseDummyDataset):
         hole: bool = False,
     ):
         """Initialization"""
-        super().__init__(random_state, n_samples, n_features=3, noise=noise, hole=hole)
-
-    def _get_dataset_name(self) -> str:
-        """Return identifier for this dataset type."""
-        return "swissroll"
+        super().__init__(random_state, n_samples, noise=noise, hole=hole)
 
     def _validate_additional_parameters(self, **kwargs):
         """Validate dataset-specific parameters."""
@@ -50,7 +48,7 @@ class SwissRollDataset(BaseDummyDataset):
         if noise < 0:
             raise ValueError(f"noise must be non-negative, got {noise}")
 
-    def _generate(self, random_state, n_samples, n_features, noise, hole) -> sc.AnnData:
+    def _generate(self, random_state, n_samples, noise, hole) -> sc.AnnData:
         """
         Generate Swiss Roll dataset.
 
@@ -63,7 +61,7 @@ class SwissRollDataset(BaseDummyDataset):
         X, y = datasets.make_swiss_roll(n_samples=n_samples, noise=noise, random_state=random_state, hole=hole)
 
         # Step 2: Wrap in AnnData format
-        adata = self._create_anndata(X, y)
+        adata = self._create_anndata(X, y, y_type=None)
 
         # Step 3: Add swissroll-specific metadata
         adata.uns["dataset_info"]["noise"] = noise

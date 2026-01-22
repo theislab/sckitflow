@@ -7,7 +7,7 @@ from sc_flow.dataset.dummy._scurve import SCurveDataset
 from sc_flow.dataset.dummy._swissroll import SwissRollDataset
 
 
-class dummy:
+class Dummy:
     """
     Unified function to generate any dummy dataset.
 

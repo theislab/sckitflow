@@ -23,13 +23,11 @@ class MoonsDataset(BaseDummyDataset):
         Whether to shuffle the samples after generation
     """
 
+    _dataset_name = "moons"
+
     def __init__(self, random_state: int = 42, n_samples: int = 1000, noise: float = 0.0, shuffle: bool = True):
         """Initialization"""
-        super().__init__(random_state, n_samples, n_features=2, noise=noise, shuffle=shuffle)
-
-    def _get_dataset_name(self) -> str:
-        """Return identifier for this dataset type."""
-        return "moons"
+        super().__init__(random_state, n_samples, noise=noise, shuffle=shuffle)
 
     def _validate_additional_parameters(self, **kwargs):
         """Validate dataset-specific parameters."""
@@ -45,7 +43,7 @@ class MoonsDataset(BaseDummyDataset):
         if not isinstance(shuffle, bool):
             raise TypeError(f"shuffle must be a boolean, got {type(shuffle)}")
 
-    def _generate(self, random_state, n_samples, n_features, noise, shuffle) -> sc.AnnData:
+    def _generate(self, random_state, n_samples, noise, shuffle) -> sc.AnnData:
         """
         Generate interleaving half-circles (moons) dataset.
 
@@ -58,7 +56,7 @@ class MoonsDataset(BaseDummyDataset):
         X, y = datasets.make_moons(n_samples=n_samples, noise=noise, random_state=random_state, shuffle=shuffle)
 
         # Step 2: Wrap in AnnData format
-        adata = self._create_anndata(X, y)
+        adata = self._create_anndata(X, y, y_type="category")
 
         # Step 3: Add moons-specific metadata
         adata.uns["dataset_info"]["noise"] = noise

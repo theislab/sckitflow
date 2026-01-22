@@ -20,6 +20,8 @@ class SCurveDataset(BaseDummyDataset):
         Standard deviation of Gaussian noise added to the data
     """
 
+    _dataset_name = "scurve"
+
     def __init__(
         self,
         random_state: int = 42,
@@ -27,11 +29,7 @@ class SCurveDataset(BaseDummyDataset):
         noise: float = 0.0,
     ):
         """Initialization"""
-        super().__init__(random_state, n_samples, n_features=2, noise=noise)
-
-    def _get_dataset_name(self) -> str:
-        """Return identifier for this dataset type."""
-        return "scurve"
+        super().__init__(random_state, n_samples, noise=noise)
 
     def _validate_additional_parameters(self, **kwargs):
         """Validate dataset-specific parameters."""
@@ -43,7 +41,7 @@ class SCurveDataset(BaseDummyDataset):
         if noise < 0:
             raise ValueError(f"noise must be non-negative, got {noise}")
 
-    def _generate(self, random_state, n_samples, n_features, noise) -> sc.AnnData:
+    def _generate(self, random_state, n_samples, noise) -> sc.AnnData:
         """
         Generate S-Curve dataset.
 
@@ -60,7 +58,7 @@ class SCurveDataset(BaseDummyDataset):
         )
 
         # Step 2: Wrap in AnnData format
-        adata = self._create_anndata(X, y)
+        adata = self._create_anndata(X, y, y_type=None)
 
         # Step 3: Add scurve-specific metadata
         adata.uns["dataset_info"]["noise"] = noise

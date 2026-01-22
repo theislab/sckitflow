@@ -1,3 +1,3 @@
-from sc_flow.dataset.dummy._dummy_datasets import dummy
+from sc_flow.dataset.dummy._dummy_datasets import Dummy
 
-__all__ = ["dummy"]
+__all__ = ["Dummy"]

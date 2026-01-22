@@ -26,6 +26,8 @@ class CirclesDataset(BaseDummyDataset):
         Whether to shuffle the samples after generation
     """
 
+    _dataset_name = "circles"
+
     def __init__(
         self,
         random_state: int = 42,
@@ -35,11 +37,7 @@ class CirclesDataset(BaseDummyDataset):
         shuffle: bool = True,
     ):
         """Initialization"""
-        super().__init__(random_state, n_samples, n_features=2, noise=noise, factor=factor, shuffle=shuffle)
-
-    def _get_dataset_name(self) -> str:
-        """Return identifier for this dataset type."""
-        return "circles"
+        super().__init__(random_state, n_samples, noise=noise, factor=factor, shuffle=shuffle)
 
     def _validate_additional_parameters(self, **kwargs):
         """Validate dataset-specific parameters."""
@@ -62,7 +60,7 @@ class CirclesDataset(BaseDummyDataset):
         if not isinstance(shuffle, bool):
             raise TypeError(f"shuffle must be a boolean, got {type(shuffle)}")
 
-    def _generate(self, random_state, n_samples, n_features, noise, factor, shuffle) -> sc.AnnData:
+    def _generate(self, random_state, n_samples, noise, factor, shuffle) -> sc.AnnData:
         """
         Generate concentric circles dataset.
 
@@ -76,10 +74,10 @@ class CirclesDataset(BaseDummyDataset):
             n_samples=n_samples, noise=noise, factor=factor, random_state=random_state, shuffle=shuffle
         )
 
-        # Step 3: Wrap in AnnData format
-        adata = self._create_anndata(X, y)
+        # Step 2: Wrap in AnnData format
+        adata = self._create_anndata(X, y, y_type="category")
 
-        # Add circles-specific metadata
+        # Step 3: Add circles-specific metadata
         adata.uns["dataset_info"]["noise"] = noise
         adata.uns["dataset_info"]["factor"] = factor
         adata.uns["dataset_info"]["shuffle"] = shuffle

@@ -35,6 +35,8 @@ class CheckerboardDataset(BaseDummyDataset):
             Shuffles the samples
     """
 
+    _dataset_name = "checkerboard"
+
     def __init__(
         self,
         random_state: int = 42,
@@ -49,7 +51,7 @@ class CheckerboardDataset(BaseDummyDataset):
         super().__init__(
             random_state,
             n_samples,
-            n_features,
+            n_features=n_features,
             n_clusters=n_clusters,
             noise=noise,
             minval=minval,
@@ -57,17 +59,19 @@ class CheckerboardDataset(BaseDummyDataset):
             shuffle=shuffle,
         )
 
-    def _get_dataset_name(self) -> str:
-        """Return identifier for this dataset type."""
-        return "checkerboard"
-
     def _validate_additional_parameters(self, **kwargs):
         """Validate common parameters to prevent errors"""
+        n_features = kwargs["n_features"]
         n_clusters = kwargs["n_clusters"]
         noise = kwargs["noise"]
         minval = kwargs["minval"]
         maxval = kwargs["maxval"]
         shuffle = kwargs["shuffle"]
+
+        if not isinstance(n_features, int):
+            raise TypeError(f"n_features must be an integer, got {type(n_features)}")
+        if n_features <= 0:
+            raise ValueError(f"n_features must be positive, got {n_features}")
 
         if not (isinstance(n_clusters, int) or isinstance(n_clusters, tuple)):
             raise TypeError(f"n_clusters must be an integer or tuple of integers, got {type(n_clusters)}")

@@ -4,7 +4,7 @@ from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncod
 
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._structures import CategoricalData
+from sc_flow.data.containers import CategoricalData
 
 __all__ = [
     "verify_repr_shape",

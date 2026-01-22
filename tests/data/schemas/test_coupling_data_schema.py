@@ -79,14 +79,11 @@ class TestCouplingDataSchema:
         schema = CouplingDataSchema(source_rep=source_rep, target_rep=target_rep, n_shared_dims=n_shared_dims)
 
         # wrong identifier
-        print(f"{adata.obsm.keys()}")
         if source_rep == invalid_key and n_shared_dims is not None:
-            print(f"{source_rep=}, {target_rep=}")
             with pytest.raises(KeyError):
                 _data = schema.get_data(adata)
             return None
         if target_rep == invalid_key:
-            print(f"{source_rep=}, {target_rep=}")
             with pytest.raises(KeyError):
                 _data = schema.get_data(adata)
             return None

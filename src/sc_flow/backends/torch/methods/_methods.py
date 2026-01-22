@@ -88,7 +88,7 @@ class BaseMethod(basemethods.FlowMatching):
 
         return (source, target), arrs  # type: ignore[return-value]
 
-    def step_fn(
+    def _step_fn(
         self,
         batch: dict[str, Any],  # TODO Adapt types
     ) -> torch.Tensor:
@@ -166,7 +166,7 @@ class BaseMethod(basemethods.FlowMatching):
         :param rng_step_fn: Random number generator for the step function. Default is None.
         :type rng_step_fn: TensorLike | None, optional
         """
-        loss = self.step_fn(batch)
+        loss = self._step_fn(batch)
         return float(loss.cpu())
 
     def get_condition_embedding(self, condition: dict[str, torch.Tensor], return_as_numpy=True) -> torch.Tensor:

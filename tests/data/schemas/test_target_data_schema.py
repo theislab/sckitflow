@@ -4,7 +4,7 @@ import pytest
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
-from sc_flow.data._structures import MixedTypeData
+from sc_flow.data.containers import MixedTypeData
 from sc_flow.data.schemas import TargetDataSchema
 
 from ..shared import verify_categorical_data, verify_mixin  # noqa
@@ -64,18 +64,22 @@ class TestTargetDataSchema:
                 data = schema.get_data(adata)
             return None
         data = schema.get_data(adata)
-        assert isinstance(data, MixedTypeData)
-        # categorical targets
+        if categorical_covs_dict is None and continuous_covs is None:
+            assert data is None
+            return
+        else:
+            assert isinstance(data, MixedTypeData)
+
         if categorical_covs_dict is not None:
             expected_df_cols = list(categorical_covs_dict.keys())
+            verify_categorical_data(
+                data.categorical_covariates,
+                expected_df_cols,
+                uns_keys_to_nunique_prefix_and_dim,
+                groups_encoding=categorical_covs_dict,
+            )
         else:
-            expected_df_cols = []
-        verify_categorical_data(
-            data.categorical_covariates,
-            expected_df_cols,
-            uns_keys_to_nunique_prefix_and_dim,
-            groups_encoding=categorical_covs_dict,
-        )
+            assert data.categorical_covariates is None
 
         # test continuous covariates
         N = len(adata)

@@ -52,7 +52,6 @@ class DataSchema(abc.ABC):
         :type adata: class: `AnnData`
         """
         if self._IS_STRICT and repr is not None:
-            print(f"checking key {repr}")
             self._check_key_found_in_adata_field(adata, repr, "obsm")
         return adata.X if repr is None else adata.obsm[repr]
 

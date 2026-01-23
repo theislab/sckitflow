@@ -5,10 +5,10 @@ from torchdiffeq import odeint
 
 from sc_flow.backends.jax._types import TVfFn
 from sc_flow.backends.torch._types import TDevice, TODEDynamics
-from sc_flow.backends.torch.solvers.solver import Solver
+from sc_flow.backends.torch.solvers.solver import BaseSolver
 
 
-class ODESolver(Solver[TODEDynamics]):
+class ODESolver(BaseSolver[TODEDynamics]):
     r"""Class for solving deterministic ordinary differential equations (ODEs) with :func:`torchdiffeq.odeint`.
 
     :param dynamics: Velocity field providing the time-dependent dynamics. Must implement :meth:`BaseVelocityField.get_vf_fn`.
@@ -73,7 +73,7 @@ class ODESolver(Solver[TODEDynamics]):
             :param:`return_trajectory`.
         :rtype: class:`torch.Tensor`
         """
-        config = self._prepare_solve(source, time, solver_kwargs)
+        config = self._prepare_solve_config(source, time, solver_kwargs)
 
         trajectory = odeint(
             self._vf,

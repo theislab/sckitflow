@@ -4,19 +4,19 @@ from typing import Any, Generic
 from torch import Tensor, nn
 
 from sc_flow.backends.torch._types import SolverConfig, TDevice, TSolverDynamics
-from sc_flow.backends.torch._utils import validation_torch_device
+from sc_flow.backends.torch._utils import get_torch_device
 
 
-class Solver(Generic[TSolverDynamics], ABC, nn.Module):
+class BaseSolver(Generic[TSolverDynamics], ABC, nn.Module):
     """Abstract Base Class for Solvers"""
 
     def __init__(self, dynamics: TSolverDynamics, *, method: str | None, device_id: TDevice = "cpu") -> None:
         super().__init__()
         self._dynamics = dynamics
-        self._device = validation_torch_device(device_id)
+        self._device = get_torch_device(device_id)
         self._method = method or "euler"
 
-    def _prepare_solve(
+    def _prepare_solve_config(
         self,
         source: Tensor,
         time: Tensor,

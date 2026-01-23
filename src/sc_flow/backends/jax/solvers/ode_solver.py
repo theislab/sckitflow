@@ -1,17 +1,18 @@
-from typing import Any, Literal
+from typing import Any
 
 import diffrax as dfx
-import jax
-import jax.numpy as jnp
-from diffrax import Euler, ODETerm
+from diffrax import ODETerm
 
-from sc_flow.backends.jax._types import ArrayLike, TVfFn
-from sc_flow.backends.jax.nn import BaseVelocityField
+from sc_flow.backends.jax._types import ArrayLike, TDevice, TODEDynamics, TVfFn
+from sc_flow.backends.jax._utils import get_ode_solver, validation_jax_device
 from sc_flow.backends.jax.solvers.solver import Solver
 
 
-class ODESolver(Solver):
+class ODESolver(Solver[TODEDynamics]):
     r"""Class for solving neural Ordinary Differential Equations (ODEs).
+
+    :param dynamics: Velocity field providing the time-dependent dynamics. Must implement :meth:`BaseVelocityField.get_vf_fn`.
+    :type dynamics: class:`TODEDynamics`
 
     :param method: The numerical integration scheme used by diffrax.
         When ``None`` it will be set to :class:`diffrax.Euler`.
@@ -23,46 +24,40 @@ class ODESolver(Solver):
     :type num_time_steps: class: `int`
 
     :param device_id: Identifier for the JAX device on which the ODE is solved.
-    :type device_id: class: `Literal["cpu", "gpu", "tpu"] | jax.Device`
+    :type device_id: class: `TDevice`
+
+    :param vf_kwargs: Additional keyword arguments forwarded to
+    :meth:`BaseVelocityField.get_vf_fn`. These can be used to configure the
+    behavior of the velocity field at solve time (e.g. conditioning, extra
+    parameters, etc.).
+    :type vf_kwargs: class: `dict[str, Any]`
     """
 
     def __init__(
         self,
+        dynamics: TODEDynamics,
+        *,
         method: dfx.AbstractSolver | None = None,
-        num_time_steps: int = 500,
-        device_id: Literal["cpu", "gpu", "tpu"] = "cpu",
+        device_id: TDevice = "cpu",
+        vf_kwargs: dict[str, Any] | None = None,
     ) -> None:
-        self.method = method or Euler()
-        self.num_time_steps = num_time_steps
-        self.ts = jnp.linspace(0.0, 1.0, self.num_time_steps)
+        super().__init__(dynamics=dynamics, method=method, device_id=device_id)
 
-        if isinstance(device_id, str):
-            candidates = [d for d in jax.devices() if d.platform == device_id]
-            if not candidates:
-                raise ValueError(f"No available device found for platform '{device_id}'")
+        self._method = get_ode_solver(method)
+        self._device = validation_jax_device(device_id)
 
-            self.device = candidates[0]
-        else:
-            self.device = device_id
+        vf_kwargs = vf_kwargs or {}
+        self._vf = dynamics.get_vf_fn(**vf_kwargs)
 
     def solve(
         self,
-        vf: BaseVelocityField,
         source: ArrayLike,
+        *,
+        num_time_steps: int = 500,
         return_trajectory: bool = False,
         solver_kwargs: dict[str, Any] | None = None,
-        **vf_kwargs: Any,
     ) -> ArrayLike:
         r"""Solve the ODE defined by a neural velocity field.
-
-        This method constructs the vector field from :param:`vf` via
-        :meth:`BaseVelocityField.get_vf_fn` and integrates the ODE over the interval
-        :math:`[0, 1]` using :func:`diffrax.diffeqsolve`.
-
-        :param vf: The neural velocity field defining the ODE dynamics. It must implement
-            :meth:`BaseVelocityField.get_vf_fn`, which should return a callable of the form
-            ``vf_fn(t, x, args) -> dx_dt`` compatible with diffrax.
-        :type vf: class: `BaseVelocityField`
 
         :param source: The initial state :math:`x_{t=0}` from which the ODE is integrated.
         :type source: class: `ArrayLike`
@@ -88,53 +83,37 @@ class ODESolver(Solver):
             :func:`diffrax.diffeqsolve`.
         :type solver_kwargs: class: `dict[str, Any] | None`
 
-        :param vf_kwargs: Additional keyword arguments forwarded to
-            :meth:`BaseVelocityField.get_vf_fn`. These can be used to configure the
-            behavior of the velocity field at solve time (e.g. conditioning, extra
-            parameters, etc.).
-        :type vf_kwargs: class: `dict[str, Any]`
-
         :returns: Either the full solution trajectory or the final state at
             :math:`t = 1`, depending on :param:`return_trajectory`.
         :rtype: class: `ArrayLike`
         """
-        if solver_kwargs is None:
-            solver_kwargs = {}
-
-        dt0 = 1.0 / (self.num_time_steps - 1)
-        dt0 = solver_kwargs.pop("dt0", dt0)
-        max_steps = solver_kwargs.pop("max_steps", 10_000)
-
-        stepsize_controller = solver_kwargs.pop("stepsize_controller", None)
-        if stepsize_controller is None:
-            stepsize_controller = dfx.ConstantStepSize()
-        elif not isinstance(stepsize_controller, dfx.AbstractStepSizeController):
-            raise TypeError("options['stepsize_controller'] must be an instance of diffrax.AbstractStepSizeController.")
-
-        vector_field: TVfFn = vf.get_vf_fn(**vf_kwargs)
-        terms = ODETerm(vector_field)
-
-        source = jax.device_put(source, self.device)
-
-        if return_trajectory:
-            saveat = dfx.SaveAt(ts=self.ts)
-        else:
-            saveat = dfx.SaveAt(t1=True)
+        config = self._prepare_solve(
+            source=source,
+            num_time_steps=num_time_steps,
+            return_trajectory=return_trajectory,
+            solver_kwargs=solver_kwargs,
+        )
+        terms = ODETerm(self._vf)
 
         trajectory = dfx.diffeqsolve(
             terms,
-            solver=self.method,
+            solver=self._method,
             t0=0.0,
             t1=1.0,
-            dt0=dt0,
-            y0=source,
-            saveat=saveat,
-            max_steps=max_steps,
-            stepsize_controller=stepsize_controller,
-            **solver_kwargs,
+            dt0=config.dt0,
+            y0=config.source_on_device,
+            saveat=config.saveat,
+            max_steps=config.max_steps,
+            stepsize_controller=config.stepsize_controller,
+            **config.remaining_kwargs,
         )
 
         if return_trajectory:
             return trajectory.ys
         else:
             return trajectory.ys[-1]
+
+    @property
+    def vf(self) -> TVfFn:
+        """Get the velocity field function used by the ODE solver."""
+        return self._vf

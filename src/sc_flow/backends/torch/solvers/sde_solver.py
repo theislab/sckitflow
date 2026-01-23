@@ -1,15 +1,18 @@
-from collections.abc import Callable
-from typing import Any, Literal
+from typing import Any
 
 import torchsde
-from torch import Tensor, device
+from torch import Tensor
 from torchsde import sdeint
 
+from sc_flow.backends.torch._types import TDevice, TDiffusion, TNoiseType, TSDEDynamics, TSDEType, TVfFn
 from sc_flow.backends.torch.solvers.solver import Solver
 
 
-class SDESolver(Solver):
+class SDESolver(Solver[TSDEDynamics]):
     r"""Class for solving stochastic differential equations (SDEs) with TorchSDE.
+
+    :param dynamics: Encodes the drift (of type BaseVelocityField) and the diffusion terms of the SDE
+    :type dynamics: class:`TSDEDynamics`
 
     :param sde_type: (Optional) Specifies whether the SDE should be interpreted as
         an Itô or Stratonovich SDE. Choices are ``"ito"`` or ``"stratonovich"``.
@@ -19,40 +22,44 @@ class SDESolver(Solver):
     :param noise_type: (Optional) Specifies the structure of the diffusion noise.
         Choices are: ``"scalar"``, ``"diagonal"``, ``"general"``, or ``"additive"``.
         Defaults to ``"diagonal"``.
-    :type noise_type: class:`Literal["scalar", "diagonal", "general", "additive"]`
+    :type noise_type: class:`TNoiseType`
 
     :param method: (Optional) Integration method used by TorchSDE. When ``None``
         it defaults to ``"euler"``.
-    :type method: class:`str | None`
+    :type method: class:`TSDEType`
 
-    :param device_id: (Optional) Identifier for the device on which the SDE will be solved. Choices are ``"cpu"`` or ``"cuda"``. Defaults to ``"cpu"``.
-    :type device_id: class:`Literal["cuda", "cpu"]`
+    :param device_id: (Optional) Identifier for the device on which the SDE will be solved.
+    :type device_id: class:`TDevice`
     """
 
     def __init__(
         self,
-        sde_type: Literal["ito", "stratonovich"] = "ito",
-        noise_type: Literal["scalar", "diagonal", "general", "additive"] = "diagonal",
+        dynamics: TSDEDynamics,
+        *,
+        sde_type: TSDEType = "ito",
+        noise_type: TNoiseType = "diagonal",
         method: str | None = None,
-        device_id: Literal["cuda", "cpu"] = "cpu",
+        device_id: TDevice = "cpu",
+        vf_kwargs: dict[str, Any] | None = None,
     ):
-        super().__init__()
-        self.method = method or "euler"
-        self.sde_type = torchsde.SDEIto if sde_type == "ito" else torchsde.SDEStratonovich
-        self.noise_type = noise_type
-        self.device = device(device_id)
+        super().__init__(dynamics=dynamics, method=method, device_id=device_id)
+
+        self._sde_type = torchsde.SDEIto if sde_type == "ito" else torchsde.SDEStratonovich
+        self._noise_type = noise_type
+
+        vf_kwargs = vf_kwargs or {}
+        self._drift_fn = dynamics[0].get_vf_fn(**vf_kwargs)
+        self._diffusion_fn = self._diffusion_fn_wrapper(dynamics[1])
 
     def solve(
         self,
         source,
         time,
-        drift_fn: Callable[[Tensor, Tensor], Tensor],
-        diffusion_fn: Callable[[Tensor, Tensor], Tensor],
         *,
         rtol: float,
         atol: float,
-        return_trajectory: bool = True,
-        solver_kwargs: dict[str, Any],
+        return_trajectory: bool = False,
+        solver_kwargs: dict[str, Any] | None = None,
     ) -> Any:
         r"""Integrates the SDE specified by the drift and diffusion functions.
 
@@ -61,12 +68,6 @@ class SDESolver(Solver):
 
         :param time: Time grid over which to integrate.
         :type time: class:`torch.Tensor`
-
-        :param drift_fn: Callable implementing the drift term :math:`f(t, x)`.
-        :type drift_fn: class:`Callable[[Tensor, Tensor], Tensor]`
-
-        :param diffusion_fn: Callable implementing the diffusion term :math:`g(t, x)`.
-        :type diffusion_fn: class:`Callable[[Tensor, Tensor], Tensor]`
 
         :param rtol: Relative tolerance used by TorchSDE.
         :type rtol: class:`float`
@@ -85,11 +86,13 @@ class SDESolver(Solver):
             trajectory or the final integration point.
         :rtype: class:`Any`
         """
-        source = source.to(self.device)
-        time = time.to(self.device)
+        config = self._prepare_solve(source, time, solver_kwargs)
 
-        _noise_type = self.noise_type
-        _SDE_base = self.sde_type
+        _noise_type = self._noise_type
+        _SDE_base = self._sde_type
+
+        drift_fn = self._drift_fn
+        diffusion_fn = self._diffusion_fn
 
         class _BaseSDE(_SDE_base):
             """SDE class for torchsde integration."""
@@ -107,14 +110,48 @@ class SDESolver(Solver):
 
         trajectory = sdeint(
             sde,
-            source,
-            time,
+            config.source_on_device,
+            config.time_on_device,
             rtol=rtol,
             atol=atol,
-            method=self.method,
-            **solver_kwargs,
+            method=self._method,
+            **config.remaining_kwargs,
         )
         if return_trajectory:
             return trajectory
         else:
             return trajectory[-1]
+
+    @property
+    def sde_type(self) -> TSDEType:
+        """Returns the SDE type (Itô or Stratonovich)."""
+        return self._sde_type
+
+    @property
+    def noise_type(self) -> TNoiseType:
+        """Returns the noise type used in the SDE."""
+        return self._noise_type
+
+    @property
+    def drift_fn(self) -> TVfFn:
+        """Returns the drift function used in the SDE."""
+        return self._drift_fn
+
+    @property
+    def diffusion_fn(self) -> TDiffusion:
+        """Returns the diffusion function used in the SDE."""
+        return self._diffusion_fn
+
+    def _diffusion_fn_wrapper(
+        self,
+        diffusion_fn: TDiffusion,
+    ) -> TVfFn:
+        """Wraps the diffusion function to ensure it has the correct signature for TorchSDE."""
+
+        def wrapped_diffusion(t: Tensor, y: Tensor) -> Tensor:
+            try:
+                return diffusion_fn(t, y)
+            except TypeError:
+                return diffusion_fn(t)
+
+        return wrapped_diffusion

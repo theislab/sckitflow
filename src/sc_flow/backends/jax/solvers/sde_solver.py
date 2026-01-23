@@ -1,17 +1,21 @@
 import warnings
-from typing import Any, Literal
+from typing import Any
 
 import diffrax as dfx
 import jax
-import jax.numpy as jnp
-from diffrax import ConstantStepSize, ControlTerm, Euler, ODETerm
+from diffrax import ControlTerm, ODETerm
 
-from sc_flow.backends.jax._types import ArrayLike, TVfFn
+from sc_flow.backends.jax._types import ArrayLike, TDevice, TDiffusion, TSDEDynamics, TTimeStateDiffusion, TVfFn
+from sc_flow.backends.jax._utils import get_sde_solver
 from sc_flow.backends.jax.solvers.solver import Solver
 
 
-class SDESolver(Solver):
+class SDESolver(Solver[TSDEDynamics]):
     r"""Class for solving neural Stochastic Differential Equations (SDEs).
+
+    :param dynamics: Encodes the drift (of type BaseVelocityField) and the diffusion terms of the SDE.
+
+    :type dynamics: class:`TSDEDynamics`
 
     :param method: (Optional) The numerical integration scheme used for the SDE.
         When ``None`` it defaults to :class:`diffrax.Euler`.
@@ -23,34 +27,28 @@ class SDESolver(Solver):
     :type num_time_steps: class: `int`
 
     :param device_id: Identifier for the JAX device on which the SDE is solved.
-    :type device_id: class: `Literal["cpu", "gpu", "tpu"] | jax.Device`
+    :type device_id: class: ` TDevice`
     """
 
     def __init__(
         self,
-        method: dfx.AbstractSolver | None = None,
-        num_time_steps: int = 500,
-        device_id: Literal["cpu", "gpu", "tpu"] = "cpu",
+        dynamics: TSDEDynamics,
+        *,
+        method: str | dfx.AbstractSolver | None = None,
+        device_id: TDevice = "cpu",
+        vf_kwargs: dict[str, Any] | None = None,
     ) -> None:
-        self.method = method or Euler()
-        self.num_time_steps = num_time_steps
-        self.ts = jnp.linspace(0.0, 1.0, self.num_time_steps)
-
-        if isinstance(device_id, str):
-            candidates = [d for d in jax.devices() if d.platform == device_id]
-            if not candidates:
-                raise ValueError(f"No available device found for platform '{device_id}'")
-
-            self.device = candidates[0]
-        else:
-            self.device = device_id
+        super().__init__(dynamics=dynamics, method=method, device_id=device_id)
+        self._method = get_sde_solver(method)
+        vf_kwargs = vf_kwargs or {}
+        self._drift_fn = dynamics[0].get_vf_fn(**vf_kwargs)
+        self._diffusion_fn = self._diffusion_fn_wrapper(dynamics[1])
 
     def solve(
         self,
         source: ArrayLike,
-        drift_fn: TVfFn,
-        diffusion_fn: TVfFn,
         brownian_motion: dfx.AbstractBrownianPath | None = None,
+        num_time_steps: int = 500,
         *,
         return_trajectory: bool = False,
         solver_kwargs: dict[str, Any] | None = None,
@@ -59,16 +57,6 @@ class SDESolver(Solver):
 
         :param source: Initial state :math:`x_{t=0}` from which the SDE is integrated.
         :type source: class: `ArrayLike`
-
-        :param drift_fn: Drift vector field implementing
-            ``drift_fn(t, x, args) -> drift``. It should be compatible with diffrax’s
-            :class:`diffrax.ODETerm` interface.
-        :type drift_fn: class: `TVfFn`
-
-        :param diffusion_fn: Diffusion vector field implementing
-            ``diffusion_fn(t, x, args) -> diffusion``. It is wrapped by
-            :class:`diffrax.ControlTerm` together with the Brownian path.
-        :type diffusion_fn: class: `TVfFn`
 
         :param brownian_motion: (Optional) Brownian path driving the diffusion term.
             When ``None``, a :class:`diffrax.VirtualBrownianTree` is constructed over
@@ -103,62 +91,99 @@ class SDESolver(Solver):
             :math:`t = 1`, depending on :param:`return_trajectory`.
         :rtype: class: `ArrayLike`
         """
-        if solver_kwargs is None:
-            solver_kwargs = {}
+        config = self._prepare_solve(
+            source=source,
+            num_time_steps=num_time_steps,
+            return_trajectory=return_trajectory,
+            solver_kwargs=solver_kwargs,
+        )
 
-        dt0 = 1.0 / (self.num_time_steps - 1)
-        dt0 = solver_kwargs.pop("dt0", dt0)
-        max_steps = solver_kwargs.pop("max_steps", 10_000)
-
-        stepsize_controller = solver_kwargs.pop("stepsize_controller", ConstantStepSize())
-        adjoint = solver_kwargs.pop("adjoint", None)
+        adjoint = config.remaining_kwargs.pop("adjoint", None)
 
         if brownian_motion is None:
             brownian_motion = dfx.VirtualBrownianTree(
                 t0=0.0,
                 t1=1.0,
-                shape=source.shape,
+                shape=config.source_on_device.shape,
                 tol=1e-3,
                 key=jax.random.PRNGKey(0),
             )
 
-        if isinstance(brownian_motion, dfx.UnsafeBrownianPath) and not isinstance(
-            stepsize_controller, dfx.AbstractAdaptiveStepSizeController
-        ):
-            warnings.warn(
-                "Using UnsafeBrownianPath with fixed-step solver:\n"
-                "- Backpropagation through the SDE will not be supported.\n"
-                "- Output is nondeterministic w.r.t RNG key due to floating-point fluctuations.\n",
-                stacklevel=2,
-            )
+        self._validate_sde_config(
+            brownian_motion=brownian_motion,
+            adjoint=adjoint,
+            stepsize_controller=config.stepsize_controller,
+        )
 
         if adjoint is not None:
-            solver_kwargs["adjoint"] = adjoint
+            config.remaining_kwargs["adjoint"] = adjoint
 
         terms = dfx.MultiTerm(
-            ODETerm(drift_fn),
-            ControlTerm(diffusion_fn, brownian_motion),
+            ODETerm(self._drift_fn),
+            ControlTerm(self._diffusion_fn, brownian_motion),
         )
-        source = jax.device_put(source, self.device)
-
-        if return_trajectory:
-            saveat = dfx.SaveAt(ts=self.ts)
-        else:
-            saveat = dfx.SaveAt(t1=True)
 
         trajectory = dfx.diffeqsolve(
             terms,
-            solver=self.method,
+            solver=self._method,
             t0=0.0,
             t1=1.0,
-            dt0=dt0,
-            y0=source,
-            saveat=saveat,
-            max_steps=max_steps,
-            stepsize_controller=stepsize_controller,
-            **solver_kwargs,
+            dt0=config.dt0,
+            y0=config.source_on_device,
+            saveat=config.saveat,
+            max_steps=config.max_steps,
+            stepsize_controller=config.stepsize_controller,
+            **config.remaining_kwargs,
         )
         if return_trajectory:
             return trajectory.ys
         else:
             return trajectory.ys[-1]
+
+    def _diffusion_fn_wrapper(
+        self,
+        diffusion_fn: TDiffusion,
+    ) -> TTimeStateDiffusion:
+        """Wraps the diffusion function to ensure it has the correct signature for TorchSDE."""
+
+        def wrapped_diffusion(t: ArrayLike, y: ArrayLike, args: Any) -> ArrayLike:
+            try:
+                return diffusion_fn(t, y, args)
+            except TypeError:
+                return diffusion_fn(t, args)
+
+        return wrapped_diffusion
+
+    def _validate_sde_config(
+        self,
+        brownian_motion: dfx.AbstractBrownianPath,
+        adjoint: Any,
+        stepsize_controller: dfx.AbstractStepSizeController,
+    ) -> None:
+        """Validate SDE-specific configuration parameters."""
+        if isinstance(brownian_motion, dfx.UnsafeBrownianPath):
+            if adjoint is None:
+                raise ValueError(
+                    "Cannot use UnsafeBrownianPath with adjoint=None. "
+                    "Default adjoint = RecursiveCheckpointAdjoint is not compatible "
+                    "with UnsafeBrownianPath. Use a different adjoint method, "
+                    "such as ForwardMode()"
+                )
+            elif not isinstance(stepsize_controller, dfx.AbstractAdaptiveStepSizeController):
+                warnings.warn(
+                    "Using UnsafeBrownianPath with fixed-step solver:\n"
+                    "- Backpropagation through the SDE will not be supported.\n"
+                    "- Output is nondeterministic w.r.t RNG key due to "
+                    "floating-point fluctuations.\n",
+                    stacklevel=2,
+                )
+
+    @property
+    def drift_fn(self) -> TVfFn:
+        """Returns the drift function used in the SDE."""
+        return self._drift_fn
+
+    @property
+    def diffusion_fn(self) -> TTimeStateDiffusion:
+        """Returns the diffusion function used in the SDE."""
+        return self._diffusion_fn

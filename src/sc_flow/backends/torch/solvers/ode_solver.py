@@ -1,47 +1,54 @@
-from typing import Any, Literal
+from typing import Any
 
-from torch import Tensor, device
+from torch import Tensor
 from torchdiffeq import odeint
 
-from sc_flow.backends.torch.nn._vf import BaseVelocityField
+from sc_flow.backends.jax._types import TVfFn
+from sc_flow.backends.torch._types import TDevice, TODEDynamics
 from sc_flow.backends.torch.solvers.solver import Solver
 
 
-class ODESolver(Solver):
+class ODESolver(Solver[TODEDynamics]):
     r"""Class for solving deterministic ordinary differential equations (ODEs) with :func:`torchdiffeq.odeint`.
+
+    :param dynamics: Velocity field providing the time-dependent dynamics. Must implement :meth:`BaseVelocityField.get_vf_fn`.
+    :type dynamics: class:`TODEDynamics`
 
     :param method: (Optional) Integration scheme used by ``torchdiffeq``. Defaults to ``"euler"``. Other valid options depend on ``torchdiffeq``.
     :type method: class:`str`
 
-    :param device_id: (Optional) Identifier for the target compute device. Choices are ``"cpu"`` or ``"cuda"``. Defaults to ``"cpu"``.
-    :type device_id: class:`Literal["cuda", "cpu"]`
+    :param device_id: (Optional) Identifier for the target compute device.
+    :type device_id: class:`TDevice`
+
+    :param vf_kwargs: (Optional) Keyword arguments passed to
+            :meth:`BaseVelocityField.get_vf_fn`.
+        :type vf_kwargs: class:`dict[str, Any] | None`
     """
 
     def __init__(
         self,
+        dynamics: TODEDynamics,
+        *,
         method: str = "euler",
-        device_id: Literal["cuda", "cpu"] = "cpu",
+        device_id: TDevice = "cpu",
+        vf_kwargs: dict[str, Any] | None = None,
     ) -> None:
-        super().__init__()
-        self.method = method
-        self.device = device(device_id)
+        super().__init__(dynamics=dynamics, method=method, device_id=device_id)
+
+        vf_kwargs = vf_kwargs or {}
+        self._vf = dynamics.get_vf_fn(**vf_kwargs)
 
     def solve(
         self,
-        vf: BaseVelocityField,
         source: Tensor,
         time: Tensor,
         *,
-        rtol: float,
-        atol: float,
-        vf_kwargs: dict[str, Any] | None = None,
+        rtol: float = 1e-7,
+        atol: float = 1e-9,
         solver_kwargs: dict[str, Any] | None = None,
-        return_trajectory: bool = True,
+        return_trajectory: bool = False,
     ) -> Tensor:
         r"""Integrates the ODE defined by the provided velocity field.
-
-        :param vf: Velocity field providing the time-dependent dynamics. Must implement :meth:`BaseVelocityField.get_vf_fn`.
-        :type vf: class:`BaseVelocityField`
 
         :param source: Initial state of the ODE.
         :type source: class:`torch.Tensor`
@@ -55,10 +62,6 @@ class ODESolver(Solver):
         :param atol: Absolute tolerance for the ODE solver.
         :type atol: class:`float`
 
-        :param vf_kwargs: (Optional) Keyword arguments passed to
-            :meth:`BaseVelocityField.get_vf_fn`.
-        :type vf_kwargs: class:`dict[str, Any] | None`
-
         :param solver_kwargs: (Optional) Keyword arguments forwarded directly to
             :func:`torchdiffeq.odeint`.
         :type solver_kwargs: class:`dict[str, Any] | None`
@@ -70,28 +73,24 @@ class ODESolver(Solver):
             :param:`return_trajectory`.
         :rtype: class:`torch.Tensor`
         """
-        if solver_kwargs is None:
-            solver_kwargs = {}
-
-        if vf_kwargs is None:
-            vf_kwargs = {}
-
-        diff_eqn = vf.get_vf_fn(**vf_kwargs)
-
-        source = source.to(self.device)
-        time = time.to(self.device)
+        config = self._prepare_solve(source, time, solver_kwargs)
 
         trajectory = odeint(
-            diff_eqn,
-            source,
-            time,
+            self._vf,
+            config.source_on_device,
+            config.time_on_device,
             rtol=rtol,
             atol=atol,
-            method=self.method,
-            **solver_kwargs,
+            method=self._method,
+            **config.remaining_kwargs,
         )
 
         if return_trajectory:
             return trajectory
         else:
             return trajectory[-1]
+
+    @property
+    def vf(self) -> TVfFn:
+        """Get the velocity field associated with the ODE solver."""
+        return self._vf

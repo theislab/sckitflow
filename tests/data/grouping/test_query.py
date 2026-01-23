@@ -97,7 +97,6 @@ class TestQueryFactory:
         factory = QueryFactory(registry)
         invalid_levels = set(query_dict.keys()) - set(factory.registry)
         if len(invalid_levels) > 0:
-            # with pytest.raises(KeyError):
             with pytest.raises(ValueError):
                 factory.verify_query_dict(query_dict)
             return None

@@ -11,12 +11,12 @@ __all__ = [
     "broadcast_to_target_shape",
     "ensure_2d_tensor_with_singleton_trailing_dim",
     "make_concatenation_possible",
-    "validation_jax_device",
+    "get_jax_device",
     "get_ode_solver",
     "get_sde_solver",
 ]
 
-_ODE_MAP = {
+_ODE_SOLVER_REGISTRY = {
     "euler": dfx.Euler(),
     "heun": dfx.Heun(),
     "midpoint": dfx.Midpoint(),
@@ -31,7 +31,7 @@ _ODE_MAP = {
     "kvaerno5": dfx.Kvaerno5(),
 }
 
-_SDE_MAP = {
+_SDE_SOLVER_REGISTRY = {
     "euler": dfx.Euler(),
     "heun": dfx.Heun(),
     "midpoint": dfx.Midpoint(),
@@ -125,7 +125,7 @@ def ensure_2d_tensor_with_singleton_trailing_dim(
     return broadcast_to_target_shape(input_tensor, (input_tensor.shape[0], 1))
 
 
-def validation_jax_device(dev: TDevice) -> JaxDevice:
+def get_jax_device(dev: TDevice) -> JaxDevice:
     """Validate the JAX device passed as input and return the corresponding jax.Device object.
 
     If the requested device is not found, falls back to CPU with a warning.
@@ -160,13 +160,10 @@ def get_ode_solver(method: str | dfx.AbstractSolver | None) -> dfx.AbstractSolve
         return method
 
     method_key = method.lower()
-    if method_key not in _ODE_MAP:
-        warnings.warn(
-            f"ODE solver '{method}' not found. Switching to diffrax.Euler().", category=UserWarning, stacklevel=2
-        )
-        return dfx.Euler()
+    if method_key not in _ODE_SOLVER_REGISTRY:
+        raise ValueError(f"ODE solver '{method}' not found.")
 
-    return _ODE_MAP[method_key]
+    return _ODE_SOLVER_REGISTRY[method_key]
 
 
 def get_sde_solver(method: str | dfx.AbstractSolver | None) -> dfx.AbstractSolver:
@@ -184,10 +181,7 @@ def get_sde_solver(method: str | dfx.AbstractSolver | None) -> dfx.AbstractSolve
         return method
 
     method_key = method.lower()
-    if method_key not in _SDE_MAP:
-        warnings.warn(
-            f"SDE solver '{method}' not found. Switching to diffrax.Euler().", category=UserWarning, stacklevel=2
-        )
-        return dfx.Euler()
+    if method_key not in _SDE_SOLVER_REGISTRY:
+        raise ValueError(f"SDE solver '{method}' not found.")
 
-    return _SDE_MAP[method_key]
+    return _SDE_SOLVER_REGISTRY[method_key]

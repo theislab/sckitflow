@@ -7,33 +7,38 @@ import jax
 import jax.numpy as jnp
 
 from sc_flow.backends.jax._types import ArrayLike, SolverConfig, TDevice, TSolverDynamics
-from sc_flow.backends.jax._utils import validation_jax_device
+from sc_flow.backends.jax._utils import get_jax_device
 
 
-class Solver(Generic[TSolverDynamics], ABC, nn.Module):
+class BaseSolver(Generic[TSolverDynamics], ABC, nn.Module):
     """Abstract base class for JAX solvers."""
 
     def __init__(self, dynamics: TSolverDynamics, method: str | dfx.AbstractSolver | None, device_id=TDevice) -> None:
         super().__init__()
         self._dynamics = dynamics
         self._method = method or dfx.Euler()
-        self._device = validation_jax_device(device_id)
+        self._device = get_jax_device(device_id)
 
     @abstractmethod
     def solve(
         self,
         source: ArrayLike | None = None,
-        return_trajectory: bool = False,
+        t0: float = 0.0,
+        t1: float = 1.0,
         *,
+        num_time_steps: int = 500,
+        return_trajectory: bool = False,
         solver_kwargs: dict[str, Any] | None = None,
         **kwargs: Any,
     ) -> ArrayLike:
         """Solve method to be implemented by subclasses."""
         ...
 
-    def _prepare_solve(
+    def _prepare_solve_config(
         self,
         source: ArrayLike,
+        t0: float,
+        t1: float,
         num_time_steps: int,
         return_trajectory: bool,
         solver_kwargs: dict[str, Any] | None = None,
@@ -50,7 +55,7 @@ class Solver(Generic[TSolverDynamics], ABC, nn.Module):
         :returns: SolverConfig with all prepared parameters.
         """
         solver_kwargs = solver_kwargs or {}
-        ts = jnp.linspace(0.0, 1.0, num_time_steps)
+        ts = jnp.linspace(t0, t1, num_time_steps)
         dt0 = solver_kwargs.pop("dt0", 1.0 / (num_time_steps - 1))
         max_steps = solver_kwargs.pop("max_steps", 10_000)
 
@@ -58,9 +63,8 @@ class Solver(Generic[TSolverDynamics], ABC, nn.Module):
         if stepsize_controller is None:
             stepsize_controller = dfx.ConstantStepSize()
         elif not isinstance(stepsize_controller, dfx.AbstractStepSizeController):
-            raise TypeError(
-                "solver_kwargs['stepsize_controller'] must be an instance of diffrax.AbstractStepSizeController."
-            )
+            msg = "solver_kwargs['stepsize_controller'] must be an instance of diffrax.AbstractStepSizeController."
+            raise TypeError(msg)
 
         if return_trajectory:
             saveat = dfx.SaveAt(ts=ts)

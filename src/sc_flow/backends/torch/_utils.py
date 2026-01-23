@@ -8,7 +8,7 @@ __all__ = [
     "broadcast_to_target_shape",
     "ensure_2d_tensor_with_singleton_trailing_dim",
     "make_concatenation_possible",
-    "validation_torch_device",
+    "get_torch_device",
 ]
 
 
@@ -87,7 +87,7 @@ def make_concatenation_possible(
     return broadcast_to_target_shape(input_tensor, dims_to_match + dims_to_retain)
 
 
-def validation_torch_device(dev: TDevice) -> torch.device:
+def get_torch_device(dev: TDevice) -> torch.device:
     """Validate the PyTorch device passed as input and return the corresponding torch.device object.
 
     If the requested device is not found, falls back to CPU with a warning.

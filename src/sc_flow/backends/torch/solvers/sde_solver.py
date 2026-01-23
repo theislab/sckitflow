@@ -1,3 +1,5 @@
+import functools
+import inspect
 from typing import Any
 
 import torchsde
@@ -5,10 +7,10 @@ from torch import Tensor
 from torchsde import sdeint
 
 from sc_flow.backends.torch._types import TDevice, TDiffusion, TNoiseType, TSDEDynamics, TSDEType, TVfFn
-from sc_flow.backends.torch.solvers.solver import Solver
+from sc_flow.backends.torch.solvers.solver import BaseSolver
 
 
-class SDESolver(Solver[TSDEDynamics]):
+class SDESolver(BaseSolver[TSDEDynamics]):
     r"""Class for solving stochastic differential equations (SDEs) with TorchSDE.
 
     :param dynamics: Encodes the drift (of type BaseVelocityField) and the diffusion terms of the SDE
@@ -30,6 +32,10 @@ class SDESolver(Solver[TSDEDynamics]):
 
     :param device_id: (Optional) Identifier for the device on which the SDE will be solved.
     :type device_id: class:`TDevice`
+
+    :param vf_kwargs: (Optional) Keyword arguments passed to
+            :meth:`BaseVelocityField.get_vf_fn`.
+    :type vf_kwargs: class:`dict[str, Any] | None`
     """
 
     def __init__(
@@ -41,6 +47,7 @@ class SDESolver(Solver[TSDEDynamics]):
         method: str | None = None,
         device_id: TDevice = "cpu",
         vf_kwargs: dict[str, Any] | None = None,
+        df_kwargs: dict[str, Any] | None = None,
     ):
         super().__init__(dynamics=dynamics, method=method, device_id=device_id)
 
@@ -49,7 +56,7 @@ class SDESolver(Solver[TSDEDynamics]):
 
         vf_kwargs = vf_kwargs or {}
         self._drift_fn = dynamics[0].get_vf_fn(**vf_kwargs)
-        self._diffusion_fn = self._diffusion_fn_wrapper(dynamics[1])
+        self._diffusion_fn = self._diffusion_fn_wrapper(dynamics[1], df_kwargs)
 
     def solve(
         self,
@@ -86,7 +93,7 @@ class SDESolver(Solver[TSDEDynamics]):
             trajectory or the final integration point.
         :rtype: class:`Any`
         """
-        config = self._prepare_solve(source, time, solver_kwargs)
+        config = self._prepare_solve_config(source, time, solver_kwargs)
 
         _noise_type = self._noise_type
         _SDE_base = self._sde_type
@@ -145,13 +152,20 @@ class SDESolver(Solver[TSDEDynamics]):
     def _diffusion_fn_wrapper(
         self,
         diffusion_fn: TDiffusion,
+        df_kwargs: dict[str, Any] | None = None,
     ) -> TVfFn:
         """Wraps the diffusion function to ensure it has the correct signature for TorchSDE."""
+        df_kwargs = df_kwargs or {}
+        partial_diffusion = functools.partial(diffusion_fn, **df_kwargs)
+        sig = inspect.signature(diffusion_fn)
+        params = sig.parameters
+        remaining_params = [p for p in params.values() if p.name not in df_kwargs]
+        num_params = len(remaining_params)
 
-        def wrapped_diffusion(t: Tensor, y: Tensor) -> Tensor:
-            try:
-                return diffusion_fn(t, y)
-            except TypeError:
-                return diffusion_fn(t)
+        def wrapped_diffusion(t: Tensor, y: Tensor, args: Any = None) -> Tensor:
+            if num_params >= 2:
+                return partial_diffusion(t, y)
+            else:
+                return partial_diffusion(t)
 
         return wrapped_diffusion

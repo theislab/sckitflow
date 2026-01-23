@@ -35,11 +35,11 @@ class ConstantDriftVF(BaseVelocityField):
         return vf
 
 
-def _diff_zero_time_state(t, y, args=None):
+def _diff_zero_time_state(t, y):
     return lx.DiagonalLinearOperator(jnp.zeros_like(y))
 
 
-def _diff_identity_time_state(t, y, args=None):
+def _diff_identity_time_state(t, y):
     return lx.DiagonalLinearOperator(jnp.ones_like(y))
 
 

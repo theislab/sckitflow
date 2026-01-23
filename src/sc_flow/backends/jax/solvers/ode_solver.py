@@ -4,11 +4,11 @@ import diffrax as dfx
 from diffrax import ODETerm
 
 from sc_flow.backends.jax._types import ArrayLike, TDevice, TODEDynamics, TVfFn
-from sc_flow.backends.jax._utils import get_ode_solver, validation_jax_device
-from sc_flow.backends.jax.solvers.solver import Solver
+from sc_flow.backends.jax._utils import get_ode_solver
+from sc_flow.backends.jax.solvers.solver import BaseSolver
 
 
-class ODESolver(Solver[TODEDynamics]):
+class ODESolver(BaseSolver[TODEDynamics]):
     r"""Class for solving neural Ordinary Differential Equations (ODEs).
 
     :param dynamics: Velocity field providing the time-dependent dynamics. Must implement :meth:`BaseVelocityField.get_vf_fn`.
@@ -44,14 +44,14 @@ class ODESolver(Solver[TODEDynamics]):
         super().__init__(dynamics=dynamics, method=method, device_id=device_id)
 
         self._method = get_ode_solver(method)
-        self._device = validation_jax_device(device_id)
-
         vf_kwargs = vf_kwargs or {}
         self._vf = dynamics.get_vf_fn(**vf_kwargs)
 
     def solve(
         self,
         source: ArrayLike,
+        t0: float = 0.0,
+        t1: float = 1.0,
         *,
         num_time_steps: int = 500,
         return_trajectory: bool = False,
@@ -62,9 +62,15 @@ class ODESolver(Solver[TODEDynamics]):
         :param source: The initial state :math:`x_{t=0}` from which the ODE is integrated.
         :type source: class: `ArrayLike`
 
+        :param t0: Initial time for the ODE integration. Defaults to ``0.0``.
+        :type t0: class: `float`
+
+        :param t1: Final time for the ODE integration. Defaults to ``1.0``.
+        :type t1: class: `float`
+
         :param return_trajectory: When set to ``True``, the full solution trajectory is
             returned as an array of shape ``(num_time_steps, *source.shape)``. When ``False``, only the final state at
-            :math:`t = 1` is returned.
+            :math:`t = t1` is returned.
         :type return_trajectory: class: `bool`
 
         :param solver_kwargs: (Optional) Dictionary of keyword arguments forwarded to
@@ -87,8 +93,10 @@ class ODESolver(Solver[TODEDynamics]):
             :math:`t = 1`, depending on :param:`return_trajectory`.
         :rtype: class: `ArrayLike`
         """
-        config = self._prepare_solve(
+        config = self._prepare_solve_config(
             source=source,
+            t0=t0,
+            t1=t1,
             num_time_steps=num_time_steps,
             return_trajectory=return_trajectory,
             solver_kwargs=solver_kwargs,
@@ -98,8 +106,8 @@ class ODESolver(Solver[TODEDynamics]):
         trajectory = dfx.diffeqsolve(
             terms,
             solver=self._method,
-            t0=0.0,
-            t1=1.0,
+            t0=t0,
+            t1=t1,
             dt0=config.dt0,
             y0=config.source_on_device,
             saveat=config.saveat,

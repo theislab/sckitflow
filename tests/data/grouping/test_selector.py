@@ -7,7 +7,7 @@ import pytest
 from anndata import AnnData
 
 from sc_flow._constants import BASE_LEVEL_NAME, CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
-from sc_flow._types import MappedLevelIndex
+from sc_flow.data._mixins import MappedLevelIndex
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 from sc_flow.data.grouping._selector import IndexSelector
 

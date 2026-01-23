@@ -61,16 +61,15 @@ def t01() -> Tensor:
 
 
 def test_solve_returns_trajectory_shape_dtype(poly_vf: PolyTimeVF, y0: Tensor, t01: Tensor) -> None:
-    solver = ODESolver(method="euler", device_id="cpu")
+    solver = ODESolver(dynamics=poly_vf, method="euler", device_id="cpu")
 
     traj = solver.solve(
-        vf=poly_vf,
         source=y0,
         time=t01,
         rtol=1e-6,
         atol=1e-7,
-        vf_kwargs=None,
         solver_kwargs={},
+        return_trajectory=True,
     )
 
     assert isinstance(traj, Tensor)
@@ -79,17 +78,14 @@ def test_solve_returns_trajectory_shape_dtype(poly_vf: PolyTimeVF, y0: Tensor, t
 
 
 def test_vf_kwargs_forwarded(poly_vf: PolyTimeVF, y0: Tensor, t01: Tensor) -> None:
-    solver = ODESolver(method="euler", device_id="cpu")
-
     vf_kwargs = {"condition_dict": {"foo": torch.ones(1, 2)}, "alpha": 0.42}
+    solver = ODESolver(dynamics=poly_vf, method="euler", device_id="cpu", vf_kwargs=vf_kwargs)
 
     _ = solver.solve(
-        vf=poly_vf,
         source=y0,
         time=t01,
         rtol=1e-6,
         atol=1e-7,
-        vf_kwargs=vf_kwargs,
         solver_kwargs={},
     )
 
@@ -122,15 +118,14 @@ def test_many_integrators_match_analytic_solution(method: str) -> None:
     y_init = torch.tensor([1.0, 0.0, -2.0])
     t = torch.linspace(0.0, 1.0, 401)
 
-    solver = ODESolver(method=method, device_id="cpu")
+    solver = ODESolver(dynamics=vf, method=method, device_id="cpu")
     traj = solver.solve(
-        vf=vf,
         source=y_init,
         time=t,
         rtol=1e-7,
         atol=1e-8,
-        vf_kwargs={},
         solver_kwargs={},
+        return_trajectory=True,
     )
 
     y1 = traj[-1]
@@ -142,15 +137,14 @@ def test_time_tensor_respected(poly_vf: PolyTimeVF) -> None:
     y_init = torch.tensor([0.5, -1.5])
     t = torch.tensor([0.0, 0.1, 0.11, 0.5, 0.9, 1.0])
 
-    solver = ODESolver(method="dopri5", device_id="cpu")
+    solver = ODESolver(dynamics=poly_vf, method="dopri5", device_id="cpu")
     traj = solver.solve(
-        vf=poly_vf,
         source=y_init,
         time=t,
         rtol=1e-7,
         atol=1e-8,
-        vf_kwargs={},
         solver_kwargs={},
+        return_trajectory=True,
     )
 
     assert traj.shape == (t.numel(), *y_init.shape)
@@ -161,7 +155,7 @@ def test_solver_kwargs_are_forwarded_to_odeint(monkeypatch: pytest.MonkeyPatch) 
     import sc_flow.backends.torch.solvers.ode_solver as ode_solver_module
 
     vf = PolyTimeVF()
-    solver = ODESolver(method="euler", device_id="cpu")
+    solver = ODESolver(dynamics=vf, method="euler", device_id="cpu")
 
     y_init = torch.zeros(1, 1)
     t = torch.tensor([0.0, 1.0])
@@ -175,13 +169,12 @@ def test_solver_kwargs_are_forwarded_to_odeint(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setattr(ode_solver_module, "odeint", fake_odeint)
 
     _ = solver.solve(
-        vf=vf,
         source=y_init,
         time=t,
         rtol=1e-3,
         atol=1e-5,
-        vf_kwargs={},
         solver_kwargs={"options": {"step_size": 1e-2}},
+        return_trajectory=True,
     )
 
     assert captured["rtol"] == pytest.approx(1e-3)
@@ -192,14 +185,12 @@ def test_solver_kwargs_are_forwarded_to_odeint(monkeypatch: pytest.MonkeyPatch) 
 
 
 def test_runs_on_cpu(poly_vf: PolyTimeVF, y0: Tensor, t01: Tensor) -> None:
-    solver = ODESolver(method="euler", device_id="cpu")
+    solver = ODESolver(dynamics=poly_vf, method="euler", device_id="cpu")
     traj = solver.solve(
-        vf=poly_vf,
         source=y0,
         time=t01,
         rtol=1e-6,
         atol=1e-7,
-        vf_kwargs={},
         solver_kwargs={},
     )
     assert traj.device.type == "cpu"
@@ -207,15 +198,14 @@ def test_runs_on_cpu(poly_vf: PolyTimeVF, y0: Tensor, t01: Tensor) -> None:
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA not available")
 def test_runs_on_cuda_when_available(poly_vf: PolyTimeVF, y0: Tensor, t01: Tensor) -> None:
-    solver = ODESolver(method="euler", device_id="cuda")
+    solver = ODESolver(dynamics=poly_vf, method="euler", device_id="cuda")
     traj = solver.solve(
-        vf=poly_vf,
         source=y0,
         time=t01,
         rtol=1e-6,
         atol=1e-7,
-        vf_kwargs={},
         solver_kwargs={},
+        return_trajectory=True,
     )
     assert traj.device.type == "cuda"
 
@@ -224,17 +214,16 @@ def test_gradients_through_solver_constant_vf(constant_vf: ConstantVF) -> None:
     y_init = torch.tensor([1.0, 0.0, -2.0])
     t = torch.linspace(0.0, 1.0, 201)
 
-    solver = ODESolver(method="euler", device_id="cpu")
+    solver = ODESolver(dynamics=constant_vf, method="euler", device_id="cpu")
 
     constant_vf.zero_grad()
     traj = solver.solve(
-        vf=constant_vf,
         source=y_init,
         time=t,
         rtol=1e-7,
         atol=1e-8,
-        vf_kwargs={},
         solver_kwargs={},
+        return_trajectory=True,
     )
 
     loss = traj[-1].sum()

@@ -35,7 +35,7 @@ class CheckerboardDataset(BaseDummyDataset):
             Shuffles the samples
     """
 
-    _dataset_name = "checkerboard"
+    _dataset_name: str = "checkerboard"
 
     def __init__(
         self,
@@ -58,41 +58,6 @@ class CheckerboardDataset(BaseDummyDataset):
             maxval=maxval,
             shuffle=shuffle,
         )
-
-    def _validate_additional_parameters(self, **kwargs):
-        """Validate common parameters to prevent errors"""
-        n_features = kwargs["n_features"]
-        n_clusters = kwargs["n_clusters"]
-        noise = kwargs["noise"]
-        minval = kwargs["minval"]
-        maxval = kwargs["maxval"]
-        shuffle = kwargs["shuffle"]
-
-        if not isinstance(n_features, int):
-            raise TypeError(f"n_features must be an integer, got {type(n_features)}")
-        if n_features <= 0:
-            raise ValueError(f"n_features must be positive, got {n_features}")
-
-        if not (isinstance(n_clusters, int) or isinstance(n_clusters, tuple)):
-            raise TypeError(f"n_clusters must be an integer or tuple of integers, got {type(n_clusters)}")
-
-        if isinstance(n_clusters, tuple):
-            if len(n_clusters) != 2:
-                raise ValueError(f"n_clusters tuple must have length 2, got {n_clusters}")
-            if not all(isinstance(x, int) for x in n_clusters):
-                raise TypeError(f"n_clusters tuple must contain integers, got {n_clusters}")
-
-        if not isinstance(noise, float):
-            raise TypeError(f"noise must be a float, got {type(noise)}")
-
-        if not isinstance(minval, float):
-            raise TypeError(f"minval must be a float, got {type(minval)}")
-
-        if not isinstance(maxval, float):
-            raise TypeError(f"maxval must be a float, got {type(maxval)}")
-
-        if not isinstance(shuffle, bool):
-            raise TypeError(f"shuffle must be a boolean, got {type(shuffle)}")
 
     def _generate(self, random_state, n_samples, n_features, n_clusters, noise, minval, maxval, shuffle) -> sc.AnnData:
         """
@@ -119,7 +84,7 @@ class CheckerboardDataset(BaseDummyDataset):
         adata.obsm["row_cluster"] = rows.T
         adata.varm["col_cluster"] = cols.T
 
-        # Add checkerboard-specific metadata
+        # Step 3: Add checkerboard-specific metadata
         adata.uns["dataset_info"]["extra_info"] = (
             "The row & col cluster original shape is (n_clusters, X.shape[0]) & (n_clusters, X.shape[1]) respectively."
         )

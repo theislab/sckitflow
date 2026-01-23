@@ -20,7 +20,7 @@ class SCurveDataset(BaseDummyDataset):
         Standard deviation of Gaussian noise added to the data
     """
 
-    _dataset_name = "scurve"
+    _dataset_name: str = "scurve"
 
     def __init__(
         self,
@@ -30,16 +30,6 @@ class SCurveDataset(BaseDummyDataset):
     ):
         """Initialization"""
         super().__init__(random_state, n_samples, noise=noise)
-
-    def _validate_additional_parameters(self, **kwargs):
-        """Validate dataset-specific parameters."""
-        noise = kwargs["noise"]
-
-        if not isinstance(noise, int | float):
-            raise TypeError(f"noise must be a number, got {type(noise)}")
-
-        if noise < 0:
-            raise ValueError(f"noise must be non-negative, got {noise}")
 
     def _generate(self, random_state, n_samples, noise) -> sc.AnnData:
         """

@@ -23,25 +23,11 @@ class MoonsDataset(BaseDummyDataset):
         Whether to shuffle the samples after generation
     """
 
-    _dataset_name = "moons"
+    _dataset_name: str = "moons"
 
     def __init__(self, random_state: int = 42, n_samples: int = 1000, noise: float = 0.0, shuffle: bool = True):
         """Initialization"""
         super().__init__(random_state, n_samples, noise=noise, shuffle=shuffle)
-
-    def _validate_additional_parameters(self, **kwargs):
-        """Validate dataset-specific parameters."""
-        noise = kwargs["noise"]
-        shuffle = kwargs["shuffle"]
-
-        if not isinstance(noise, int | float):
-            raise TypeError(f"noise must be a number, got {type(noise)}")
-
-        if noise < 0:
-            raise ValueError(f"noise must be non-negative, got {noise}")
-
-        if not isinstance(shuffle, bool):
-            raise TypeError(f"shuffle must be a boolean, got {type(shuffle)}")
 
     def _generate(self, random_state, n_samples, noise, shuffle) -> sc.AnnData:
         """

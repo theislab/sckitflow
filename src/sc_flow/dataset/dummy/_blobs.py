@@ -32,7 +32,7 @@ class BlobsDataset(BaseDummyDataset):
             Shuffles the samples
     """
 
-    _dataset_name = "blobs"
+    _dataset_name: str = "blobs"
 
     def __init__(
         self,
@@ -55,34 +55,6 @@ class BlobsDataset(BaseDummyDataset):
             shuffle=shuffle,
         )
 
-    def _validate_additional_parameters(self, **kwargs):
-        """Validate common parameters to prevent errors"""
-        n_features = kwargs["n_features"]
-        centers = kwargs["centers"]
-        cluster_std = kwargs["cluster_std"]
-        center_box = kwargs["center_box"]
-        shuffle = kwargs["shuffle"]
-
-        # Type Check
-        if not isinstance(centers, int):
-            raise TypeError(f"centers must be an integer, got {type(centers)}")
-        if not isinstance(cluster_std, float):
-            raise TypeError(f"cluster_std must be a float, got {type(cluster_std)}")
-        if not isinstance(center_box, tuple):
-            raise TypeError(f"center_box must be a tuple, got {type(center_box)}")
-        if not isinstance(shuffle, bool):
-            raise TypeError(f"shuffle must be a boolean, got {type(shuffle)}")
-        if not isinstance(n_features, int):
-            raise TypeError(f"n_features must be an integer, got {type(n_features)}")
-
-        # Value Check
-        if centers <= 0:
-            raise ValueError(f"centers must be positive, got {centers}")
-        if cluster_std <= 0:
-            raise ValueError(f"cluster_std must be positive, got {cluster_std}")
-        if n_features <= 0:
-            raise ValueError(f"n_features must be positive, got {n_features}")
-
     def _generate(self, random_state, n_samples, n_features, centers, cluster_std, center_box, shuffle) -> sc.AnnData:
         """
         Generate blob-shaped clusters.
@@ -93,7 +65,7 @@ class BlobsDataset(BaseDummyDataset):
             Dataset with blob clusters, labels & metadata
         """
         # Step 1: Generate the blob data using sklearn
-        X, y = datasets.make_blobs(
+        X, y, centers = datasets.make_blobs(
             n_samples=n_samples,
             n_features=n_features,
             centers=centers,
@@ -101,15 +73,18 @@ class BlobsDataset(BaseDummyDataset):
             random_state=random_state,
             center_box=center_box,
             shuffle=shuffle,
+            return_centers=True,
         )
 
         # Step 2: Wrap in AnnData format with standardized structure
         adata = self._create_anndata(X, y, y_type="category")
 
         # Step 3: Add additional metadata specific to blobs
-        adata.uns["dataset_info"]["centers"] = centers
+        adata.uns["dataset_info"]["No of centers"] = centers
         adata.uns["dataset_info"]["cluster_std"] = cluster_std
         adata.uns["dataset_info"]["center_box"] = center_box
         adata.uns["dataset_info"]["shuffle"] = shuffle
+
+        adata.uns["dataset_info"]["centers"] = {str(i): center for i, center in enumerate(centers)}
 
         return adata

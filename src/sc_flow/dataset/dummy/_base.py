@@ -6,41 +6,39 @@ import scanpy as sc
 
 class BaseDummyDataset(ABC):
     """
-    Abstract base class for all dummy dataset generators.
+    Abstract base class for dummy dataset generators.
 
-    Attributes
+    Parameters
     ----------
     random_state : int
         Random seed for reproducibility across all dataset types
 
+    n_samples : int
+        Number of samples to generate
+
+    **kwargs
+        Dataset-specific parameters forwarded to `_generate`
+
+    Attributes
+    ----------
+    adata : sc.AnnData
+        Generated dataset in AnnData format
+
     dataset_name : str
-        Identifier for the dataset type (e.g., 'blobs', 'moons')
+        Name of the dataset type
+
+    Note
+    ----
+    Subclasses must:
+    - Implement `_generate` method
+    - Define `_dataset_name` attribute
     """
 
     _dataset_name: str
 
     def __init__(self, random_state: int, n_samples: int, **kwargs):
-        """
-        Initialize the base dataset generator.
-
-        Parameters
-        ----------
-        random_state : int, optional (default=42)
-            Seed for random number generation to ensure reproducibility
-        """
+        """Initialize the base dataset generator."""
         self.random_state = random_state
-
-        # Validate common parameters
-        if not isinstance(n_samples, int):
-            raise TypeError(f"n_samples must be an integer, got {type(n_samples)}")
-
-        if n_samples <= 0:
-            raise ValueError(f"n_samples must be positive, got {n_samples}")
-
-        if not isinstance(random_state, int):
-            raise TypeError(f"random_state must be an integer, got {type(random_state)}")
-
-        self._validate_additional_parameters(**kwargs)
         self.adata = self._generate(random_state, n_samples, **kwargs)
 
     def _create_anndata(self, X: np.ndarray, y: np.ndarray | None = None, y_type: str | None = None) -> sc.AnnData:
@@ -67,11 +65,11 @@ class BaseDummyDataset(ABC):
         # Labels are stored as strings for categorical data
         if y is not None:
             if y_type == "category":
-                adata.obs["Y"] = y.astype(str)
-                adata.obs["Y"] = adata.obs["Y"].astype("category")
+                adata.obsm["Y"] = y.astype(str)
+                adata.obsm["Y"] = adata.obsm["Y"].astype("category")
 
             else:
-                adata.obs["Y"] = y.astype(float)
+                adata.obsm["Y"] = y.astype(float)
 
         # Step 3: Store metadata about the dataset
         adata.uns["dataset_info"] = {
@@ -81,10 +79,10 @@ class BaseDummyDataset(ABC):
 
         return adata
 
-    @abstractmethod
-    def _validate_additional_parameters(self, **kwargs) -> None:
-        """Validate dataset-specific parameters."""
-        raise NotImplementedError
+    @property
+    def dataset_name(self) -> str:
+        """Get the dataset name."""
+        return self._dataset_name
 
     @abstractmethod
     def _generate(self, **kwargs) -> sc.AnnData:

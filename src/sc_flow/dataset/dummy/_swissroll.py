@@ -23,7 +23,7 @@ class SwissRollDataset(BaseDummyDataset):
         Whether to create a hole in the Swiss Roll
     """
 
-    _dataset_name = "swissroll"
+    _dataset_name: str = "swissroll"
 
     def __init__(
         self,
@@ -34,19 +34,6 @@ class SwissRollDataset(BaseDummyDataset):
     ):
         """Initialization"""
         super().__init__(random_state, n_samples, noise=noise, hole=hole)
-
-    def _validate_additional_parameters(self, **kwargs):
-        """Validate dataset-specific parameters."""
-        noise = kwargs["noise"]
-        hole = kwargs["hole"]
-
-        if not isinstance(noise, int | float):
-            raise TypeError(f"noise must be a number, got {type(noise)}")
-        if not isinstance(hole, bool):
-            raise TypeError(f"hole must be a boolean, got {type(hole)}")
-
-        if noise < 0:
-            raise ValueError(f"noise must be non-negative, got {noise}")
 
     def _generate(self, random_state, n_samples, noise, hole) -> sc.AnnData:
         """

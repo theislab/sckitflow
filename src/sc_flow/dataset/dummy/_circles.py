@@ -26,7 +26,7 @@ class CirclesDataset(BaseDummyDataset):
         Whether to shuffle the samples after generation
     """
 
-    _dataset_name = "circles"
+    _dataset_name: str = "circles"
 
     def __init__(
         self,
@@ -38,27 +38,6 @@ class CirclesDataset(BaseDummyDataset):
     ):
         """Initialization"""
         super().__init__(random_state, n_samples, noise=noise, factor=factor, shuffle=shuffle)
-
-    def _validate_additional_parameters(self, **kwargs):
-        """Validate dataset-specific parameters."""
-        noise = kwargs["noise"]
-        factor = kwargs["factor"]
-        shuffle = kwargs["shuffle"]
-
-        if not isinstance(noise, int | float):
-            raise TypeError(f"noise must be a number, got {type(noise)}")
-
-        if noise < 0:
-            raise ValueError(f"noise must be non-negative, got {noise}")
-
-        if not isinstance(factor, int | float):
-            raise TypeError(f"factor must be a number, got {type(factor)}")
-
-        if not (0 < factor < 1):
-            raise ValueError(f"factor must be between 0 and 1, got {factor}")
-
-        if not isinstance(shuffle, bool):
-            raise TypeError(f"shuffle must be a boolean, got {type(shuffle)}")
 
     def _generate(self, random_state, n_samples, noise, factor, shuffle) -> sc.AnnData:
         """

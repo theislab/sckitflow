@@ -18,13 +18,34 @@ class TestQueryFactory:
             return False
         return True
 
+    @pytest.mark.parametrize("values", [(0.0, 0.0), (0.0,)])
+    @pytest.mark.parametrize("level_name", ["level0", invalid_level_name])
+    def test_query_tuple_to_dict(
+        self,
+        registry: dict[str, tuple[str, ...] | None],
+        values: tuple[Any],
+        level_name: str,
+    ):
+        factory = QueryFactory(registry)
+        if level_name not in factory.registry_keys:
+            with pytest.raises(KeyError):
+                query_dict = factory.query_tuple_to_dict(registry, values, level_name)
+            return None
+        if len(values) != len(registry[level_name]):
+            with pytest.raises(ValueError):
+                query_dict = factory.query_tuple_to_dict(registry, values, level_name)
+            return None
+        query_dict = factory.query_tuple_to_dict(registry, values, level_name)
+        is_valid = self._is_valid_level_query_dict(factory, level_name, query_dict, False)
+        assert is_valid
+
     @pytest.mark.parametrize("level_name", ["level0", "level1", invalid_level_name])
     @pytest.mark.parametrize("reference", [None, ["level0", "level1"]])
     def test_verify_valid_level_names(
         self, registry: dict[str, tuple[str, ...] | None], level_name: str, reference: Collection[str] | None
     ) -> None:
         factory = QueryFactory(registry)
-        if level_name == invalid_level_name:
+        if level_name not in factory.registry_keys:
             with pytest.raises(KeyError):
                 factory.verify_valid_level_name(level_name, reference=reference)
             return None
@@ -76,7 +97,8 @@ class TestQueryFactory:
         factory = QueryFactory(registry)
         invalid_levels = set(query_dict.keys()) - set(factory.registry)
         if len(invalid_levels) > 0:
-            with pytest.raises(KeyError):
+            # with pytest.raises(KeyError):
+            with pytest.raises(ValueError):
                 factory.verify_query_dict(query_dict)
             return None
         valid_levels = [

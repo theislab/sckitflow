@@ -67,7 +67,7 @@ class QueryFactory:
         query_dict: dict[str, dict[str, Any]],
     ) -> None:
         """"""  # noqa
-        check_sequence_query_against_reference(query_dict.keys(), self.registry.keys())
+        check_sequence_query_against_reference(query_dict.keys(), self.registry_keys)
         for level_name, level_query_dict in query_dict.items():
             self.verify_level_query_dict(level_name, level_query_dict)
 

@@ -65,7 +65,7 @@ class BlobsDataset(BaseDummyDataset):
             Dataset with blob clusters, labels & metadata
         """
         # Step 1: Generate the blob data using sklearn
-        X, y, centers = datasets.make_blobs(
+        X, y, centers_array = datasets.make_blobs(
             n_samples=n_samples,
             n_features=n_features,
             centers=centers,
@@ -85,6 +85,6 @@ class BlobsDataset(BaseDummyDataset):
         adata.uns["dataset_info"]["center_box"] = center_box
         adata.uns["dataset_info"]["shuffle"] = shuffle
 
-        adata.uns["dataset_info"]["centers"] = {str(i): center for i, center in enumerate(centers)}
+        adata.uns["dataset_info"]["centers"] = {str(i): center for i, center in enumerate(centers_array)}
 
         return adata

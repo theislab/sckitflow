@@ -66,7 +66,7 @@ class BaseDummyDataset(ABC):
         if y is not None:
             if y_type == "category":
                 adata.obsm["Y"] = y.astype(str)
-                adata.obsm["Y"] = adata.obsm["Y"].astype("category")
+                # adata.obsm["Y"] = adata.obsm["Y"].astype("category")
 
             else:
                 adata.obsm["Y"] = y.astype(float)

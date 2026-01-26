@@ -351,7 +351,7 @@ class MLPUnconditionalVF(BaseVelocityField):
         elif encoded_condition is None and encoded_source is not None:
             return encoded_source
         elif encoded_condition is not None and encoded_source is None:
-            return encoded_source
+            return encoded_condition
         return None
 
     def _make_time_features(

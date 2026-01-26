@@ -109,7 +109,9 @@ def broadcast_to_target_shape(
         else:
             input_array = jnp.expand_dims(input_array, -1)
             dims_to_expand.append(target_dim)
-    return jnp.tile(input_array, jnp.array(dims_to_expand))
+    dims_to_expand = jnp.array(dims_to_expand)
+    print(f"broadcast_to_target_dim::{dims_to_expand.shape=}, {input_array.shape=}, {target_shape=}")
+    return jnp.tile(input_array, dims_to_expand)
 
 
 def make_concatenation_possible(

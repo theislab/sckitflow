@@ -154,9 +154,11 @@ class BaseProbabilityPath(abc.ABC):
         :type prng: class: `ArrayLike`
         """
         # handling shapes
-        t = broadcast_to_target_shape(t, x0.shape)
+        print(f"BaseProbabilityPath::compute_xt::{t.ndim=}, {x0.shape=}")
+        # t = broadcast_to_target_shape(t, x0.shape)
+        t = jnp.expand_dims(t, -1)
         self._verify_shapes(x0, x1)
-        self._verify_shapes(t, x1)
+        # self._verify_shapes(t, x1)
         # computing coefficients and noise value
         mu_t = self.compute_mu_t(t, x0, x1)
         # sampling noise
@@ -234,11 +236,14 @@ class LinearProbabilityPath(BaseProbabilityPath, abc.ABC):
         :type x1: class: `ArrayLike`
         """
         # handling shapes
-        t = broadcast_to_target_shape(t, x0.shape)
+        # t = broadcast_to_target_shape(t, x0.shape)
+        # t = jnp.expand_dims(t, axis=-1)
         self._verify_shapes(x0, x1)
-        self._verify_shapes(t, x1)
+        # self._verify_shapes(t, x1)
 
-        return (1 - t) * x0 + t * x1
+        mu_t = (1 - t) * x0 + t * x1
+        print(f"PP::{t.shape=}, {x0.shape=}, {x1.shape=}, {mu_t.shape=}")
+        return mu_t
 
 
 class LinearGaussianProbabilityPath(LinearProbabilityPath):

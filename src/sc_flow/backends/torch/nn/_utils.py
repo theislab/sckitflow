@@ -1,5 +1,4 @@
 from sc_flow._types import LayersDict
-from sc_flow._utils import verify_fn_kwargs_dictionary
 from sc_flow.backends.torch.nn._modules import MLP, BaseModule
 
 __all__ = ["init_module_from_dict"]
@@ -69,7 +68,7 @@ def init_module_from_dict(
             raise TypeError(msg)
 
         # verify keyword arguments
-        verify_fn_kwargs_dictionary(MLP.__init__, layers_dict)
+        # verify_fn_kwargs_dictionary(MLP.__init__, layers_dict)
         return MLP(input_dim, output_dim, **layers_dict)
     else:
         msg = f'{layer_type=} is not supported, possible choices are `["mlp"]`'

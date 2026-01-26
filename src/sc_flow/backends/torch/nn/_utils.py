@@ -67,6 +67,8 @@ def init_module_from_dict(
             msg = f"Argument `output_dim` is expected to be an `int`, {type(output_dim)} found."
             raise TypeError(msg)
 
+        # verify keyword arguments
+        # verify_fn_kwargs_dictionary(MLP.__init__, layers_dict)
         return MLP(input_dim, output_dim, **layers_dict)
     else:
         msg = f'{layer_type=} is not supported, possible choices are `["mlp"]`'

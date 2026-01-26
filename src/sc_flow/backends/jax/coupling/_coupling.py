@@ -1,6 +1,6 @@
 import logging
 from collections.abc import Callable
-from typing import Literal
+from typing import Literal, Protocol, overload
 
 import jax
 import jax.numpy as jnp
@@ -12,6 +12,54 @@ from ott.solvers.linear import sinkhorn
 from ott.solvers.utils import match_quadratic
 
 logger = logging.getLogger(__name__)
+
+CostFn = Callable[[jax.Array, jax.Array], jax.Array]
+
+
+class OTResult(Protocol):
+    matrix: jax.Array
+
+
+class OTFn(Protocol):
+    def __call__(self, problem: "linear_problem.LinearProblem") -> OTResult: ...
+
+
+def ensure_jax_array(x: jax.Array | np.ndarray) -> jax.Array:
+    """Convert a NumPy array to a JAX array if needed."""
+    if isinstance(x, np.ndarray):
+        return jnp.array(x)
+    return x
+
+
+def sanitize_coupling_matrix(
+    coupling_matrix: np.ndarray,
+    eps: float = 1e-8,
+) -> np.ndarray:
+    """Checks a coupling matrix for numerical issues and applies safe fallbacks.
+
+    :param coupling_matrix: Coupling matrix to be checked for numerical stability.
+    :type coupling_matrix: class:`jax.numpy.ndarray`
+
+    :param eps: Threshold below which the sum of the coupling matrix is considered
+        numerically zero.
+    :type eps: float
+
+    Returns
+    -------
+    jax.numpy.ndarray
+        A numerically stable coupling matrix.
+    """
+    # Non-finite check (use NumPy for robustness with logging)
+    if not np.all(np.isfinite(coupling_matrix)):
+        msg = f"Non-finite values found in `coupling_matrix` {coupling_matrix=}\n"
+        logger.warning(msg)
+
+    # Degenerate sum → fallback to uniform
+    if np.abs(coupling_matrix.sum()) < eps:
+        logger.warning("Sum of `coupling_matrix` is numerically zero; replacing with a uniform coupling.")
+        coupling_matrix = np.ones_like(coupling_matrix) / coupling_matrix.size
+
+    return coupling_matrix
 
 
 def independent_coupling(
@@ -38,17 +86,48 @@ def independent_coupling(
     return src_random_perm_idx[:min_shape], tgt_random_perm_idx[:min_shape]
 
 
+@overload
 def ot_linear_coupling(
     source: jax.Array,
     target: jax.Array,
-    cost_fn: Callable | None = None,
+    cost_fn: CostFn | None = ...,
+    scale_cost: float | Literal["mean", "max_cost", "median"] = ...,
+    method: Literal["exact", "sinkhorn", "partial", "unbalanced"] = ...,
+    ot_fn: OTFn | None = ...,
+    reg: float = ...,
+    reg_m: float = ...,
+    return_matrix: bool = False,
+    **kwargs,
+) -> "tuple[np.ndarray, np.ndarray]": ...
+
+
+@overload
+def ot_linear_coupling(
+    source: jax.Array,
+    target: jax.Array,
+    cost_fn: CostFn | None = ...,
+    scale_cost: float | Literal["mean", "max_cost", "median"] = ...,
+    method: Literal["exact", "sinkhorn", "partial", "unbalanced"] = ...,
+    ot_fn: OTFn | None = ...,
+    reg: float = ...,
+    reg_m: float = ...,
+    return_matrix: bool = True,
+    **kwargs,
+) -> "tuple[np.ndarray, np.ndarray, np.ndarray]": ...
+
+
+def ot_linear_coupling(
+    source: jax.Array,
+    target: jax.Array,
+    cost_fn: CostFn | None = None,
     scale_cost: float | Literal["mean", "max_cost", "median"] = "mean",
     method: Literal["exact", "sinkhorn", "partial", "unbalanced"] = "sinkhorn",
-    of_fn: Callable | None = None,
+    ot_fn: OTFn | None = None,
     reg: float = 5e-1,
     reg_m: float = 1.0,
+    return_matrix: bool = False,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, jax.Array]:
+) -> "tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]":
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
 
     :param source: A tensor of values containing the data coming from the source distribution.
@@ -114,6 +193,8 @@ def ot_linear_coupling(
         msg = ""
         logger.warning(msg)
         coupling_matrix = jnp.ones_like(coupling_matrix) / coupling_matrix.size
+
+    coupling_matrix = sanitize_coupling_matrix(coupling_matrix=coupling_matrix)
     # retrieving coupling probabilities
     coupling_probs = coupling_matrix.flatten()
     coupling_probs = coupling_probs / coupling_probs.sum()
@@ -125,9 +206,49 @@ def ot_linear_coupling(
         replace=False,
     )
     source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
-    if "return_matrix" in kwargs and kwargs["return_matrix"]:
+    if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs
+
+
+@overload
+def ot_quadratic_coupling(
+    src_xx_cell_coupling: jax.Array,
+    tgt_yy_cell_coupling: jax.Array,
+    src_xy_cell_coupling: jax.Array | None = ...,
+    tgt_xy_cell_coupling: jax.Array | None = ...,
+    cost_fn: Callable | None = None,
+    scale_cost: float | Literal["mean", "max_cost", "median"] = ...,
+    method: Literal[
+        "entropic_gromov_wasserstein",
+        "entropic_fused_gromov_wasserstein",
+    ] = ...,
+    ot_fn: Callable | None = ...,
+    reg: float = ...,
+    reg_m: float = ...,
+    return_matrix: bool = False,
+    **kwargs,
+) -> "tuple[np.ndarray, np.ndarray]": ...
+
+
+@overload
+def ot_quadratic_coupling(
+    src_xx_cell_coupling: jax.Array,
+    tgt_yy_cell_coupling: jax.Array,
+    src_xy_cell_coupling: jax.Array | None = ...,
+    tgt_xy_cell_coupling: jax.Array | None = ...,
+    cost_fn: Callable | None = None,
+    scale_cost: float | Literal["mean", "max_cost", "median"] = ...,
+    method: Literal[
+        "entropic_gromov_wasserstein",
+        "entropic_fused_gromov_wasserstein",
+    ] = ...,
+    ot_fn: Callable | None = ...,
+    reg: float = ...,
+    reg_m: float = ...,
+    return_matrix: bool = True,
+    **kwargs,
+) -> "tuple[np.ndarray, np.ndarray, np.ndarray]": ...
 
 
 def ot_quadratic_coupling(
@@ -141,11 +262,12 @@ def ot_quadratic_coupling(
         "entropic_gromov_wasserstein",
         "entropic_fused_gromov_wasserstein",
     ] = "entropic_gromov_wasserstein",
-    of_fn: Callable | None = None,
+    ot_fn: Callable | None = None,
     reg: float = 5e-1,
     reg_m: float = 1.0,
+    return_matrix: bool = False,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, jax.Array]:
+) -> "tuple[np.ndarray, np.ndarray]" | "tuple[np.ndarray, np.ndarray, np.ndarray]":
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
 
     :param source: A tensor of values containing the data coming from the source distribution.
@@ -163,14 +285,10 @@ def ot_quadratic_coupling(
         scale_cost = "mean"
 
     # moving arrays to jax arrays
-    if isinstance(src_xx_cell_coupling, np.ndarray):
-        src_xx_cell_coupling = jnp.array(src_xx_cell_coupling)
-    if isinstance(tgt_yy_cell_coupling, np.ndarray):
-        tgt_yy_cell_coupling = jnp.array(tgt_yy_cell_coupling)
-    if isinstance(src_xy_cell_coupling, np.ndarray):
-        src_xy_cell_coupling = jnp.array(src_xy_cell_coupling)
-    if isinstance(tgt_xy_cell_coupling, np.ndarray):
-        tgt_xy_cell_coupling = jnp.array(tgt_xy_cell_coupling)
+    src_xx_cell_coupling = ensure_jax_array(src_xx_cell_coupling)
+    tgt_yy_cell_coupling = ensure_jax_array(tgt_yy_cell_coupling)
+    src_xy_cell_coupling = ensure_jax_array(src_xy_cell_coupling)
+    tgt_xy_cell_coupling = ensure_jax_array(tgt_xy_cell_coupling)
 
     if method not in ["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"]:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
@@ -191,13 +309,8 @@ def ot_quadratic_coupling(
     )
 
     # checking for numerical errors in the coupling matrix
-    if not jnp.all(np.isfinite(coupling_matrix)):
-        msg = f"Non finite values found in `coupling_matrix` \n {coupling_matrix=} \n {src_xx_cell_coupling=} \n {tgt_yy_cell_coupling=}"
-        logger.warning(msg)
-    if jnp.abs(coupling_matrix.sum()) < 1e-8:
-        msg = ""
-        logger.warning(msg)
-        coupling_matrix = jnp.ones_like(coupling_matrix) / coupling_matrix.size
+    coupling_matrix = sanitize_coupling_matrix(coupling_matrix=coupling_matrix)
+
     # retrieving coupling probabilities
     coupling_probs = coupling_matrix.flatten()
     coupling_probs = coupling_probs / coupling_probs.sum()
@@ -209,6 +322,6 @@ def ot_quadratic_coupling(
         replace=False,
     )
     source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
-    if "return_matrix" in kwargs and kwargs["return_matrix"]:
+    if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs

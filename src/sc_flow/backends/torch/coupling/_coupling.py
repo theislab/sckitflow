@@ -1,13 +1,90 @@
 import logging
 from collections.abc import Callable
 from functools import partial
-from typing import Literal
+from typing import Any, Literal, overload
 
 import numpy as np
 import ot as pot
 import torch
 
 logger = logging.getLogger(__name__)
+
+ScaleMethod = Literal["mean", "max", "median"] | float
+
+
+def sanitize_coupling_matrix(
+    coupling_matrix: np.ndarray,
+    eps: float = 1e-8,
+) -> np.ndarray:
+    """Checks a coupling matrix for numerical issues and applies safe fallbacks.
+
+    :param coupling_matrix: Coupling matrix to be checked for numerical stability.
+    :type coupling_matrix: class:`jax.numpy.ndarray`
+
+    :param eps: Threshold below which the sum of the coupling matrix is considered
+        numerically zero.
+    :type eps: float
+
+    Returns
+    -------
+    jax.numpy.ndarray
+        A numerically stable coupling matrix.
+    """
+    # Non-finite check (use NumPy for robustness with logging)
+    if not np.all(np.isfinite(coupling_matrix)):
+        msg = f"Non-finite values found in `coupling_matrix` {coupling_matrix=}\n"
+        logger.warning(msg)
+
+    # Degenerate sum → fallback to uniform
+    if np.abs(coupling_matrix.sum()) < eps:
+        logger.warning("Sum of `coupling_matrix` is numerically zero; replacing with a uniform coupling.")
+        coupling_matrix = np.ones_like(coupling_matrix) / coupling_matrix.size
+
+    return coupling_matrix
+
+
+def scale_distance_matrix(
+    distance_matrix: torch.Tensor,
+    scale_method: ScaleMethod,
+) -> torch.Tensor:
+    """
+    Scale a distance matrix according to a given method.
+
+    Parameters
+    ----------
+    distance_matrix : torch.Tensor
+        The distance matrix to be scaled.
+    scale_method : {"mean", "max", "median"} or float
+        Scaling strategy. If a float is provided, the matrix is divided
+        by this value directly.
+
+    Returns
+    -------
+    torch.Tensor
+        The scaled distance matrix.
+    """
+    if isinstance(scale_method, float):
+        if scale_method == 0.0:
+            msg = "`scale_method` m`ust be non-zero when given as a float."
+            raise ValueError(msg)
+        return distance_matrix / scale_method
+
+    if scale_method == "mean":
+        denom = distance_matrix.mean()
+    elif scale_method == "max":
+        denom = distance_matrix.max()
+    elif scale_method == "median":
+        denom = distance_matrix.median()
+    else:
+        # Should be unreachable due to typing
+        msg = f"Unknown scale_method: {scale_method}"
+        raise ValueError(msg)
+
+    if denom == 0:
+        msg = "Scaling denominator is zero; cannot scale distance matrix."
+        raise ValueError(msg)
+
+    return distance_matrix / denom
 
 
 def independent_coupling(
@@ -35,17 +112,48 @@ def independent_coupling(
     return src_random_perm_idx[:min_shape], tgt_random_perm_idx[:min_shape]
 
 
+@overload
+def ot_linear_coupling(
+    source: torch.Tensor,
+    target: torch.Tensor,
+    cost_fn: Callable[..., Any] | None = ...,
+    scale_cost: float | Literal["mean", "max", "median"] = ...,
+    method: Literal["exact", "sinkhorn", "partial", "unbalanced", None] = ...,
+    of_fn: Callable[..., Any] | None = ...,
+    reg: float = ...,
+    reg_m: float = ...,
+    return_matrix: bool = False,
+    **kwargs,
+) -> tuple[np.ndarray, np.ndarray]: ...
+
+
+@overload
+def ot_linear_coupling(
+    source: torch.Tensor,
+    target: torch.Tensor,
+    cost_fn: Callable[..., Any] | None = ...,
+    scale_cost: float | Literal["mean", "max", "median"] = ...,
+    method: Literal["exact", "sinkhorn", "partial", "unbalanced", None] = ...,
+    of_fn: Callable[..., Any] | None = ...,
+    reg: float = ...,
+    reg_m: float = ...,
+    return_matrix: bool = True,
+    **kwargs,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
+
+
 def ot_linear_coupling(
     source: torch.Tensor,
     target: torch.Tensor,
     cost_fn: Callable | None = None,
-    scale_cost: float | Literal["mean", "max_cost", "median"] = "mean",
+    scale_cost: float | Literal["mean", "max", "median"] = "mean",
     method: Literal["exact", "sinkhorn", "partial", "unbalanced", None] = None,
     of_fn: Callable | None = None,
     reg: float = 5e-1,
     reg_m: float = 1.0,
+    return_matrix: bool = False,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, torch.Tensor]:
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
 
     :param source: A tensor of values containing the data coming from the source distribution.
@@ -76,14 +184,7 @@ def ot_linear_coupling(
     # computing cost matrix
     distance_matrix = cost_fn(source, target)
     # normalization of cost
-    if scale_cost == "mean":
-        distance_matrix = distance_matrix / distance_matrix.mean()
-    elif scale_cost == "max":
-        distance_matrix = distance_matrix / distance_matrix.max()
-    elif scale_cost == "median":
-        distance_matrix = distance_matrix / distance_matrix.median()
-    elif isinstance(scale_cost, float):
-        distance_matrix = distance_matrix / scale_cost
+    distance_matrix = scale_distance_matrix(distance_matrix, scale_method=scale_cost)
 
     if method == "exact":
         ot_fn = pot.emd
@@ -105,20 +206,14 @@ def ot_linear_coupling(
             msg = f"{method=} requires `reg_m` to be a `float`, `None` found"
             raise ValueError(msg)
         ot_fn = partial(pot.unbalanced.sinkhorn_knopp_unbalanced, reg=reg, reg_m=reg_m, **kwargs)
-    elif method not in ["exact", "sinkhorn", "partial", "unbalanced"]:
+    else:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
         raise ValueError(msg)
 
     # computing coupling matrix
     coupling_matrix = ot_fn(src_weights, tgt_weights, distance_matrix.detach().cpu().numpy())
     # checking for numerical errors in the coupling matrix
-    if not np.all(np.isfinite(coupling_matrix)):
-        msg = f"Non finite values found in `coupling_matrix` \n {coupling_matrix=} \n {source=} \n {target=} \n {distance_matrix.mean()=} \n {distance_matrix.max()=}"
-        logger.warning(msg)
-    if np.abs(coupling_matrix.sum()) < 1e-8:
-        msg = ""
-        logger.warning(msg)
-        coupling_matrix = np.ones_like(coupling_matrix) / coupling_matrix.size
+    coupling_matrix = sanitize_coupling_matrix(coupling_matrix=coupling_matrix.numpy())
     # retrieving coupling probabilities
     coupling_probs = coupling_matrix.flatten()
     coupling_probs = coupling_probs / coupling_probs.sum()
@@ -130,9 +225,51 @@ def ot_linear_coupling(
         replace=False,
     )
     source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
-    if "return_matrix" in kwargs and kwargs["return_matrix"]:
+    if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs
+
+
+@overload
+def ot_quadratic_coupling(
+    src_xx_cell_coupling: torch.Tensor,
+    tgt_yy_cell_coupling: torch.Tensor,
+    src_xy_cell_coupling: torch.Tensor | None = ...,
+    tgt_xy_cell_coupling: torch.Tensor | None = ...,
+    cost_fn: Callable[..., Any] | None = ...,
+    scale_cost: float | Literal["mean", "max_cost", "median"] = ...,
+    method: Literal[
+        "entropic_gromov_wasserstein",
+        "entropic_fused_gromov_wasserstein",
+        None,
+    ] = ...,
+    of_fn: Callable[..., Any] | None = ...,
+    reg: float = ...,
+    reg_m: float = ...,
+    return_matrix: bool = False,
+    **kwargs,
+) -> tuple[np.ndarray, np.ndarray]: ...
+
+
+@overload
+def ot_quadratic_coupling(
+    src_xx_cell_coupling: torch.Tensor,
+    tgt_yy_cell_coupling: torch.Tensor,
+    src_xy_cell_coupling: torch.Tensor | None = ...,
+    tgt_xy_cell_coupling: torch.Tensor | None = ...,
+    cost_fn: Callable[..., Any] | None = ...,
+    scale_cost: float | Literal["mean", "max_cost", "median"] = ...,
+    method: Literal[
+        "entropic_gromov_wasserstein",
+        "entropic_fused_gromov_wasserstein",
+        None,
+    ] = ...,
+    of_fn: Callable[..., Any] | None = ...,
+    reg: float = ...,
+    reg_m: float = ...,
+    return_matrix: bool = True,
+    **kwargs,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
 
 
 def ot_quadratic_coupling(
@@ -150,8 +287,9 @@ def ot_quadratic_coupling(
     of_fn: Callable | None = None,
     reg: float = 5e-1,
     reg_m: float = 1.0,
+    return_matrix: bool = False,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, torch.Tensor]:
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
 
     :param source: A tensor of values containing the data coming from the source distribution.
@@ -172,9 +310,7 @@ def ot_quadratic_coupling(
         src_xx_cell_coupling = torch.from_numpy(src_xx_cell_coupling)
     if isinstance(tgt_yy_cell_coupling, np.ndarray):
         tgt_yy_cell_coupling = torch.from_numpy(tgt_yy_cell_coupling)
-    # flattening tensors
-    source = torch.flatten(src_xx_cell_coupling, start_dim=1)
-    target = torch.flatten(tgt_yy_cell_coupling, start_dim=1)
+
     # computing cost matrix
     distance_matrix_xx = cost_fn(src_xx_cell_coupling, src_xx_cell_coupling)
     distance_matrix_yy = cost_fn(tgt_yy_cell_coupling, tgt_yy_cell_coupling)
@@ -183,28 +319,11 @@ def ot_quadratic_coupling(
     else:
         distance_matrix_xy = None
     # normalization of cost
-    if scale_cost == "mean":
-        distance_matrix_xx = distance_matrix_xx / distance_matrix_xx.mean()
-        distance_matrix_yy = distance_matrix_yy / distance_matrix_yy.mean()
-    elif scale_cost == "max":
-        distance_matrix_xx = distance_matrix_xx / distance_matrix_xx.max()
-        distance_matrix_yy = distance_matrix_yy / distance_matrix_yy.max()
-    elif scale_cost == "median":
-        distance_matrix_xx = distance_matrix_xx / distance_matrix_xx.median()
-        distance_matrix_yy = distance_matrix_yy / distance_matrix_yy.median()
-    elif isinstance(scale_cost, float):
-        distance_matrix_xx = distance_matrix_xx / scale_cost
-        distance_matrix_yy = distance_matrix_yy / scale_cost
+    distance_matrix_xx = scale_distance_matrix(distance_matrix=distance_matrix_xx, scale_method=scale_cost)
+    distance_matrix_yy = scale_distance_matrix(distance_matrix=distance_matrix_yy, scale_method=scale_cost)
 
     if distance_matrix_xy is not None:
-        if scale_cost == "mean":
-            distance_matrix_xy = distance_matrix_xy / distance_matrix_xy.mean()
-        elif scale_cost == "max":
-            distance_matrix_xy = distance_matrix_xy / distance_matrix_xy.max()
-        elif scale_cost == "median":
-            distance_matrix_xy = distance_matrix_xy / distance_matrix_xy.median()
-        elif isinstance(scale_cost, float):
-            distance_matrix_xy = distance_matrix_xy / scale_cost
+        distance_matrix_xy - scale_distance_matrix(distance_matrix=distance_matrix_xy, scale_method=scale_cost)
 
     if method == "entropic_gromov_wasserstein":
         ot_fn = partial(pot.gromov.entropic_gromov_wasserstein, epsilon=1.0, alpha=1.0)
@@ -221,29 +340,24 @@ def ot_quadratic_coupling(
             C2=distance_matrix_yy,
             M=distance_matrix_xy,
         )
-    elif method not in ["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"]:
+    else:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
         raise ValueError(msg)
 
     # checking for numerical errors in the coupling matrix
-    if not np.all(np.isfinite(coupling_matrix.numpy())):
-        msg = f"Non finite values found in `coupling_matrix` \n {coupling_matrix=} \n {source=} \n {target=} \n {distance_matrix_xx.mean()=} \n {distance_matrix_xx.max()=}"
-        logger.warning(msg)
-    if np.abs(coupling_matrix.sum()) < 1e-8:
-        msg = ""
-        logger.warning(msg)
-        coupling_matrix = np.ones_like(coupling_matrix) / coupling_matrix.size
+    coupling_matrix = sanitize_coupling_matrix(coupling_matrix=coupling_matrix.numpy())
+
     # retrieving coupling probabilities
-    coupling_probs = coupling_matrix.numpy().flatten()
+    coupling_probs = coupling_matrix.flatten()
     coupling_probs = coupling_probs / coupling_probs.sum()
     # sampling indices
     choices = np.random.choice(
         coupling_matrix.shape[0] * coupling_matrix.shape[1],
         p=coupling_probs,
-        size=source.shape[0],
+        size=src_xx_cell_coupling.shape[0],
         replace=False,
     )
     source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
-    if "return_matrix" in kwargs and kwargs["return_matrix"]:
+    if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs

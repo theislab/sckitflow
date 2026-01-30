@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from sc_flow.data._mixins import DataMixin
+from sc_flow.data._mixins import MappedTree
 
 float_data_dict = lambda: {"a": 0.0, "b": 0.0}
 string_data_dict = lambda: {"a": "str", "b": "str"}
@@ -27,13 +27,13 @@ class TestMixins:
         mapping_fn: Callable[..., Mapping[str, Any]],
     ) -> None:
         # mismatch type
-        DataMixin.required_value_type = required_type
+        MappedTree.required_value_type = required_type
         if (required_type is float and mapping_fn.__name__ == "string_data_dict") or (
             required_type is str and mapping_fn.__name__ == "float_data_dict"
         ):
             with pytest.raises(TypeError, match="Data is of the wrong type"):
-                mixin = DataMixin(mapping=mapping_fn())
-        mixin = DataMixin(mapping=mapping_fn())
+                mixin = MappedTree(mapping=mapping_fn())
+        mixin = MappedTree(mapping=mapping_fn())
         if mapping_fn.__name__ == "string_data_dict":
             assert mixin.data_type is str
         else:
@@ -47,9 +47,9 @@ class TestMixins:
         mapping = mixed_data_dict()
         if required_type is None:
             with pytest.raises(TypeError, r"(The values should share the same type\.)"):
-                _mixin = DataMixin(required_type, mapping)
+                _mixin = MappedTree(required_type, mapping)
         with pytest.raises(TypeError, r"(Data is of the wrong type\.)"):
-            _mixin = DataMixin(required_type, mapping)
+            _mixin = MappedTree(required_type, mapping)
 
     @pytest.mark.parametrize("function", [to_int, double])
     @pytest.mark.parametrize("fields", [None, ["a"]])
@@ -65,8 +65,8 @@ class TestMixins:
         output_type: type[Any] | None,
     ) -> None:
         # initialize mixin
-        DataMixin.required_value_type = float
-        mixin = DataMixin(float_data_dict())
+        MappedTree.required_value_type = float
+        mixin = MappedTree(float_data_dict())
 
         # fail cases
         if (function.__name__ == "double" and output_type is int) or (

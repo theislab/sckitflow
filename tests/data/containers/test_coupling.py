@@ -6,10 +6,6 @@ from sc_flow.data.containers import CouplingData, StateData
 
 
 class TestCouplingData:
-    # -----------------------
-    # init_from_state_data
-    # -----------------------
-
     @pytest.mark.parametrize("n_shared_dims", [None, 1, 5])
     def test_init_from_state_data_valid(
         self,
@@ -58,10 +54,6 @@ class TestCouplingData:
                 n_shared_dims=n_shared_dims,
             )
 
-    # -----------------------
-    # __post_init__
-    # -----------------------
-
     def test_post_init_mismatched_n_obs(self, adata: AnnData) -> None:
         X = adata.X
         state_lin = StateData(X)
@@ -70,17 +62,9 @@ class TestCouplingData:
         with pytest.raises(ValueError):
             CouplingData(state_lin=state_lin, state_quad=state_quad)
 
-    # -----------------------
-    # __len__
-    # -----------------------
-
     def test_len(self, adata: AnnData) -> None:
         coupling = CouplingData.init_from_state_data(StateData(adata.X))
         assert len(coupling) == adata.n_obs
-
-    # -----------------------
-    # __getitem__
-    # -----------------------
 
     @pytest.mark.parametrize("idxs", [slice(0, 5), np.array([0, 2, 4])])
     def test_getitem(self, adata: AnnData, idxs) -> None:
@@ -95,10 +79,6 @@ class TestCouplingData:
         assert len(subset) == len(coupling.state_lin[idxs])
         assert subset.state_lin.X.shape[1] == coupling.state_lin.X.shape[1]
         assert subset.state_quad.X.shape[1] == coupling.state_quad.X.shape[1]
-
-    # -----------------------
-    # assert_same_spatial_dims
-    # -----------------------
 
     def test_assert_same_spatial_dims_valid(self, adata: AnnData) -> None:
         state_data = StateData(adata.X)
@@ -116,10 +96,6 @@ class TestCouplingData:
 
         with pytest.raises(ValueError, match="same number of spatial dimensions"):
             c1.assert_same_spatial_dims(c2)
-
-    # -----------------------
-    # __repr__
-    # -----------------------
 
     def test_repr(self, adata: AnnData) -> None:
         coupling = CouplingData.init_from_state_data(

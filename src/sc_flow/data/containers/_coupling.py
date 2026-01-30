@@ -89,10 +89,10 @@ class CouplingData(BaseData):
         """
         n_dims = state_data.X.shape[1]
         if n_shared_dims is not None:
-            if n_shared_dims >= n_dims:
+            if n_shared_dims >= n_dims or n_shared_dims == 0:
                 msg = (
-                    "The number of shared spatial dimensions should "
-                    "be strictly smaller the the number of available dimenions. "
+                    "The number of shared spatial dimensions should be positive and"
+                    " strictly smaller the the number of available dimenions. "
                     f"Queried {n_shared_dims} on state data of shape {state_data.X.shape}"
                 )
                 raise ValueError(msg)

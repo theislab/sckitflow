@@ -5,7 +5,8 @@ import pandas as pd
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sc_flow._types import TargetCovariatesEncodingId
-from sc_flow.data._mixins import BatchMixin
+from sc_flow.data._composite import MatchedData, NestedData
+from sc_flow.data._mixins import BatchMixin, MappedLevelIndex
 from sc_flow.data.containers import CategoricalData, CouplingData, DistributionData, MixedTypeData, StateData
 
 __all__ = [
@@ -98,3 +99,22 @@ def make_distribution(n=10):
         source_coupling_data=source_coupling,
         target_coupling_data=target_coupling,
     )
+
+
+def make_matched_data(target_size=10, source_size=5):
+    target = make_distribution(target_size)
+    source = make_distribution(source_size)
+    return MatchedData(target_distribution=target, source_distribution=source)
+
+
+def make_tree():
+    target_data = make_distribution(10)
+
+    reference_index = pd.MultiIndex.from_tuples([(i,) for i in range(10)])
+    mapped_index = MappedLevelIndex(
+        mapping={
+            ("0",): MappedLevelIndex({("a",): reference_index[:5]}),  # first 5 rows
+            ("1",): MappedLevelIndex({("b",): reference_index[5:]}),  # last 5 rows
+        }
+    )
+    return NestedData._init_tree(target_data, reference_index, mapped_index)

@@ -92,6 +92,9 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         if self._replace_samples:
             return np.random.randint(0, n_obs, batch_size)
         else:
+            if batch_size > n_obs:
+                msg = "Cannot take a larger sample than population."
+                raise ValueError(msg)
             return np.random.permutation(n_obs)[:batch_size]
 
     def _sample_from_distr(self, distr: DistributionDType, batch_size: int = DEFAULT_BATCH_SIZE) -> DistributionDType:

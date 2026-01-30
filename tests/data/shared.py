@@ -1,10 +1,12 @@
 from collections.abc import Collection
 
+import numpy as np
+import pandas as pd
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._mixins import BatchMixin
-from sc_flow.data.containers import CategoricalData
+from sc_flow.data.containers import CategoricalData, CouplingData, DistributionData, MixedTypeData, StateData
 
 __all__ = [
     "verify_repr_shape",
@@ -75,3 +77,24 @@ def verify_mixin(
         emb_dim = obsm_keys_to_dim[condition]
         expected_shape = (N, emb_dim)
         assert val.shape == expected_shape
+
+
+def make_distribution(n=10):
+    X = np.arange(n).reshape(-1, 1)
+    df = pd.DataFrame({"grp": np.arange(n)})
+    cat = CategoricalData(ann_df=df)
+    state_data = StateData(X=X)
+
+    target_data = MixedTypeData(categorical_covariates=cat)
+    condition_data = MixedTypeData(categorical_covariates=cat)
+    source_coupling = CouplingData.init_from_state_data(state_data)
+    target_coupling = CouplingData.init_from_state_data(state_data)
+
+    return DistributionData(
+        state_data=state_data,
+        target_data=target_data,
+        condition_data=condition_data,
+        groups_data=cat,
+        source_coupling_data=source_coupling,
+        target_coupling_data=target_coupling,
+    )

@@ -134,9 +134,9 @@ class DataManager:
         conditions_covariates: Collection[str] | None = None,
     ) -> ConditionDataSchema:
         return ConditionDataSchema(
-            conditions={} if conditions is None else conditions,
-            conditions_reps={} if conditions_reps is None else conditions_reps,
-            conditions_covariates=[] if conditions_covariates is None else conditions_covariates,
+            conditions=conditions,
+            conditions_reps=conditions_reps,
+            conditions_covariates=conditions_covariates,
         )
 
     def _init_coupling_data_schema(
@@ -150,8 +150,8 @@ class DataManager:
         continuous_covs: Collection[str] | None = None,
     ) -> TargetDataSchema:
         return TargetDataSchema(
-            categorical_covs_dict={} if categorical_covs_dict is None else categorical_covs_dict,
-            continuous_covs=[] if continuous_covs is None else continuous_covs,
+            categorical_covs_dict=categorical_covs_dict,
+            continuous_covs=continuous_covs,
         )
 
     def _init_groups_data_schema(
@@ -161,9 +161,9 @@ class DataManager:
         groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
     ) -> GroupsDataSchema:
         return GroupsDataSchema(
-            groups=[] if groups is None else groups,
-            groups_reps={} if groups_reps is None else groups_reps,
-            groups_encoding={} if groups_encoding is None else groups_encoding,
+            groups=groups,
+            groups_reps=groups_reps,
+            groups_encoding=groups_encoding,
         )
 
     def _init_indexer(
@@ -172,8 +172,8 @@ class DataManager:
         conditions_cols: Collection[str] | None = None,
     ) -> HierarchicalIndexer:
         return HierarchicalIndexer(
-            groups_cols=[] if groups_cols is None else groups_cols,  # TODO: add attributes for base groups
-            conditions_cols=[] if conditions_cols is None else conditions_cols,
+            groups_cols=groups_cols,
+            conditions_cols=conditions_cols,
         )
 
     def _get_state_data(

@@ -221,8 +221,16 @@ class FSampler(Sampler[MatchedData, BatchDType]):
         :param tree: Tree storing the split and matched subpopulations.
         :type tree: class: `TreeDType`
 
-        :param f: The function used to post-process the batch of matched data.
-        :type f: class: `Callable[[NodeDType], NodeDType]`
+        :param dispatch_fn: The function used to post-process the batch of matched data
+            before being dispatched. It will be used to override the corresponding
+            method of the abstract class by wrapping it around this callable.
+        :type dispatch_fn: class: `Callable[[NodeDType], NodeDType]`
+
+        :param preprocess_fn: The function used to pre-process a node before sampling.
+            It will be used to override the corresponding method of the abstract class
+            by wrapping it around this callable. Defaults to `None`, in which case
+            it will be set to identity function.
+        :type preprocess_fn: class: `Callable[[NodeDType], NodeDType]`
 
         :param replace_samples: Whether to sample observations with replacement
             from each node. Defaults to `False`.

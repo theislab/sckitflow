@@ -45,18 +45,18 @@ class TestBaseData:
         with pytest.raises(ValueError, match="Query index must be unique"):
             BaseData._get_query_idxs(ref, qry)
 
-    def test_assert_same_n_obs_valid(self) -> None:
+    def testassert_same_len_valid(self) -> None:
         a = DummyData(np.zeros((5, 2)))
         b = DummyData(np.ones((5, 3)))
 
-        a._assert_same_n_obs(b)
+        a.assert_same_len(b)
 
-    def test_assert_same_n_obs_invalid(self) -> None:
+    def testassert_same_len_invalid(self) -> None:
         a = DummyData(np.zeros((5, 2)))
         b = DummyData(np.ones((4, 2)))
 
         with pytest.raises(ValueError, match="same number of observations"):
-            a._assert_same_n_obs(b)
+            a.assert_same_len(b)
 
     def test_slice_with_index_valid(self) -> None:
         X = np.arange(10)

@@ -63,7 +63,7 @@ class ConditionDataSchema(StrictDataSchema):
                 - KO B
 
             Note that, while the choice of the name of the keys to pass as :param: `conditions` and :param: `conditions_reps`
-            is arbitrary (as long as the two dictionary share the same set of keys), the values of both arguments need
+            is arbitrary (as long as the two dictionaries share the same set of keys), the values of both arguments need
             to appear in the input `AnnData`.
 
             In particular, the values of :param:`conditions`, should be given by sequences of string identifier

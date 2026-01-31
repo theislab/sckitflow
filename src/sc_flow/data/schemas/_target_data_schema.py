@@ -1,4 +1,4 @@
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 
 import pandas as pd
 from anndata import AnnData
@@ -20,10 +20,16 @@ class TargetDataSchema(StrictDataSchema):
         self,
         categorical_covs_dict: dict[str, TargetCovariatesEncodingId] | None = None,
         continuous_covs: Collection[str] | None = None,
+        encoding_transform_fn: dict[str, Callable] | None = None,
+        encoding_inverse_transform_fn: dict[str, Callable] | None = None,
     ) -> None:
         """"""  # noqa
         self._categorical_covs_dict = {} if categorical_covs_dict is None else categorical_covs_dict
         self._continuous_covs = [] if continuous_covs is None else continuous_covs
+        self._encoding_transform_fn = {} if encoding_transform_fn is None else encoding_transform_fn
+        self._encoding_inverse_transform_fn = (
+            {} if encoding_inverse_transform_fn is None else encoding_inverse_transform_fn
+        )
         super().__init__()
 
     def _verify_args(self) -> None:
@@ -75,7 +81,10 @@ class TargetDataSchema(StrictDataSchema):
             return None
         covariates_df: pd.DataFrame = self._get_covariates_df(adata)
         encoders_dict: Mapping[str, TargetCovariatesEncoderCls] = get_covariates_encoders_from_dict(
-            self._categorical_covs_dict, covariates_df
+            self._categorical_covs_dict,
+            covariates_df,
+            fn_dict=self._encoding_transform_fn,
+            inverse_fn_dict=self._encoding_inverse_transform_fn,
         )
         return CategoricalData(covariates_df, categorical_encoders=encoders_dict)
 

@@ -1,4 +1,4 @@
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 
 import pandas as pd
 from anndata import AnnData
@@ -20,11 +20,19 @@ class GroupsDataSchema(StrictDataSchema):
         groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
         groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
+        groups_encoding_transform_fn: dict[str, Callable] | None = None,
+        groups_encoding_inverse_transform_fn: dict[str, Callable] | None = None,
     ) -> None:
         """"""  # noqa
         self._groups = [] if groups is None else groups
         self._groups_reps = {} if groups_reps is None else groups_reps
         self._groups_encoding = {} if groups_encoding is None else groups_encoding
+        self._groups_encoding_transform_fn = (
+            {} if groups_encoding_transform_fn is None else groups_encoding_transform_fn
+        )
+        self._groups_encoding_inverse_transform_fn = (
+            {} if groups_encoding_inverse_transform_fn is None else groups_encoding_inverse_transform_fn
+        )
         super().__init__()
 
     def _verify_args(self) -> None:
@@ -75,7 +83,10 @@ class GroupsDataSchema(StrictDataSchema):
         covs_df_dict: pd.DataFrame = self._get_covs_df(adata)
         repr_dict: dict[str, MappedArray] = self._get_covs_repr_dict(adata)
         encoders_dict: Mapping[str, TargetCovariatesEncoderCls] = get_covariates_encoders_from_dict(
-            self._groups_encoding, covs_df_dict
+            self._groups_encoding,
+            covs_df_dict,
+            fn_dict=self._groups_encoding_transform_fn,
+            inverse_fn_dict=self._groups_encoding_inverse_transform_fn,
         )
         return CategoricalData(
             covs_df_dict,
@@ -97,3 +108,13 @@ class GroupsDataSchema(StrictDataSchema):
     def groups_encoding(self) -> dict[str, TargetCovariatesEncodingId]:
         """"""  # noqa
         return self._groups_encoding
+
+    @property
+    def groups_encoding_transform_fn(self) -> dict[str, Callable]:
+        """"""  # noqa
+        return self._groups_encoding_transform_fn
+
+    @property
+    def groups_encoding_inverse_transform_fn(self) -> dict[str, Callable]:
+        """"""  # noqa
+        return self._groups_encoding_inverse_transform_fn

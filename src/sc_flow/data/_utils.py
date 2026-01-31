@@ -1,4 +1,4 @@
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 import numpy as np
 import pandas as pd
@@ -17,26 +17,34 @@ __all__ = [
 def get_covariates_encoders_from_dict(
     categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId],
     covariates_df: pd.DataFrame,
+    fn_dict: Mapping[str, Callable] | None = None,
+    inverse_fn_dict: Mapping[str, Callable] | None = None,
 ) -> Mapping[str, TargetCovariatesEncoderCls]:
     """"""  # noqa
     encoder_dict = {}
+    fn_dict = {} if fn_dict is None else fn_dict
+    inverse_fn_dict = {} if inverse_fn_dict is None else inverse_fn_dict
     for cov_name, enc_id in categorical_covs_dict.items():
         cov_data = covariates_df.loc[:, cov_name].values
-        encoder_dict[cov_name] = get_covariate_encoder(enc_id, cov_data)
+        fn = fn_dict.get(cov_name, None)
+        inverse_fn = inverse_fn_dict.get(cov_name, None)
+        encoder_dict[cov_name] = get_covariate_encoder(enc_id, cov_data, fn=fn, inverse_fn=inverse_fn)
     return encoder_dict
 
 
 def get_covariate_encoder(
     encoder_id: TargetCovariatesEncodingId,
     data: np.ndarray,
+    fn: Callable | None = None,
+    inverse_fn: Callable | None = None,
 ) -> LabelEncoder | OneHotEncoder:
     """"""  # noqa
     if encoder_id == "label":
         return get_label_encoder(data)
     elif encoder_id == "one-hot":
         return get_one_hot_encoder(data)
-    elif encoder_id == "identity":
-        return FunctionTransformer()
+    elif encoder_id == "functional":
+        return FunctionTransformer(func=fn, inverse_func=inverse_fn)
     msg = f"Covariate Encoder {encoder_id} not available.Possible options are {TargetCovariatesEncodingId}"
     raise ValueError(msg)
 

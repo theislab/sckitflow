@@ -15,7 +15,15 @@ DistributionDType = TypeVar("T", bound=DistributionData)
 
 @dataclass(frozen=True)
 class MatchedData:
-    """Container class for matched data."""
+    """Container class for matched data.
+
+    :param target_distribution: The target distribution for the matching.
+    :type target_distribution: class: `DistributionDType`
+
+    :param source_distribution: Optional source distribution for the matching.
+        Defaults to `None`.
+    :type source_distribution: class: `DistributionDType | None`
+    """
 
     target_distribution: DistributionDType
     source_distribution: DistributionDType | None = None
@@ -62,24 +70,27 @@ class MatchedData:
 
     @property
     def n_source_obs(self) -> int | None:
-        """"""  # noqa
+        """Returns the number of observations in the source distribution.
+
+        When the source distribution is not provided, it will return `None`.
+        """
         if self.source_distribution is None:
             return None
         return len(self.source_distribution)
 
     @property
     def n_target_obs(self) -> int:
-        """"""  # noqa
+        """Returns the number of observations in the target distribution."""
         return len(self.target_distribution)
 
     @property
     def n_src_obs(self) -> int:
-        """"""  # noqa
+        """Alias for :attr: `self.n_source_obs`."""
         return self.n_source_obs
 
     @property
     def n_tgt_obs(self) -> int:
-        """"""  # noqa
+        """Alias for :attr: `self.n_target_obs`."""
         return self.n_target_obs
 
 
@@ -87,8 +98,8 @@ class MatchedData:
 class NestedData(MappedTree):
     """Recursively mapped container for matched data."""
 
-    required_key_type: ClassVar[type] = tuple
-    required_value_type: ClassVar[type] = MatchedData
+    _REQUIRED_KEY_TYPE: ClassVar[type] = tuple
+    _REQUIRED_VALUE_TYPE: ClassVar[type] = MatchedData
 
     @classmethod
     def init_from_data(
@@ -98,7 +109,23 @@ class NestedData(MappedTree):
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
-        """Initialized the recursive mapping from the input."""
+        """Initialized the recursive mapping from the input.
+
+        :param data: The flattened, unmatched distribution data.
+        :type data: class: `DistributionData`
+
+        :param reference_index: The reference index of the unmatched data,
+            needed to split it into groups.
+        :type reference_index: class: `pd.MultiIndex`
+
+        :param mapped_index: The mapped tree of indices for each group.
+        :type mapped_index: class: `MappedLevelIndex`
+
+        :param source_key: Optional key used to identify the source groups for
+            each leaf mapping. Defaults to `None`, in which case no source
+            distribution will be considered.
+        :type source_key: class: `tuple[Any] | None`
+        """
         return cls._init_tree(data, reference_index, mapped_index, source_key)
 
     @classmethod
@@ -109,6 +136,23 @@ class NestedData(MappedTree):
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
+        """Initializes a leaf node given the input settings.
+
+        :param data: The flattened, unmatched distribution data.
+        :type data: class: `DistributionData`
+
+        :param reference_index: The reference index of the unmatched data,
+            needed to split it into groups.
+        :type reference_index: class: `pd.MultiIndex`
+
+        :param mapped_index: The mapped tree of indices for each group.
+        :type mapped_index: class: `MappedLevelIndex`
+
+        :param source_key: Optional key used to identify the source groups for
+            each leaf mapping. Defaults to `None`, in which case no source
+            distribution will be considered.
+        :type source_key: class: `tuple[Any] | None`
+        """
         # split source distribution apart
         if source_key is not None:
             source_idxs = mapped_index.mapping[source_key]
@@ -146,6 +190,23 @@ class NestedData(MappedTree):
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
+        """Initializes the tree from the given settings.
+
+        :param data: The flattened, unmatched distribution data.
+        :type data: class: `DistributionData`
+
+        :param reference_index: The reference index of the unmatched data,
+            needed to split it into groups.
+        :type reference_index: class: `pd.MultiIndex`
+
+        :param mapped_index: The mapped tree of indices for each group.
+        :type mapped_index: class: `MappedLevelIndex`
+
+        :param source_key: Optional key used to identify the source groups for
+            each leaf mapping. Defaults to `None`, in which case no source
+            distribution will be considered.
+        :type source_key: class: `tuple[Any] | None`
+        """
         return cls(
             {
                 key: cls._init_leaf_node(data, reference_index, value, source_key)

@@ -18,8 +18,8 @@ C = TypeVar("C", bound="MappedTree")
 class MappedTree(Generic[T]):
     """"""  # noqa
 
-    required_key_type: ClassVar[type[Any]] = str
-    required_value_type: ClassVar[type[Any]] = object
+    _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = str
+    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = object
     mapping: Mapping[Hashable, T | C] = dc_field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
@@ -35,11 +35,11 @@ class MappedTree(Generic[T]):
         """"""  # noqa
         # iterating over each key to check that the type is the same
         for key, value in self.mapping.items():
-            if not isinstance(value, self.required_value_type | MappedTree):
-                msg = f"The values should respect the pre-defined type. Got {type(value)} for {key}, expected {self.required_value_type}."
+            if not isinstance(value, self._REQUIRED_VALUE_TYPE | MappedTree):
+                msg = f"The values should respect the pre-defined type. Got {type(value)} for {key}, expected {self._REQUIRED_VALUE_TYPE}."
                 raise TypeError(msg)
-            if not isinstance(key, self.required_key_type):
-                msg = f"The keys should respect the pre-defined type. Got {type(value)} for {key}, expected {self.required_value_type}."
+            if not isinstance(key, self._REQUIRED_KEY_TYPE):
+                msg = f"The keys should respect the pre-defined type. Got {type(value)} for {key}, expected {self._REQUIRED_VALUE_TYPE}."
                 raise TypeError(msg)
 
     def _apply_to_level(
@@ -79,12 +79,12 @@ class MappedTree(Generic[T]):
             out_dict[key] = self._apply_to_level(
                 value, function, *args, output_key_type=output_key_type, output_value_type=output_value_type, **kwargs
             )
-        output_key_type = self.required_key_type if output_key_type is None else output_key_type
-        output_value_type = self.required_value_type if output_value_type is None else output_value_type
+        output_key_type = self._REQUIRED_KEY_TYPE if output_key_type is None else output_key_type
+        output_value_type = self._REQUIRED_VALUE_TYPE if output_value_type is None else output_value_type
         return type(
             self.__class__.__name__,
             (self.__class__,),
-            {"required_key_type": output_key_type, "required_value_type": output_value_type},
+            {"_REQUIRED_KEY_TYPE": output_key_type, "_REQUIRED_VALUE_TYPE": output_value_type},
         )(out_dict)
 
     def apply(
@@ -107,7 +107,7 @@ class MappedTree(Generic[T]):
 
     @property
     def is_leaf(self) -> bool:
-        return all(isinstance(v, self.required_value_type) for v in self.mapping.values())
+        return all(isinstance(v, self._REQUIRED_VALUE_TYPE) for v in self.mapping.values())
 
     def flatten(self) -> tuple[T]:
         """Flattens itself into a list of nodes."""
@@ -118,15 +118,15 @@ class MappedTree(Generic[T]):
 
 @dataclass(frozen=True)
 class MappedLevelIndex(MappedTree):
-    required_key_type: ClassVar[type[Any]] = tuple
-    required_value_type: ClassVar[type[Any]] = pd.MultiIndex
+    _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = tuple
+    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = pd.MultiIndex
 
 
 @dataclass(frozen=True)
 class ArrayMixin(MappedTree):
     """"""  # noqa
 
-    required_value_type: ClassVar[type[Any]] = np.ndarray | np.generic
+    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = np.ndarray | np.generic
 
 
 @dataclass(frozen=True)

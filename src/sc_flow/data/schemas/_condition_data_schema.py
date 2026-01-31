@@ -304,10 +304,16 @@ class ConditionDataSchema(StrictDataSchema):
 
     @property
     def has_categorical_covariates(self) -> bool:
-        """"""  # noqa
+        """Whether the condition schema includes categorical covariates.
+
+        This will be `True` whenever :param: `conditions` is set at initializtion
+        """
         return len(self._conditions) > 0
 
     @property
     def has_continuous_covariates(self) -> bool:
-        """"""  # noqa
+        """Whether the condition schema includes categorical covariates.
+
+        This will be `True` whenever :param: `conditions_covariates` is set at initializtion
+        """
         return len(self._conditions_covariates) > 0

@@ -11,13 +11,14 @@ __all__ = ["DataSchema", "StrictDataSchema"]
 
 
 class DataSchema(abc.ABC):
-    """Abstract base class for enforcing and verifying data configurations on :class:`AnnData` objects.
+    """Abstract base class for enforcing data configurations on :class:`AnnData` objects.
 
     The derived classes will need to override the following abstract methods to be instantiated:
-        * `_verify_args`, to verify the validity of the configurations provided at initialization.
-        * `_verify_schema`, to verify the schema defined by the class on the input :class: `sc.AnnData`.
         * `_get_data`, to extract the data from the input :class: `sc.AnnData`.
     It would also be preferable to define also an immutable data structure for the returned object.
+
+    :param _IS_STRICT: Whether the schema has to be enforced in a strict way. Defaults to `False`
+    :type _IS_STRICT: class: `bool`
     """
 
     _IS_STRICT: bool = False
@@ -62,13 +63,23 @@ class DataSchema(abc.ABC):
     ) -> BaseData | tuple[BaseData | None, ...] | None:
         """Enforces the schema on the input :class: `AnnData`.
 
+        Needs to be overridden by derived classes.
+
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
         raise NotImplementedError
 
     def extract_array(self, adata: AnnData, repr: str | None = None) -> np.ndarray:
-        """"""  # noqa
+        """Extracts the data array from the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+
+        :param repr: The representation to extract. When provided, it should appear as
+            key in `.obsm`, otherwise the `.X` attribute will be used. Defaults to `None`.
+        :type repr: `str | None`
+        """
         return self._extract_array(adata, repr=repr)
 
     def get_data(
@@ -84,12 +95,22 @@ class DataSchema(abc.ABC):
 
 
 class StrictDataSchema(DataSchema, abc.ABC):
-    """"""  # noqa
+    """Abstract base class for enforcing and verifying data configurations on :class:`AnnData` objects.
+
+    The derived classes will need to override the following abstract methods to be instantiated:
+        * `_verify_args`, to verify the validity of the configurations provided at initialization.
+        * `_verify_schema`, to verify the schema defined by the class on the input :class: `sc.AnnData`.
+        * `_get_data`, to extract the data from the input :class: `sc.AnnData`.
+    It would also be preferable to define also an immutable data structure for the returned object.
+
+    :param _IS_STRICT: Whether the schema has to be enforced in a strict way. Defaults to `True`
+    :type _IS_STRICT: class: `bool`
+    """
 
     _IS_STRICT: bool = True
 
     def __init__(self) -> None:
-        """"""  # noqa
+        """Initializes the class and verifies the arguments."""
         self._verify_args()
 
     @staticmethod
@@ -122,6 +143,8 @@ class StrictDataSchema(DataSchema, abc.ABC):
         adata: AnnData,
     ) -> None:
         """Verifies the schema on the input :class: `AnnData`.
+
+        Needs to be overriden by derived classes.
 
         :param adata: The input data.
         :type adata: class: `AnnData`

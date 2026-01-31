@@ -25,7 +25,7 @@ class CouplingData(BaseData):
 
     def __post_init__(self):
         if self.state_quad is not None:
-            self.state_lin._assert_same_n_obs(self.state_quad)
+            self.state_lin.assert_same_len(self.state_quad)
 
     def __repr__(self) -> str:
         parts = [f"n_obs={len(self)}"]
@@ -80,6 +80,9 @@ class CouplingData(BaseData):
         n_shared_dims: int | None = None,
     ) -> "CouplingData":
         """Initializes the coupling data from base state data and number of shared dimensions.
+
+        The dimensions are assumed to be ordered and the quadratic part will be taken from
+        the last :param: `n_shared_dims`, when provided.
 
         :param state_data: The underlying state data.
         :type state_data: class: `StateData`

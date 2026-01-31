@@ -11,7 +11,7 @@ from sc_flow.data._composite import DistributionDType, MatchedData, NestedData
 __all__ = ["TreeDType", "NodeDType", "BatchDType", "Sampler", "FSampler"]
 
 
-TreeDType = TypeVar("CollectionDType", bound=NestedData)
+TreeDType = TypeVar("TreeDType", bound=NestedData)
 NodeDType = TypeVar("NodeDType", bound=MatchedData)
 BatchDType = TypeVar("BatchDType")
 
@@ -19,7 +19,7 @@ BatchDType = TypeVar("BatchDType")
 class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
     """Abstract base class for sampler objects on trees.
 
-    Subclasses need to override the :method _dispatch_sample: method.
+    Subclasses need to override the :method _dispatch_node: method.
     """
 
     def __init__(
@@ -56,12 +56,24 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         self._use_nodes_weights = use_nodes_weights
 
     @abc.abstractmethod
-    def _preprocess_sample(self, group: NodeDType) -> BatchDType:
-        """Processes all the batches before sampling"""
+    def _preprocess_node(self, node: NodeDType) -> BatchDType:
+        """Method used to processes a node before sampling.
+
+        Must be overridden by derived classes.
+
+        :param node: The input node to preprocess.
+        :type node: class: `NodeDType`
+        """
 
     @abc.abstractmethod
-    def _dispatch_sample(self, group: NodeDType) -> BatchDType:
-        """Processes the batch before returning it."""
+    def _dispatch_node(self, node: NodeDType) -> BatchDType:
+        """Method used to dispatch a batch of samples from a node.
+
+        Must be overridden by derived classes.
+
+        :param node: The input node to dispatch.
+        :type node: class: `NodeDType`
+        """
 
     def _sample_nodes(
         self,
@@ -98,22 +110,40 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
             return np.random.permutation(n_obs)[:batch_size]
 
     def _sample_from_distr(self, distr: DistributionDType, batch_size: int = DEFAULT_BATCH_SIZE) -> DistributionDType:
+        """Samples a batch of observations from a distribution object.
+
+        :param distr: The distribution object to sample from.
+        :type distr: class: `DistributionDType`
+
+        :param batch_size: The number of observations to be sampled in the batch.
+            Defaults to :constant: `sc_flow.constants.DEFAULT_BATCH_SIZE`.
+        :type batch_size: class: `int`
+        """
         mask = self._sample_indices(len(distr), batch_size)
         return distr[mask]
 
     def _sample_observations(
         self,
-        group: NodeDType,
+        node: NodeDType,
         batch_size: int = DEFAULT_BATCH_SIZE,
     ) -> BatchDType:
-        """Samples a batch of observations from a node of matched distributions."""
-        target_distr = self._sample_from_distr(group.target, batch_size)
-        if group.source is not None:
-            source_distr = self._sample_from_distr(group.source, batch_size)
+        """Samples a batch of observations from a node of matched distributions.
+
+        :param node: The node object to sample from.
+        :type node: class: `DistributionDType`
+
+        :param batch_size: The number of observations to be sampled in the batch.
+            It will be the same for both source and target distributions.
+            Defaults to :constant: `sc_flow.constants.DEFAULT_BATCH_SIZE`.
+        :type batch_size: class: `int`
+        """
+        target_distr = self._sample_from_distr(node.target, batch_size)
+        if node.source is not None:
+            source_distr = self._sample_from_distr(node.source, batch_size)
         else:
             source_distr = None
-        batch_data = group.__class__(target_distr, source_distribution=source_distr)
-        return self._dispatch_sample(batch_data)
+        batch_data = node.__class__(target_distr, source_distribution=source_distr)
+        return self._dispatch_node(batch_data)
 
     def _sample(
         self,
@@ -157,8 +187,11 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
 
     @cached_property
     def flattened_data(self) -> np.ndarray[NodeDType]:
-        """Caches the flattened array of leaf nodes of the data tree."""
-        return np.array([self._preprocess_sample(node) for node in self._tree.flatten()])
+        """Caches the flattened array of leaf nodes of the data tree.
+
+        The transformation defined in :method: `self._preprocess_node` is applied upon caching.
+        """
+        return np.array([self._preprocess_node(node) for node in self._tree.flatten()])
 
     @cached_property
     def groups_p(self) -> np.ndarray:
@@ -211,13 +244,25 @@ class FSampler(Sampler[MatchedData, BatchDType]):
         self._preprocess_fn = preprocess_fn if preprocess_fn is not None else lambda x: x
         self._dispatch_fn = dispatch_fn
 
-    def _preprocess_sample(self, group: NodeDType) -> NodeDType:
-        """Processes all the nodes before sampling from them."""
-        return self._preprocess_fn(group)
+    def _preprocess_node(self, node: NodeDType) -> NodeDType:
+        """Method used to processes a node before sampling.
 
-    def _dispatch_sample(self, group: NodeDType) -> BatchDType:
-        """Processes the batch before returning it."""
-        return self._dispatch_fn(group)
+        The preprocess function set at initialization with :param: `preprocess_fn` will be used.
+
+        :param node: The input node to preprocess.
+        :type node: class: `NodeDType`
+        """
+        return self._preprocess_fn(node)
+
+    def _dispatch_node(self, node: NodeDType) -> BatchDType:
+        """Method used to dispatch a batch of samples from a node.
+
+        The dispatch function set at initialization with :param: `dispatch_fn` will be used.
+
+        :param node: The input node to dispatch.
+        :type node: class: `NodeDType`
+        """
+        return self._dispatch_fn(node)
 
     @property
     def preprocess_fn(self) -> Callable[[NodeDType], BatchDType]:

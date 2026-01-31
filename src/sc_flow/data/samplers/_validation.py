@@ -1,7 +1,5 @@
 from collections.abc import Iterable, Iterator
 
-import numpy as np
-
 from sc_flow._constants import DEFAULT_MAX_N_OBS, DEFAULT_N_GROUPS
 from sc_flow.data.samplers._base import BatchDType, FSampler, NodeDType, Sampler, TreeDType
 
@@ -84,8 +82,8 @@ class ValidationSampler(Sampler, Iterable):
         return self._n_nodes
 
     @property
-    def data(self) -> np.ndarray[NodeDType]:
-        """"""  # noqa
+    def data(self) -> tuple[NodeDType]:
+        """Returns the sequence of pre-registered samples."""
         return self._data
 
 

@@ -60,7 +60,7 @@ def test_get_one_hot_encoder_invalid_nd():
     [
         ("label", LabelEncoder),
         ("one-hot", OneHotEncoder),
-        ("identity", FunctionTransformer),
+        ("functional", FunctionTransformer),
     ],
 )
 def test_get_covariate_encoder_known_ids(encoder_id, expected_cls):

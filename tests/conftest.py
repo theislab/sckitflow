@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 import pandas as pd
 import pytest
@@ -219,6 +219,11 @@ def adata(
         obs_columns_to_fixed_val=obs_columns_to_fixed_val,
         control_key=control_key,
     )
+
+
+@pytest.fixture
+def registry() -> dict[str, Collection[str]]:
+    return {"level0": ["level0-A", "level0-B"], "level1": ["level1-A", "level1-B"]}
 
 
 @pytest.fixture

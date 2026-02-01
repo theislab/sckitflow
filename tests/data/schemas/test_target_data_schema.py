@@ -19,7 +19,7 @@ class TestResponseDataSchema:
             None,
             {"target": "one-hot"},
             {"target": "label"},
-            {"target": "identity"},
+            {"target": "functional"},
             {"target": inval_key},
         ],
     )
@@ -42,8 +42,8 @@ class TestResponseDataSchema:
             None,
             {"target": "one-hot"},
             {"target": "label"},
-            {"target": "identity"},
-            {inval_key: "identity"},
+            {"target": "functional"},
+            {inval_key: "functional"},
         ],
     )
     @pytest.mark.parametrize("continuous_covs", [None, ["target_variable"], [inval_key]])

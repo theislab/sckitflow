@@ -7,7 +7,7 @@ from sc_flow.data.samplers._base import FSampler, Sampler
 __all__ = ["ValidationSampler", "FValidationSampler"]
 
 
-class ValidationSampler(Sampler, Iterable):
+class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
     """Abstract class for validation samplers."""
 
     def __init__(

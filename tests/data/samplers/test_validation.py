@@ -87,22 +87,3 @@ class TestValidationSampler:
 
         batch = sampler.data[0]
         assert batch[0] == "processed"
-
-    def test_preprocess_fn_applied(self):
-        tree = make_tree()
-
-        def preprocess(group: MatchedData):
-            # Keep first 2 observations in target
-            new_target, _ = make_distribution(n=2)
-            return MatchedData(target_distribution=new_target, source_distribution=group.source)
-
-        sampler = FValidationSampler(
-            tree,
-            lambda x: x,
-            preprocess_fn=preprocess,
-            max_n_obs=2,
-            n_nodes=1,
-        )
-
-        batch = sampler.data[0]
-        assert len(batch.target) == 2

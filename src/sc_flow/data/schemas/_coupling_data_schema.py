@@ -93,7 +93,7 @@ class CouplingDataSchema(StrictDataSchema):
                 )
                 raise ValueError(msg)
 
-    def _get_source_state_data(self, adata: AnnData) -> StateData:
+    def _get_source_view(self, adata: AnnData) -> StateData:
         """Retrieves the representation for samples from the source distribution.
 
         :param adata: The input data.
@@ -102,7 +102,7 @@ class CouplingDataSchema(StrictDataSchema):
         X = self._extract_array(adata, repr=self._source_rep)
         return StateData(X)
 
-    def _get_target_state_data(self, adata: AnnData) -> StateData:
+    def _get_target_view(self, adata: AnnData) -> StateData:
         """Retrieves the representation for samples from the target distribution.
 
         :param adata: The input data.
@@ -117,13 +117,13 @@ class CouplingDataSchema(StrictDataSchema):
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
-        target_state = self._get_target_state_data(adata)
+        target_view = self._get_target_view(adata)
         if self._n_shared_dims is None:
-            source_coupling = CouplingData.init_from_state_data(target_state, n_shared_dims=self._n_shared_dims)
+            source_coupling = CouplingData.init_from_state_data(target_view, n_shared_dims=self._n_shared_dims)
         else:
-            source_state = self._get_source_state_data(adata)
-            source_coupling = CouplingData.init_from_state_data(source_state, n_shared_dims=self._n_shared_dims)
-        target_coupling = CouplingData.init_from_state_data(target_state, n_shared_dims=self._n_shared_dims)
+            source_view = self._get_source_view(adata)
+            source_coupling = CouplingData.init_from_state_data(source_view, n_shared_dims=self._n_shared_dims)
+        target_coupling = CouplingData.init_from_state_data(target_view, n_shared_dims=self._n_shared_dims)
         return source_coupling, target_coupling
 
     @property

@@ -13,7 +13,7 @@ __all__ = ["GroupsDataSchema"]
 
 
 class GroupsDataSchema(StrictDataSchema):
-    """"""  # noqa
+    """Data Schema implementing the logic for base grouping."""
 
     def __init__(
         self,
@@ -23,7 +23,37 @@ class GroupsDataSchema(StrictDataSchema):
         groups_encoding_transform_fn: dict[str, Callable] | None = None,
         groups_encoding_inverse_transform_fn: dict[str, Callable] | None = None,
     ) -> None:
-        """"""  # noqa
+        """Initializes the data schema.
+
+        :param groups: Collection of string identifiers indicating the
+            columns in `.obs` used to define the grouping. Defaults to `None`
+        :type groups: class: `Collection[str] | None`
+
+        :param groups_reps: Dictionary mapping column identifiers in :param: `groups`
+            to the corresponding key of `.uns` used to store the covariate representations.
+            The corresponding value in `.uns` need to have keys matching the unique values
+            of the corresponding column in `.obs`. Defaults to `None`.
+        :type groups_reps: class: `dict[str, str] | None`
+
+        :param groups_encoding: Dictionary mapping column identifiers in :param: `groups`
+            to the corresponding label indicating the transformation to apply.
+            Defaults to `None`.
+        :type groups_encoding: class: `dict[str, TargetCovariatesEncodingId] | None`
+
+        :param groups_encoding_transform_fn: Dictionary mapping column identifiers in :param: `groups`
+            to the corresponding function used to define functional tranformations.
+            This is only used for column identifiers that appear in :param: `groups_encoding` and whose
+            corresponding value is `"fuctional"`. Defaults to `None`, in which case it will be set
+            to the identity function.
+        :type groups_encoding_transform_fn: class: `dict[str, Callable] | None`
+
+        :param groups_encoding_inverse_transform_fn: Dictionary mapping column identifiers in :param: `groups`
+            to the corresponding function used to define inverse functional tranformations.
+            This is only used for column identifiers that appear in :param: `groups_encoding` and whose
+            corresponding value is `"fuctional"`. Defaults to `None`, in which case it will be set
+            to the identity function.
+        :type groups_encoding_inverse_transform_fn: class: `dict[str, Callable] | None`
+        """
         self._groups = [] if groups is None else groups
         self._groups_reps = {} if groups_reps is None else groups_reps
         self._groups_encoding = {} if groups_encoding is None else groups_encoding
@@ -36,7 +66,7 @@ class GroupsDataSchema(StrictDataSchema):
         super().__init__()
 
     def _verify_args(self) -> None:
-        """"""  # noqa
+        """Verifies the validity of the arguments set at initialization."""
         check_sequence_query_against_reference(
             self._groups,
             set(self._groups_reps.keys()).union(set(self._groups_encoding.keys())),
@@ -50,17 +80,29 @@ class GroupsDataSchema(StrictDataSchema):
         self._check_is_valid_encoder_id_dict(self._groups_encoding)
 
     def _verify_groups(self, adata: AnnData) -> None:
-        """"""  # noqa
+        """Verifies the :attr:`self.groups` attribute on the input data.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
         for group in self._groups:
             self._check_key_found_in_adata_field(adata, group, "obs")
 
     def _verify_groups_reps(self, adata: AnnData) -> None:
-        """"""  # noqa
+        """Verifies the :attr:`self.groups_reps` attribute on the input data.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
         for rep in self._groups_reps.values():
             self._check_key_found_in_adata_field(adata, rep, "uns")
 
     def _verify_schema(self, adata):
-        """"""  # noqa
+        """Verifies the schema on the input data.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
         self._verify_groups(adata)
         self._verify_groups_reps(adata)
 
@@ -68,18 +110,30 @@ class GroupsDataSchema(StrictDataSchema):
         self,
         adata: AnnData,
     ) -> pd.DataFrame:
-        """"""  # noqa
+        """Retrieves the covariates data frame.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
         return adata.obs.loc[:, self._groups]
 
     def _get_covs_repr_dict(
         self,
         adata: AnnData,
     ) -> dict[str, MappedArray]:
-        """"""  # noqa
+        """Retrieves the annotation dictionary for each column.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
         return {col: adata.uns[rep] for col, rep in self._groups_reps.items()}
 
     def _get_data(self, adata: AnnData) -> CategoricalData:
-        """"""  # noqa
+        """Enforces the schema on the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
         covs_df_dict: pd.DataFrame = self._get_covs_df(adata)
         repr_dict: dict[str, MappedArray] = self._get_covs_repr_dict(adata)
         encoders_dict: Mapping[str, TargetCovariatesEncoderCls] = get_covariates_encoders_from_dict(
@@ -96,25 +150,25 @@ class GroupsDataSchema(StrictDataSchema):
 
     @property
     def groups(self) -> Collection[str]:
-        """"""  # noqa
+        """Exposes to `groups` parameter set at initialization."""
         return self._groups
 
     @property
     def groups_reps(self) -> dict[str, str]:
-        """"""  # noqa
+        """Exposes to `groups_reps` parameter set at initialization."""
         return self._groups_reps
 
     @property
     def groups_encoding(self) -> dict[str, TargetCovariatesEncodingId]:
-        """"""  # noqa
+        """Exposes to `groups_encoding` parameter set at initialization."""
         return self._groups_encoding
 
     @property
     def groups_encoding_transform_fn(self) -> dict[str, Callable]:
-        """"""  # noqa
+        """Exposes to `groups_encoding_transform_fn` parameter set at initialization."""
         return self._groups_encoding_transform_fn
 
     @property
     def groups_encoding_inverse_transform_fn(self) -> dict[str, Callable]:
-        """"""  # noqa
+        """Exposes to `groups_encoding_inverse_transform_fn` parameter set at initialization."""
         return self._groups_encoding_inverse_transform_fn

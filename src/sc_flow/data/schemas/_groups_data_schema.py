@@ -3,8 +3,9 @@ from collections.abc import Callable, Collection, Mapping
 import pandas as pd
 from anndata import AnnData
 
-from sc_flow._types import MappedArray, TargetCovariatesEncoderCls, TargetCovariatesEncodingId
+from sc_flow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
 from sc_flow._utils import check_sequence_query_against_reference
+from sc_flow.data._mixins import MappedArray
 from sc_flow.data._utils import get_covariates_encoders_from_dict
 from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.schemas._base_schema import StrictDataSchema

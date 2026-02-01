@@ -1,6 +1,5 @@
-from typing import Any, Literal, TypeAlias
+from typing import Any, Literal
 
-import numpy as np
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 BackendId = Literal["torch", "jax"]
@@ -22,7 +21,5 @@ LayersDict = dict[str, Any]
 NestedLayersDict = dict[str, LayersDict]
 
 TargetCovariatesEncodingId = Literal["label", "one-hot", "functional"]
-
-MappedArray: TypeAlias = dict[str, np.ndarray]
 
 TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder

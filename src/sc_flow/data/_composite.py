@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from typing import Any, ClassVar
 
 import pandas as pd
@@ -45,6 +45,10 @@ class MatchedData(MatchedDistributions):
             parts.append(f" * (source) -> {source_repr}")
 
         return f"{self.__class__.__name__}:\n" + "\n".join(parts)
+
+    def to_dict(self) -> dict[str, Any]:
+        """"""  # noqa
+        return asdict(self)
 
     @property
     def target_distr(self) -> DistributionT:

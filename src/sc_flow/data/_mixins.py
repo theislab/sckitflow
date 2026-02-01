@@ -1,7 +1,6 @@
 from collections.abc import Callable, Collection, Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from types import MappingProxyType
 from typing import Any, ClassVar
 
 import numpy as np
@@ -18,7 +17,7 @@ class MappedTree(DataTree):
 
     _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = str
     _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = object
-    mapping: Mapping[Hashable, DataT | DataTreeT] = dc_field(default_factory=lambda: MappingProxyType({}))
+    mapping: Mapping[Hashable, DataT | DataTreeT] = dc_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """"""  # noqa

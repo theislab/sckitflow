@@ -1,5 +1,6 @@
 from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
-from sc_flow.data.samplers._base import BatchDType, FSampler, Sampler, TreeDType
+from sc_flow.data._abc import DataT, DataTreeT
+from sc_flow.data.samplers._base import FSampler, Sampler
 
 __all__ = ["TrainSampler", "FTrainSampler"]
 
@@ -9,7 +10,7 @@ class TrainSampler(Sampler):
 
     def __init__(
         self,
-        tree: TreeDType,
+        tree: DataTreeT,
         *args,
         batch_size: int = DEFAULT_BATCH_SIZE,
         n_nodes: int = DEFAULT_N_GROUPS,
@@ -21,7 +22,7 @@ class TrainSampler(Sampler):
         """Initializes the training sampler.
 
         :param tree: Tree storing the split and matched subpopulations.
-        :type tree: class: `TreeDType`
+        :type tree: class: `DataTreeT`
 
         :param batch_size: The number of observations to sample for each node in a batch.
             Defaults to :constant sc_flow._constants.DEFAULT_BATCH_SIZE:.
@@ -55,7 +56,7 @@ class TrainSampler(Sampler):
         self._batch_size = batch_size
         self._n_nodes = n_nodes
 
-    def sample(self) -> tuple[BatchDType]:
+    def sample(self) -> tuple[DataT]:
         """Samples a batch of data from the tree."""
         return self._sample(self._n_nodes, self._batch_size)
 

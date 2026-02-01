@@ -1,4 +1,4 @@
-from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
+from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS, MAX_ITER_STEPS
 from sc_flow.data._abc import DataT, DataTreeT, MatchedDistributionsT
 from sc_flow.data.samplers._base import FSampler, Sampler
 
@@ -17,6 +17,7 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
+        max_iter_steps: int = MAX_ITER_STEPS,
         **kwargs,
     ) -> None:
         """Initializes the training sampler.
@@ -55,10 +56,24 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
         )
         self._batch_size = batch_size
         self._n_nodes = n_nodes
+        self._max_iter_steps = max_iter_steps
+
+        self._current_iter_step = 0
 
     def sample(self) -> tuple[DataT]:
         """Samples a batch of data from the tree."""
         return self._sample(self._n_nodes, self._batch_size)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        if self._current_iter_step < self._max_iter_steps:
+            obj = self.sample()
+            self._current_iter_step += 1
+            return obj
+        else:
+            raise StopIteration
 
     @property
     def batch_size(self) -> int:

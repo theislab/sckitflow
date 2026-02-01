@@ -209,12 +209,12 @@ class DataManager:
     ) -> DistributionData:
         state_data: StateData = self._get_state_data(adata)
         condition_data: MixedTypeData = self._get_condition_data(adata)
-        target_data: MixedTypeData = self._get_target_data(adata)
+        response_data: MixedTypeData = self._get_target_data(adata)
         groups_data: CategoricalData = self._get_groups_data(adata)
         source_coupling_data, target_coupling_data = self._get_coupling_data(adata)
         return DistributionData(
             state_data,
-            target_data=target_data,
+            response_data=response_data,
             condition_data=condition_data,
             groups_data=groups_data,
             source_coupling_data=source_coupling_data,

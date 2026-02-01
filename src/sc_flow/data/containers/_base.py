@@ -1,6 +1,6 @@
 import abc
-from dataclasses import dataclass
-from typing import Literal, TypeVar, overload
+from dataclasses import asdict, dataclass
+from typing import Any, Literal, TypeVar, overload
 
 import numpy as np
 import pandas as pd
@@ -117,3 +117,7 @@ class BaseData(abc.ABC):
         if return_index:
             return query_data, idxs
         return query_data
+
+    def to_dict(self) -> dict[str, Any]:
+        """"""  # noqa
+        return asdict(self)

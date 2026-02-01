@@ -18,8 +18,8 @@ from sc_flow.data.schemas import (
     ConditionDataSchema,
     CouplingDataSchema,
     GroupsDataSchema,
+    ResponseDataSchema,
     StateDataSchema,
-    TargetDataSchema,
 )
 
 __all__ = ["DataManager"]
@@ -106,7 +106,7 @@ class DataManager:
         self._coupling_data_schema: CouplingDataSchema = self._init_coupling_data_schema(
             source_rep=source_rep, target_rep=sample_rep, n_shared_dims=n_shared_dims
         )
-        self._target_data_schema: TargetDataSchema = self._init_target_data_schema(
+        self._target_data_schema: ResponseDataSchema = self._init_target_data_schema(
             categorical_covs_dict=target_categorical_covs_dict,
             continuous_covs=target_continuous_covs,
         )
@@ -148,8 +148,8 @@ class DataManager:
         self,
         categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
         continuous_covs: Collection[str] | None = None,
-    ) -> TargetDataSchema:
-        return TargetDataSchema(
+    ) -> ResponseDataSchema:
+        return ResponseDataSchema(
             categorical_covs_dict=categorical_covs_dict,
             continuous_covs=continuous_covs,
         )
@@ -299,7 +299,7 @@ class DataManager:
         return self._groups_data_schema
 
     @property
-    def target_data_schema(self) -> TargetDataSchema:
+    def target_data_schema(self) -> ResponseDataSchema:
         """Exposes the target data schema."""
         return self._target_data_schema
 

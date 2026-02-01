@@ -27,7 +27,7 @@ class TestMixins:
         mapping_fn: Callable[..., Mapping[str, Any]],
     ) -> None:
         # mismatch type
-        MappedTree.required_value_type = required_type
+        MappedTree._REQUIRED_VALUE_TYPE = required_type
         if (required_type is float and mapping_fn.__name__ == "string_data_dict") or (
             required_type is str and mapping_fn.__name__ == "float_data_dict"
         ):
@@ -65,7 +65,7 @@ class TestMixins:
         output_type: type[Any] | None,
     ) -> None:
         # initialize mixin
-        MappedTree.required_value_type = float
+        MappedTree._REQUIRED_VALUE_TYPE = float
         mixin = MappedTree(float_data_dict())
 
         # fail cases

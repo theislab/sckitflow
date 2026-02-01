@@ -5,14 +5,14 @@ from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data.containers import MixedTypeData
-from sc_flow.data.schemas import TargetDataSchema
+from sc_flow.data.schemas import ResponseDataSchema
 
 from ..shared import verify_categorical_data, verify_mixin  # noqa
 
 inval_key: str = "invalid_key"
 
 
-class TestTargetDataSchema:
+class TestResponseDataSchema:
     @pytest.mark.parametrize(
         "categorical_covs_dict",
         [
@@ -32,9 +32,9 @@ class TestTargetDataSchema:
             with pytest.raises(
                 ValueError, match=r"Encoder identifier .* for target covariate encoding is not supported"
             ):
-                _schema = TargetDataSchema(categorical_covs_dict=categorical_covs_dict)
+                _schema = ResponseDataSchema(categorical_covs_dict=categorical_covs_dict)
             return None
-        _schema = TargetDataSchema(categorical_covs_dict=categorical_covs_dict)
+        _schema = ResponseDataSchema(categorical_covs_dict=categorical_covs_dict)
 
     @pytest.mark.parametrize(
         "categorical_covs_dict",
@@ -56,7 +56,7 @@ class TestTargetDataSchema:
         continuous_covs: Collection[str] | None,
     ) -> None:
         """"""
-        schema = TargetDataSchema(categorical_covs_dict=categorical_covs_dict, continuous_covs=continuous_covs)
+        schema = ResponseDataSchema(categorical_covs_dict=categorical_covs_dict, continuous_covs=continuous_covs)
         if (categorical_covs_dict is not None and inval_key in categorical_covs_dict) or (
             continuous_covs is not None and inval_key in continuous_covs
         ):

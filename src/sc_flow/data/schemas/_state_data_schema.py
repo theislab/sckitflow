@@ -15,7 +15,9 @@ class StateDataSchema(StrictDataSchema):
     ) -> None:
         """Initializes the state data schema
 
-        :param:
+        :param sample_rep: The representation to extract. When provided, it should appear as
+            key in `.obsm`, otherwise the `.X` attribute will be used. Defaults to `None`.
+        :type sample_rep: `str | None`
         """
         self._sample_rep = sample_rep
         super().__init__()

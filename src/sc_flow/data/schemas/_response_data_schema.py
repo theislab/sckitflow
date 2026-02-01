@@ -10,10 +10,10 @@ from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.schemas._base_schema import StrictDataSchema
 
-__all__ = ["TargetDataSchema"]
+__all__ = ["ResponseDataSchema"]
 
 
-class TargetDataSchema(StrictDataSchema):
+class ResponseDataSchema(StrictDataSchema):
     """"""  # noqa
 
     def __init__(

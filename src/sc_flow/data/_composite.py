@@ -1,32 +1,30 @@
 from dataclasses import dataclass
-from typing import Any, ClassVar, TypeVar
+from typing import Any, ClassVar
 
 import pandas as pd
 
 from sc_flow._runtime import attempt_tqdm_import
+from sc_flow.data._abc import DistributionT, MatchedDistributions
 from sc_flow.data._mixins import MappedLevelIndex, MappedTree
 from sc_flow.data.containers._distribution import DistributionData
 
-__all__ = ["DistributionDType", "MatchedData", "NestedData"]
-
-
-DistributionDType = TypeVar("T", bound=DistributionData)
+__all__ = ["DistributionT", "MatchedData", "NestedData"]
 
 
 @dataclass(frozen=True)
-class MatchedData:
+class MatchedData(MatchedDistributions):
     """Container class for matched data.
 
     :param target_distribution: The target distribution for the matching.
-    :type target_distribution: class: `DistributionDType`
+    :type target_distribution: class: `DistributionT`
 
     :param source_distribution: Optional source distribution for the matching.
         Defaults to `None`.
-    :type source_distribution: class: `DistributionDType | None`
+    :type source_distribution: class: `DistributionT | None`
     """
 
-    target_distribution: DistributionDType
-    source_distribution: DistributionDType | None = None
+    target_distribution: DistributionT
+    source_distribution: DistributionT | None = None
 
     def __post_init__(self) -> None:
         if self.source_distribution is not None:
@@ -49,22 +47,22 @@ class MatchedData:
         return f"{self.__class__.__name__}:\n" + "\n".join(parts)
 
     @property
-    def target_distr(self) -> DistributionDType:
+    def target_distr(self) -> DistributionT:
         """Alias for :attr: `self.target_distribution`."""
         return self.target_distribution
 
     @property
-    def source_distr(self) -> DistributionDType | None:
+    def source_distr(self) -> DistributionT | None:
         """Alias for :attr: `self.source_distribution`."""
         return self.source_distribution
 
     @property
-    def target(self) -> DistributionDType:
+    def target(self) -> DistributionT:
         """Alias for :attr: `self.target_distribution`."""
         return self.target_distribution
 
     @property
-    def source(self) -> DistributionDType | None:
+    def source(self) -> DistributionT | None:
         """Alias for :attr: `self.source_distribution`."""
         return self.source_distribution
 

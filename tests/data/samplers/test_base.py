@@ -27,13 +27,13 @@ class TestFSampler:
         sampler = FSampler(tree, dispatch_fn=lambda x: x, preprocess_fn=lambda x: x)
         flattened = sampler.flattened_data
 
-        assert isinstance(flattened, np.ndarray)
+        assert isinstance(flattened, tuple)
         assert all(isinstance(n, MatchedData) for n in flattened)
 
-    def test_groups_p_computation(self):
+    def test_nodes_p_computation(self):
         tree = make_tree()
         sampler = FSampler(tree, dispatch_fn=lambda x: x)
-        probs = sampler.groups_p
+        probs = sampler.nodes_p
 
         assert isinstance(probs, np.ndarray)
         np.testing.assert_allclose(probs.sum(), 1.0)

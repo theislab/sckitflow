@@ -2,32 +2,30 @@ from collections.abc import Callable, Collection, Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from types import MappingProxyType
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import Any, ClassVar
 
 import numpy as np
 import pandas as pd
 
+from sc_flow.data._abc import DataT, DataTree, DataTreeT
+
 __all__ = ["MappedTree", "MappedLevelIndex", "ArrayMixin", "BatchMixin"]
 
 
-T = TypeVar("T")
-C = TypeVar("C", bound="MappedTree")
-
-
 @dataclass(frozen=True)
-class MappedTree(Generic[T]):
+class MappedTree(DataTree):
     """"""  # noqa
 
     _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = str
     _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = object
-    mapping: Mapping[Hashable, T | C] = dc_field(default_factory=lambda: MappingProxyType({}))
+    mapping: Mapping[Hashable, DataT | DataTreeT] = dc_field(default_factory=lambda: MappingProxyType({}))
 
     def __post_init__(self) -> None:
         """"""  # noqa
         # verifying inputs
         self._verify_inputs()
 
-    def __getitem__(self, key: Hashable) -> "T | MappedTree[T]":
+    def __getitem__(self, key: Hashable) -> DataT | DataTreeT:
         """"""  # noqa
         return self.mapping[key]
 
@@ -44,13 +42,13 @@ class MappedTree(Generic[T]):
 
     def _apply_to_level(
         self,
-        level_value: "T | MappedTree",
+        level_value: DataT | DataTreeT,
         function: Callable[[Any], Any],
         *args,
         output_key_type: type[Any] | None = None,
         output_value_type: type[Any] | None = None,
         **kwargs,
-    ) -> "T":
+    ) -> DataT:
         """"""  # noqa
         if isinstance(level_value, MappedTree):
             return self._apply(
@@ -64,13 +62,13 @@ class MappedTree(Generic[T]):
 
     def _apply(
         self,
-        mapping: Mapping[Hashable, "T | MappedTree"],
+        mapping: Mapping[Hashable, DataT | DataTreeT],
         function: Callable[[Any], Any],
         *args,
         output_key_type: type[Any] | None = None,
         output_value_type: type[Any] | None = None,
         **kwargs,
-    ) -> "MappedTree":
+    ) -> DataTreeT:
         """"""  # noqa
         out_dict = {}
         if isinstance(mapping, MappedTree):
@@ -94,7 +92,7 @@ class MappedTree(Generic[T]):
         output_key_type: type[Any] | None = None,
         output_value_type: type[Any] | None = None,
         **kwargs,
-    ) -> "MappedTree":
+    ) -> DataTreeT:
         """"""  # noqa
         return self._apply(
             self.mapping,
@@ -109,7 +107,7 @@ class MappedTree(Generic[T]):
     def is_leaf(self) -> bool:
         return all(isinstance(v, self._REQUIRED_VALUE_TYPE) for v in self.mapping.values())
 
-    def flatten(self) -> tuple[T]:
+    def flatten(self) -> tuple[DataT]:
         """Flattens itself into a list of nodes."""
         if not self.is_leaf:
             return tuple([v for val in self.mapping.values() for v in val.flatten()])

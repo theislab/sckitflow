@@ -1,11 +1,11 @@
 from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
-from sc_flow.data._abc import DataT, DataTreeT
+from sc_flow.data._abc import DataT, DataTreeT, MatchedDistributionsT
 from sc_flow.data.samplers._base import FSampler, Sampler
 
 __all__ = ["TrainSampler", "FTrainSampler"]
 
 
-class TrainSampler(Sampler):
+class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
     """Abstract class for train samplers."""
 
     def __init__(

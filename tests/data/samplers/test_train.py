@@ -72,26 +72,6 @@ class TestTrainSampler:
 
         assert batch[0] == "processed"
 
-    def test_preprocess_fn_applied_before_sampling(self):
-        tree = make_tree()
-
-        def preprocess(group: MatchedData):
-            # Only keep first 2 observations in target
-            new_target, _ = make_distribution(n=2)
-            return MatchedData(target_distribution=new_target, source_distribution=group.source)
-
-        sampler = FTrainSampler(
-            tree,
-            lambda x: x,
-            preprocess_fn=preprocess,
-            batch_size=2,
-            n_nodes=1,
-        )
-
-        batch = sampler.sample()[0]
-
-        assert len(batch.target) == 2
-
     def test_node_sampling_respects_weights(self):
         tree = make_tree()
 
@@ -107,5 +87,4 @@ class TestTrainSampler:
         batches = sampler.sample()
         targets = [len(b.target) for b in batches]
 
-        # All nodes should have 1 observation because batch_size=1
         assert set(targets).issubset({1})

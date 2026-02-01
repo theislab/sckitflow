@@ -22,9 +22,9 @@ class TestFSampler:
         assert sampler.replace_nodes is True
         assert sampler.use_nodes_weights is False
 
-    def test_flattened_data_preprocess(self):
+    def test_flattened_data(self):
         tree = make_tree()
-        sampler = FSampler(tree, dispatch_fn=lambda x: x, preprocess_fn=lambda x: x)
+        sampler = FSampler(tree, dispatch_fn=lambda x: x)
         flattened = sampler.flattened_data
 
         assert isinstance(flattened, tuple)

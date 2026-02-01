@@ -29,6 +29,7 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
+        inverse_frequency_weights: bool = True,
         **kwargs,
     ) -> None:
         """Initializes the sampler.
@@ -49,11 +50,16 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
             In order to compute the relative frequency of a node of matched distributions,
             only the target one is considered. Defaults to `True`.
         :type use_nodes_weights: class: `bool`
+
+        :param inverse_frequency_weights: Whether to sample nodes according to their inverse
+            frequency. Only used when :param: `use_node_weights` is `True`. Defaults to `True`.
+        :type inverse_frequency_weights: class: `bool`
         """
         self._tree = tree
         self._replace_samples = replace_samples
         self._replace_nodes = replace_nodes
         self._use_nodes_weights = use_nodes_weights
+        self._inverse_frequency_weights = inverse_frequency_weights
 
     @abc.abstractmethod
     def _preprocess_node(self, node: NodeDType) -> BatchDType:
@@ -75,6 +81,15 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         :type node: class: `NodeDType`
         """
 
+    def _compute_nodes_freq(self) -> np.ndarray:
+        """Returns the array of relative frequencies of each node.
+
+        The relative frequency is computed by taking into account the number of observations
+        in the target distribution.
+        """
+        counts = np.array([len(e.target) for e in self.flattened_data])
+        return counts / counts.sum()
+
     def _sample_nodes(
         self,
         n_nodes: int,
@@ -87,7 +102,7 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         return np.random.choice(
             self.flattened_data,
             n_nodes,
-            p=self.groups_p if self._use_nodes_weights else None,
+            p=self.nodes_p if self._use_nodes_weights else None,
             replace=self._replace_nodes,
         )
 
@@ -194,14 +209,22 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         return np.array([self._preprocess_node(node) for node in self._tree.flatten()])
 
     @cached_property
-    def groups_p(self) -> np.ndarray:
-        """Returns the array of relative frequencies of each node.
+    def nodes_p(self) -> np.ndarray:
+        """Computes the nodes probabilities for sampling.
 
-        The relative frequency is computed by taking into account the number of observations
-        in the target distribution.
+        When :attr: `inverse_frequence_weights` is `False`, the probabilities will be simply given by the
+        frequency. Otherwise, normalized inverse frequency is used.
         """
-        counts = np.array([len(e.target) for e in self.flattened_data])
-        return counts / counts.sum()
+        nodes_freq = self._compute_nodes_freq()
+        if self._inverse_frequency_weights:
+            nodes_inv_freq = 1 / nodes_freq
+            return nodes_inv_freq / nodes_inv_freq.sum()
+        return nodes_freq
+
+    @property
+    def inverse_frequency_weights(self) -> bool:
+        """Exposes to :param: `inverse_frequency_weights` set at initialization."""
+        return self._inverse_frequency_weights
 
 
 class FSampler(Sampler[MatchedData, BatchDType]):

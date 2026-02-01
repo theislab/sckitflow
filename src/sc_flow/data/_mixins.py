@@ -133,7 +133,7 @@ class ArrayMixin(MappedTree):
 class BatchMixin(ArrayMixin):
     """"""  # noqa
 
-    minimum_dims: ClassVar[int] = 1
+    _MIN_DIMS: ClassVar[int] = 1
 
     def __len__(self) -> int:
         """"""  # noqa
@@ -159,10 +159,10 @@ class BatchMixin(ArrayMixin):
     ) -> None:
         """"""  # noqa
         # we need at least self._minimum_dims + 1 dimensions
-        if data.ndim <= self.minimum_dims:
+        if data.ndim <= self._MIN_DIMS:
             msg = (
                 f"Data for {key} has insufficient number of dimension."
-                f"Expected at least {self.minimum_dims} dimensions, but founf {data.ndim}"
+                f"Expected at least {self._MIN_DIMS} dimensions, but founf {data.ndim}"
             )
             raise ValueError(msg)
 
@@ -184,5 +184,5 @@ class BatchMixin(ArrayMixin):
         """"""  # noqa
         if len(self.mapping):
             reference_array = next(iter(self.mapping.values()))
-            return reference_array.shape[: self.minimum_dims]
+            return reference_array.shape[: self._MIN_DIMS]
         return []

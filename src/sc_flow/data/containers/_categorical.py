@@ -6,7 +6,8 @@ from types import MappingProxyType
 import numpy as np
 import pandas as pd
 
-from sc_flow._types import MappedArray, TargetCovariatesEncoderCls
+from sc_flow._types import TargetCovariatesEncoderCls
+from sc_flow.data._mixins import MappedArray
 from sc_flow.data.containers._base import BaseData
 
 __all__ = ["CategoricalData"]

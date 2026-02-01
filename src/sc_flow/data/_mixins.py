@@ -9,7 +9,7 @@ import pandas as pd
 
 from sc_flow.data._abc import DataT, DataTree, DataTreeT
 
-__all__ = ["MappedTree", "MappedLevelIndex", "ArrayMixin", "BatchMixin"]
+__all__ = ["MappedTree", "MappedLevelIndex", "MappedArray", "BatchMixin"]
 
 
 @dataclass(frozen=True)
@@ -121,14 +121,14 @@ class MappedLevelIndex(MappedTree):
 
 
 @dataclass(frozen=True)
-class ArrayMixin(MappedTree):
+class MappedArray(MappedTree):
     """"""  # noqa
 
     _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = np.ndarray | np.generic
 
 
 @dataclass(frozen=True)
-class BatchMixin(ArrayMixin):
+class BatchMixin(MappedArray):
     """"""  # noqa
 
     _MIN_DIMS: ClassVar[int] = 1

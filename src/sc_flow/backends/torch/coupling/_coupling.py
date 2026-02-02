@@ -1,21 +1,37 @@
 import logging
-from collections.abc import Callable
 from functools import partial
-from typing import Any, Literal, overload
+from typing import Literal, overload
 
 import numpy as np
 import ot as pot
 import torch
 
+from sc_flow.backends.torch._types import (
+    CostFN,
+    LinCouplingMethod,
+    NumpyArray,
+    QuadCouplingMethod,
+    ScaleMethod,
+    TensorLike,
+)
+
 logger = logging.getLogger(__name__)
 
-ScaleMethod = Literal["mean", "max", "median"] | float
+
+def to_torch_tensor(x: TensorLike | NumpyArray) -> torch.Tensor:
+    """Convert a NumPy array to a JAX array if needed."""
+    if isinstance(x, np.ndarray):
+        return torch.from_numpy(x)
+    if not isinstance(x, TensorLike):
+        msg = f"Invalid type found {type(x)}"
+        raise TypeError(msg)
+    return x
 
 
 def sanitize_coupling_matrix(
-    coupling_matrix: np.ndarray,
+    coupling_matrix: NumpyArray,
     eps: float = 1e-8,
-) -> np.ndarray:
+) -> NumpyArray:
     """Checks a coupling matrix for numerical issues and applies safe fallbacks.
 
     :param coupling_matrix: Coupling matrix to be checked for numerical stability.
@@ -44,15 +60,15 @@ def sanitize_coupling_matrix(
 
 
 def scale_distance_matrix(
-    distance_matrix: torch.Tensor,
+    distance_matrix: TensorLike,
     scale_method: ScaleMethod,
-) -> torch.Tensor:
+) -> TensorLike:
     """
     Scale a distance matrix according to a given method.
 
     Parameters
     ----------
-    distance_matrix : torch.Tensor
+    distance_matrix : TensorLike
         The distance matrix to be scaled.
     scale_method : {"mean", "max", "median"} or float
         Scaling strategy. If a float is provided, the matrix is divided
@@ -60,7 +76,7 @@ def scale_distance_matrix(
 
     Returns
     -------
-    torch.Tensor
+    TensorLike
         The scaled distance matrix.
     """
     if isinstance(scale_method, float):
@@ -87,25 +103,73 @@ def scale_distance_matrix(
     return distance_matrix / denom
 
 
-def independent_coupling(
-    source: torch.Tensor,
-    target: torch.Tensor,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
+def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray, NumpyArray]:
+    """Samples matching indices from a coupling matrix.
 
-    :param source: A tensor of values containing the data coming from the source distribution.
-    :type source: class:`torch.Tensor`
+    Draws index pairs from the provided coupling matrix according to the
+    normalized coupling probabilities and returns the corresponding source
+    and target indices.
 
-    :param target: A tensor of values containing the data coming from the target distribution.
-    :type target: class:`torch.Tensor`
+    :param coupling_matrix: Optimal transport coupling matrix encoding
+        matching probabilities between source and target samples.
+    :type coupling_matrix: class:`numpy.ndarray`
+
+    :param size: Number of index pairs to sample from the coupling matrix.
+    :type size: int
 
     Returns
     -------
-    ## TODO
+    tuple[numpy.ndarray, numpy.ndarray]
+        A tuple containing:
+
+        - An array of sampled source indices.
+        - An array of sampled target indices.
+
+        The two arrays have identical length equal to :param:`size`.
+    """
+    # checking for numerical errors in the coupling matrix
+    coupling_matrix = sanitize_coupling_matrix(coupling_matrix=coupling_matrix)
+
+    # retrieving coupling probabilities
+    coupling_probs = coupling_matrix.flatten()
+    coupling_probs = coupling_probs / coupling_probs.sum()
+    # sampling indices
+    choices = np.random.choice(
+        coupling_matrix.shape[0] * coupling_matrix.shape[1],
+        p=coupling_probs,
+        size=size,
+        replace=False,
+    )
+    source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
+    return source_idxs, target_idxs
+
+
+def independent_coupling(
+    source: TensorLike,
+    target: TensorLike,
+) -> tuple[NumpyArray, NumpyArray]:
+    """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
+
+    :param source: A tensor of values containing the data coming from the source distribution.
+    :type source: class:`TensorLike`
+
+    :param target: A tensor of values containing the data coming from the target distribution.
+    :type target: class:`TensorLike`
+
+    Returns
+    -------
+    tuple[numpy.ndarray, numpy.ndarray]
+        A tuple containing:
+
+        - An array of randomly permuted indices into the source tensor.
+        - An array of randomly permuted indices into the target tensor.
+
+        The two arrays have identical length, equal to the minimum number of
+        available samples in the source and target tensors.
     """
     # randomy permuting the tensors
-    src_random_perm_idx = np.random.choice(np.arange(source.shape[0]), size=source.shape[0], replace=False)
-    tgt_random_perm_idx = np.random.choice(np.arange(target.shape[0]), size=source.shape[0], replace=False)
+    src_random_perm_idx = np.random.choice(source.shape[0], size=source.shape[0], replace=False)
+    tgt_random_perm_idx = np.random.choice(target.shape[0], size=source.shape[0], replace=False)
 
     min_shape = min(src_random_perm_idx.shape[0], tgt_random_perm_idx.shape[0])
 
@@ -114,70 +178,96 @@ def independent_coupling(
 
 @overload
 def ot_linear_coupling(
-    source: torch.Tensor,
-    target: torch.Tensor,
-    cost_fn: Callable[..., Any] | None = ...,
-    scale_cost: float | Literal["mean", "max", "median"] = ...,
-    method: Literal["exact", "sinkhorn", "partial", "unbalanced", None] = ...,
-    of_fn: Callable[..., Any] | None = ...,
+    source: TensorLike,
+    target: TensorLike,
+    return_matrix: Literal[False],
+    cost_fn: CostFN | None = ...,
+    scale_cost: ScaleMethod = ...,
+    method: LinCouplingMethod = ...,
     reg: float = ...,
     reg_m: float = ...,
-    return_matrix: bool = False,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray]: ...
+) -> tuple[NumpyArray, NumpyArray]: ...
 
 
 @overload
 def ot_linear_coupling(
-    source: torch.Tensor,
-    target: torch.Tensor,
-    cost_fn: Callable[..., Any] | None = ...,
-    scale_cost: float | Literal["mean", "max", "median"] = ...,
-    method: Literal["exact", "sinkhorn", "partial", "unbalanced", None] = ...,
-    of_fn: Callable[..., Any] | None = ...,
+    source: TensorLike,
+    target: TensorLike,
+    return_matrix: Literal[True],
+    cost_fn: CostFN | None = ...,
+    scale_cost: ScaleMethod = ...,
+    method: LinCouplingMethod = ...,
     reg: float = ...,
     reg_m: float = ...,
-    return_matrix: bool = True,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
+) -> tuple[NumpyArray, NumpyArray, NumpyArray]: ...
 
 
 def ot_linear_coupling(
-    source: torch.Tensor,
-    target: torch.Tensor,
-    cost_fn: Callable | None = None,
-    scale_cost: float | Literal["mean", "max", "median"] = "mean",
-    method: Literal["exact", "sinkhorn", "partial", "unbalanced", None] = None,
-    of_fn: Callable | None = None,
+    source: TensorLike,
+    target: TensorLike,
+    return_matrix: bool = False,
+    cost_fn: CostFN | None = None,
+    scale_cost: ScaleMethod = "mean",
+    method: LinCouplingMethod = None,
     reg: float = 5e-1,
     reg_m: float = 1.0,
-    return_matrix: bool = False,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
+) -> tuple[NumpyArray, NumpyArray] | tuple[NumpyArray, NumpyArray, NumpyArray]:
+    """Matches the :param:`source` and :param:`target` groups and returns the respective indices
+    using an optimal transport-based linear coupling.
 
     :param source: A tensor of values containing the data coming from the source distribution.
-    :type source: class:`torch.Tensor`
+    :type source: class:`TensorLike`
 
     :param target: A tensor of values containing the data coming from the target distribution.
-    :type target: class:`torch.Tensor`
+    :type target: class:`TensorLike`
 
-    #TODO
-    """
-    if method is None:
-        method = "sinkhorn"
+    :param cost_fn: A callable used to compute the pairwise cost matrix between source and
+        target samples. If ``None``, the squared Euclidean distance is used.
+    :type cost_fn: class:`CostFN`, optional
 
-    if cost_fn is None:
-        cost_fn = lambda source, target: torch.cdist(source, target) ** 2
+    :param scale_cost: Method used to scale the cost matrix. Can be a scalar value or one of
+        ``"mean"``, ``"max"``, or ``"median"``.
+    :type scale_cost: class:`ScaleMethod`
+
+    :param method: Optimal transport solver to use. If ``None``, defaults to ``"sinkhorn"``.
+        Supported methods are ``"exact"``, ``"sinkhorn"``, ``"partial"``, and ``"unbalanced"``.
+    :type method: class:`LinCouplingMethod`, optional
+
+    :param reg: Entropic regularization parameter used by Sinkhorn-based solvers.
+    :type reg: float
+
+    :param reg_m: Marginal relaxation parameter used by unbalanced optimal transport solvers.
+    :type reg_m: float
+
+    :param return_matrix: If ``True``, also return the optimal transport coupling matrix.
+    :type return_matrix: bool
+
+    :param kwargs: Additional keyword arguments forwarded to the selected optimal transport solver.
+    :type kwargs: dict
+
+    Returns
+    -------
+    tuple[numpy.ndarray, numpy.ndarray]
+        A tuple containing the indices of matched samples in the source and target tensors.
+
+    tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
+        If ``return_matrix`` is ``True``, also returns the optimal transport coupling matrix
+        computed between the source and target distributions.
+    """  # noqa
+    method = method or "sinkhorn"
+
+    cost_fn = cost_fn or (lambda source, target: torch.cdist(source, target) ** 2)
 
     # computing weights
     src_weights = pot.unif(source.shape[0])
     tgt_weights = pot.unif(target.shape[0])
     # moving arrays to torch tensors
-    if isinstance(source, np.ndarray):
-        source = torch.from_numpy(source)
-    if isinstance(target, np.ndarray):
-        target = torch.from_numpy(target)
+    source = to_torch_tensor(source)
+    target = to_torch_tensor(target)
+
     # flattening tensors
     source = torch.flatten(source, start_dim=1)
     target = torch.flatten(target, start_dim=1)
@@ -212,19 +302,7 @@ def ot_linear_coupling(
 
     # computing coupling matrix
     coupling_matrix = ot_fn(src_weights, tgt_weights, distance_matrix.detach().cpu().numpy())
-    # checking for numerical errors in the coupling matrix
-    coupling_matrix = sanitize_coupling_matrix(coupling_matrix=coupling_matrix.numpy())
-    # retrieving coupling probabilities
-    coupling_probs = coupling_matrix.flatten()
-    coupling_probs = coupling_probs / coupling_probs.sum()
-    # sampling indices
-    choices = np.random.choice(
-        coupling_matrix.shape[0] * coupling_matrix.shape[1],
-        p=coupling_probs,
-        size=source.shape[0],
-        replace=False,
-    )
-    source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
+    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source.shape[0])
     if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs
@@ -232,132 +310,132 @@ def ot_linear_coupling(
 
 @overload
 def ot_quadratic_coupling(
-    src_xx_cell_coupling: torch.Tensor,
-    tgt_yy_cell_coupling: torch.Tensor,
-    src_xy_cell_coupling: torch.Tensor | None = ...,
-    tgt_xy_cell_coupling: torch.Tensor | None = ...,
-    cost_fn: Callable[..., Any] | None = ...,
-    scale_cost: float | Literal["mean", "max_cost", "median"] = ...,
-    method: Literal[
-        "entropic_gromov_wasserstein",
-        "entropic_fused_gromov_wasserstein",
-        None,
-    ] = ...,
-    of_fn: Callable[..., Any] | None = ...,
-    reg: float = ...,
-    reg_m: float = ...,
-    return_matrix: bool = False,
+    source_quad: TensorLike,
+    target_quad: TensorLike,
+    return_matrix: Literal[False],
+    cost_fn: CostFN | None = ...,
+    scale_cost: ScaleMethod = ...,
+    method: QuadCouplingMethod = ...,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray]: ...
+) -> tuple[NumpyArray, NumpyArray]: ...
 
 
 @overload
 def ot_quadratic_coupling(
-    src_xx_cell_coupling: torch.Tensor,
-    tgt_yy_cell_coupling: torch.Tensor,
-    src_xy_cell_coupling: torch.Tensor | None = ...,
-    tgt_xy_cell_coupling: torch.Tensor | None = ...,
-    cost_fn: Callable[..., Any] | None = ...,
-    scale_cost: float | Literal["mean", "max_cost", "median"] = ...,
-    method: Literal[
-        "entropic_gromov_wasserstein",
-        "entropic_fused_gromov_wasserstein",
-        None,
-    ] = ...,
-    of_fn: Callable[..., Any] | None = ...,
-    reg: float = ...,
-    reg_m: float = ...,
-    return_matrix: bool = True,
+    source_quad: TensorLike,
+    target_quad: TensorLike,
+    return_matrix: Literal[True],
+    cost_fn: CostFN | None = ...,
+    scale_cost: ScaleMethod = ...,
+    method: QuadCouplingMethod = ...,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray]: ...
+) -> tuple[NumpyArray, NumpyArray, NumpyArray]: ...
 
 
 def ot_quadratic_coupling(
-    src_xx_cell_coupling: torch.Tensor,
-    tgt_yy_cell_coupling: torch.Tensor,
-    src_xy_cell_coupling: torch.Tensor | None = None,
-    tgt_xy_cell_coupling: torch.Tensor | None = None,
-    cost_fn: Callable | None = None,
-    scale_cost: float | Literal["mean", "max_cost", "median"] = 1.0,
-    method: Literal[
-        "entropic_gromov_wasserstein",
-        "entropic_fused_gromov_wasserstein",
-        None,
-    ] = None,
-    of_fn: Callable | None = None,
-    reg: float = 5e-1,
-    reg_m: float = 1.0,
+    source_quad: TensorLike,
+    target_quad: TensorLike,
     return_matrix: bool = False,
+    cost_fn: CostFN | None = None,
+    scale_cost: ScaleMethod = 1.0,
+    method: QuadCouplingMethod = None,
     **kwargs,
-) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, np.ndarray]:
-    """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
+) -> tuple[NumpyArray, NumpyArray] | tuple[NumpyArray, NumpyArray, NumpyArray]:
+    """Matches source and target groups using an optimal transport-based quadratic coupling
+    (Gromov-Wasserstein or fused Gromov-Wasserstein) and returns the respective indices.
 
-    :param source: A tensor of values containing the data coming from the source distribution.
-    :type source: class:`torch.Tensor`
+    :param source_quad: A tensor containing pairwise relationships within the source
+        distribution (source-source structure).
+    :type source_quad: class:`TensorLike`
 
-    :param target: A tensor of values containing the data coming from the target distribution.
-    :type target: class:`torch.Tensor`
+    :param target_quad: A tensor containing pairwise relationships within the target
+        distribution (target-target structure).
+    :type target_quad: class:`TensorLike`
 
-    #TODO
-    """
-    if cost_fn is None:
-        cost_fn = lambda source, target: torch.cdist(source, target) ** 2
-    if method is None:
-        method = "entropic_gromov_wasserstein"
+    :param cost_fn: A callable used to compute pairwise cost matrices. If ``None``, the squared
+        Euclidean distance is used.
+    :type cost_fn: class:`CostFN`, optional
+
+    :param scale_cost: Method used to scale the cost matrices. Can be a scalar value or one of
+        ``"mean"``, ``"max_cost"``, or ``"median"``.
+    :type scale_cost: class:`ScaleMethod`
+
+    :param method: Quadratic optimal transport solver to use. If ``None``, defaults to
+        ``"entropic_gromov_wasserstein"``. Supported methods are
+        ``"entropic_gromov_wasserstein"`` and
+        ``"entropic_fused_gromov_wasserstein"``.
+    :type method: class:`QuadCouplingMethod`, optional
+
+    :param return_matrix: If ``True``, also return the quadratic optimal transport coupling matrix.
+    :type return_matrix: bool
+
+    :param kwargs: Additional keyword arguments forwarded to the solver. In case of coupling with quadratic terms, please pass
+        - :param source_lin: Optional source cross-domain features used
+        for fused Gromov-Wasserstein.
+        :type source_lin: class:`TensorLike`
+
+        - :param target_lin: Optional target cross-domain features used
+        for fused Gromov-Wasserstein.
+        :type target_lin: class:`TensorLike`
+    as :param kwargs items
+    :type kwargs: dict
+
+    Returns
+    -------
+    tuple[numpy.ndarray, numpy.ndarray]
+        A tuple containing the indices of matched samples in the source and target distributions.
+
+    tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
+        If ``return_matrix`` is ``True``, also returns the quadratic optimal transport coupling
+        matrix computed between the source and target distributions.
+    """  # noqa
+    cost_fn = cost_fn or (lambda source, target: torch.cdist(source, target) ** 2)
+    method = method or "entropic_gromov_wasserstein"
 
     # moving arrays to torch tensors
-    if isinstance(src_xx_cell_coupling, np.ndarray):
-        src_xx_cell_coupling = torch.from_numpy(src_xx_cell_coupling)
-    if isinstance(tgt_yy_cell_coupling, np.ndarray):
-        tgt_yy_cell_coupling = torch.from_numpy(tgt_yy_cell_coupling)
+    source_quad = to_torch_tensor(source_quad)
+    target_quad = to_torch_tensor(target_quad)
+
+    if ("source_lin" in kwargs) and ("target_lin" in kwargs):
+        source_lin = kwargs.get("source_lin")
+        target_lin = kwargs.get("target_lin")
+        source_lin = to_torch_tensor(source_lin)
+        target_lin = to_torch_tensor(target_lin)
+        distance_matrix_lin = cost_fn(source_lin, target_lin)
+        distance_matrix_lin = scale_distance_matrix(distance_matrix=distance_matrix_lin, scale_method=scale_cost)
+    else:
+        distance_matrix_lin = None
 
     # computing cost matrix
-    distance_matrix_xx = cost_fn(src_xx_cell_coupling, src_xx_cell_coupling)
-    distance_matrix_yy = cost_fn(tgt_yy_cell_coupling, tgt_yy_cell_coupling)
-    if src_xy_cell_coupling is not None:
-        distance_matrix_xy = cost_fn(src_xy_cell_coupling, tgt_xy_cell_coupling)
-    else:
-        distance_matrix_xy = None
-    # normalization of cost
-    distance_matrix_xx = scale_distance_matrix(distance_matrix=distance_matrix_xx, scale_method=scale_cost)
-    distance_matrix_yy = scale_distance_matrix(distance_matrix=distance_matrix_yy, scale_method=scale_cost)
-
-    if distance_matrix_xy is not None:
-        distance_matrix_xy - scale_distance_matrix(distance_matrix=distance_matrix_xy, scale_method=scale_cost)
+    distance_matrix_source_quad = cost_fn(source_quad, source_quad)
+    distance_matrix_target_quad = cost_fn(target_quad, target_quad)
+    distance_matrix_source_quad = scale_distance_matrix(
+        distance_matrix=distance_matrix_source_quad, scale_method=scale_cost
+    )
+    distance_matrix_target_quad = scale_distance_matrix(
+        distance_matrix=distance_matrix_target_quad, scale_method=scale_cost
+    )
 
     if method == "entropic_gromov_wasserstein":
         ot_fn = partial(pot.gromov.entropic_gromov_wasserstein, epsilon=1.0, alpha=1.0)
         # computing coupling matrix
         coupling_matrix = ot_fn(
-            C1=distance_matrix_xx,
-            C2=distance_matrix_yy,
+            C1=distance_matrix_source_quad,
+            C2=distance_matrix_target_quad,
         )
-    elif method == "entropic_fused_gromov_wasserstein" and distance_matrix_xy is not None:
+    elif method == "entropic_fused_gromov_wasserstein" and distance_matrix_lin is not None:
         ot_fn = partial(pot.gromov.entropic_fused_gromov_wasserstein, epsilon=1.0, alpha=0.5)
         # computing coupling matrix
         coupling_matrix = ot_fn(
-            C1=distance_matrix_xx,
-            C2=distance_matrix_yy,
-            M=distance_matrix_xy,
+            C1=distance_matrix_source_quad,
+            C2=distance_matrix_target_quad,
+            M=distance_matrix_lin,
         )
     else:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
         raise ValueError(msg)
 
-    # checking for numerical errors in the coupling matrix
-    coupling_matrix = sanitize_coupling_matrix(coupling_matrix=coupling_matrix.numpy())
-
-    # retrieving coupling probabilities
-    coupling_probs = coupling_matrix.flatten()
-    coupling_probs = coupling_probs / coupling_probs.sum()
-    # sampling indices
-    choices = np.random.choice(
-        coupling_matrix.shape[0] * coupling_matrix.shape[1],
-        p=coupling_probs,
-        size=src_xx_cell_coupling.shape[0],
-        replace=False,
-    )
-    source_idxs, target_idxs = np.divmod(choices, coupling_matrix.shape[1])
+    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source_quad.shape[0])
     if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs

@@ -3,7 +3,6 @@ from typing import Literal, overload
 
 import jax.numpy as jnp
 import numpy as np
-import scipy as sp
 from ott.geometry import costs, pointcloud
 from ott.problems.linear import linear_problem
 from ott.solvers.linear import sinkhorn
@@ -11,7 +10,6 @@ from ott.solvers.utils import match_quadratic
 
 from sc_flow.backends.jax._types import (
     ArrayLike,
-    CostFn,
     JaxArray,
     LinCouplingMethod,
     NumpyArray,
@@ -27,7 +25,7 @@ def to_jax_array(x: ArrayLike | NumpyArray) -> ArrayLike:
     """Convert a NumPy array to a JAX array if needed."""
     if isinstance(x, np.ndarray):
         return jnp.array(x)
-    if not isinstance(x, JaxArray):
+    if x is not None and not isinstance(x, JaxArray):
         msg = f"Invalid type found {type(x)}"
         raise TypeError(msg)
     return x
@@ -145,7 +143,7 @@ def ot_linear_coupling(
     source: ArrayLike,
     target: ArrayLike,
     return_matrix: Literal[False],
-    cost_fn: CostFn | None = ...,
+    cost_fn: costs.CostFn | None = ...,
     scale_cost: ScaleMethod = ...,
     method: LinCouplingMethod = ...,
     ot_fn: OTFn | None = ...,
@@ -158,7 +156,7 @@ def ot_linear_coupling(
     source: ArrayLike,
     target: ArrayLike,
     return_matrix: Literal[True],
-    cost_fn: CostFn | None = ...,
+    cost_fn: costs.CostFn | None = ...,
     scale_cost: ScaleMethod = ...,
     method: LinCouplingMethod = ...,
     ot_fn: OTFn | None = ...,
@@ -170,7 +168,7 @@ def ot_linear_coupling(
     source: ArrayLike,
     target: ArrayLike,
     return_matrix: bool = False,
-    cost_fn: CostFn | None = None,
+    cost_fn: costs.CostFn | None = None,
     scale_cost: ScaleMethod = "mean",
     method: LinCouplingMethod = "sinkhorn",
     ot_fn: OTFn | None = None,
@@ -194,7 +192,7 @@ def ot_linear_coupling(
 
     :param cost_fn: Cost function used to compute pairwise distances between
         source and target samples. If ``None``, squared Euclidean distance is used.
-    :type cost_fn: CostFn | None
+    :type cost_fn: costs.CostFn | None
 
     :param scale_cost: Method used to rescale the cost matrix (e.g. ``"mean"``).
     :type scale_cost: ScaleMethod
@@ -265,7 +263,9 @@ def ot_quadratic_coupling(
     source_quad: ArrayLike,
     target_quad: ArrayLike,
     return_matrix: Literal[False],
-    cost_fn: CostFn | None = None,
+    source_lin: ArrayLike | None = ...,
+    target_lin: ArrayLike | None = ...,
+    cost_fn: costs.CostFn | None = None,
     scale_cost: ScaleMethod = ...,
     method: QuadCouplingMethod = ...,
     **kwargs,
@@ -277,7 +277,9 @@ def ot_quadratic_coupling(
     source_quad: ArrayLike,
     target_quad: ArrayLike,
     return_matrix: Literal[True],
-    cost_fn: CostFn | None = None,
+    source_lin: ArrayLike | None = ...,
+    target_lin: ArrayLike | None = ...,
+    cost_fn: costs.CostFn | None = None,
     scale_cost: ScaleMethod = ...,
     method: QuadCouplingMethod = ...,
     **kwargs,
@@ -287,8 +289,10 @@ def ot_quadratic_coupling(
 def ot_quadratic_coupling(
     source_quad: ArrayLike,
     target_quad: ArrayLike,
+    source_lin: ArrayLike | None = None,
+    target_lin: ArrayLike | None = None,
     return_matrix: bool = False,
-    cost_fn: CostFn | None = None,
+    cost_fn: costs.CostFn | None = None,
     scale_cost: ScaleMethod = 1.0,
     method: QuadCouplingMethod = "entropic_gromov_wasserstein",
     **kwargs,
@@ -310,9 +314,17 @@ def ot_quadratic_coupling(
     :param return_matrix: Whether to return the full coupling matrix.
     :type return_matrix: bool
 
+     :param source_lin: Optional source cross-domain features used
+        for fused Gromov-Wasserstein. Default `None`
+    :type source_lin: class:`ArrayLike`
+
+    :param target_lin: Optional target cross-domain features used
+        for fused Gromov-Wasserstein. Default `None`
+    :type target_lin: class:`ArrayLike`
+
     :param cost_fn: Cost function used to compute pairwise distances.
         If ``None``, squared Euclidean distance is used.
-    :type cost_fn: CostFn | None
+    :type cost_fn: costs.CostFn | None
 
     :param scale_cost: Method or factor used to rescale the cost matrices.
     :type scale_cost: ScaleMethod
@@ -322,15 +334,7 @@ def ot_quadratic_coupling(
         ``"entropic_fused_gromov_wasserstein"``.
     :type method: QuadCouplingMethod
 
-    :param kwargs: Additional keyword arguments forwarded to the solver. In case of coupling with quadratic terms, please pass
-        - :param source_lin: Optional source cross-domain features used
-        for fused Gromov-Wasserstein.
-        :type source_lin: class:`ArrayLike`
-
-        - :param target_lin: Optional target cross-domain features used
-        for fused Gromov-Wasserstein.
-        :type target_lin: class:`ArrayLike`
-    as :param kwargs items
+    :param kwargs: Additional keyword arguments forwarded to the solver.
     :type kwargs: dict
 
 
@@ -345,22 +349,20 @@ def ot_quadratic_coupling(
         If ``return_matrix=True``, additionally returns the quadratic
         coupling matrix.
     """
-    cost_fn = cost_fn or (lambda source, target: sp.spatial.distance.cdist(source, target) ** 2)
-
     scale_cost = scale_cost or "mean"
 
     # moving arrays to jax arrays
     source_quad = to_jax_array(source_quad)
     target_quad = to_jax_array(target_quad)
-    source_lin = kwargs.get("source_lin", None)
-    target_lin = kwargs.get("target_lin", None)
+
     source_lin = to_jax_array(source_lin)
     target_lin = to_jax_array(target_lin)
+    print(source_lin)
 
     if method not in ["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"]:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
         raise ValueError(msg)
-    elif method == "entropic_fused_gromov_wasserstein" and source_quad is None:
+    elif method == "entropic_fused_gromov_wasserstein" and source_lin is None:
         msg = f"{method=} requires fused terms"
         raise ValueError(msg)
 

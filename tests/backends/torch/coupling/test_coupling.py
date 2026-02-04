@@ -94,10 +94,10 @@ def quadratic_inputs():
 def test_ot_quadratic_coupling_basic(quadratic_inputs, method):
     src_xx, tgt_yy, src_xy, tgt_xy = quadratic_inputs
     src_idx, tgt_idx = ot_quadratic_coupling(
-        src_xx_cell_coupling=src_xx,
-        tgt_yy_cell_coupling=tgt_yy,
-        src_xy_cell_coupling=src_xy,
-        tgt_xy_cell_coupling=tgt_xy,
+        source_quad=src_xx,
+        target_quad=tgt_yy,
+        source_lin=src_xy,
+        target_lin=tgt_xy,
         method=method,
     )
 
@@ -114,8 +114,8 @@ def test_ot_quadratic_coupling_basic(quadratic_inputs, method):
 def test_ot_quadratic_coupling_without_xy_couplings(quadratic_inputs):
     src_xx, tgt_yy, *_ = quadratic_inputs
     src_idx, tgt_idx = ot_quadratic_coupling(
-        src_xx_cell_coupling=src_xx,
-        tgt_yy_cell_coupling=tgt_yy,
+        source_quad=src_xx,
+        target_quad=tgt_yy,
         method="entropic_gromov_wasserstein",
     )
 
@@ -129,4 +129,4 @@ def test_ot_quadratic_coupling_without_xy_couplings(quadratic_inputs):
 def test_ot_quadratic_coupling_invalid_method_raises(quadratic_inputs):
     src_xx, tgt_yy, *_ = quadratic_inputs
     with pytest.raises(ValueError):
-        ot_quadratic_coupling(src_xx_cell_coupling=src_xx, tgt_yy_cell_coupling=tgt_yy, method="invalid_method")
+        ot_quadratic_coupling(source_quad=src_xx, target_quad=tgt_yy, method="invalid_method")

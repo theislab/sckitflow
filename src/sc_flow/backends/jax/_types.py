@@ -20,7 +20,6 @@ TTimeFeaturesFn = Callable[[ArrayLike, int], ArrayLike]
 TMeanFn = Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]
 TDriftFn = Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], ArrayLike]
 TSigmaFn = Callable[[ArrayLike], ArrayLike]
-CostFn = Callable[[ArrayLike, ArrayLike], ArrayLike]
 ScaleMethod = Literal["mean", "max", "median"] | float
 LinCouplingMethod = Literal["exact", "sinkhorn", "partial", "unbalanced"]
 QuadCouplingMethod = Literal["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"]

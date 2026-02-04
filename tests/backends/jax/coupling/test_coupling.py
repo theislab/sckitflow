@@ -107,8 +107,8 @@ def test_ot_quadratic_coupling_basic():
     yy = np.random.rand(6, 6)
 
     src_idx, tgt_idx = ot_quadratic_coupling(
-        src_xx_cell_coupling=xx,
-        tgt_yy_cell_coupling=yy,
+        source_quad=xx,
+        target_quad=yy,
     )
 
     assert len(src_idx) == len(tgt_idx) == xx.shape[0]
@@ -148,8 +148,8 @@ def test_ot_quadratic_coupling_fused_terms():
     src_idx, tgt_idx = ot_quadratic_coupling(
         xx,
         yy,
-        src_xy_cell_coupling=xy,
-        tgt_xy_cell_coupling=yx,
+        source_lin=xy,
+        target_lin=yx,
         method="entropic_fused_gromov_wasserstein",
     )
 

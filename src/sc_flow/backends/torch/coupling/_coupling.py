@@ -22,7 +22,7 @@ def to_torch_tensor(x: TensorLike | NumpyArray) -> torch.Tensor:
     """Convert a NumPy array to a JAX array if needed."""
     if isinstance(x, np.ndarray):
         return torch.from_numpy(x)
-    if not isinstance(x, TensorLike):
+    if x is not None and not isinstance(x, TensorLike):
         msg = f"Invalid type found {type(x)}"
         raise TypeError(msg)
     return x
@@ -313,6 +313,8 @@ def ot_quadratic_coupling(
     source_quad: TensorLike,
     target_quad: TensorLike,
     return_matrix: Literal[False],
+    source_lin: TensorLike | None = ...,
+    target_lin: TensorLike | None = ...,
     cost_fn: CostFN | None = ...,
     scale_cost: ScaleMethod = ...,
     method: QuadCouplingMethod = ...,
@@ -325,6 +327,8 @@ def ot_quadratic_coupling(
     source_quad: TensorLike,
     target_quad: TensorLike,
     return_matrix: Literal[True],
+    source_lin: TensorLike | None = ...,
+    target_lin: TensorLike | None = ...,
     cost_fn: CostFN | None = ...,
     scale_cost: ScaleMethod = ...,
     method: QuadCouplingMethod = ...,
@@ -336,6 +340,8 @@ def ot_quadratic_coupling(
     source_quad: TensorLike,
     target_quad: TensorLike,
     return_matrix: bool = False,
+    source_lin: TensorLike | None = None,
+    target_lin: TensorLike | None = None,
     cost_fn: CostFN | None = None,
     scale_cost: ScaleMethod = 1.0,
     method: QuadCouplingMethod = None,
@@ -352,6 +358,17 @@ def ot_quadratic_coupling(
         distribution (target-target structure).
     :type target_quad: class:`TensorLike`
 
+    :param return_matrix: If ``True``, also return the quadratic optimal transport coupling matrix.
+    :type return_matrix: bool
+
+    :param source_lin: Optional source cross-domain features used
+    for fused Gromov-Wasserstein.
+    :type source_lin: class:`TensorLike`
+
+    :param target_lin: Optional target cross-domain features used
+    for fused Gromov-Wasserstein.
+    :type target_lin: class:`TensorLike`
+
     :param cost_fn: A callable used to compute pairwise cost matrices. If ``None``, the squared
         Euclidean distance is used.
     :type cost_fn: class:`CostFN`, optional
@@ -366,18 +383,7 @@ def ot_quadratic_coupling(
         ``"entropic_fused_gromov_wasserstein"``.
     :type method: class:`QuadCouplingMethod`, optional
 
-    :param return_matrix: If ``True``, also return the quadratic optimal transport coupling matrix.
-    :type return_matrix: bool
-
-    :param kwargs: Additional keyword arguments forwarded to the solver. In case of coupling with quadratic terms, please pass
-        - :param source_lin: Optional source cross-domain features used
-        for fused Gromov-Wasserstein.
-        :type source_lin: class:`TensorLike`
-
-        - :param target_lin: Optional target cross-domain features used
-        for fused Gromov-Wasserstein.
-        :type target_lin: class:`TensorLike`
-    as :param kwargs items
+    :param kwargs: Additional keyword arguments forwarded to the solver.
     :type kwargs: dict
 
     Returns
@@ -396,11 +402,10 @@ def ot_quadratic_coupling(
     source_quad = to_torch_tensor(source_quad)
     target_quad = to_torch_tensor(target_quad)
 
-    if ("source_lin" in kwargs) and ("target_lin" in kwargs):
-        source_lin = kwargs.get("source_lin")
-        target_lin = kwargs.get("target_lin")
-        source_lin = to_torch_tensor(source_lin)
-        target_lin = to_torch_tensor(target_lin)
+    source_lin = to_torch_tensor(source_lin)
+    target_lin = to_torch_tensor(target_lin)
+
+    if source_lin is not None and target_lin is not None:
         distance_matrix_lin = cost_fn(source_lin, target_lin)
         distance_matrix_lin = scale_distance_matrix(distance_matrix=distance_matrix_lin, scale_method=scale_cost)
     else:
@@ -434,8 +439,8 @@ def ot_quadratic_coupling(
     else:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
         raise ValueError(msg)
-
-    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source_quad.shape[0])
+    print(type(coupling_matrix))
+    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix.numpy(), size=source_quad.shape[0])
     if return_matrix:
-        return source_idxs, target_idxs, coupling_matrix
+        return source_idxs, target_idxs, coupling_matrix.numpy()
     return source_idxs, target_idxs

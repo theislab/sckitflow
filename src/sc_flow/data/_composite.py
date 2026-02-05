@@ -155,10 +155,15 @@ class NestedData(MappedTree):
             distribution will be considered.
         :type source_key: class: `tuple[Any] | None`
         """
+        # precompute integer indices for all groups at once (O(n) total)
+        # instead of calling get_indexer for each group (O(n * num_groups))
+        ref_to_pos = pd.Series(range(len(reference_index)), index=reference_index)
+
         # split source distribution apart
         if source_key is not None:
-            source_idxs = mapped_index.mapping[source_key]
-            source_distribution = data.slice_with_index(reference_index, source_idxs)
+            source_query_idx = mapped_index.mapping[source_key]
+            source_int_idxs = ref_to_pos.loc[source_query_idx].values
+            source_distribution = data[source_int_idxs]
             rest_idxs = {k: v for k, v in mapped_index.mapping.items() if k != source_key}
         else:
             source_distribution = None
@@ -173,14 +178,17 @@ class NestedData(MappedTree):
 
         # construct data dictionary
         data_dict = {}
-        for key, value in rest_idxs.items():
+        for key, query_idx in rest_idxs.items():
             # update progress bar
             if pbar is not None:
                 pbar.update()
 
+            # get integer positions via precomputed mapping
+            int_idxs = ref_to_pos.loc[query_idx].values
+
             # update dictionary
             data_dict[key] = MatchedData(
-                data.slice_with_index(reference_index, value), source_distribution=source_distribution
+                data[int_idxs], source_distribution=source_distribution
             )
         return cls(data_dict)
 

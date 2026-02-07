@@ -3,9 +3,8 @@ from collections.abc import Collection
 import pandas as pd
 from anndata import AnnData
 
-from sc_flow._types import MappedArray
 from sc_flow._utils import check_sequence_query_against_reference
-from sc_flow.data._mixins import BatchMixin
+from sc_flow.data._mixins import BatchMixin, MappedArray
 from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.schemas._base_schema import StrictDataSchema
@@ -63,7 +62,7 @@ class ConditionDataSchema(StrictDataSchema):
                 - KO B
 
             Note that, while the choice of the name of the keys to pass as :param: `conditions` and :param: `conditions_reps`
-            is arbitrary (as long as the two dictionary share the same set of keys), the values of both arguments need
+            is arbitrary (as long as the two dictionaries share the same set of keys), the values of both arguments need
             to appear in the input `AnnData`.
 
             In particular, the values of :param:`conditions`, should be given by sequences of string identifier
@@ -304,10 +303,16 @@ class ConditionDataSchema(StrictDataSchema):
 
     @property
     def has_categorical_covariates(self) -> bool:
-        """"""  # noqa
+        """Whether the condition schema includes categorical covariates.
+
+        This will be `True` whenever :param: `conditions` is set at initializtion
+        """
         return len(self._conditions) > 0
 
     @property
     def has_continuous_covariates(self) -> bool:
-        """"""  # noqa
+        """Whether the condition schema includes categorical covariates.
+
+        This will be `True` whenever :param: `conditions_covariates` is set at initializtion
+        """
         return len(self._conditions_covariates) > 0

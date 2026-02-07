@@ -4,22 +4,22 @@ import pytest
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
-from sc_flow.data._structures import MixedTypeData
-from sc_flow.data.schemas import TargetDataSchema
+from sc_flow.data.containers import MixedTypeData
+from sc_flow.data.schemas import ResponseDataSchema
 
 from ..shared import verify_categorical_data, verify_mixin  # noqa
 
 inval_key: str = "invalid_key"
 
 
-class TestTargetDataSchema:
+class TestResponseDataSchema:
     @pytest.mark.parametrize(
         "categorical_covs_dict",
         [
             None,
             {"target": "one-hot"},
             {"target": "label"},
-            {"target": "identity"},
+            {"target": "functional"},
             {"target": inval_key},
         ],
     )
@@ -32,9 +32,9 @@ class TestTargetDataSchema:
             with pytest.raises(
                 ValueError, match=r"Encoder identifier .* for target covariate encoding is not supported"
             ):
-                _schema = TargetDataSchema(categorical_covs_dict=categorical_covs_dict)
+                _schema = ResponseDataSchema(categorical_covs_dict=categorical_covs_dict)
             return None
-        _schema = TargetDataSchema(categorical_covs_dict=categorical_covs_dict)
+        _schema = ResponseDataSchema(categorical_covs_dict=categorical_covs_dict)
 
     @pytest.mark.parametrize(
         "categorical_covs_dict",
@@ -42,8 +42,8 @@ class TestTargetDataSchema:
             None,
             {"target": "one-hot"},
             {"target": "label"},
-            {"target": "identity"},
-            {inval_key: "identity"},
+            {"target": "functional"},
+            {inval_key: "functional"},
         ],
     )
     @pytest.mark.parametrize("continuous_covs", [None, ["target_variable"], [inval_key]])
@@ -56,7 +56,7 @@ class TestTargetDataSchema:
         continuous_covs: Collection[str] | None,
     ) -> None:
         """"""
-        schema = TargetDataSchema(categorical_covs_dict=categorical_covs_dict, continuous_covs=continuous_covs)
+        schema = ResponseDataSchema(categorical_covs_dict=categorical_covs_dict, continuous_covs=continuous_covs)
         if (categorical_covs_dict is not None and inval_key in categorical_covs_dict) or (
             continuous_covs is not None and inval_key in continuous_covs
         ):
@@ -64,18 +64,22 @@ class TestTargetDataSchema:
                 data = schema.get_data(adata)
             return None
         data = schema.get_data(adata)
-        assert isinstance(data, MixedTypeData)
-        # categorical targets
+        if categorical_covs_dict is None and continuous_covs is None:
+            assert data is None
+            return
+        else:
+            assert isinstance(data, MixedTypeData)
+
         if categorical_covs_dict is not None:
             expected_df_cols = list(categorical_covs_dict.keys())
+            verify_categorical_data(
+                data.categorical_covariates,
+                expected_df_cols,
+                uns_keys_to_nunique_prefix_and_dim,
+                groups_encoding=categorical_covs_dict,
+            )
         else:
-            expected_df_cols = []
-        verify_categorical_data(
-            data.categorical_covariates,
-            expected_df_cols,
-            uns_keys_to_nunique_prefix_and_dim,
-            groups_encoding=categorical_covs_dict,
-        )
+            assert data.categorical_covariates is None
 
         # test continuous covariates
         N = len(adata)

@@ -1,6 +1,6 @@
 import abc
-from dataclasses import dataclass
-from typing import Literal, overload
+from dataclasses import asdict, dataclass
+from typing import Any, Literal, TypeVar, overload
 
 import numpy as np
 import pandas as pd
@@ -8,18 +8,35 @@ import pandas as pd
 __all__ = ["BaseData"]
 
 
+TContainer = TypeVar("TContainer", bound="BaseData")
+
+
 @dataclass(frozen=True)
 class BaseData(abc.ABC):
-    """Base class for data containers."""
+    """Base class for data containers.
+
+    This is an abstract class and should not be instantiated.
+    Derived classes must override the `__len__` and `__getitem__`
+    methods.
+    """
 
     @abc.abstractmethod
     def __len__(self) -> int:
-        """"""  # noqa
+        """Returns the length of the data container (i.e.: number of observations).
+
+        Must be overridden by derived classes.
+        """
         raise NotImplementedError
 
     @abc.abstractmethod
     def __getitem__(self, idx: np.ndarray | slice) -> "BaseData":
-        """"""  # noqa
+        """Slices the underlying data.
+
+        Must be overridden by derived classes.
+
+        :param idx: The index or slice used to retrieve the elements.
+        :type idx: class: `np.ndarray | slice`
+        """
         raise NotImplementedError
 
     @staticmethod
@@ -28,6 +45,8 @@ class BaseData(abc.ABC):
         query_index: pd.MultiIndex,
     ) -> np.ndarray:
         """Retrieves the corresponding indices from a given query and a reference index.
+
+        Both query and reference indices must be unique, otherwise a :class: `ValueError` is thrown.
 
         :param reference_index: The reference index.
         :type reference_index: class: `pd.MultiIndex`
@@ -43,11 +62,15 @@ class BaseData(abc.ABC):
             raise ValueError(msg)
         return reference_index.get_indexer(query_index)
 
-    def _assert_same_n_obs(
+    def assert_same_len(
         self,
-        other: "BaseData",
+        other: TContainer,
     ) -> None:
-        """Checks that the current object shares the same number of observations as another."""
+        """Checks that the current object shares the same number of observations as another.
+
+        :param other: The other data container which the length should be shared with.
+        :type other: class: `TContainer`
+        """
         n_obs_ref = len(self)
         n_obs_query = len(other)
         if n_obs_ref != n_obs_query:
@@ -94,3 +117,7 @@ class BaseData(abc.ABC):
         if return_index:
             return query_data, idxs
         return query_data
+
+    def to_dict(self) -> dict[str, Any]:
+        """"""  # noqa
+        return asdict(self)

@@ -7,18 +7,23 @@ __all__ = ["StateDataSchema"]
 
 
 class StateDataSchema(StrictDataSchema):
-    """"""  # noqa
+    """Data Schema Implementing the logic for state data."""
 
     def __init__(
         self,
         sample_rep: str | None = None,
     ) -> None:
-        """"""  # noqa
+        """Initializes the state data schema
+
+        :param sample_rep: The representation to extract. When provided, it should appear as
+            key in `.obsm`, otherwise the `.X` attribute will be used. Defaults to `None`.
+        :type sample_rep: `str | None`
+        """
         self._sample_rep = sample_rep
         super().__init__()
 
     def _verify_args(self) -> None:
-        """"""  # noqa
+        """No-op needed for compatibility with parent class."""
         pass
 
     def _verify_schema(
@@ -38,11 +43,15 @@ class StateDataSchema(StrictDataSchema):
         self,
         adata: AnnData,
     ) -> StateData:
-        """"""  # noqa
+        """Enforces the schema on the input :class: `AnnData`.
+
+        :param adata: The input data.
+        :type adata: class: `AnnData`
+        """
         X = self._extract_array(adata, self._sample_rep)
         return StateData(X)
 
     @property
     def sample_rep(self) -> str:
-        """"""  # noqa
+        """Exposes to `sample_rep` parameter set at initialization."""
         return self._sample_rep

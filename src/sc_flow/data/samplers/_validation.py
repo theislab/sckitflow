@@ -1,30 +1,30 @@
 from collections.abc import Iterable, Iterator
 
-import numpy as np
-
 from sc_flow._constants import DEFAULT_MAX_N_OBS, DEFAULT_N_GROUPS
-from sc_flow.data.samplers._base import BatchDType, FSampler, NodeDType, Sampler, TreeDType
+from sc_flow.data._abc import DataT, DataTreeT, MatchedDistributionsT
+from sc_flow.data.samplers._base import FSampler, Sampler
 
 __all__ = ["ValidationSampler", "FValidationSampler"]
 
 
-class ValidationSampler(Sampler, Iterable):
+class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
     """Abstract class for validation samplers."""
 
     def __init__(
         self,
-        tree: TreeDType,
+        tree: DataTreeT,
         *args,
         max_n_obs: int = DEFAULT_MAX_N_OBS,
         n_nodes: int = DEFAULT_N_GROUPS,
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
+        **kwargs,
     ) -> None:
         """Initializes the training sampler.
 
         :param tree: Tree storing the split and matched subpopulations.
-        :type tree: class: `TreeDType`
+        :type tree: class: `DataTreeT`
 
         :param max_n_obs: The maximum number of observations to sample for each node in a batch.
             Defaults to :constant sc_flow._constants.DEFAULT_BATCH_SIZE:.
@@ -59,17 +59,17 @@ class ValidationSampler(Sampler, Iterable):
         self._n_nodes = n_nodes
         self._data = self._register_data()
 
-    def _register_data(self) -> np.ndarray[BatchDType]:
+    def _register_data(self) -> tuple[DataT]:
         """Pre-registres the samples for validation."""
         return self._sample(self._n_nodes, self._max_n_obs)
 
     def __len__(self) -> int:
         return len(self._data)
 
-    def __getitem__(self, idx: slice) -> np.ndarray[BatchDType]:
+    def __getitem__(self, idx: slice) -> tuple[DataT]:
         return self._data[idx]
 
-    def __iter__(self) -> Iterator[BatchDType]:
+    def __iter__(self) -> Iterator[DataT]:
         yield from self._data
 
     @property
@@ -83,8 +83,8 @@ class ValidationSampler(Sampler, Iterable):
         return self._n_nodes
 
     @property
-    def data(self) -> np.ndarray[NodeDType]:
-        """"""  # noqa
+    def data(self) -> tuple[MatchedDistributionsT]:
+        """Returns the sequence of pre-registered samples."""
         return self._data
 
 

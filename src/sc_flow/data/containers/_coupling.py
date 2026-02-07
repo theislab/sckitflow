@@ -25,7 +25,7 @@ class CouplingData(BaseData):
 
     def __post_init__(self):
         if self.state_quad is not None:
-            self.state_lin._assert_same_n_obs(self.state_quad)
+            self.state_lin.assert_same_len(self.state_quad)
 
     def __repr__(self) -> str:
         parts = [f"n_obs={len(self)}"]
@@ -81,6 +81,9 @@ class CouplingData(BaseData):
     ) -> "CouplingData":
         """Initializes the coupling data from base state data and number of shared dimensions.
 
+        The dimensions are assumed to be ordered and the quadratic part will be taken from
+        the last :param: `n_shared_dims`, when provided.
+
         :param state_data: The underlying state data.
         :type state_data: class: `StateData`
 
@@ -89,10 +92,10 @@ class CouplingData(BaseData):
         """
         n_dims = state_data.X.shape[1]
         if n_shared_dims is not None:
-            if n_shared_dims >= n_dims:
+            if n_shared_dims >= n_dims or n_shared_dims == 0:
                 msg = (
-                    "The number of shared spatial dimensions should "
-                    "be strictly smaller the the number of available dimenions. "
+                    "The number of shared spatial dimensions should be positive and"
+                    " strictly smaller the the number of available dimenions. "
                     f"Queried {n_shared_dims} on state data of shape {state_data.X.shape}"
                 )
                 raise ValueError(msg)

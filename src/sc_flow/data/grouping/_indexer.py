@@ -11,24 +11,16 @@ __all__ = ["HierarchicalIndexer"]
 class HierarchicalIndexer:
     """Class for hierarchical indexing of dataframes in subpopulations
 
+    Indexing is done hierarchically along a stack of levels.
+    This means that two levels cannot be at the same hierarchy.
+    Two hierarchy levels are always assumed, namely the group/context level
+    and the condition/perturbation level. It is possible to stack an arbitrary
+    number of levels.
+
     As each level is defined by a set of columns, the corresponding index
     will be represented as a tuple containing the respective values for
     each of the columns. When only one column is provided, it still
     creates a single element tuple for consistency.
-
-    :param groups_cols: Collection of string identifiers for the
-        columns used to define the base groups. When no columns
-        are provided (i.e.: :param: `groups_cols` is `None`),
-        it creates a dummy placeholder for the base groups.
-        Defaults to `None`.
-    :type groups_cols: class: `Collection[str] | None`
-
-    :param conditions_cols: Collection of string identifiers for the
-        columns used to define the base groups. When no columns
-        are provided (i.e.: :param: `conditions_cols` is `None`),
-        it creates a dummy placeholder for the conditions groups.
-        Defaults to `None`.
-    :type conditions_cols: class: `Collection[str] | None`
     """
 
     def __init__(
@@ -36,7 +28,24 @@ class HierarchicalIndexer:
         groups_cols: Collection[str] | None = None,
         conditions_cols: Collection[str] | None = None,
     ) -> None:
-        """"""  # noqa
+        """Initializes the hierarchical indexer.
+
+        :param groups_cols: Collection of string identifiers for the
+            columns used to define the base groups. When no columns
+            are provided (i.e.: :param: `groups_cols` is `None`),
+            it creates a dummy placeholder for the base groups.
+            When provided, they will be sorted in lexycological order
+            to ensure consistency. Defaults to `None`.
+        :type groups_cols: class: `Collection[str] | None`
+
+        :param conditions_cols: Collection of string identifiers for the
+            columns used to define the base groups. When no columns
+            are provided (i.e.: :param: `conditions_cols` is `None`),
+            it creates a dummy placeholder for the conditions groups.
+            When provided, they will be sorted in lexycological order
+            to ensure consistency. Defaults to `None`.
+        :type conditions_cols: class: `Collection[str] | None`
+        """
         self._groups_cols = [] if groups_cols is None else groups_cols
         self._conditions_cols = [] if conditions_cols is None else conditions_cols
 
@@ -53,7 +62,11 @@ class HierarchicalIndexer:
         self._hierarchy_levels: list[str] = [GROUP_LEVEL_NAME, CONDITION_LEVEL_NAME]
 
     def create_index(self, df: pd.DataFrame) -> pd.MultiIndex:
-        """Creates a hierarchical index from the input dataframe."""
+        """Creates a hierarchical index from the input dataframe.
+
+        :param df: The input data frame on which to construct the hierarchical indexing.
+        :type df: class: `pd.DataFrame`
+        """
         level_frames = {}
         level_frames[BASE_LEVEL_NAME] = df.index
 
@@ -106,17 +119,17 @@ class HierarchicalIndexer:
 
     @property
     def groups_cols(self) -> Collection[str]:
-        """"""  # noqa
+        """Returns the columns used for the group/context level."""
         return self._groups_cols
 
     @property
     def conditions_cols(self) -> Collection[str]:
-        """"""  # noqa
+        """Returns the columns used for the group/context level."""
         return self._conditions_cols
 
     @property
     def hierarchy_levels(self) -> list[str]:
-        """"""  # noqa
+        """Returns the stack of levels in hierarchical order."""
         return self._hierarchy_levels
 
     @property

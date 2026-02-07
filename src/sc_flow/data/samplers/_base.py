@@ -1,39 +1,36 @@
 import abc
 from collections.abc import Callable
-from functools import cached_property
-from typing import Generic, TypeVar
+from functools import cached_property, partial
+from typing import Generic
 
 import numpy as np
 
 from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
-from sc_flow.data._composite import DistributionDType, MatchedData, NestedData
+from sc_flow.data._abc import DataT, DataTreeT, DistributionT, MatchedDistributionsT
 
-__all__ = ["TreeDType", "NodeDType", "BatchDType", "Sampler", "FSampler"]
-
-
-TreeDType = TypeVar("CollectionDType", bound=NestedData)
-NodeDType = TypeVar("NodeDType", bound=MatchedData)
-BatchDType = TypeVar("BatchDType")
+__all__ = ["Sampler", "FSampler"]
 
 
-class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
+class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
     """Abstract base class for sampler objects on trees.
 
-    Subclasses need to override the :method _dispatch_sample: method.
+    Subclasses need to override the :method _dispatch_node: method.
     """
 
     def __init__(
         self,
-        tree: TreeDType,
+        tree: DataTreeT,
         *args,
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
+        inverse_frequency_weights: bool = True,
+        **kwargs,
     ) -> None:
         """Initializes the sampler.
 
         :param tree: Tree storing the split and matched subpopulations.
-        :type tree: class: `TreeDType`
+        :type tree: class: `DataTreeT`
 
         :param replace_samples: Whether to sample observations with replacement
             from each node. Defaults to `False`.
@@ -48,24 +45,40 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
             In order to compute the relative frequency of a node of matched distributions,
             only the target one is considered. Defaults to `True`.
         :type use_nodes_weights: class: `bool`
+
+        :param inverse_frequency_weights: Whether to sample nodes according to their inverse
+            frequency. Only used when :param: `use_node_weights` is `True`. Defaults to `True`.
+        :type inverse_frequency_weights: class: `bool`
         """
         self._tree = tree
         self._replace_samples = replace_samples
         self._replace_nodes = replace_nodes
         self._use_nodes_weights = use_nodes_weights
+        self._inverse_frequency_weights = inverse_frequency_weights
 
     @abc.abstractmethod
-    def _preprocess_sample(self, group: NodeDType) -> BatchDType:
-        """Processes all the batches before sampling"""
+    def _dispatch_node(self, node: MatchedDistributionsT) -> DataT:
+        """Method used to dispatch a batch of samples from a node.
 
-    @abc.abstractmethod
-    def _dispatch_sample(self, group: NodeDType) -> BatchDType:
-        """Processes the batch before returning it."""
+        Must be overridden by derived classes.
+
+        :param node: The input node to dispatch.
+        :type node: class: `MatchedDistributionsT`
+        """
+
+    def _compute_nodes_freq(self) -> np.ndarray:
+        """Returns the array of relative frequencies of each node.
+
+        The relative frequency is computed by taking into account the number of observations
+        in the target distribution.
+        """
+        counts = np.array([len(e.target) for e in self.flattened_data])
+        return counts / counts.sum()
 
     def _sample_nodes(
         self,
         n_nodes: int,
-    ) -> np.ndarray[NodeDType]:
+    ) -> np.ndarray[MatchedDistributionsT]:
         """Samples an array of leaf nodes from the tree.
 
         :param n_nodes: The number of nodes to sample.
@@ -74,7 +87,7 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         return np.random.choice(
             self.flattened_data,
             n_nodes,
-            p=self.groups_p if self._use_nodes_weights else None,
+            p=self.nodes_p if self._use_nodes_weights else None,
             replace=self._replace_nodes,
         )
 
@@ -91,31 +104,52 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         if self._replace_samples:
             return np.random.randint(0, n_obs, batch_size)
         else:
+            if batch_size > n_obs:
+                msg = "Cannot take a larger sample than population."
+                raise ValueError(msg)
             return np.random.permutation(n_obs)[:batch_size]
 
-    def _sample_from_distr(self, distr: DistributionDType, batch_size: int = DEFAULT_BATCH_SIZE) -> DistributionDType:
+    def _sample_from_distr(self, distr: DistributionT, batch_size: int = DEFAULT_BATCH_SIZE) -> DistributionT:
+        """Samples a batch of observations from a distribution object.
+
+        :param distr: The distribution object to sample from.
+        :type distr: class: `DistributionDType`
+
+        :param batch_size: The number of observations to be sampled in the batch.
+            Defaults to :constant: `sc_flow.constants.DEFAULT_BATCH_SIZE`.
+        :type batch_size: class: `int`
+        """
         mask = self._sample_indices(len(distr), batch_size)
         return distr[mask]
 
     def _sample_observations(
         self,
-        group: NodeDType,
+        node: MatchedDistributionsT,
         batch_size: int = DEFAULT_BATCH_SIZE,
-    ) -> BatchDType:
-        """Samples a batch of observations from a node of matched distributions."""
-        target_distr = self._sample_from_distr(group.target, batch_size)
-        if group.source is not None:
-            source_distr = self._sample_from_distr(group.source, batch_size)
+    ) -> DataT:
+        """Samples a batch of observations from a node of matched distributions.
+
+        :param node: The node object to sample from.
+        :type node: class: `DistributionDType`
+
+        :param batch_size: The number of observations to be sampled in the batch.
+            It will be the same for both source and target distributions.
+            Defaults to :constant: `sc_flow.constants.DEFAULT_BATCH_SIZE`.
+        :type batch_size: class: `int`
+        """
+        target_distr = self._sample_from_distr(node.target, batch_size)
+        if node.source is not None:
+            source_distr = self._sample_from_distr(node.source, batch_size)
         else:
             source_distr = None
-        batch_data = group.__class__(target_distr, source_distribution=source_distr)
-        return self._dispatch_sample(batch_data)
+        batch_data = node.__class__(target_distr, source_distribution=source_distr)
+        return self._dispatch_node(batch_data)
 
     def _sample(
         self,
         n_nodes: int = DEFAULT_N_GROUPS,
         batch_size: int = DEFAULT_BATCH_SIZE,
-    ) -> np.ndarray[BatchDType]:
+    ) -> tuple[DataT]:
         """Samples a batch of data from the tree.
 
         Sampling is done hierarchically, whereby a sed of nodes is sampled first
@@ -127,11 +161,12 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         :param batch_size: The number of observations to load in the batch.
         :type batch_size: class: `int`
         """
-        groups = self._sample_nodes(n_nodes)
-        return np.array([self._sample_observations(group, batch_size) for group in groups])
+        nodes = self._sample_nodes(n_nodes)
+        sample_fn = partial(self._sample_observations, batch_size=batch_size)
+        return tuple(map(sample_fn, nodes))
 
     @property
-    def tree(self) -> TreeDType:
+    def tree(self) -> DataTreeT:
         """Returns the underlying data tree."""
         return self._tree
 
@@ -151,40 +186,54 @@ class Sampler(Generic[NodeDType, BatchDType], abc.ABC):
         return self._use_nodes_weights
 
     @cached_property
-    def flattened_data(self) -> np.ndarray[NodeDType]:
-        """Caches the flattened array of leaf nodes of the data tree."""
-        return np.array([self._preprocess_sample(node) for node in self._tree.flatten()])
+    def flattened_data(self) -> tuple[MatchedDistributionsT]:
+        """Caches the flattened array of leaf nodes of the data tree.
+
+        The transformation defined in :method: `self._preprocess_node` is applied upon caching.
+        """
+        return self._tree.flatten()
 
     @cached_property
-    def groups_p(self) -> np.ndarray:
-        """Returns the array of relative frequencies of each node.
+    def nodes_p(self) -> np.ndarray:
+        """Computes the nodes probabilities for sampling.
 
-        The relative frequency is computed by taking into account the number of observations
-        in the target distribution.
+        When :attr: `inverse_frequence_weights` is `False`, the probabilities will be simply given by the
+        frequency. Otherwise, normalized inverse frequency is used.
         """
-        counts = np.array([len(e.target) for e in self.flattened_data])
-        return counts / counts.sum()
+        nodes_freq = self._compute_nodes_freq()
+        if self._inverse_frequency_weights:
+            nodes_inv_freq = 1 / nodes_freq
+            return nodes_inv_freq / nodes_inv_freq.sum()
+        return nodes_freq
+
+    @property
+    def inverse_frequency_weights(self) -> bool:
+        """Exposes to :param: `inverse_frequency_weights` set at initialization."""
+        return self._inverse_frequency_weights
 
 
-class FSampler(Sampler[MatchedData, BatchDType]):
+class FSampler(Sampler[MatchedDistributionsT, DataT]):
     """Concrete class using an input callable to process the batch."""
 
     def __init__(
         self,
-        data: TreeDType,
-        dispatch_f: Callable[[BatchDType], BatchDType],
-        preprocess_f: Callable[[NodeDType], NodeDType] | None = None,
+        data: DataTreeT,
+        dispatch_fn: Callable[[DataT], DataT],
+        *args,
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
+        **kwargs,
     ) -> None:
         """Initializes the sampler.
 
         :param tree: Tree storing the split and matched subpopulations.
-        :type tree: class: `TreeDType`
+        :type tree: class: `DataTreeT`
 
-        :param f: The function used to post-process the batch of matched data.
-        :type f: class: `Callable[[NodeDType], NodeDType]`
+        :param dispatch_fn: The function used to post-process the batch of matched data
+            before being dispatched. It will be used to override the corresponding
+            method of the abstract class by wrapping it around this callable.
+        :type dispatch_fn: class: `Callable[[MatchedDistributionsT], MatchedDistributionsT]`
 
         :param replace_samples: Whether to sample observations with replacement
             from each node. Defaults to `False`.
@@ -200,26 +249,23 @@ class FSampler(Sampler[MatchedData, BatchDType]):
             only the target one is considered. Defaults to `True`.
         :type use_nodes_weights: class: `bool`
         """
+        self._dispatch_fn = dispatch_fn
+
         super().__init__(
             data, replace_samples=replace_samples, replace_nodes=replace_nodes, use_nodes_weights=use_nodes_weights
         )
-        self._preprocess_f = preprocess_f if preprocess_f is not None else lambda x: x
-        self._dispatch_f = dispatch_f
 
-    def _preprocess_sample(self, group: NodeDType) -> NodeDType:
-        """Processes all the nodes before sampling from them."""
-        return self._preprocess_f(group)
+    def _dispatch_node(self, node: MatchedDistributionsT) -> DataT:
+        """Method used to dispatch a batch of samples from a node.
 
-    def _dispatch_sample(self, group: NodeDType) -> BatchDType:
-        """Processes the batch before returning it."""
-        return self._dispatch_f(group)
+        The dispatch function set at initialization with :param: `dispatch_fn` will be used.
 
-    @property
-    def preprocess_f(self) -> Callable[[NodeDType], BatchDType]:
-        """Exposes the :param f: attribute set at initialization."""
-        return self._preprocess_f
+        :param node: The input node to dispatch.
+        :type node: class: `MatchedDistributionsT`
+        """
+        return self._dispatch_fn(node)
 
     @property
-    def dispatch_f(self) -> Callable[[NodeDType], BatchDType]:
+    def dispatch_fn(self) -> Callable[[MatchedDistributionsT], DataT]:
         """Exposes the :param f: attribute set at initialization."""
-        return self._dispatch_f
+        return self._dispatch_fn

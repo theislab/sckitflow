@@ -9,7 +9,6 @@ BACKEND = DEFAULT_BACKEND
 TORCH_IMPORT_FAILED = False
 JAX_IMPORT_FAILED = False
 TQDM_IMPORT_FAILED = False
-NUMBA_IMPORT_FAILED = False
 
 
 def set_backend(backend: BackendId) -> None:
@@ -34,11 +33,6 @@ def set_tqdm_import_failed(failed: bool) -> None:
     TQDM_IMPORT_FAILED = failed
 
 
-def set_numba_import_failed(failed: bool) -> None:
-    global NUMBA_IMPORT_FAILED
-    NUMBA_IMPORT_FAILED = failed
-
-
 def raise_runtime_error_on_backend_not_supported(backend: str) -> None:
     msg = f'{backend} not supported, possible choices are `["torch", "jax"]`'
     raise RuntimeError(msg)
@@ -61,12 +55,3 @@ def attempt_tqdm_import() -> ModuleType | None:
         set_tqdm_import_failed(True)
         tqdm = None
     return tqdm
-
-
-def attempt_numba_import() -> ModuleType | None:
-    try:
-        import numba as nb
-    except ImportError:
-        set_numba_import_failed(True)
-        nb = None
-    return nb

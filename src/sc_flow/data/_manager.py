@@ -18,8 +18,8 @@ from sc_flow.data.schemas import (
     ConditionDataSchema,
     CouplingDataSchema,
     GroupsDataSchema,
+    ResponseDataSchema,
     StateDataSchema,
-    TargetDataSchema,
 )
 
 __all__ = ["DataManager"]
@@ -106,7 +106,7 @@ class DataManager:
         self._coupling_data_schema: CouplingDataSchema = self._init_coupling_data_schema(
             source_rep=source_rep, target_rep=sample_rep, n_shared_dims=n_shared_dims
         )
-        self._target_data_schema: TargetDataSchema = self._init_target_data_schema(
+        self._target_data_schema: ResponseDataSchema = self._init_target_data_schema(
             categorical_covs_dict=target_categorical_covs_dict,
             continuous_covs=target_continuous_covs,
         )
@@ -134,9 +134,9 @@ class DataManager:
         conditions_covariates: Collection[str] | None = None,
     ) -> ConditionDataSchema:
         return ConditionDataSchema(
-            conditions={} if conditions is None else conditions,
-            conditions_reps={} if conditions_reps is None else conditions_reps,
-            conditions_covariates=[] if conditions_covariates is None else conditions_covariates,
+            conditions=conditions,
+            conditions_reps=conditions_reps,
+            conditions_covariates=conditions_covariates,
         )
 
     def _init_coupling_data_schema(
@@ -148,10 +148,10 @@ class DataManager:
         self,
         categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
         continuous_covs: Collection[str] | None = None,
-    ) -> TargetDataSchema:
-        return TargetDataSchema(
-            categorical_covs_dict={} if categorical_covs_dict is None else categorical_covs_dict,
-            continuous_covs=[] if continuous_covs is None else continuous_covs,
+    ) -> ResponseDataSchema:
+        return ResponseDataSchema(
+            categorical_covs_dict=categorical_covs_dict,
+            continuous_covs=continuous_covs,
         )
 
     def _init_groups_data_schema(
@@ -161,9 +161,9 @@ class DataManager:
         groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
     ) -> GroupsDataSchema:
         return GroupsDataSchema(
-            groups=[] if groups is None else groups,
-            groups_reps={} if groups_reps is None else groups_reps,
-            groups_encoding={} if groups_encoding is None else groups_encoding,
+            groups=groups,
+            groups_reps=groups_reps,
+            groups_encoding=groups_encoding,
         )
 
     def _init_indexer(
@@ -172,8 +172,8 @@ class DataManager:
         conditions_cols: Collection[str] | None = None,
     ) -> HierarchicalIndexer:
         return HierarchicalIndexer(
-            groups_cols=[] if groups_cols is None else groups_cols,  # TODO: add attributes for base groups
-            conditions_cols=[] if conditions_cols is None else conditions_cols,
+            groups_cols=groups_cols,
+            conditions_cols=conditions_cols,
         )
 
     def _get_state_data(
@@ -185,7 +185,7 @@ class DataManager:
     def _get_condition_data(
         self,
         adata: AnnData,
-    ) -> MixedTypeData:
+    ) -> MixedTypeData | None:
         return self._condition_data_schema.get_data(adata)
 
     def _get_coupling_data(self, adata: AnnData) -> tuple[CouplingData, CouplingData]:
@@ -200,7 +200,7 @@ class DataManager:
     def _get_target_data(
         self,
         adata: AnnData,
-    ) -> MixedTypeData:
+    ) -> MixedTypeData | None:
         return self._target_data_schema.get_data(adata)
 
     def _get_distribution_data(
@@ -209,12 +209,12 @@ class DataManager:
     ) -> DistributionData:
         state_data: StateData = self._get_state_data(adata)
         condition_data: MixedTypeData = self._get_condition_data(adata)
-        target_data: MixedTypeData = self._get_target_data(adata)
+        response_data: MixedTypeData = self._get_target_data(adata)
         groups_data: CategoricalData = self._get_groups_data(adata)
         source_coupling_data, target_coupling_data = self._get_coupling_data(adata)
         return DistributionData(
             state_data,
-            target_data=target_data,
+            response_data=response_data,
             condition_data=condition_data,
             groups_data=groups_data,
             source_coupling_data=source_coupling_data,
@@ -294,7 +294,12 @@ class DataManager:
         return self._coupling_data_schema
 
     @property
-    def target_data_schema(self) -> TargetDataSchema:
+    def groups_data_schema(self) -> GroupsDataSchema:
+        """Exposes the coupling data schema."""
+        return self._groups_data_schema
+
+    @property
+    def target_data_schema(self) -> ResponseDataSchema:
         """Exposes the target data schema."""
         return self._target_data_schema
 

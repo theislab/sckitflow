@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData, concat
 
-from sc_flow._types import MappedArray
+from sc_flow.data._mixins import MappedArray
 
 map_int_to_str = np.vectorize(lambda val, descr: f"{descr}{val}")
 

@@ -34,6 +34,9 @@ class MixedTypeData(BaseData):
                     f"{n_obs_cont} observations for the continuous covariates."
                 )
                 raise ValueError(msg)
+        if self.categorical_covariates is None and self.continuous_covariates is None:
+            msg = f"{self.__class__.__name__} must contain at least one covariate container."
+            raise ValueError(msg)
 
     def __repr__(self) -> str:
         parts = [f"n_obs={len(self)}"]
@@ -61,15 +64,14 @@ class MixedTypeData(BaseData):
 
         if self.continuous_covariates is not None:
             return len(self.continuous_covariates)
-        msg = f"{self.__class__.__name__} must contain at least one covariate container."
-        raise ValueError(msg)
 
     def __getitem__(
         self,
         idxs: np.ndarray | slice,
     ) -> "MixedTypeData":
         def _take(e, idxs=idxs):
-            return e[idxs]
+            e = e[idxs]
+            return e
 
         categorical_covariates = None if self.categorical_covariates is None else self.categorical_covariates[idxs]
         continuous_covariates = None if self.continuous_covariates is None else self.continuous_covariates.apply(_take)

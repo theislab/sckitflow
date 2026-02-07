@@ -1,12 +1,12 @@
 from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from types import MappingProxyType
 
 import numpy as np
 import pandas as pd
 
-from sc_flow._types import MappedArray, TargetCovariatesEncoderCls
+from sc_flow._types import TargetCovariatesEncoderCls
+from sc_flow.data._mixins import MappedArray
 from sc_flow.data.containers._base import BaseData
 
 __all__ = ["CategoricalData"]
@@ -33,10 +33,8 @@ class CategoricalData(BaseData):
     """
 
     ann_df: pd.DataFrame
-    repr_dict: Mapping[str, MappedArray] = dc_field(default_factory=lambda: MappingProxyType({}))
-    categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] = dc_field(
-        default_factory=lambda: MappingProxyType({})
-    )
+    repr_dict: Mapping[str, MappedArray] = dc_field(default_factory=dict)
+    categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] = dc_field(default_factory=dict)
 
     def __repr__(self) -> str:
         n_obs, n_vars = self.ann_df.shape

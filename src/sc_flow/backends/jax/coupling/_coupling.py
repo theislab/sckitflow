@@ -1,7 +1,6 @@
 import logging
 from typing import Literal, overload
 
-import jax.numpy as jnp
 import numpy as np
 from ott.geometry import costs, pointcloud
 from ott.problems.linear import linear_problem
@@ -10,25 +9,15 @@ from ott.solvers.utils import match_quadratic
 
 from sc_flow.backends.jax._types import (
     ArrayLike,
-    JaxArray,
     LinCouplingMethod,
     NumpyArray,
     OTFn,
     QuadCouplingMethod,
     ScaleMethod,
 )
+from sc_flow.backends.jax._utils import to_jax_array
 
 logger = logging.getLogger(__name__)
-
-
-def to_jax_array(x: ArrayLike | NumpyArray) -> ArrayLike:
-    """Convert a NumPy array to a JAX array if needed."""
-    if isinstance(x, np.ndarray):
-        return jnp.array(x)
-    if x is not None and not isinstance(x, JaxArray):
-        msg = f"Invalid type found {type(x)}"
-        raise TypeError(msg)
-    return x
 
 
 def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray, NumpyArray]:
@@ -56,7 +45,7 @@ def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray,
         The two arrays have identical length equal to :param:`size`.
     """
     # checking for numerical errors in the coupling matrix
-    coupling_matrix = sanitize_coupling_matrix(coupling_matrix=coupling_matrix)
+    coupling_matrix = _sanitize_coupling_matrix(coupling_matrix=coupling_matrix)
 
     # retrieving coupling probabilities
     coupling_probs = coupling_matrix.flatten()
@@ -72,7 +61,7 @@ def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray,
     return source_idxs, target_idxs
 
 
-def sanitize_coupling_matrix(
+def _sanitize_coupling_matrix(
     coupling_matrix: NumpyArray,
     eps: float = 1e-8,
 ) -> NumpyArray:

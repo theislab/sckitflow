@@ -1,7 +1,8 @@
 from collections.abc import Callable
-from typing import Protocol
+from typing import Literal, Protocol
 
 import numpy as np
+from ott.problems.linear import linear_problem
 
 try:
     from numpy.typing import NDArray
@@ -21,6 +22,9 @@ TTimeFeaturesFn = Callable[[ArrayLike, int], ArrayLike]
 TMeanFn = Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]
 TDriftFn = Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], ArrayLike]
 TSigmaFn = Callable[[ArrayLike], ArrayLike]
+ScaleMethod = Literal["mean", "max", "median"] | float
+LinCouplingMethod = Literal["exact", "sinkhorn", "partial", "unbalanced"]
+QuadCouplingMethod = Literal["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"]
 
 TVfFn = Callable[[ArrayLike, ArrayLike], ArrayLike]
 
@@ -32,3 +36,11 @@ class TConditioningFn(Protocol):
         encoded_state: ArrayLike,
         *args: ArrayLike,
     ) -> ArrayLike: ...
+
+
+class OTResult(Protocol):
+    matrix: ArrayLike
+
+
+class OTFn(Protocol):
+    def __call__(self, problem: "linear_problem.LinearProblem") -> OTResult: ...

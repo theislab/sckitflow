@@ -140,7 +140,7 @@ class FlowTrainer:
         num_iterations: int,
         valid_freq: int,
         validation_dataloader: DataLoader | None = None,
-        prng: PRNG | None = None,
+        prng: Array | Generator | None = None,
     ) -> None:
         """Trains the model.
 
@@ -198,6 +198,7 @@ class FlowTrainer:
 
         for i in pbar:
             if BACKEND == "jax":
+                print(type(prng))
                 prng, prng_step_fn, prng_data = random.split(prng, 3)
             else:
                 prng_step_fn = prng

@@ -14,21 +14,12 @@ from sc_flow.backends.torch._types import (
     ScaleMethod,
     TensorLike,
 )
+from sc_flow.backends.torch._utils import to_torch_tensor
 
 logger = logging.getLogger(__name__)
 
 
-def to_torch_tensor(x: TensorLike | NumpyArray) -> torch.Tensor:
-    """Convert a NumPy array to a JAX array if needed."""
-    if isinstance(x, np.ndarray):
-        return torch.from_numpy(x)
-    if x is not None and not isinstance(x, TensorLike):
-        msg = f"Invalid type found {type(x)}"
-        raise TypeError(msg)
-    return x
-
-
-def sanitize_coupling_matrix(
+def _sanitize_coupling_matrix(
     coupling_matrix: NumpyArray,
     eps: float = 1e-8,
 ) -> NumpyArray:
@@ -59,7 +50,7 @@ def sanitize_coupling_matrix(
     return coupling_matrix
 
 
-def scale_distance_matrix(
+def _scale_distance_matrix(
     distance_matrix: TensorLike,
     scale_method: ScaleMethod,
 ) -> TensorLike:
@@ -128,7 +119,7 @@ def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray,
         The two arrays have identical length equal to :param:`size`.
     """
     # checking for numerical errors in the coupling matrix
-    coupling_matrix = sanitize_coupling_matrix(coupling_matrix=coupling_matrix)
+    coupling_matrix = _sanitize_coupling_matrix(coupling_matrix=coupling_matrix)
 
     # retrieving coupling probabilities
     coupling_probs = coupling_matrix.flatten()
@@ -274,7 +265,7 @@ def ot_linear_coupling(
     # computing cost matrix
     distance_matrix = cost_fn(source, target)
     # normalization of cost
-    distance_matrix = scale_distance_matrix(distance_matrix, scale_method=scale_cost)
+    distance_matrix = _scale_distance_matrix(distance_matrix, scale_method=scale_cost)
 
     if method == "exact":
         ot_fn = pot.emd
@@ -407,17 +398,17 @@ def ot_quadratic_coupling(
 
     if source_lin is not None and target_lin is not None:
         distance_matrix_lin = cost_fn(source_lin, target_lin)
-        distance_matrix_lin = scale_distance_matrix(distance_matrix=distance_matrix_lin, scale_method=scale_cost)
+        distance_matrix_lin = _scale_distance_matrix(distance_matrix=distance_matrix_lin, scale_method=scale_cost)
     else:
         distance_matrix_lin = None
 
     # computing cost matrix
     distance_matrix_source_quad = cost_fn(source_quad, source_quad)
     distance_matrix_target_quad = cost_fn(target_quad, target_quad)
-    distance_matrix_source_quad = scale_distance_matrix(
+    distance_matrix_source_quad = _scale_distance_matrix(
         distance_matrix=distance_matrix_source_quad, scale_method=scale_cost
     )
-    distance_matrix_target_quad = scale_distance_matrix(
+    distance_matrix_target_quad = _scale_distance_matrix(
         distance_matrix=distance_matrix_target_quad, scale_method=scale_cost
     )
 

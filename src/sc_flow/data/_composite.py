@@ -141,6 +141,9 @@ class NestedData(MappedTree):
     ) -> "NestedData":
         """Initializes a leaf node given the input settings.
 
+        Leaf values in mapped_index are slices into the sorted data,
+        so indexing is O(1) per group with no search overhead.
+
         :param data: The flattened, unmatched distribution data.
         :type data: class: `DistributionData`
 
@@ -159,8 +162,7 @@ class NestedData(MappedTree):
         all_keys = list(mapped_index.mapping.keys())
 
         if source_key is not None:
-            source_idx = reference_index.get_indexer(mapped_index.mapping[source_key])
-            source_distribution = data[source_idx]
+            source_distribution = data[mapped_index.mapping[source_key]]
             rest_keys = [k for k in all_keys if k != source_key]
         else:
             source_distribution = None
@@ -173,10 +175,9 @@ class NestedData(MappedTree):
         for key in rest_keys:
             if pbar is not None:
                 pbar.update()
-            sub_index = mapped_index.mapping[key]
-            idxs = reference_index.get_indexer(sub_index)
             data_dict[key] = MatchedData(
-                data[idxs], source_distribution=source_distribution,
+                data[mapped_index.mapping[key]],
+                source_distribution=source_distribution,
             )
         return cls(data_dict)
 

@@ -200,61 +200,103 @@ class IndexSelector:
     ) -> MappedLevelIndex:
         """Recursively creates a nested mapping for each unique values of each level.
 
-        Uses the internal Categorical codes of the MultiIndex sub-levels
-        and np.unique for efficient single-pass grouping instead of
-        repeated linear scans.
+        Operates entirely on the raw integer code arrays from the top-level
+        MultiIndex, never materializing sub-MultiIndex objects.  Leaf nodes
+        store slice(start, end) that address the original sorted data directly.
 
         :param level_name: String identifier for the level to query.
         :type level_name: class: `str`
 
-        :param reference_index: The index which to retrieve the unique values of.
+        :param reference_index: The top-level MultiIndex (only read once).
         :type reference_index: class: `pd.MultiIndex`
         """
-        self._query_factory.verify_valid_level_name(level_name)
-        hierarchy_index = self._hierarchy_levels.index(level_name)
         positions = self._get_sublevel_positions(level_name, reference_index)
+        all_code_arrays = [np.asarray(reference_index.codes[p]) for p in positions]
+        all_categories = [reference_index.levels[p] for p in positions]
 
-        if len(positions) == 1:
-            pos = positions[0]
-            codes = reference_index.codes[pos]
-            categories = reference_index.levels[pos]
-            codes_arr = np.asarray(codes)
-            unique_codes, first_idx = np.unique(codes_arr, return_index=True)
-            order = np.argsort(first_idx)
-            sorted_unique = unique_codes[order]
-            sorted_first = first_idx[order]
-            boundaries = np.append(sorted_first, len(codes_arr))
+        hierarchy_index = self._hierarchy_levels.index(level_name)
+        return self._nested_dict_from_codes(
+            hierarchy_index, all_code_arrays, all_categories,
+            reference_index, 0, len(reference_index),
+        )
 
-            groups = {}
-            for i, code in enumerate(sorted_unique):
-                key = (categories[code],)
-                groups[key] = reference_index[boundaries[i]:boundaries[i + 1]]
-        else:
-            all_codes = np.column_stack([
-                np.asarray(reference_index.codes[p]) for p in positions
-            ])
-            all_cats = [reference_index.levels[p] for p in positions]
-            _, first_idx, inverse = np.unique(
-                all_codes, axis=0, return_index=True, return_inverse=True,
-            )
-            order = np.argsort(first_idx)
-            sorted_first = first_idx[order]
-            boundaries = np.append(sorted_first, len(all_codes))
+    def _nested_dict_from_codes(
+        self,
+        hierarchy_index: int,
+        code_arrays: list[np.ndarray],
+        categories: list,
+        reference_index: pd.MultiIndex,
+        lo: int,
+        hi: int,
+    ) -> MappedLevelIndex:
+        """Recursively groups rows [lo, hi) by the current hierarchy level.
 
-            groups = {}
-            for i, idx in enumerate(order):
-                row = all_codes[first_idx[idx]]
-                key = tuple(cats[row[j]] for j, cats in enumerate(all_cats))
-                groups[key] = reference_index[boundaries[i]:boundaries[i + 1]]
+        Works on pre-extracted code arrays so no MultiIndex slicing occurs.
 
+        :param hierarchy_index: Position of the current level in the hierarchy.
+        :param code_arrays: Integer code arrays for the current level's columns
+            (full length, indexed by [lo:hi]).
+        :param categories: Corresponding category indices for each code array.
+        :param reference_index: The original top-level MultiIndex (used only
+            to resolve the next level's positions on first descent).
+        :param lo: Start of the row range (inclusive).
+        :param hi: End of the row range (exclusive).
+        """
         is_leaf = hierarchy_index == (self.n_hierarchy_levels - 1)
+        n = hi - lo
+
+        if len(code_arrays) == 1:
+            codes_slice = code_arrays[0][lo:hi]
+            cats = categories[0]
+            if n > 0:
+                changes = np.flatnonzero(codes_slice[1:] != codes_slice[:-1]) + 1
+                boundaries = np.empty(len(changes) + 2, dtype=np.intp)
+                boundaries[0] = 0
+                boundaries[1:-1] = changes
+                boundaries[-1] = n
+            else:
+                boundaries = np.array([0, 0], dtype=np.intp)
+
+            group_spans = []
+            for i in range(len(boundaries) - 1):
+                start = lo + int(boundaries[i])
+                end = lo + int(boundaries[i + 1])
+                key = (cats[codes_slice[int(boundaries[i])]],)
+                group_spans.append((key, start, end))
+        else:
+            stacked = np.column_stack([c[lo:hi] for c in code_arrays])
+            if n > 0:
+                diff = np.any(stacked[1:] != stacked[:-1], axis=1)
+                changes = np.flatnonzero(diff) + 1
+                boundaries = np.empty(len(changes) + 2, dtype=np.intp)
+                boundaries[0] = 0
+                boundaries[1:-1] = changes
+                boundaries[-1] = n
+            else:
+                boundaries = np.array([0, 0], dtype=np.intp)
+
+            group_spans = []
+            for i in range(len(boundaries) - 1):
+                start = lo + int(boundaries[i])
+                end = lo + int(boundaries[i + 1])
+                row = stacked[int(boundaries[i])]
+                key = tuple(cats[row[j]] for j, cats in enumerate(categories))
+                group_spans.append((key, start, end))
+
         if is_leaf:
-            return MappedLevelIndex(groups)
+            return MappedLevelIndex({key: slice(start, end) for key, start, end in group_spans})
 
         next_level_name = self._hierarchy_levels[hierarchy_index + 1]
+        next_positions = self._get_sublevel_positions(next_level_name, reference_index)
+        next_code_arrays = [np.asarray(reference_index.codes[p]) for p in next_positions]
+        next_categories = [reference_index.levels[p] for p in next_positions]
+
         return MappedLevelIndex({
-            key: self._level_index_to_nested_dict(next_level_name, sub_idx)
-            for key, sub_idx in groups.items()
+            key: self._nested_dict_from_codes(
+                hierarchy_index + 1, next_code_arrays, next_categories,
+                reference_index, start, end,
+            )
+            for key, start, end in group_spans
         })
 
     def query_level_with_dict(

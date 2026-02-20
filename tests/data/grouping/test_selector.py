@@ -68,8 +68,8 @@ class TestIndexSelector:
             for cond_key, cond_index in group_node.mapping.items():
                 cond_df, cond_values = self._extract_df(group_df, conditions_cols, cond_key)
 
-                assert isinstance(cond_index, pd.MultiIndex)
-                assert len(cond_index) == len(cond_df)
+                assert isinstance(cond_index, slice)
+                assert (cond_index.stop - cond_index.start) == len(cond_df)
 
     @pytest.mark.parametrize("groups_cols", [None, ["source_split"]])
     @pytest.mark.parametrize("conditions_cols", [None, ["drugA"], ["drugA", "drugB"]])

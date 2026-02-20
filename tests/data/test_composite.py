@@ -41,7 +41,7 @@ class TestNestedData:
 
     @pytest.fixture
     def mapped_index_leaf(self, reference_index):
-        return MappedLevelIndex(mapping={("a",): reference_index[[0, 1]], ("b",): reference_index[[2, 3]]})
+        return MappedLevelIndex(mapping={("a",): slice(0, 2), ("b",): slice(2, 4)})
 
     def test_init_leaf_node_without_source(self, reference_index, mapped_index_leaf):
         data = make_distribution(n=10)
@@ -63,9 +63,8 @@ class TestNestedData:
             assert v.source is not None
 
     def test_init_tree_recursive(self, reference_index):
-        # Build a nested MappedLevelIndex
-        leaf_index_a = MappedLevelIndex(mapping={("leaf1",): reference_index[[0, 1]]})
-        leaf_index_b = MappedLevelIndex(mapping={("leaf2",): reference_index[[2, 3]]})
+        leaf_index_a = MappedLevelIndex(mapping={("leaf1",): slice(0, 2)})
+        leaf_index_b = MappedLevelIndex(mapping={("leaf2",): slice(2, 4)})
         mapped_index = MappedLevelIndex(mapping={("a",): leaf_index_a, ("b",): leaf_index_b})
 
         data = make_distribution(n=10)

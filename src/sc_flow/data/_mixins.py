@@ -32,7 +32,7 @@ class MappedTree(DataTree):
         """"""  # noqa
         # iterating over each key to check that the type is the same
         for key, value in self.mapping.items():
-            if not isinstance(value, self._REQUIRED_VALUE_TYPE | MappedTree):
+            if not isinstance(value, (self._REQUIRED_VALUE_TYPE, MappedTree)):
                 msg = f"The values should respect the pre-defined type. Got {type(value)} for {key}, expected {self._REQUIRED_VALUE_TYPE}."
                 raise TypeError(msg)
             if not isinstance(key, self._REQUIRED_KEY_TYPE):
@@ -116,7 +116,7 @@ class MappedTree(DataTree):
 @dataclass(frozen=True)
 class MappedLevelIndex(MappedTree):
     _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = tuple
-    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = pd.MultiIndex
+    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = slice
 
 
 @dataclass(frozen=True)

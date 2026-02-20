@@ -113,8 +113,8 @@ def make_tree():
     reference_index = pd.MultiIndex.from_tuples([(i,) for i in range(10)])
     mapped_index = MappedLevelIndex(
         mapping={
-            ("0",): MappedLevelIndex({("a",): reference_index[:5]}),  # first 5 rows
-            ("1",): MappedLevelIndex({("b",): reference_index[5:]}),  # last 5 rows
+            ("0",): MappedLevelIndex({("a",): slice(0, 5)}),
+            ("1",): MappedLevelIndex({("b",): slice(5, 10)}),
         }
     )
     return NestedData._init_tree(target_data, reference_index, mapped_index)

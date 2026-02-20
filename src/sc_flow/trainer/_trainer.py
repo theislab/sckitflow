@@ -198,7 +198,6 @@ class FlowTrainer:
 
         for i in pbar:
             if BACKEND == "jax":
-                print(type(prng))
                 prng, prng_step_fn, prng_data = random.split(prng, 3)
             else:
                 prng_step_fn = prng

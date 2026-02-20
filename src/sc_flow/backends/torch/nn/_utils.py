@@ -64,8 +64,8 @@ def init_module_from_dict(
         if not isinstance(input_dim, int):
             msg = f"Argument `input_dim` is expected to be an `int`, {type(input_dim)} found."
             raise TypeError(msg)
-        if not isinstance(input_dim, int):
-            msg = f"Argument `input_dim` is expected to be an `int`, {type(input_dim)} found."
+        if not isinstance(output_dim, int):
+            msg = f"Argument `output_dim` is expected to be an `int`, {type(output_dim)} found."
             raise TypeError(msg)
 
         # verify keyword arguments

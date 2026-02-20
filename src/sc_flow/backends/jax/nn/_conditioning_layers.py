@@ -21,7 +21,7 @@ __all__ = [
 
 class BaseConditioningLayer(BaseModule):
     """Base class for conditioning layers.
-    
+
     :param latent_state_dim: The latent dimensionality of the input states.
     :type latent_state_dim: class: `int`
 
@@ -102,7 +102,7 @@ class BaseConditioningLayer(BaseModule):
 
 class ConcatConditioning(BaseConditioningLayer):
     """Class for concatenation based conditioning layers.
-    
+
     :param latent_state_dim: The latent dimensionality of the input states.
     :type latent_state_dim: class: `int`
 
@@ -163,6 +163,7 @@ class ConcatConditioning(BaseConditioningLayer):
             to_concat = to_concat + (make_concatenation_possible(encoded_condition, encoded_state, -1),)
         return jnp.concatenate(to_concat, axis=-1)
 
+
 class Resnet1dConditioning(BaseConditioningLayer):
     """Class for residual network based conditioning layers.
 
@@ -186,9 +187,8 @@ class Resnet1dConditioning(BaseConditioningLayer):
 
     def setup(self):
         """Initializes the resnet based conditioning."""
-
         resnet_kwargs = {} if self.resnet_kwargs is None else self.resnet_kwargs
-    
+
         verify_fn_kwargs_dictionary(Resnet1d.__init__, resnet_kwargs)
 
         self.resnet = Resnet1d(
@@ -252,6 +252,7 @@ class Resnet1dConditioning(BaseConditioningLayer):
         if self.latent_condition_dim is not None:
             embedding_dim = embedding_dim + self.latent_condition_dim
         return embedding_dim
+
 
 def make_custom_conditioning_layer(
     conditioning_fn: TConditioningFn,

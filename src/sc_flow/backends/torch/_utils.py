@@ -1,12 +1,24 @@
+import numpy as np
 import torch
 
-from sc_flow.backends.torch._types import ShapeLike
+from sc_flow.backends.torch._types import NumpyArray, ShapeLike, TensorLike
 
 __all__ = [
     "broadcast_to_target_shape",
     "ensure_2d_tensor_with_singleton_trailing_dim",
     "make_concatenation_possible",
+    "to_torch_tensor",
 ]
+
+
+def to_torch_tensor(x: TensorLike | NumpyArray) -> torch.Tensor:
+    """Convert a NumPy array to a JAX array if needed."""
+    if isinstance(x, np.ndarray):
+        return torch.from_numpy(x)
+    if x is not None and not isinstance(x, TensorLike):
+        msg = f"Invalid type found {type(x)}"
+        raise TypeError(msg)
+    return x
 
 
 def broadcast_to_target_shape(
@@ -74,10 +86,10 @@ def make_concatenation_possible(
     target_tensor: torch.Tensor,
     concat_dims: int = -1,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """"""  # noqa
+    """TODO."""  # noqa
 
-    dims_to_match = [d for d in target_tensor.shape[:concat_dims]]
-    dims_to_retain = [d for d in input_tensor.shape[concat_dims: ]]
+    dims_to_match = list(target_tensor.shape[:concat_dims])
+    dims_to_retain = list(input_tensor.shape[concat_dims:])
     for idx in range(len(dims_to_match)):
         if idx + 1 > input_tensor.ndim - len(dims_to_retain):
             input_tensor = input_tensor.unsqueeze(idx)

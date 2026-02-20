@@ -4,8 +4,9 @@ from collections.abc import Sequence
 import diffrax as dfx
 import jax
 import jax.numpy as jnp
+import numpy as np
 
-from sc_flow.backends.jax._types import ArrayLike, JaxDevice, TDevice
+from sc_flow.backends.jax._types import ArrayLike, NumpyArray, JaxArray, JaxDevice, TDevice
 
 __all__ = [
     "broadcast_to_target_shape",
@@ -14,6 +15,7 @@ __all__ = [
     "get_jax_device",
     "get_ode_solver",
     "get_sde_solver",
+    "to_jax_array",
 ]
 
 _ODE_SOLVER_REGISTRY = {
@@ -46,6 +48,16 @@ _SDE_SOLVER_REGISTRY = {
     "slow_rk": dfx.SlowRK(),
     "spark": dfx.SPaRK(),
 }
+
+
+def to_jax_array(x: ArrayLike | NumpyArray) -> ArrayLike:
+    """Convert a NumPy array to a JAX array if needed."""
+    if isinstance(x, np.ndarray):
+        return jnp.array(x)
+    if x is not None and not isinstance(x, JaxArray):
+        msg = f"Invalid type found {type(x)}"
+        raise TypeError(msg)
+    return x
 
 
 def broadcast_to_target_shape(

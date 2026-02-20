@@ -1,5 +1,5 @@
 import inspect
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection
 from typing import Any, get_args, get_origin
 
 __all__ = [
@@ -8,6 +8,7 @@ __all__ = [
     "verify_fn_args",
     "verify_fn_kwargs_dictionary",
     "verify_fn_signature",
+    "check_sequence_query_against_reference",
 ]
 
 
@@ -34,7 +35,7 @@ def check_type_against_generic(
 
 def get_fn_args_names_and_types(
     fn: Callable,
-    omitted_args: Sequence[str] | None = None,
+    omitted_args: Collection[str] | None = None,
 ) -> dict[str, type[object]]:
     """Retrieves the type annotation for the positional arguments of a function and their respective names.
 
@@ -44,7 +45,7 @@ def get_fn_args_names_and_types(
     :param omitted_args: Optional positional arguments to be omitted from the verification.
         This is to be used only when calling this function on a class method, as we do not want to consider
         `self` as a positional argument. Defaults to `None`.
-    :type omitted_args: class: `Sequence[str] | None`
+    :type omitted_args: class: `Collection[str] | None`
 
     :return: Dictionary mapping each positional argument name to the respective type annotation.
     :rtype: class: `dict[str, type[object]]`
@@ -85,7 +86,7 @@ def get_fn_kwargs_names_and_types(
 def verify_fn_args(
     fn: Callable,
     Tfn: type[Callable],
-    omitted_args: Sequence[str] | None = None,
+    omitted_args: Collection[str] | None = None,
 ) -> None:
     """Verifies the positional arguments of a function against a template.
 
@@ -102,7 +103,7 @@ def verify_fn_args(
     :param omitted_args: Optional positional arguments to be omitted from the verification.
         This is to be used only when calling this function on a class method, as we do not want to consider
         `self` as a positional argument. Defaults to `None`.
-    :type omitted_args: class: `Sequence[str] | None`
+    :type omitted_args: class: `Collection[str] | None`
     """
     input_types, output_types = get_args(Tfn)
     positional_args = get_fn_args_names_and_types(fn, omitted_args=omitted_args)
@@ -150,7 +151,7 @@ def verify_fn_signature(
     fn: Callable,
     Tfn: type[Callable],
     kwargs_dict: dict[str, Any],
-    omitted_args: Sequence[str] | None = None,
+    omitted_args: Collection[str] | None = None,
 ) -> None:
     """Verifies the signature of the input function against a template and optional key-word arguments.
 
@@ -169,10 +170,33 @@ def verify_fn_signature(
     :param omitted_args: Optional positional arguments to be omitted from the verification.
         This is to be used only when calling this function on a class method, as we do not want to consider
         `self` as a positional argument. Defaults to `None`.
-    :type omitted_args: class: `Sequence[str] | None`
+    :type omitted_args: class: `Collection[str] | None`
     """
     if not isinstance(fn, Callable):
         msg = f"Input `fn` is expected to be a `Callable`, found {type(fn)}"
         raise TypeError(msg)
     verify_fn_args(fn, Tfn, omitted_args=omitted_args)
     verify_fn_kwargs_dictionary(fn, kwargs_dict)
+
+
+def check_sequence_query_against_reference(
+    query: Collection[str],
+    reference: Collection[str],
+    allow_missing_from_query: bool = True,
+    allow_missing_from_reference: bool = False,
+) -> None:
+    """"""  # noqa
+    # set logic for overlap
+    union = set(query).union(set(reference))
+    missing_from_reference = union - set(reference)
+    missing_from_query = union - set(query)
+
+    # strictly checking that we have all reference columns
+    if len(missing_from_query) and not allow_missing_from_query:
+        msg = f"The following reference columns are missing from the query: {missing_from_query}"
+        raise ValueError(msg)
+
+    # query value not found in reference set
+    if len(missing_from_reference) and not allow_missing_from_reference:
+        msg = f"The following query columns dont appear in the reference: {missing_from_reference}"
+        raise ValueError(msg)

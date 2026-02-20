@@ -109,7 +109,14 @@ class DistributionData(BaseData):
             dfs.append(self.condition_data.categorical_covariates.ann_df)
         if self.groups_data:
             dfs.append(self.groups_data.ann_df)
-        return pd.concat(dfs, axis=1) if dfs else pd.DataFrame()
+        
+        if len(dfs) == 0:
+            return pd.DataFrame()
+        res = pd.DataFrame(
+            {col: df[col].values for df in dfs for col in df.columns},
+            index=dfs[0].index,
+        )
+        return res
 
     @cached_property
     def index(self) -> pd.Index:

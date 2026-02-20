@@ -156,49 +156,27 @@ class NestedData(MappedTree):
             distribution will be considered.
         :type source_key: class: `tuple[Any] | None`
         """
-        # sort data by group for contiguous memory access (O(n log n) once)
-        # then use slices instead of fancy indexing (O(1) view per group)
-        sort_order = np.argsort(reference_index)
-        sorted_data = data[sort_order]
-        sorted_index = reference_index[sort_order]
+        all_keys = list(mapped_index.mapping.keys())
 
-        # build group boundaries using groupby on sorted index
-        # this gives us {group_key: array of positions} but positions are contiguous
-        group_indices = sorted_index.to_frame(index=False).groupby(
-            list(sorted_index.names), sort=False
-        ).indices
-
-        # split source distribution apart
         if source_key is not None:
-            source_positions = group_indices[source_key]
-            source_start, source_end = source_positions[0], source_positions[-1] + 1
-            source_distribution = sorted_data[source_start:source_end]
-            rest_keys = [k for k in mapped_index.mapping.keys() if k != source_key]
+            source_idx = reference_index.get_indexer(mapped_index.mapping[source_key])
+            source_distribution = data[source_idx]
+            rest_keys = [k for k in all_keys if k != source_key]
         else:
             source_distribution = None
-            rest_keys = list(mapped_index.mapping.keys())
+            rest_keys = all_keys
 
-        # lazily import tqdm
         tqdm = attempt_tqdm_import()
-        if tqdm is not None:
-            pbar = tqdm(rest_keys)
-        else:
-            pbar = None
+        pbar = tqdm(rest_keys) if tqdm is not None else None
 
-        # construct data dictionary using contiguous slices
         data_dict = {}
         for key in rest_keys:
-            # update progress bar
             if pbar is not None:
                 pbar.update()
-
-            # get contiguous slice boundaries
-            positions = group_indices[key]
-            start, end = positions[0], positions[-1] + 1
-
-            # update dictionary with slice (much faster than fancy indexing)
+            sub_index = mapped_index.mapping[key]
+            idxs = reference_index.get_indexer(sub_index)
             data_dict[key] = MatchedData(
-                sorted_data[start:end], source_distribution=source_distribution
+                data[idxs], source_distribution=source_distribution,
             )
         return cls(data_dict)
 

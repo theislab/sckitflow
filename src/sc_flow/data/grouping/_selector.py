@@ -49,27 +49,14 @@ class IndexSelector:
             indexer.hierarchy_levels,
         )
 
-    def _get_level_query_mask(
-        self,
-        level_name: str,
-        query_dict: dict[str, Any],
-        reference_index: pd.MultiIndex,
-    ) -> np.ndarray:
-        """Retrieves the mask used to query a reference index on a given level.
-
-        :param level_name: String identifier for the level to query.
-        :type level_name: class: `str`
-
-        :param query_dict: The dictionary used to construct the query.
-        :type query_dict: class: `dict[str, Collection[Any]]`
-
-        :param reference_index: The index which to construct the mask on.
-        :type reference_index: class: `pd.MultiIndex`
-        """
-        self._query_factory.verify_level_query_dict(level_name, query_dict)
-        query_value = self._query_factory.query_dict_to_tuple(query_dict)
-        level_values = reference_index.get_level_values(level_name)
-        return np.asarray(level_values == query_value)
+    def _get_sublevel_positions(
+        self, level_name: str, reference_index: pd.MultiIndex,
+    ) -> list[int]:
+        """Returns the positional indices of sub-levels belonging to a hierarchy level."""
+        return [
+            i for i, name in enumerate(reference_index.names)
+            if isinstance(name, tuple) and name[0] == level_name
+        ]
 
     def _get_unique_level_values(self, level_name: str, reference_index: pd.MultiIndex) -> Iterator[tuple[Any, ...]]:
         """Returns the unique values for a given level from a reference index.
@@ -80,9 +67,20 @@ class IndexSelector:
         :param reference_index: The index which to retrieve the unique values of.
         :type reference_index: class: `pd.MultiIndex`
         """
-        self._query_factory.verify_valid_level_name(level_name, reference=reference_index.names)
-        level_values = reference_index.get_level_values(level_name)
-        return map(tuple, level_values.unique())
+        self._query_factory.verify_valid_level_name(level_name)
+        positions = self._get_sublevel_positions(level_name, reference_index)
+        if len(positions) == 1:
+            categories = reference_index.levels[positions[0]]
+            codes = np.asarray(reference_index.codes[positions[0]])
+            present = np.unique(codes)
+            return ((categories[c],) for c in present)
+        col_uniques = []
+        for p in positions:
+            cats = reference_index.levels[p]
+            present = np.unique(np.asarray(reference_index.codes[p]))
+            col_uniques.append([cats[c] for c in present])
+        from itertools import product
+        return (combo for combo in product(*col_uniques))
 
     def _query_level_with_dict(
         self,
@@ -92,17 +90,46 @@ class IndexSelector:
     ) -> pd.MultiIndex:
         """Queries a reference index on a given level with the input query dictionary.
 
+        Uses searchsorted on integer codes since data is sorted by hierarchy
+        levels. Falls back to code-based masking if values are not contiguous.
+
         :param level_name: String identifier for the level to query.
         :type level_name: class: `str`
 
         :param query_dict: The dictionary used to construct the query.
         :type query_dict: class: `dict[str, Any]`
 
-        :param reference_index: The index which to construct the mask on.
+        :param reference_index: The index which to query.
         :type reference_index: class: `pd.MultiIndex`
         """
-        mask = self._get_level_query_mask(level_name, query_dict, reference_index)
-        return reference_index[mask]
+        self._query_factory.verify_level_query_dict(level_name, query_dict)
+        active = {col: val for col, val in query_dict.items() if val != slice(None)}
+        if not active:
+            return reference_index
+
+        if len(active) == 1:
+            col, val = next(iter(active.items()))
+            pos = reference_index.names.index((level_name, col))
+            codes = np.asarray(reference_index.codes[pos])
+            categories = reference_index.levels[pos]
+            target_code = categories.get_loc(val)
+            left = np.searchsorted(codes, target_code, side="left")
+            right = np.searchsorted(codes, target_code, side="right")
+            return reference_index[left:right]
+
+        # Multi-column: intersect ranges from each column
+        left, right = 0, len(reference_index)
+        for col, val in active.items():
+            pos = reference_index.names.index((level_name, col))
+            codes = np.asarray(reference_index.codes[pos])
+            categories = reference_index.levels[pos]
+            target_code = categories.get_loc(val)
+            sub_codes = codes[left:right]
+            sub_left = np.searchsorted(sub_codes, target_code, side="left")
+            sub_right = np.searchsorted(sub_codes, target_code, side="right")
+            left = left + sub_left
+            right = left + (sub_right - sub_left)
+        return reference_index[left:right]
 
     def _query_level_with_tuple(
         self,
@@ -118,7 +145,7 @@ class IndexSelector:
         :param values: The query tuple containing the values to query for.
         :type values: class: `tuple[Any, ...]`
 
-        :param reference_index: The index which to construct the mask on.
+        :param reference_index: The index which to query.
         :type reference_index: class: `pd.MultiIndex`
         """
         query_dict = self._query_factory.query_tuple_to_dict(self._registry, values, level_name)
@@ -134,7 +161,7 @@ class IndexSelector:
         :param query_dict: The dictionary used to construct the query.
         :type query_dict: class: `dict[str, dict[str, Any]]`
 
-        :param reference_index: The index which to construct the mask on.
+        :param reference_index: The index which to query.
         :type reference_index: class: `pd.MultiIndex`
         """
         index = reference_index
@@ -171,7 +198,11 @@ class IndexSelector:
         level_name: str,
         reference_index: pd.MultiIndex,
     ) -> MappedLevelIndex:
-        """Recursively creates a nested mapping for each unique values of each level, starting from the provided one.
+        """Recursively creates a nested mapping for each unique values of each level.
+
+        Uses the internal Categorical codes of the MultiIndex sub-levels
+        and np.unique for efficient single-pass grouping instead of
+        repeated linear scans.
 
         :param level_name: String identifier for the level to query.
         :type level_name: class: `str`
@@ -179,25 +210,52 @@ class IndexSelector:
         :param reference_index: The index which to retrieve the unique values of.
         :type reference_index: class: `pd.MultiIndex`
         """
-        # preparing level data
-        self._query_factory.verify_valid_level_name(level_name, reference=reference_index.names)
+        self._query_factory.verify_valid_level_name(level_name)
         hierarchy_index = self._hierarchy_levels.index(level_name)
-        level_unique_values_dict = self._unique_level_vals_to_dict(
-            level_name,
-            reference_index,
-        )
-        if hierarchy_index == (self.n_hierarchy_levels - 1):
-            return level_unique_values_dict
+        positions = self._get_sublevel_positions(level_name, reference_index)
+
+        if len(positions) == 1:
+            pos = positions[0]
+            codes = reference_index.codes[pos]
+            categories = reference_index.levels[pos]
+            codes_arr = np.asarray(codes)
+            unique_codes, first_idx = np.unique(codes_arr, return_index=True)
+            order = np.argsort(first_idx)
+            sorted_unique = unique_codes[order]
+            sorted_first = first_idx[order]
+            boundaries = np.append(sorted_first, len(codes_arr))
+
+            groups = {}
+            for i, code in enumerate(sorted_unique):
+                key = (categories[code],)
+                groups[key] = reference_index[boundaries[i]:boundaries[i + 1]]
+        else:
+            all_codes = np.column_stack([
+                np.asarray(reference_index.codes[p]) for p in positions
+            ])
+            all_cats = [reference_index.levels[p] for p in positions]
+            _, first_idx, inverse = np.unique(
+                all_codes, axis=0, return_index=True, return_inverse=True,
+            )
+            order = np.argsort(first_idx)
+            sorted_first = first_idx[order]
+            boundaries = np.append(sorted_first, len(all_codes))
+
+            groups = {}
+            for i, idx in enumerate(order):
+                row = all_codes[first_idx[idx]]
+                key = tuple(cats[row[j]] for j, cats in enumerate(all_cats))
+                groups[key] = reference_index[boundaries[i]:boundaries[i + 1]]
+
+        is_leaf = hierarchy_index == (self.n_hierarchy_levels - 1)
+        if is_leaf:
+            return MappedLevelIndex(groups)
+
         next_level_name = self._hierarchy_levels[hierarchy_index + 1]
-        return MappedLevelIndex(
-            {
-                values: self._level_index_to_nested_dict(
-                    next_level_name,
-                    values_index,
-                )
-                for values, values_index in level_unique_values_dict.mapping.items()
-            }
-        )
+        return MappedLevelIndex({
+            key: self._level_index_to_nested_dict(next_level_name, sub_idx)
+            for key, sub_idx in groups.items()
+        })
 
     def query_level_with_dict(
         self,

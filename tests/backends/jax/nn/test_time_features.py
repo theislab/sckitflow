@@ -1,7 +1,7 @@
 from collections.abc import Callable
 
-import pytest
 import jax.numpy as jnp
+import pytest
 
 from sc_flow._constants import DEFAULT_NUM_TIME_FEATURES, DEFAULT_TIME_FEATURES_MAX_PERIOD
 from sc_flow.backends.jax._types import ArrayLike

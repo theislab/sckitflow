@@ -191,9 +191,9 @@ class TestNNModules:
         else:
             output_tensor = resnet(input_tensor, condition)
             if output_dim is None:
-                assert output_tensor.shape == (self._input_dim, )
+                assert output_tensor.shape == (self._input_dim,)
             else:
-                assert output_tensor.shape == (output_dim, )
+                assert output_tensor.shape == (output_dim,)
 
         # case 2: x.shape = (B, D), cond.shape = (B, K)
         input_tensor = torch.zeros((self._batch_size, self._input_dim))
@@ -233,7 +233,7 @@ class TestNNModules:
         condition = torch.zeros((self._batch_size + 1, self._embedding_dim))
         with pytest.raises(
             RuntimeError,
-            #match=r"Shape mismatch between hidden condition and state projection\."
+            # match=r"Shape mismatch between hidden condition and state projection\."
         ):
             output_tensor = resnet(input_tensor, condition)
             return None

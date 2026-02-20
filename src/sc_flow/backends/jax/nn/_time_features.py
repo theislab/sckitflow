@@ -3,7 +3,6 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-import jax
 import jax.numpy as jnp
 
 from sc_flow._constants import DEFAULT_NUM_TIME_FEATURES, DEFAULT_TIME_FEATURES_MAX_PERIOD, PI
@@ -18,6 +17,7 @@ __all__ = [
     "make_custom_time_features",
     "get_time_features_fn",
 ]
+
 
 def ott_jax_time_features(
     t: ArrayLike,
@@ -50,6 +50,7 @@ def ott_jax_time_features(
     freq = 2 * jnp.arange(num_time_features // 2, device=t.device) * PI
     t = t * freq
     return jnp.concatenate([jnp.cos(t), jnp.sin(t)], axis=-1)
+
 
 def torch_cfm_time_features(
     t: ArrayLike,
@@ -89,10 +90,9 @@ def torch_cfm_time_features(
     t = t * jnp.exp(freqs)
     return jnp.concatenate([jnp.cos(t), jnp.sin(t)], axis=-1)
 
+
 def make_custom_time_features(
-    time_features_fn: TTimeFeaturesFn, 
-    num_time_features: int, 
-    time_features_kwargs: dict[str, Any]
+    time_features_fn: TTimeFeaturesFn, num_time_features: int, time_features_kwargs: dict[str, Any]
 ) -> Callable[[ArrayLike], ArrayLike]:
     """Compiles the input function with the chosen arguments and return its wrapped version.
 
@@ -127,6 +127,7 @@ def make_custom_time_features(
         return t_features
 
     return _time_features_fn
+
 
 def get_time_features_fn(
     num_time_features: int | None = None,

@@ -20,6 +20,11 @@ ConditioningLayersId = Literal["concat", "resnet1d"]
 LayersDict = dict[str, Any]
 NestedLayersDict = dict[str, LayersDict]
 
+
 TargetCovariatesEncodingId = Literal["label", "one-hot", "functional"]
 
 TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
+
+GENOTDataMatchFn = Any  # TODO
+
+TensorLike = Any  # TODO

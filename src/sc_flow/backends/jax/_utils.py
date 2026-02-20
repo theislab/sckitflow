@@ -1,14 +1,27 @@
 from collections.abc import Sequence
 
 import jax.numpy as jnp
+import numpy as np
 
-from sc_flow.backends.jax._types import ArrayLike
+from sc_flow.backends.jax._types import ArrayLike, JaxArray, NumpyArray
 
 __all__ = [
     "broadcast_to_target_shape",
     "ensure_2d_tensor_with_singleton_trailing_dim",
     "make_concatenation_possible",
+    "to_jax_array",
 ]
+
+
+def to_jax_array(x: ArrayLike | NumpyArray) -> ArrayLike:
+    """Convert a NumPy array to a JAX array if needed."""
+    if isinstance(x, np.ndarray):
+        return jnp.array(x)
+    if x is not None and not isinstance(x, JaxArray):
+        msg = f"Invalid type found {type(x)}"
+        raise TypeError(msg)
+    return x
+
 
 def broadcast_to_target_shape(
     input_array: ArrayLike,
@@ -61,6 +74,7 @@ def broadcast_to_target_shape(
             dims_to_expand.append(target_dim)
     return jnp.tile(input_array, jnp.array(dims_to_expand))
 
+
 def make_concatenation_possible(
     input_array: ArrayLike,
     target_array: ArrayLike,
@@ -68,8 +82,8 @@ def make_concatenation_possible(
 ) -> tuple[ArrayLike, ArrayLike]:
     """"""  # noqa
 
-    dims_to_match = [d for d in target_array.shape[:concat_dims]]
-    dims_to_retain = [d for d in input_array.shape[concat_dims: ]]
+    dims_to_match = list(target_array.shape[:concat_dims])
+    dims_to_retain = list(input_array.shape[concat_dims:])
     for idx in range(len(dims_to_match)):
         if idx + 1 > input_array.ndim - len(dims_to_retain):
             input_array = jnp.expand_dims(input_array, idx)

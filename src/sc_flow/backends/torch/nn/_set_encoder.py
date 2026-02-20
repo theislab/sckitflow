@@ -4,7 +4,6 @@ import torch
 
 from sc_flow._types import LayersDict, NestedLayersDict
 from sc_flow.backends.torch._types import MappedTensor
-from sc_flow.backends.torch._utils import make_concatenation_possible
 from sc_flow.backends.torch.nn._modules import BaseModule, FunctionalModule
 from sc_flow.backends.torch.nn._utils import init_module_from_dict
 
@@ -94,39 +93,6 @@ class SetEncoder(BaseModule):
         }
         return torch.nn.ModuleDict(layers)
 
-    def _get_decoder_input(
-        self,
-        pooled_covariates: torch.Tensor | None,
-        not_pooled_covariates: torch.Tensor | None,
-    ) -> torch.Tensor:
-        """Retrieves the input tensor to be fed to the decoder.
-
-        At least one of the two input tensor should be not None,
-        otherwise a :class: `RuntimeError` is raised. When they are both
-        provided, they will be concatenated, otherwise the provided
-        one will be returned as is.
-
-        :param pooled_covariates: Tensor containing the data for the
-            perturbation covariates that underwent pooling.
-        :type pooled_covariates: class: `torch.Tensor`
-
-        :param not_pooled_covariates:Tensor containing the data for the
-            perturbation covariates that skipped pooling.
-        :type not_pooled_covariates: class: `torch.Tensor`
-        """
-        if (not_pooled_covariates is not None) and (pooled_covariates is not None):
-            concat_covariates = torch.concatenate(
-                (pooled_covariates, make_concatenation_possible(not_pooled_covariates, pooled_covariates, -1)), dim=-1
-            )
-            return self._condition_encoder["pooling_layer"](concat_covariates)
-        elif not_pooled_covariates is None:
-            return self._condition_encoder["pooling_layer"](pooled_covariates)
-        elif pooled_covariates is None:
-            return not_pooled_covariates[..., 0, :]  # take first sequence element
-        else:
-            msg = "All covariates are None."
-            raise RuntimeError(msg)
-
     def forward(
         self,
         condition_dict: MappedTensor,
@@ -140,7 +106,6 @@ class SetEncoder(BaseModule):
         # iterating over perturbation covariates
         encoded_covariates = {}
         for covariate_id, covariate_data in condition_dict.items():
-            # check that the covariate has its encoder defined
             if covariate_id not in self._condition_encoder.keys():
                 msg = f"Input encoder not found for covariate {covariate_id}"
                 raise KeyError(msg)

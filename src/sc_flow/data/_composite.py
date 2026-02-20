@@ -1,6 +1,7 @@
 from dataclasses import asdict, dataclass
 from typing import Any, ClassVar
 
+import numpy as np
 import pandas as pd
 
 from sc_flow._runtime import attempt_tqdm_import
@@ -155,32 +156,49 @@ class NestedData(MappedTree):
             distribution will be considered.
         :type source_key: class: `tuple[Any] | None`
         """
+        # sort data by group for contiguous memory access (O(n log n) once)
+        # then use slices instead of fancy indexing (O(1) view per group)
+        sort_order = np.argsort(reference_index)
+        sorted_data = data[sort_order]
+        sorted_index = reference_index[sort_order]
+
+        # build group boundaries using groupby on sorted index
+        # this gives us {group_key: array of positions} but positions are contiguous
+        group_indices = sorted_index.to_frame(index=False).groupby(
+            list(sorted_index.names), sort=False
+        ).indices
+
         # split source distribution apart
         if source_key is not None:
-            source_idxs = mapped_index.mapping[source_key]
-            source_distribution = data.slice_with_index(reference_index, source_idxs)
-            rest_idxs = {k: v for k, v in mapped_index.mapping.items() if k != source_key}
+            source_positions = group_indices[source_key]
+            source_start, source_end = source_positions[0], source_positions[-1] + 1
+            source_distribution = sorted_data[source_start:source_end]
+            rest_keys = [k for k in mapped_index.mapping.keys() if k != source_key]
         else:
             source_distribution = None
-            rest_idxs = mapped_index.mapping
+            rest_keys = list(mapped_index.mapping.keys())
 
         # lazily import tqdm
         tqdm = attempt_tqdm_import()
         if tqdm is not None:
-            pbar = tqdm(rest_idxs)
+            pbar = tqdm(rest_keys)
         else:
             pbar = None
 
-        # construct data dictionary
+        # construct data dictionary using contiguous slices
         data_dict = {}
-        for key, value in rest_idxs.items():
+        for key in rest_keys:
             # update progress bar
             if pbar is not None:
                 pbar.update()
 
-            # update dictionary
+            # get contiguous slice boundaries
+            positions = group_indices[key]
+            start, end = positions[0], positions[-1] + 1
+
+            # update dictionary with slice (much faster than fancy indexing)
             data_dict[key] = MatchedData(
-                data.slice_with_index(reference_index, value), source_distribution=source_distribution
+                sorted_data[start:end], source_distribution=source_distribution
             )
         return cls(data_dict)
 

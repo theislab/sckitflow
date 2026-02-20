@@ -1,9 +1,12 @@
 from collections.abc import Callable
-from typing import Literal, Protocol
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeVar
 
+import diffrax as dfx
 import numpy as np
 from ott.problems.linear import linear_problem
 
+if TYPE_CHECKING:
+    from sc_flow.backends.jax.nn._vf import BaseVelocityField
 try:
     from numpy.typing import NDArray
 
@@ -12,6 +15,7 @@ except (ImportError, TypeError):
     NumpyArray = np.ndarray
 
 from jax import Array as JaxArray
+from jax import Device
 
 ArrayLike = NumpyArray | JaxArray
 
@@ -38,6 +42,32 @@ class TConditioningFn(Protocol):
     ) -> ArrayLike: ...
 
 
+JaxDevice = type[Device]
+TDevice = str | JaxDevice
+
+TTimeStateDiffusion = Callable[[ArrayLike, ArrayLike, Any], ArrayLike]
+
+TTimeDiffusion = Callable[[ArrayLike, Any], ArrayLike]
+
+TDiffusion = TTimeDiffusion | TTimeStateDiffusion
+
+
+TODEDynamics = TypeVar("TODEDynamics", bound="BaseVelocityField")
+
+TSDEDynamics = tuple[TODEDynamics, TDiffusion]
+
+TSolverDynamics = TypeVar("TSolverDynamics", TODEDynamics, TSDEDynamics)
+
+
+class SolverConfig(NamedTuple):
+    """Configuration extracted from solver_kwargs and common parameters."""
+
+    dt0: float
+    max_steps: int
+    stepsize_controller: dfx.AbstractStepSizeController
+    saveat: dfx.SaveAt
+    source_on_device: ArrayLike
+    remaining_kwargs: dict[str, Any]
 class OTResult(Protocol):
     matrix: ArrayLike
 

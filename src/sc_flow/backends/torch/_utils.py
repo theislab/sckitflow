@@ -1,12 +1,15 @@
+import warnings
+
 import numpy as np
 import torch
 
-from sc_flow.backends.torch._types import NumpyArray, ShapeLike, TensorLike
+from sc_flow.backends.torch._types import NumpyArray, ShapeLike, TensorLike, TDevice
 
 __all__ = [
     "broadcast_to_target_shape",
     "ensure_2d_tensor_with_singleton_trailing_dim",
     "make_concatenation_possible",
+    "get_torch_device",
     "to_torch_tensor",
 ]
 
@@ -94,3 +97,46 @@ def make_concatenation_possible(
         if idx + 1 > input_tensor.ndim - len(dims_to_retain):
             input_tensor = input_tensor.unsqueeze(idx)
     return broadcast_to_target_shape(input_tensor, dims_to_match + dims_to_retain)
+
+
+def get_torch_device(dev: TDevice) -> torch.device:
+    """Validate the PyTorch device passed as input and return the corresponding torch.device object.
+
+    If the requested device is not found, falls back to CPU with a warning.
+    """
+    if isinstance(dev, str):
+        if dev.startswith("cuda"):
+            if not torch.cuda.is_available():
+                warnings.warn(
+                    f"CUDA device '{dev}' requested but CUDA is not available. Falling back to CPU.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                return torch.device("cpu")
+            try:
+                device = torch.device(dev)
+                if device.index is not None and device.index >= torch.cuda.device_count():
+                    warnings.warn(
+                        f"CUDA device index {device.index} out of range (available: {torch.cuda.device_count()}). Falling back to CPU.",
+                        UserWarning,
+                        stacklevel=2,
+                    )
+                    return torch.device("cpu")
+                return device
+            except RuntimeError:
+                warnings.warn(f"Invalid device string '{dev}'. Falling back to CPU.", UserWarning, stacklevel=2)
+                return torch.device("cpu")
+        elif dev == "mps":
+            if not torch.backends.mps.is_available():
+                warnings.warn(
+                    "MPS device requested but MPS is not available. Falling back to CPU.", UserWarning, stacklevel=2
+                )
+                return torch.device("cpu")
+            return torch.device("mps")
+        elif dev == "cpu":
+            return torch.device("cpu")
+        else:
+            warnings.warn(f"Unknown device platform '{dev}'. Falling back to CPU.", UserWarning, stacklevel=2)
+            return torch.device("cpu")
+    else:
+        return dev

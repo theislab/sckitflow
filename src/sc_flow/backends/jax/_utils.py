@@ -1,16 +1,53 @@
+import warnings
 from collections.abc import Sequence
 
+import diffrax as dfx
+import jax
 import jax.numpy as jnp
 import numpy as np
 
-from sc_flow.backends.jax._types import ArrayLike, JaxArray, NumpyArray
+from sc_flow.backends.jax._types import ArrayLike, NumpyArray, JaxArray, JaxDevice, TDevice
 
 __all__ = [
     "broadcast_to_target_shape",
     "ensure_2d_tensor_with_singleton_trailing_dim",
     "make_concatenation_possible",
+    "get_jax_device",
+    "get_ode_solver",
+    "get_sde_solver",
     "to_jax_array",
 ]
+
+_ODE_SOLVER_REGISTRY = {
+    "euler": dfx.Euler(),
+    "heun": dfx.Heun(),
+    "midpoint": dfx.Midpoint(),
+    "ralston": dfx.Ralston(),
+    "bosh3": dfx.Bosh3(),
+    "tsit5": dfx.Tsit5(),
+    "dopri5": dfx.Dopri5(),
+    "dopri8": dfx.Dopri8(),
+    "implicit_euler": dfx.ImplicitEuler(),
+    "kvaerno3": dfx.Kvaerno3(),
+    "kvaerno4": dfx.Kvaerno4(),
+    "kvaerno5": dfx.Kvaerno5(),
+}
+
+_SDE_SOLVER_REGISTRY = {
+    "euler": dfx.Euler(),
+    "heun": dfx.Heun(),
+    "midpoint": dfx.Midpoint(),
+    "ralston": dfx.Ralston(),
+    "euler_heun": dfx.EulerHeun(),
+    "ito_milstein": dfx.ItoMilstein(),
+    "stratonovich_milstein": dfx.StratonovichMilstein(),
+    "sea": dfx.SEA(),
+    "sra1": dfx.SRA1(),
+    "shark": dfx.ShARK(),
+    "general_shark": dfx.GeneralShARK(),
+    "slow_rk": dfx.SlowRK(),
+    "spark": dfx.SPaRK(),
+}
 
 
 def to_jax_array(x: ArrayLike | NumpyArray) -> ArrayLike:
@@ -98,3 +135,65 @@ def ensure_2d_tensor_with_singleton_trailing_dim(
     if len(input_tensor.shape) == 0:
         input_tensor = jnp.expand_dims(input_tensor, axis=0)
     return broadcast_to_target_shape(input_tensor, (input_tensor.shape[0], 1))
+
+
+def get_jax_device(dev: TDevice) -> JaxDevice:
+    """Validate the JAX device passed as input and return the corresponding jax.Device object.
+
+    If the requested device is not found, falls back to CPU with a warning.
+    """
+    if isinstance(dev, str):
+        candidates = [d for d in jax.devices() if d.platform == dev]
+        if not candidates:
+            warnings.warn(
+                f"No available device found for platform '{dev}'. Falling back to CPU.", UserWarning, stacklevel=2
+            )
+            cpu_devices = [d for d in jax.devices() if d.platform == "cpu"]
+            if not cpu_devices:
+                raise RuntimeError("No CPU device available as fallback")
+            return cpu_devices[0]
+        return candidates[0]
+    else:
+        return dev
+
+
+def get_ode_solver(method: str | dfx.AbstractSolver | None) -> dfx.AbstractSolver:
+    """Retrieve the diffrax ODE solver corresponding to the given method name.
+
+    :param method: The name of the ODE solver method or a diffrax solver instance.
+    :type method: str | dfx.AbstractSolver | None
+
+    :returns: The corresponding diffrax ODE solver instance.
+    :rtype: dfx.AbstractSolver
+    """
+    if method is None:
+        return dfx.Euler()
+    elif isinstance(method, dfx.AbstractSolver):
+        return method
+
+    method_key = method.lower()
+    if method_key not in _ODE_SOLVER_REGISTRY:
+        raise ValueError(f"ODE solver '{method}' not found.")
+
+    return _ODE_SOLVER_REGISTRY[method_key]
+
+
+def get_sde_solver(method: str | dfx.AbstractSolver | None) -> dfx.AbstractSolver:
+    """Retrieve the diffrax SDE solver corresponding to the given method name.
+
+    :param method: The name of the SDE solver method or a diffrax solver instance.
+    :type method: str | dfx.AbstractSolver | None
+
+    :returns: The corresponding diffrax SDE solver instance.
+    :rtype: dfx.AbstractSolver
+    """
+    if method is None:
+        return dfx.Euler()
+    elif isinstance(method, dfx.AbstractSolver):
+        return method
+
+    method_key = method.lower()
+    if method_key not in _SDE_SOLVER_REGISTRY:
+        raise ValueError(f"SDE solver '{method}' not found.")
+
+    return _SDE_SOLVER_REGISTRY[method_key]

@@ -7,311 +7,81 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 from flax.training import train_state
-from ott.solvers import utils as solver_utils  # TODO: consider implementing this here
 
 import sc_flow.methods as basemethods
-from sc_flow import _constants, _types
-from sc_flow.backends.jax.methods import _utils
+from sc_flow.backends.jax._types import ArrayLike
+from sc_flow.backends.jax.nn._vf import BaseVelocityField
+from sc_flow.backends.jax.probability_paths import BaseProbabilityPath
 
-__all__ = ["FlowMatching", "OTFlowMatching", "GENOT"]
+__all__ = ["BaseMethod"] 
 
 LinTerm = tuple[jnp.ndarray, jnp.ndarray]
 QuadTerm = tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray | None, jnp.ndarray | None]
 GENOTDataMatchFn = Callable[[LinTerm], jnp.ndarray] | Callable[[QuadTerm], jnp.ndarray]
 
 
-class FlowMatching(basemethods.OTFlowMatching):
-    """TODO."""
+class BaseMethod:
+    """Base flow matching method.
+    
+    :param vf: The velocity field.
+    :type vf: class:`sc_flow.backends.jax.nn.BaseVelocityField`
 
-    def step_fn(
-        self,
-        rng: jnp.ndarray,
-        batch: dict[str, jnp.ndarray],
-    ) -> float:
-        """Single step function of the solver.
+    :param probability_path: The probability path.
+    :type probability_path: class:`sc_flow.backends.jax.probability_paths.BaseProbabilityPath`
 
-        Parameters
-        ----------
-        rng
-            Random number generator.
-        batch
-            Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
-            ``condition``.
+    :param time_sampler: Function to sample time points.
+    :type time_sampler: Callable[[np.ndarray, int], np.ndarray]
 
-        Returns
-        -------
-        Loss value.
-        """
-        source, target = batch[_constants.SOURCE_STATE], batch[_constants.TARGET_STATE]
-        condition = batch.get("condition")
-        rng_time, rng_step_fn = jax.random.split(rng, 2)
-        n = source.shape[0]
-        time = self.time_sampler(rng_time, n)
+    :param match_fn: Function to compute matching indices.
+    :type match_fn: 
 
-        self.vf_state, loss = self.vf_step_fn(
-            rng_step_fn,
-            self.vf_state,
-            time,
-            source,
-            target,
-            condition,
-        )
+    :param target_dim: Dimension of the target data.
+    :type target_dim: int
 
-        if self.ema == 1.0:
-            self.vf_state_inference = self.vf_state
-        else:
-            self.vf_state_inference = self.vf_state_inference.replace(
-                params=_utils.ema_update(self.vf_state_inference.params, self.vf_state.params, self.ema)
-            )
-        return loss
+    :param ema: Exponential moving average factor for target network updates. Default is 1 (no EMA).
+    :type ema: int, optional
 
-    def _get_vf_step_fn(self) -> Callable:  # type: ignore[type-arg]
-        @jax.jit
-        def vf_step_fn(
-            rng: jax.Array,
-            vf_state: train_state.TrainState,
-            time: jnp.ndarray,
-            source: jnp.ndarray,
-            target: jnp.ndarray,
-            conditions: dict[str, jnp.ndarray],
-        ):
-            def loss_fn(
-                params: jnp.ndarray,
-                t: jnp.ndarray,
-                source: jnp.ndarray,
-                target: jnp.ndarray,
-                conditions: dict[str, jnp.ndarray],
-                rng: jax.Array,
-            ) -> jnp.ndarray:
-                rng_flow, rng_dropout = jax.random.split(rng, 2)
-                x_t = self.probability_path.compute_xt(rng_flow, t, source, target)
-                v_t = vf_state.apply_fn(
-                    {"params": params},
-                    t,
-                    x_t,
-                    conditions,
-                    rngs={"dropout": rng_dropout},
-                )
-                u_t = self.probability_path.compute_ut(t, x_t, source, target)
-                return jnp.mean((v_t - u_t) ** 2)
+    :param generate_from_noise: Whether to generate the vf starting point from noise. Default is False.
+    :type generate_from_noise: bool, optional
 
-            grad_fn = jax.value_and_grad(loss_fn)
-            loss, grads = grad_fn(vf_state.params, time, source, target, conditions, rng)
-            return vf_state.apply_gradients(grads=grads), loss
+    :param control_key: Key in the condition dict to use as control. Default is None.
+    :type control_key: str | None, optional
 
-        return vf_step_fn
-
-    def predict(
-        self,
-        x: jnp.ndarray | dict[str, jnp.ndarray],
-        condition: dict[str, jnp.ndarray] | dict[str, dict[str, jnp.ndarray]],
-        rng: jax.Array | None = None,
-        batched: bool = False,
-        **kwargs: Any,
-    ) -> jnp.ndarray | dict[str, jnp.ndarray]:
-        """Predict the translated source ``x`` under condition ``condition``.
-
-        This function solves the ODE learnt with
-        the :class:`~cellflow.networks.ConditionalVelocityField`.
-
-        Parameters
-        ----------
-        x
-            A dictionary with keys indicating the name of the condition and values containing
-            the input data as arrays. If ``batched=False`` provide an array of shape [batch_size, ...].
-        condition
-            A dictionary with keys indicating the name of the condition and values containing
-            the condition of input data as arrays. If ``batched=False`` provide an array of shape
-            [batch_size, ...].
-        rng
-            Random number generator to sample from the latent distribution,
-            only used if ``condition_mode='stochastic'``. If :obj:`None`, the
-            mean embedding is used.
-        batched
-            Whether to use batched prediction. This is only supported if the input has
-            the same number of cells for each condition. For example, this works when using
-            :class:`~cellflow.data.ValidationSampler` to sample the validation data.
-        kwargs
-            Keyword arguments for :func:`diffrax.diffeqsolve`.
-
-        Returns
-        -------
-        The push-forward distribution of ``x`` under condition ``condition``.
-        """
-        if batched and not x:
-            return {}
-
-        if batched:
-            keys = sorted(x.keys())
-            condition_keys = sorted(set().union(*(condition[k].keys() for k in keys)))
-            _predict_jit = jax.jit(lambda x, condition: self._predict_jit(x, condition, rng, **kwargs))
-            batched_predict = jax.vmap(_predict_jit, in_axes=(0, dict.fromkeys(condition_keys, 0)))
-            # assert that the number of cells is the same for each condition
-            n_cells = x[keys[0]].shape[0]
-            for k in keys:
-                assert x[k].shape[0] == n_cells, "The number of cells must be the same for each condition"
-            src_inputs = jnp.stack([x[k] for k in keys], axis=0)
-            batched_conditions = {}
-            for cond_key in condition_keys:
-                batched_conditions[cond_key] = jnp.stack([condition[k][cond_key] for k in keys])
-
-            pred_targets = batched_predict(src_inputs, batched_conditions)
-            return {k: pred_targets[i] for i, k in enumerate(keys)}
-        elif isinstance(x, dict):
-            return jax.tree.map(
-                functools.partial(self._predict_jit, rng=rng, **kwargs),
-                x,
-                condition,  # type: ignore[attr-defined]
-            )
-        else:
-            x_pred = self._predict_jit(x, condition, rng, **kwargs)
-            return np.array(x_pred)
-
-    def get_condition_embedding(self, condition: dict[str, jnp.ndarray], return_as_numpy=True) -> jnp.ndarray:
-        """Get learnt embeddings of the conditions.
-
-        Parameters
-        ----------
-        condition
-            Conditions to encode
-        return_as_numpy
-            Whether to return the embeddings as numpy arrays.
-
-
-        Returns
-        -------
-        Mean and log-variance of encoded conditions.
-        """
-        cond_embedding = self.vf.apply(
-            {"params": self.vf_state.params},
-            condition,
-            method="get_condition_embedding",
-        )
-        return np.asarray(cond_embedding) if return_as_numpy else cond_embedding
-
-
-class OTFlowMatching(FlowMatching):
-    """TODO."""
-
-    def step_fn(self, rng, batch):
-        """Single step function of the solver.
-
-        Parameters
-        ----------
-        rng
-            Random number generator.
-        batch
-            Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
-            ``condition``.
-
-        Returns
-        -------
-        Loss value.
-        """
-        source, target = batch[_constants.SOURCE_STATE], batch[_constants.TARGET_STATE]
-        rng_resample, rng = jax.random.split(rng, 2)
-        tmat = self.match_fn(source, target)
-        src_ixs, tgt_ixs = solver_utils.sample_joint(rng_resample, tmat)
-        batch["src_cell_data"], batch["tgt_cell_data"] = source[src_ixs], target[tgt_ixs]
-
-        return super().step_fn(rng=rng, batch=batch)
-
-
-class GENOT(basemethods.GENOT):
-    """GENOT :cite:`klein:24` extended to the conditional setting.
-
-    Parameters
-    ----------
-    vf
-        Vector field parameterized by a neural network.
-    probability_path
-        Probability path between the latent and the target distributions.
-    data_match_fn
-        Function to match samples from the source and the target
-        distributions. Depending on the data passed :meth:`step_fn`, it has
-        the following signature:
-
-        - ``(src_lin, tgt_lin) -> matching`` - linear matching.
-        - ``(src_quad, tgt_quad, src_lin, tgt_lin) -> matching`` - quadratic (fused) GW matching.
-        In the pure GW setting, both ``src_lin`` and ``tgt_lin`` will be set to :obj:`None`.
-
-    source_dim
-        Dimensionality of the source distribution.
-    target_dim
-        Dimensionality of the target distribution.
-    time_sampler
-        Time sampler with a ``(rng, n_samples) -> time`` signature, see e.g.
-        :func:`ott.solvers.utils.uniform_sampler`.
-    latent_noise_fn
-        Function to sample from the latent distribution in the
-        target space with a ``(rng, shape) -> noise`` signature.
-        If :obj:`None`, multivariate normal distribution is used.
-    kwargs
-        Keyword arguments.
+    :param noise_distribution: Function to sample noise. Default is standard normal distribution.
+    :type noise_distribution: Callable[[jax.Array, tuple[int, ...]], jnp.ndarray] | None, optional
     """
 
     def __init__(
         self,
-        data_match_fn: _types.GENOTDataMatchFn,
-        *,
-        source_dim: int,
+        vf: BaseVelocityField,
+        probability_path: BaseProbabilityPath,
+        time_sampler: Callable[[np.ndarray, int], np.ndarray],
+        match_fn: Any, # TODO: adapt type
         target_dim: int,
-        latent_noise_fn: (Callable[[jax.Array, tuple[int, ...]], jnp.ndarray] | None) = None,
+        ema: int = 1,
+        generate_from_noise: bool = False,
+        control_key: str | None = None,
+        noise_distribution: Callable[[jax.Array, tuple[int, ...]], jnp.ndarray] | None = None,
         **kwargs: Any,
     ):
-        super().__init__(**kwargs)
-        self.data_match_fn = jax.jit(data_match_fn)
-        self.source_dim = source_dim
-        if latent_noise_fn is None:
-            latent_noise_fn = functools.partial(_utils._multivariate_normal, dim=target_dim)
-        self.latent_noise_fn = latent_noise_fn
+        self.vf = vf
+        self.probability_path = probability_path
+        self.time_sampler = time_sampler
+        self.match_fn = match_fn
+        self.ema = ema
+        self.generate_from_noise = generate_from_noise
+        self.control_key = control_key
+        self.noise_distribution = noise_distribution or (
+            lambda rng, shape: jax.random.normal(rng, shape)
+        )
+        # TODO: add cfg
 
+        self._is_trained = False
         self.vf_state = self.vf.create_train_state(
             input_dim=target_dim,
-            **kwargs,
+            **kwargs
         )
         self.vf_step_fn = self._get_vf_step_fn()
-
-    def _get_vf_step_fn(self) -> Callable:  #  type: ignore[type-arg]
-        @jax.jit
-        def vf_step_fn(
-            rng: jax.Array,
-            vf_state: train_state.TrainState,
-            time: jnp.ndarray,
-            source: jnp.ndarray,
-            target: jnp.ndarray,
-            latent: jnp.ndarray,
-            conditions: dict[str, jnp.ndarray] | None,
-        ):
-            def loss_fn(
-                params: jnp.ndarray,
-                t: jnp.ndarray,
-                source: jnp.ndarray,
-                target: jnp.ndarray,
-                latent: jnp.ndarray,
-                condition: dict[str, jnp.ndarray] | None,
-                rng: jax.Array,
-            ) -> jnp.ndarray:
-                rng_flow, rng_dropout = jax.random.split(rng, 2)
-                x_t = self.probability_path.compute_xt(rng_flow, t, latent, target)
-                v_t = vf_state.apply_fn(
-                    {"params": params},
-                    t,
-                    x_t,
-                    source,
-                    condition,
-                    rngs={"dropout": rng_dropout},
-                )
-                u_t = self.probability_path.compute_ut(t, x_t, source, target)
-                return jnp.mean((v_t - u_t) ** 2)
-
-            grad_fn = jax.value_and_grad(loss_fn)
-            loss, grads = grad_fn(vf_state.params, time, source, target, latent, conditions, rng)
-
-            return loss, vf_state.apply_gradients(grads=grads)
-
-        return vf_step_fn
-
     @staticmethod
     def _prepare_data(
         batch: dict[str, jnp.ndarray],
@@ -339,37 +109,27 @@ class GENOT(basemethods.GENOT):
 
     def step_fn(
         self,
-        rng: jnp.ndarray,
+        rng: jax.Array,
         batch: dict[str, jnp.ndarray],
-    ):
+    ) -> float:
         """Single step function of the solver.
 
-        Parameters
-        ----------
-        rng
-            Random number generator.
-        batch
-            Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
-            optionally ``condition``.
-
-        Returns
-        -------
-        Loss value.
+        :param rng: Random number generator.
+        :type rng: jax.Array
+        
+        :param batch: Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
+            ``condition``.
+        :type batch: dict[str, jnp.ndarray]
         """
-        rng = jax.random.split(rng, 5)
-        rng, rng_resample, rng_noise, rng_time, rng_step_fn = rng
+        rng = jax.random.split(rng, 3)
+        rng, rng_time, rng_step_fn = rng
 
         condition = batch.get("condition")
         (source, target), matching_data = self._prepare_data(batch)
         n = source.shape[0]
         time = self.time_sampler(rng_time, n)
-        latent = self.latent_noise_fn(rng_noise, (n,))
 
-        tmat = self.data_match_fn(*matching_data)
-        src_ixs, tgt_ixs = solver_utils.sample_joint(
-            rng_resample,
-            tmat,
-        )
+        src_ixs, tgt_ixs = self.match_fn(*matching_data)
 
         source, target = source[src_ixs], target[tgt_ixs]
         loss, self.vf_state = self.vf_step_fn(
@@ -378,26 +138,54 @@ class GENOT(basemethods.GENOT):
             time,
             source,
             target,
-            latent,
             condition,
         )
         return loss
+    
+    def _get_vf_step_fn(self) -> Callable:  # type: ignore[type-arg]
+        @jax.jit
+        def vf_step_fn(
+            rng: jax.Array,
+            vf_state: train_state.TrainState,
+            time: jnp.ndarray,
+            source: jnp.ndarray,
+            target: jnp.ndarray,
+            conditions: dict[str, jnp.ndarray],
+        ):
+            def loss_fn(
+                params: jnp.ndarray,
+                t: jnp.ndarray,
+                source: jnp.ndarray,
+                target: jnp.ndarray,
+                conditions: dict[str, jnp.ndarray],
+                rng: jax.Array,
+            ) -> jnp.ndarray:
+                rng_flow, rng_latent, rng_dropout = jax.random.split(rng, 3)
+                if self.generate_from_noise:
+                    latent = self.noise_distribution(rng_latent, target.shape)
+                    x_t = self.probability_path.compute_xt(t, latent, target, rng_flow)
+                    if self.control_key is not None:
+                        conditions = conditions.copy()
+                        conditions[self.control_key] = source
+                else:
+                    x_t = self.probability_path.compute_xt(t, source, target, rng_flow)
+                v_t = vf_state.apply_fn(
+                    {"params": params},
+                    t,
+                    x_t,
+                    conditions,
+                    rngs={"dropout": rng_dropout},
+                )
+                u_t = self.probability_path.compute_ut(t, x_t, source, target)
+                return jnp.mean((v_t - u_t) ** 2)
+
+            grad_fn = jax.value_and_grad(loss_fn)
+            loss, grads = grad_fn(vf_state.params, time, source, target, conditions, rng)
+            return loss, vf_state.apply_gradients(grads=grads)
+
+        return vf_step_fn
 
     def get_condition_embedding(self, condition: dict[str, jnp.ndarray], return_as_numpy=True) -> jnp.ndarray:
-        """Get learnt embeddings of the conditions.
-
-        Parameters
-        ----------
-        condition
-            Conditions to encode
-        return_as_numpy
-            Whether to return the embeddings as numpy arrays.
-
-
-        Returns
-        -------
-        Mean and log-variance of encoded conditions.
-        """
         cond_embedding = self.vf.apply(
             {"params": self.vf_state.params},
             condition,
@@ -407,40 +195,30 @@ class GENOT(basemethods.GENOT):
 
     def predict(
         self,
-        x: jnp.ndarray,
-        condition: dict[str, jnp.ndarray] | None = None,
-        rng: jnp.ndarray | None = None,
-        rng_genot: jnp.ndarray | None = None,
+        x: dict[str, ArrayLike] | ArrayLike,
+        condition: dict[str, dict[str, ArrayLike]] | dict[str, ArrayLike] | None = None,
+        rng: ArrayLike | None = None,
         batched: bool = False,
         **kwargs: Any,
-    ) -> jnp.ndarray | tuple[jnp.ndarray, diffrax.Solution]:
+    ) -> dict[str, ArrayLike] | ArrayLike:
         """Generate the push-forward of ``x`` under condition ``condition``.
 
         This function solves the ODE learnt with
-        the :class:`~cellflow.networks.ConditionalVelocityField`.
+        the :class:`~sc_flow.backends.jax.MLPUnconditionalVF`.
 
-        Parameters
-        ----------
-        x
-            Input data of shape [batch_size, ...].
-        condition
-            Condition of the input data of shape [batch_size, ...].
-        rng
-            Random number generator to sample from the latent distribution,
-            only used if ``condition_mode='stochastic'``. If :obj:`None`, the
-            mean embedding is used.
-        rng_genot
-            Random generate used to sample from the latent distribution in cell space.
-        batched
-            Whether to use batched prediction. This is only supported if the input has
-            the same number of cells for each condition. For example, this works when using
-            :class:`~cellflow.data.ValidationSampler` to sample the validation data.
-        kwargs
-            Keyword arguments for :func:`diffrax.diffeqsolve`.
+        :param x: The source data to be transformed.
+        :type x: dict[str, ArrayLike] | ArrayLike
 
-        Returns
-        -------
-        The push-forward distribution of ``x`` under condition ``condition``.
+        :param condition: The condition dictionary. If ``x`` is a dictionary,
+            this should be a dictionary of dictionaries with the same keys
+            as ``x``.
+        :type condition: dict[str, dict[str, ArrayLike]] | dict[str, ArrayLike] | None
+
+        :param rng: Random number generator. Default is None.
+        :type rng: ArrayLike | None, optional
+
+        :param batched: Whether to process the data in batches. Default is False.
+        :type batched: bool, optional
         """
         if batched and not x:
             return {}
@@ -461,8 +239,14 @@ class GENOT(basemethods.GENOT):
 
             pred_targets = batched_predict(src_inputs, batched_conditions)
             return {k: pred_targets[i] for i, k in enumerate(keys)}
+        elif isinstance(x, dict):
+            return jax.tree.map(
+                functools.partial(self._predict_jit, rng=rng, **kwargs),
+                x,
+                condition,
+            )
         else:
-            x_pred = self._predict_jit(x, condition, rng, rng_genot, **kwargs)
+            x_pred = self._predict_jit(x, condition, rng, **kwargs)
             return np.array(x_pred)
 
     def _predict_jit(
@@ -470,33 +254,87 @@ class GENOT(basemethods.GENOT):
         x: jnp.ndarray,
         condition: dict[str, jnp.ndarray] | None = None,
         rng: jnp.ndarray | None = None,
-        rng_genot: jnp.ndarray | None = None,
         **kwargs: Any,
     ) -> jnp.ndarray | tuple[jnp.ndarray, diffrax.Solution]:
         kwargs.setdefault("dt0", None)
         kwargs.setdefault("solver", diffrax.Tsit5())
         kwargs.setdefault("stepsize_controller", diffrax.PIDController(rtol=1e-5, atol=1e-5))
+        rng = jax.random.key(0) if rng is None else rng
 
-        rng = _utils.default_prng_key(rng)
-        rng_genot = _utils.default_prng_key(rng_genot)
-        latent = self.latent_noise_fn(rng_genot, (x.shape[0],))
+        if self.generate_from_noise:
+            latent = self.noise_distribution(rng, x.shape)
+            def vf(t: float, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
+                params = self.vf_state.params
+                source, condition = args
+                return self.vf_state.apply_fn({"params": params}, t, x, condition, source)
 
-        def vf(t: float, x: jnp.ndarray, args: tuple[dict[str, jnp.ndarray], jnp.ndarray]) -> jnp.ndarray:
-            params = self.vf_state.params
-            x_0, condition = args
-            return self.vf_state.apply_fn({"params": params}, t, x, x_0, condition, train=False)
+            def solve_ode(latent: jnp.ndarray, x: jnp.ndarray, condition: dict[str, jnp.ndarray]) -> jnp.ndarray:
+                term = diffrax.ODETerm(vf)
+                sol = diffrax.diffeqsolve(
+                    term,
+                    t0=0.0,
+                    t1=1.0,
+                    y0=latent,
+                    args=(x, condition),
+                    **kwargs,
+                )
+                return sol.ys[0]
+            x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, 0, None]))(latent, x, condition)
+        else:
+            def vf(t: ArrayLike, x: ArrayLike, args: tuple[dict[str, ArrayLike], ArrayLike]) -> jnp.ndarray:
+                params = self.vf_state.params
+                condition = args
+                return self.vf_state.apply_fn({"params": params}, t, x, condition)
 
-        def solve_ode(latent: jnp.ndarray, x: jnp.ndarray, condition: dict[str, jnp.ndarray]) -> jnp.ndarray:
-            term = diffrax.ODETerm(vf)
-            sol = diffrax.diffeqsolve(
-                term,
-                t0=0.0,
-                t1=1.0,
-                y0=latent,
-                args=(x, condition),
-                **kwargs,
-            )
-            return sol.ys[0]
+            def solve_ode(x: jnp.ndarray, condition: dict[str, jnp.ndarray]) -> jnp.ndarray:
+                term = diffrax.ODETerm(vf)
+                sol = diffrax.diffeqsolve(
+                    term,
+                    t0=0.0,
+                    t1=1.0,
+                    y0=x,
+                    args=condition,
+                    **kwargs,
+                ) 
+                return sol.ys[0]
 
-        x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, 0, None]))(latent, x, condition)
+            x_pred = jax.jit(jax.vmap(solve_ode, in_axes=[0, None]))(x, condition)
         return x_pred
+    
+    def validation_step(
+        self,
+        batch: dict[str, ArrayLike], 
+    ) -> ArrayLike:
+        """Validation step of the method.
+
+        :param batch: Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
+            ``condition``.
+        :type batch: dict[str, ArrayLike]
+        """
+        (source, _), _ = self._prepare_data(batch)
+        condition = batch.get("condition")
+
+        x_pred = self.predict(
+            x=source,
+            condition=condition,
+            batched=False,
+        )
+        return x_pred
+    
+    def train_step(
+        self,
+        batch: dict[str, ArrayLike],
+        rng_step_fn: ArrayLike | None = None,
+    ) -> float:
+        """Training step of the method.
+
+        :param batch: Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
+            ``condition``.
+        :type batch: dict[str, ArrayLike]
+
+        :param rng_step_fn: Random number generator for the step function. Default is None.
+        :type rng_step_fn: ArrayLike | None, optional
+        """
+        rng = jax.random.key(0) if rng_step_fn is None else rng_step_fn
+        loss = self.step_fn(rng, batch)
+        return float(loss)

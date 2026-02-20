@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from sc_flow.backends.jax._types import ArrayLike, NumpyArray, JaxArray, JaxDevice, TDevice
+from sc_flow.backends.jax._types import ArrayLike, JaxArray, JaxDevice, NumpyArray, TDevice
 
 __all__ = [
     "broadcast_to_target_shape",
@@ -109,9 +109,7 @@ def broadcast_to_target_shape(
         else:
             input_array = jnp.expand_dims(input_array, -1)
             dims_to_expand.append(target_dim)
-    dims_to_expand = jnp.array(dims_to_expand)
-    print(f"broadcast_to_target_dim::{dims_to_expand.shape=}, {input_array.shape=}, {target_shape=}")
-    return jnp.tile(input_array, dims_to_expand)
+    return jnp.broadcast_to(input_array, target_shape)
 
 
 def make_concatenation_possible(
@@ -130,13 +128,12 @@ def make_concatenation_possible(
 
 
 def ensure_2d_tensor_with_singleton_trailing_dim(
-    input_tensor: ArrayLike,
+    input_array: ArrayLike,
 ):
     """"""  # noqa
-
-    if len(input_tensor.shape) == 0:
-        input_tensor = jnp.expand_dims(input_tensor, axis=0)
-    return broadcast_to_target_shape(input_tensor, (input_tensor.shape[0], 1))
+    if len(input_array.shape) == 0:
+        return jnp.expand_dims(input_array, axis=0)
+    return broadcast_to_target_shape(input_array, (input_array.shape[0], 1))
 
 
 def get_jax_device(dev: TDevice) -> JaxDevice:

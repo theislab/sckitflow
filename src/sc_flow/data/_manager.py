@@ -2,6 +2,7 @@ from collections.abc import Collection, Mapping
 from typing import Any
 
 import pandas as pd
+import time
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
@@ -207,12 +208,24 @@ class DataManager:
         self,
         adata: AnnData,
     ) -> DistributionData:
+        print("Getting distribution data...")
+        time0 = time.time()
         state_data: StateData = self._get_state_data(adata)
+        print(f"Time taken: {time.time() - time0} seconds to get state data")
+        time0 = time.time()
         condition_data: MixedTypeData = self._get_condition_data(adata)
+        print(f"Time taken: {time.time() - time0} seconds to get condition data")
+        time0 = time.time()
         response_data: MixedTypeData = self._get_target_data(adata)
+        print(f"Time taken: {time.time() - time0} seconds to get target data")
+        time0 = time.time()
         groups_data: CategoricalData = self._get_groups_data(adata)
+        print(f"Time taken: {time.time() - time0} seconds to get groups data")
+        time0 = time.time()
         source_coupling_data, target_coupling_data = self._get_coupling_data(adata)
-        return DistributionData(
+        print(f"Time taken: {time.time() - time0} seconds to get coupling data")
+        time0 = time.time()
+        distribution_data = DistributionData(
             state_data,
             response_data=response_data,
             condition_data=condition_data,
@@ -220,6 +233,8 @@ class DataManager:
             source_coupling_data=source_coupling_data,
             target_coupling_data=target_coupling_data,
         )
+        print(f"Time taken: {time.time() - time0} seconds to get distribution data")
+        return distribution_data
 
     def _get_matched_distributions(
         self,
@@ -267,8 +282,14 @@ class DataManager:
         :param adata: The annotated data object to compile and split.
         :type adata: class: `AnnData`
         """
+        print("Compiling adata...")
+        time0 = time.time()
         data: DistributionData = self._get_distribution_data(adata)
-        return self._get_matched_distributions(data)
+        print(f"Time taken: {time.time() - time0} seconds to compile distribution data")
+        time0 = time.time()
+        matched_distributions: NestedData = self._get_matched_distributions(data)
+        print(f"Time taken: {time.time() - time0} seconds to match distributions")
+        return matched_distributions
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

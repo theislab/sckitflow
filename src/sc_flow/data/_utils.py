@@ -82,9 +82,20 @@ def get_covariate_encoder(
     elif encoder_id == "one-hot":
         return get_one_hot_encoder(data)
     elif encoder_id == "functional":
-        return FunctionTransformer(func=fn, inverse_func=inverse_fn)
+        # return FunctionTransformer(func=fn, inverse_func=inverse_fn, check_inverse=False)
+        return get_functional_encoder(data=data, func=fn, inverse_func=inverse_fn)
     msg = f"Covariate Encoder {encoder_id} not available.Possible options are {TargetCovariatesEncodingId}"
     raise ValueError(msg)
+
+
+def get_functional_encoder(data: np.ndarray, func: Callable, inverse_func: Callable) -> FunctionTransformer:
+    """Fit a custom function on the provided data
+
+    :param data: Array contraining the input data to fit the custom function on
+        The input dimensions is whatever the custom function expects.
+    :type data: class: `np.ndarray`
+    """
+    return FunctionTransformer(func=func, inverse_func=inverse_func, check_inverse=False).fit(data)
 
 
 def get_label_encoder(data: np.ndarray) -> LabelEncoder:

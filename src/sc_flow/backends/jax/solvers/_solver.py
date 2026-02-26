@@ -65,12 +65,13 @@ class BaseSolver(Generic[TSolverDynamics], ABC, nn.Module):
         elif not isinstance(stepsize_controller, dfx.AbstractStepSizeController):
             msg = "solver_kwargs['stepsize_controller'] must be an instance of diffrax.AbstractStepSizeController."
             raise TypeError(msg)
+        elif isinstance(stepsize_controller, dfx.StepTo):
+            dt0 = None
 
         if return_trajectory:
             saveat = dfx.SaveAt(ts=ts)
         else:
             saveat = dfx.SaveAt(t1=True)
-
         source_on_device = jax.device_put(source, self._device)
 
         return SolverConfig(

@@ -1,16 +1,15 @@
 from typing import Any
 
-import numpy as np
 import torch
 import torchax
-from torch import Tensor
-from torchax.interop import jax_view, torch_view
+from torch import Tensor, nn
+from torchax.interop import j2t_autograd, jax_view, torch_view
 
 from sc_flow.backends.jax.solvers import ODESolver as JAXODESolver
 from sc_flow.backends.torch._types import TDevice, TODEDynamics
 from sc_flow.backends.torch.solvers.solver import BaseSolver
 
-from ._utils import dynamics_wrapper, map_torch_method_to_jax
+from ._utils import _extract_differentiable_params, dynamics_wrapper, map_torch_method_to_jax
 
 
 class WrappedODESolver(BaseSolver[TODEDynamics]):
@@ -41,14 +40,22 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
         super().__init__(dynamics=dynamics, method=method, device_id=device_id)
         torchax.enable_globally()
         vf_kwargs = vf_kwargs or {}
-        self._dynamics = dynamics
-        self._vf_kwargs = vf_kwargs
-        self._jax_dynamics = dynamics_wrapper(dynamics)
+        if isinstance(dynamics, nn.Module):
+            dynamics.to("jax")
+        else:
+            for attr_name in vars(dynamics):
+                attr = getattr(dynamics, attr_name)
+                if isinstance(attr, nn.Parameter):
+                    setattr(dynamics, attr_name, nn.Parameter(attr.to("jax"), requires_grad=attr.requires_grad))
+
+        _jax_dynamics = dynamics_wrapper(dynamics)
+
+        self._dyn = dynamics
 
         jax_method = map_torch_method_to_jax(method)
 
         self._jax_solver = JAXODESolver(
-            dynamics=self._jax_dynamics,
+            dynamics=_jax_dynamics,
             method=jax_method,
             device_id=device_id,
             vf_kwargs=vf_kwargs,
@@ -57,26 +64,26 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
     def solve(
         self,
         source: Tensor,
-        time: Tensor,
+        t0: float = 0.0,
+        t1: float = 1.0,
         *,
-        rtol: float = 1e-7,
-        atol: float = 1e-9,
-        solver_kwargs: dict[str, Any] | None = None,
+        num_time_steps: int = 500,
         return_trajectory: bool = False,
+        solver_kwargs: dict[str, Any] | None = None,
     ) -> Tensor:
         r"""Integrates the ODE defined by the provided velocity field.
 
         :param source: Initial state of the ODE.
         :type source: class:`torch.Tensor`
 
-        :param time: Time grid over which to integrate the ODE.
-        :type time: class:`torch.Tensor`
+        :param t0: Initial time of the ODE.
+        :type t0: class:`torch.Tensor`
 
-        :param rtol: Relative tolerance for the ODE solver.
-        :type rtol: class:`float`
+        :param t1: Final time of the ODE.
+        :type t1: class:`torch.Tensor`
 
-        :param atol: Absolute tolerance for the ODE solver.
-        :type atol: class:`float`
+        :param num_time_steps: Number of time steps to use for integration.
+        :type num_time_steps: class:`int`
 
         :param solver_kwargs: (Optional) Keyword arguments forwarded directly to
             :func:`torchdiffeq.odeint`.
@@ -89,37 +96,69 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
             :param:`return_trajectory`.
         :rtype: class:`torch.Tensor`
         """
-        source_j = source if source.device.type == "jax" else source.to("jax")
-        time_j = time if time.device.type == "jax" else time.to("jax")
+        solver_kwargs = solver_kwargs or {}
+        stepsize_controller = solver_kwargs.get("stepsize_controller", None)
+        stepsize_controller_dfx = stepsize_controller.get_controller() if stepsize_controller else None
 
-        source_jax = jax_view(source_j)
-        t0 = float(time_j[0].item())
-        t1 = float(time_j[-1].item())
-        num_time_steps = int(time_j.shape[0])
+        solver_kwargs["stepsize_controller"] = stepsize_controller_dfx
 
-        trajectory = self._jax_solver.solve(
-            source_jax,
-            t0,
-            t1,
-            num_time_steps=num_time_steps,
-            return_trajectory=return_trajectory,
-            solver_kwargs=solver_kwargs,
+        params_dict = _extract_differentiable_params(self._dyn)
+        param_names = list(params_dict.keys())
+        param_tensors = list(params_dict.values())
+
+        requires_grad = torch.is_grad_enabled() and (
+            source.requires_grad or any(p.requires_grad for p in param_tensors)
         )
 
-        trajectory = torch_view(trajectory)
-        trajectory = torch.from_numpy(np.array(trajectory)).to(self._device)
+        if requires_grad and param_tensors:
+            source_torchax = source.to("jax")
 
-        if return_trajectory:
-            return trajectory
+            def jax_solve_with_backprop(source_torchax, *params_torchax):
+                source_jax = jax_view(source_torchax)
+                params_jax = [jax_view(p) for p in params_torchax]
+                solve_kwargs = {
+                    **solver_kwargs,
+                    "args": {
+                        "params": params_jax,
+                        "param_names": param_names,
+                    },
+                }
+                trajectory = self._jax_solver.solve(
+                    source_jax,
+                    t0,
+                    t1,
+                    num_time_steps=num_time_steps,
+                    return_trajectory=True,
+                    solver_kwargs=solve_kwargs,
+                )
+                return trajectory, trajectory[-1]
+
+            tsolver_fn = j2t_autograd(jax_solve_with_backprop)
+            trajectory, final_state = tsolver_fn(source_torchax, *param_tensors)
+            print("result:", final_state.requires_grad, getattr(final_state, "grad_fn", None))
+
+            if return_trajectory:
+                return trajectory
+            else:
+                print("result[-1]:", final_state.requires_grad, getattr(final_state, "grad_fn", None))
+                return final_state
         else:
-            return trajectory[-1]
+            source_jax = source.to("jax")
+            trajectory = self._jax_solver.solve(
+                jax_view(source_jax),
+                t0,
+                t1,
+                num_time_steps=num_time_steps,
+                return_trajectory=return_trajectory,
+                solver_kwargs=solver_kwargs,
+            )
+            trajectory = torch_view(trajectory)
+            if return_trajectory:
+                return trajectory.to(self._device)
+            else:
+                return trajectory[-1].to(self._device)
 
     @property
-    def vf_kwargs(self) -> dict[str, Any]:
-        """Get the velocity field associated with the ODE solver."""
-        return self._vf_kwargs
-
-    @property
-    def dynamics(self) -> TODEDynamics:
-        """Get the dynamics object associated with the ODE solver."""
-        return self._dynamics
+    def jax_solver(self) -> JAXODESolver:
+        """Access the underlying JAX ODE solver instance."""
+        return self._jax_solver

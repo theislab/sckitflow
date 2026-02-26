@@ -56,3 +56,6 @@ class SolverConfig(NamedTuple):
     source_on_device: Tensor
     time_on_device: Tensor
     remaining_kwargs: dict[str, Any]
+
+
+RealScalarLike = int | float

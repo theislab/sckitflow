@@ -143,8 +143,7 @@ class SDESolver(BaseSolver[TSDEDynamics]):
             ODETerm(self._drift_fn),
             ControlTerm(self._diffusion_fn, brownian_motion),
         )
-        print(terms)
-        print(config.source_on_device.shape)
+
         trajectory = dfx.diffeqsolve(
             terms,
             solver=self._method,

@@ -2,7 +2,6 @@ from collections import OrderedDict
 from typing import Any
 
 import diffrax as dfx
-import torchax
 from torch import Tensor, nn
 from torchax.interop import jax_view, torch_view
 
@@ -21,20 +20,8 @@ _ODE_SOLVER_REGISTRY = {
     "adaptive_heun": dfx.Heun(),
     "fehlberg2": dfx.Bosh3(),
     "explicit_adams": dfx.Tsit5(),
-    "implicit_adams": dfx.Kvaerno5(),
     "fixed_adams": dfx.Tsit5(),
 }
-
-
-def _pack_state(module: nn.Module) -> Tensor:
-    state = OrderedDict()
-    for name, param in module.named_parameters(recurse=True):
-        state[name] = param
-
-    for name, buffer in module.named_buffers(recurse=True):
-        state[name] = buffer
-
-    return state
 
 
 def _to_jax_tree(x: Any) -> Any:
@@ -56,27 +43,63 @@ def map_torch_method_to_jax(method: str | None) -> dfx.AbstractSolver:
     return _ODE_SOLVER_REGISTRY[key]
 
 
-def dynamics_wrapper(dynamics: TODEDynamics) -> JAXTODEdynamics:
-    torchax.enable_globally()
+def _extract_differentiable_params(obj: Any) -> OrderedDict[str, Tensor]:
+    """Return an ordered dict of (name -> live Parameter/Tensor) from *obj*.
 
+    Deterministic ordering is essential: we flatten these into positional
+    args for jax.vjp and must be able to reconstruct them later.
+    """
+    params: OrderedDict[str, Tensor] = OrderedDict()
+
+    if isinstance(obj, nn.Module):
+        for name, p in obj.named_parameters(recurse=True):
+            params[name] = p
+        for name, b in obj.named_buffers(recurse=True):
+            if b.requires_grad:
+                params[name] = b
+    else:
+        for attr_name in sorted(dir(obj)):
+            if attr_name.startswith("_"):
+                continue
+            try:
+                attr = getattr(obj, attr_name)
+                if isinstance(attr, nn.Parameter):
+                    params[attr_name] = attr
+                elif isinstance(attr, Tensor) and attr.requires_grad:
+                    params[attr_name] = attr
+            except (AttributeError, TypeError):
+                pass
+
+    return params
+
+
+def dynamics_wrapper(dynamics: TODEDynamics) -> JAXTODEdynamics:
     class DynamicsWrapper:
         def __init__(self, dyn):
             self._dyn = dyn
 
         def get_vf_fn(self, **vf_kwargs: Any):
             vf_kwargs = vf_kwargs or {}
-            vf_kwargs = _to_jax_tree(vf_kwargs)
-            vf_fn = self._dyn.get_vf_fn(**vf_kwargs)
 
             def jax_vf(t, x, args=None):
-                t_torch = _to_jax_tree(torch_view(t))
-                x_torch = _to_jax_tree(torch_view(x))
+                t_torch = torch_view(t)
+                x_torch = torch_view(x)
 
-                out_torch = vf_fn(t_torch, x_torch)
+                if args is not None and "params" in args:
+                    params_jax = args["params"]
+                    param_names = args["param_names"]
 
-                out_jax = jax_view(_to_jax_tree(out_torch))
-
-                return out_jax
+                    orig = {n: getattr(self._dyn, n) for n in param_names}
+                    for n, v in zip(param_names, params_jax, strict=False):
+                        object.__setattr__(self._dyn, n, torch_view(v))
+                    vf_fn = self._dyn.get_vf_fn(**vf_kwargs)
+                    out = jax_view(vf_fn(t_torch, x_torch))
+                    for n, v in orig.items():
+                        object.__setattr__(self._dyn, n, v)
+                    return out
+                else:
+                    vf_fn = self._dyn.get_vf_fn(**vf_kwargs)
+                    return jax_view(vf_fn(t_torch, x_torch))
 
             return jax_vf
 

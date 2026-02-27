@@ -1,6 +1,3 @@
-# tests/backends/torch/solvers/test_diffusion_wrapper.py
-
-
 import pytest
 import torch
 import torchsde

@@ -32,22 +32,23 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
         torchax.enable_globally()
 
         # get wrapper for original terms
-        drift_fn, diffusion_fn = _init_wrapped_sde_terms(
+        drift_term, diffusion_term = _init_wrapped_sde_terms(
             dynamics,
             vf_kwargs=vf_kwargs,
             df_kwargs=df_kwargs,
         )
 
         # convert term to torchax
-        self._drift_fn = _convert_to_torchax(drift_fn)
-        self._diffusion_fn = _convert_to_torchax(diffusion_fn)
+        drift_term = _convert_to_torchax(drift_term)
+        diffusion_term = _convert_to_torchax(diffusion_term)
 
         # container for dynamics
         wrapped_sde_dynamics = (
-            self._drift_fn,
-            self._diffusion_fn,
+            drift_term.fn,
+            diffusion_term.fn,
         )
         method = get_sde_solver(method)
+
         # instantiate solver class
         self._jax_solver = JaxSDESolver(
             dynamics=wrapped_sde_dynamics,

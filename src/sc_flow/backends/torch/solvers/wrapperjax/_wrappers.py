@@ -114,24 +114,16 @@ def _init_wrapped_sde_terms(
     # retrieve original terms
     drift_term, diffusion_term = dynamics
 
-    # wrap drift term
-    class _WrappedDriftTerm:
-        def __init__(self):
-            self.drift_fn = _get_drift_fn_wrapper(
-                drift_term,
-                vf_kwargs=vf_kwargs,
-            )
+    # wrap functions
+    drift_fn = _get_drift_fn_wrapper(
+        drift_term,
+        vf_kwargs=vf_kwargs,
+    )
+    diffusion_fn = _get_diffusion_fn_wrapper(diffusion_term, df_kwargs=df_kwargs)
 
-        def get_vf_fn(self, **kwargs):
-            return self.drift_fn
-
-    # wrap diffusion term
-    class WrappedDiffusionTerm:
-        def __init__(self):
-            self.diffusion_fn = _get_diffusion_fn_wrapper(diffusion_term, df_kwargs=df_kwargs)
-
-        def get_diffusion_fn(self, **kwargs):
-            return self.diffusion_fn
+    class _WrappedTerm:
+        def __init__(self, fn):
+            self.fn = fn
 
     # return wrapped terms
-    return _WrappedDriftTerm(), WrappedDiffusionTerm()
+    return _WrappedTerm(drift_fn), _WrappedTerm(diffusion_fn)

@@ -380,7 +380,7 @@ E                   ValueError: Error while tracing MultiTerm(
 E                     terms=(
 E                       ODETerm(vector_field=<function ConstantDriftVF.get_vf_fn.<locals>.vf>),
 E                       ControlTerm(
-E                         vector_field=<function SDESolver._diffusion_fn_wrapper.<locals>.wrapped_diffusion>,
+E                         vector_field=<function SDESolver._get_diffusion_fn_wrapper.<locals>.wrapped_diffusion>,
 E                         control=VirtualBrownianTree(
 E                           t0=0.0,
 E                           t1=0.5,
@@ -558,7 +558,7 @@ E           MultiTerm(
 E             terms=(
 E               ODETerm(vector_field=<function ConstantDriftVF.get_vf_fn.<locals>.vf>),
 E               ControlTerm(
-E                 vector_field=<function SDESolver._diffusion_fn_wrapper.<locals>.wrapped_diffusion>,
+E                 vector_field=<function SDESolver._get_diffusion_fn_wrapper.<locals>.wrapped_diffusion>,
 E                 control=VirtualBrownianTree(
 E                   t0=0.0,
 E                   t1=0.5,
@@ -583,7 +583,7 @@ MultiTerm(
   terms=(
     ODETerm(vector_field=<function ConstantDriftVF.get_vf_fn.<locals>.vf>),
     ControlTerm(
-      vector_field=<function SDESolver._diffusion_fn_wrapper.<locals>.wrapped_diffusion>,
+      vector_field=<function SDESolver._get_diffusion_fn_wrapper.<locals>.wrapped_diffusion>,
       control=VirtualBrownianTree(
         t0=0.0,
         t1=0.5,

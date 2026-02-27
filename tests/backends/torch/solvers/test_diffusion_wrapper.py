@@ -10,9 +10,9 @@ from sc_flow.backends.torch.solvers.sde_solver import SDESolver
 
 
 def _wrap(diffusion_fn, df_kwargs: dict | None = None):
-    """Use SDESolver._diffusion_fn_wrapper without calling __init__."""
+    """Use SDESolver._get_diffusion_fn_wrapper without calling __init__."""
     solver = SDESolver.__new__(SDESolver)
-    return solver._diffusion_fn_wrapper(diffusion_fn, df_kwargs=df_kwargs)
+    return solver._get_diffusion_fn_wrapper(diffusion_fn, df_kwargs=df_kwargs)
 
 
 def test_wrapper_uses_t_only_when_one_param_after_partial():

@@ -8,8 +8,10 @@ from torchax.interop import j2t_autograd, jax_view, torch_view
 from sc_flow.backends.jax.solvers import ODESolver as JAXODESolver
 from sc_flow.backends.torch._types import TDevice, TODEDynamics
 from sc_flow.backends.torch.solvers.solver import BaseSolver
+from sc_flow.backends.torch.solvers.wrapperjax._utils import _extract_differentiable_params, _map_torch_method_to_jax
+from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_ode_dynamics
 
-from ._utils import _extract_differentiable_params, dynamics_wrapper, map_torch_method_to_jax
+__all__ = ["WrappedODESolver"]
 
 
 class WrappedODESolver(BaseSolver[TODEDynamics]):
@@ -48,11 +50,11 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
                 if isinstance(attr, nn.Parameter):
                     setattr(dynamics, attr_name, nn.Parameter(attr.to("jax"), requires_grad=attr.requires_grad))
 
-        _jax_dynamics = dynamics_wrapper(dynamics)
+        _jax_dynamics = _init_wrapped_ode_dynamics(dynamics, vf_kwargs)
 
         self._dyn = dynamics
 
-        jax_method = map_torch_method_to_jax(method)
+        jax_method = _map_torch_method_to_jax(method)
 
         self._jax_solver = JAXODESolver(
             dynamics=_jax_dynamics,

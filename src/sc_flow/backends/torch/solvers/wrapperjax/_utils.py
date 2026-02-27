@@ -3,10 +3,13 @@ from typing import Any
 
 import diffrax as dfx
 from torch import Tensor, nn
-from torchax.interop import jax_view, torch_view
 
-from sc_flow.backends.jax._types import TODEDynamics as JAXTODEdynamics
-from sc_flow.backends.torch._types import TODEDynamics
+__all__ = [
+    "_to_jax_tree",
+    "_map_torch_method_to_jax",
+    "_extract_differentiable_params",
+    "_convert_to_torchax",
+]
 
 _ODE_SOLVER_REGISTRY = {
     "euler": dfx.Euler(),
@@ -34,7 +37,7 @@ def _to_jax_tree(x: Any) -> Any:
     return x
 
 
-def map_torch_method_to_jax(method: str | None) -> dfx.AbstractSolver:
+def _map_torch_method_to_jax(method: str | None) -> dfx.AbstractSolver:
     if method is None:
         return dfx.Euler()
     key = method.lower()
@@ -73,34 +76,12 @@ def _extract_differentiable_params(obj: Any) -> OrderedDict[str, Tensor]:
     return params
 
 
-def dynamics_wrapper(dynamics: TODEDynamics) -> JAXTODEdynamics:
-    class DynamicsWrapper:
-        def __init__(self, dyn):
-            self._dyn = dyn
-
-        def get_vf_fn(self, **vf_kwargs: Any):
-            vf_kwargs = vf_kwargs or {}
-
-            def jax_vf(t, x, args=None):
-                t_torch = torch_view(t)
-                x_torch = torch_view(x)
-
-                if args is not None and "params" in args:
-                    params_jax = args["params"]
-                    param_names = args["param_names"]
-
-                    orig = {n: getattr(self._dyn, n) for n in param_names}
-                    for n, v in zip(param_names, params_jax, strict=False):
-                        object.__setattr__(self._dyn, n, torch_view(v))
-                    vf_fn = self._dyn.get_vf_fn(**vf_kwargs)
-                    out = jax_view(vf_fn(t_torch, x_torch))
-                    for n, v in orig.items():
-                        object.__setattr__(self._dyn, n, v)
-                    return out
-                else:
-                    vf_fn = self._dyn.get_vf_fn(**vf_kwargs)
-                    return jax_view(vf_fn(t_torch, x_torch))
-
-            return jax_vf
-
-    return DynamicsWrapper(dynamics)
+def _convert_to_torchax(obj: object):
+    if isinstance(obj, nn.Module):
+        obj.to("jax")
+    else:
+        for attr_name in vars(obj):
+            attr = getattr(obj, attr_name)
+            if isinstance(attr, nn.Parameter):
+                setattr(obj, attr_name, nn.Parameter(attr.to("jax"), requires_grad=attr.requires_grad))
+    return obj

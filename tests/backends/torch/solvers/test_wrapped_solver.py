@@ -14,7 +14,7 @@ from sc_flow.backends.torch.solvers.wrapperjax._controllers import (
     PIDController,
     StepTo,
 )
-from sc_flow.backends.torch.solvers.wrapperjax.ode_solver import WrappedODESolver as ODESolver
+from sc_flow.backends.torch.solvers.wrapperjax._ode_solver import WrappedODESolver as ODESolver
 
 
 class PolyTimeVF:

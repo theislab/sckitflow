@@ -12,7 +12,7 @@ from torch import Tensor
 
 from sc_flow.backends.jax.solvers import ODESolver as JAXODESolver
 from sc_flow.backends.torch.solvers import ODESolver as TorchODESolver
-from sc_flow.backends.torch.solvers.wrapperjax.ode_solver import WrappedODESolver
+from sc_flow.backends.torch.solvers.wrapperjax._ode_solver import WrappedODESolver
 
 
 @dataclass

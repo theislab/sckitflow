@@ -5,7 +5,7 @@ from diffrax import ODETerm
 
 from sc_flow.backends.jax._types import ArrayLike, TDevice, TODEDynamics, TVfFn
 from sc_flow.backends.jax._utils import get_ode_solver
-from sc_flow.backends.jax.solvers.solver import BaseSolver
+from sc_flow.backends.jax.solvers._solver import BaseSolver
 
 
 class ODESolver(BaseSolver[TODEDynamics]):

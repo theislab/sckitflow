@@ -7,7 +7,7 @@ from torch import Tensor
 from torchsde import sdeint
 
 from sc_flow.backends.torch._types import TDevice, TDiffusion, TNoiseType, TSDEDynamics, TSDEType, TVfFn
-from sc_flow.backends.torch.solvers.solver import BaseSolver
+from sc_flow.backends.torch.solvers._solver import BaseSolver
 
 
 class SDESolver(BaseSolver[TSDEDynamics]):
@@ -162,7 +162,7 @@ class SDESolver(BaseSolver[TSDEDynamics]):
         remaining_params = [p for p in params.values() if p.name not in df_kwargs]
         num_params = len(remaining_params)
 
-        def wrapped_diffusion(t: Tensor, y: Tensor, args: Any = None) -> Tensor:
+        def wrapped_diffusion(t: Tensor, y: Tensor) -> Tensor:
             if num_params >= 2:
                 return partial_diffusion(t, y)
             else:

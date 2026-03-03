@@ -10,8 +10,8 @@ from jaxtyping import PyTree
 
 from sc_flow.backends.jax._types import ArrayLike, TDevice, TDiffusion, TSDEDynamics, TTimeStateDiffusion, TVfFn
 from sc_flow.backends.jax._utils import get_sde_solver
+from sc_flow.backends.jax.solvers._solver import BaseSolver
 from sc_flow.backends.jax.solvers._utils import _prepare_diffusion_fn
-from sc_flow.backends.jax.solvers.solver import BaseSolver
 
 
 class SDESolver(BaseSolver[TSDEDynamics]):

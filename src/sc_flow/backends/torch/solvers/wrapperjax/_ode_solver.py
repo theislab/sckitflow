@@ -7,7 +7,7 @@ from torchax.interop import j2t_autograd, jax_view, torch_view
 
 from sc_flow.backends.jax.solvers import ODESolver as JAXODESolver
 from sc_flow.backends.torch._types import TDevice, TODEDynamics
-from sc_flow.backends.torch.solvers.solver import BaseSolver
+from sc_flow.backends.torch.solvers._solver import BaseSolver
 from sc_flow.backends.torch.solvers.wrapperjax._utils import _extract_differentiable_params, _map_torch_method_to_jax
 from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_ode_dynamics
 

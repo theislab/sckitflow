@@ -5,7 +5,7 @@ from sc_flow.backends.torch.solvers.wrapperjax._controllers import (
     PIDController,
     StepTo,
 )
-from sc_flow.backends.torch.solvers.wrapperjax.ode_solver import WrappedODESolver
+from sc_flow.backends.torch.solvers.wrapperjax._ode_solver import WrappedODESolver
 
 __all__ = [
     "WrappedODESolver",

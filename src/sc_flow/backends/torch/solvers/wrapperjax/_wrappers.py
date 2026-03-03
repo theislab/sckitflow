@@ -48,6 +48,7 @@ def _get_drift_fn_wrapper(
                 object.__setattr__(dynamics, n, v)
             return out
         # base call with no extra arguments
+        vf_fn = dynamics.get_vf_fn(**vf_kwargs)
         return jax_view(vf_fn(t_torch, x_torch))
 
     return _call_wrapped_drift_fn
@@ -80,7 +81,7 @@ def _get_diffusion_fn_wrapper(
         if isinstance(out_jax, lx.AbstractLinearOperator):
             return out_jax
         if jnp.ndim(out_jax) == 0:
-            return lx.DiagonalLinearOperator(jnp.full_like(x_jax, out_jax))
+            return lx.DiagonalLinearOperator(jnp.broadcast_to(out_jax, x_jax.shape))
         if out_jax.shape == x_jax.shape:
             return lx.DiagonalLinearOperator(out_jax)
         if jnp.ndim(out_jax) == 2:
@@ -121,9 +122,13 @@ def _init_wrapped_sde_terms(
     )
     diffusion_fn = _get_diffusion_fn_wrapper(diffusion_term, df_kwargs=df_kwargs)
 
-    class _WrappedTerm:
+    class _WrappedDiffusionTerm:
         def __init__(self, fn):
             self.fn = fn
 
+    class _WrappedDriftTerm:
+        def get_vf_fn(self, **kwargs):
+            return drift_fn
+
     # return wrapped terms
-    return _WrappedTerm(drift_fn), _WrappedTerm(diffusion_fn)
+    return _WrappedDriftTerm(), _WrappedDiffusionTerm(diffusion_fn)

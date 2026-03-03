@@ -3,7 +3,6 @@ from typing import Any, Generic
 
 import diffrax as dfx
 import flax.linen as nn
-import jax
 import jax.numpy as jnp
 
 from sc_flow.backends.jax._types import ArrayLike, SolverConfig, TDevice, TSolverDynamics
@@ -72,14 +71,15 @@ class BaseSolver(Generic[TSolverDynamics], ABC, nn.Module):
             saveat = dfx.SaveAt(ts=ts)
         else:
             saveat = dfx.SaveAt(t1=True)
-        source_on_device = jax.device_put(source, self._device)
+        # source_on_device = jax.device_put(source, self._device)
 
         return SolverConfig(
             dt0=dt0,
             max_steps=max_steps,
             stepsize_controller=stepsize_controller,
             saveat=saveat,
-            source_on_device=source_on_device,
+            # source_on_device=source_on_device,
+            source_on_device=source,
             remaining_kwargs=solver_kwargs,
         )
 

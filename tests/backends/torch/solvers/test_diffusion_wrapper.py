@@ -26,7 +26,7 @@ def test_wrapper_uses_t_only_when_one_param_after_partial():
 
     t = torch.tensor(0.1)
     y = torch.zeros(3)
-    out = wrapped(t, y, args=None)
+    out = wrapped(t, y)
 
     assert out.shape == (3,)
     assert torch.allclose(out, 0.5 * torch.ones(3))
@@ -49,7 +49,7 @@ def test_wrapper_uses_t_y_when_two_params_after_partial():
 
     t = torch.tensor(0.2)
     y = torch.arange(5.0)
-    out = wrapped(t, y, args=None)
+    out = wrapped(t, y)
 
     assert out.shape == y.shape
     assert torch.allclose(out, 0.3 * torch.ones_like(y))
@@ -74,7 +74,7 @@ def test_wrapper_no_df_kwargs_g_t_y():
     t = torch.tensor(0.0)
     y = torch.arange(3.0)
 
-    out = wrapped(t, y, args=None)
+    out = wrapped(t, y)
 
     assert out.shape == y.shape
     assert torch.allclose(out, torch.ones_like(y))
@@ -98,7 +98,7 @@ def test_wrapper_no_df_kwargs_g_t_only():
     t = torch.tensor(1.23)
     y = torch.zeros(4)
 
-    out = wrapped(t, y, args=None)
+    out = wrapped(t, y)
 
     assert out.shape == (4,)
     assert torch.allclose(out, torch.full((4,), 7.0))
@@ -122,7 +122,7 @@ class _SDEWithWrapper(torchsde.SDEIto):
 
     def g(self, t: Tensor, y: Tensor) -> Tensor:
         # TorchSDE in this version doesn't pass args, so we call with args=None
-        return self._wrapped_diffusion(t, y, args=None)
+        return self._wrapped_diffusion(t, y)
 
 
 @pytest.mark.parametrize("dim", [1, 4])
@@ -174,7 +174,7 @@ def test_sdeint_with_wrapped_diffusion_t_only(dim: int):
         def g(self, t: Tensor, y: Tensor) -> Tensor:
             # g_raw(t) returns (dim,), but torchsde with diagonal noise expects (batch, dim)
             # so we expand to batch dimension here.
-            g_t = wrapped(t, y, args=None)  # shape (dim,)
+            g_t = wrapped(t, y)  # shape (dim,)
             return g_t.expand_as(y)  # (batch, dim)
 
     sde = _SDE()

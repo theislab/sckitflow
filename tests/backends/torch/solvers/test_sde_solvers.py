@@ -7,7 +7,7 @@ import pytest
 import torch
 from torch import Tensor, nn
 
-from sc_flow.backends.torch.solvers.wrapperjax.sde_solver import WrappedSDESolver
+from sc_flow.backends.torch.solvers.wrapperjax._sde_solver import WrappedSDESolver
 
 # dataclassics ───────────────────────────────────────────────────────────────────
 

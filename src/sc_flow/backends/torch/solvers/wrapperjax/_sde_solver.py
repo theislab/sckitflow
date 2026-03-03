@@ -32,19 +32,26 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
         torchax.enable_globally()
 
         # get wrapper for original terms
+        drift_raw, diffusion_raw = dynamics
+        _convert_to_torchax(drift_raw)  # converts W, b in-place on the nn.Module
+
+        # Now build wrappers — closures will capture torchax tensors
         drift_term, diffusion_term = _init_wrapped_sde_terms(
             dynamics,
             vf_kwargs=vf_kwargs,
             df_kwargs=df_kwargs,
         )
+        self._drift_fn = drift_term
+        self._diffusion_fn = diffusion_term
 
-        # convert term to torchax
+        # _convert_to_torchax on the wrapper objects is now a no-op for nn.Module params
+        # but still needed for dataclass-style dynamics with nn.Parameter attrs
         drift_term = _convert_to_torchax(drift_term)
         diffusion_term = _convert_to_torchax(diffusion_term)
 
         # container for dynamics
         wrapped_sde_dynamics = (
-            drift_term.fn,
+            drift_term,
             diffusion_term.fn,
         )
         method = get_sde_solver(method)
@@ -69,15 +76,7 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
         solver_kwargs: dict[str, Any] | None = None,
     ) -> Tensor:
         """"""  # noqa
-        config = self._prepare_solve_config(
-            source=source,
-            t0=t0,
-            t1=t1,
-            num_time_steps=num_time_steps,
-            return_trajectory=return_trajectory,
-            solver_kwargs=solver_kwargs,
-        )
-        source_tx = config.source.to("jax")
+        source_tx = source.to("jax")
 
         drift_params_dict = _extract_differentiable_params(self._drift_fn)
         diffusion_params_dict = _extract_differentiable_params(self._diffusion_fn)
@@ -118,14 +117,15 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
                     return_trajectory=True,
                     solver_kwargs=solve_kwargs,
                 )
-                return trajectory, trajectory[-1]
+                return trajectory
 
             tsolver_fn = j2t_autograd(jax_solve_with_backprop)
-            trajectory, final_state = tsolver_fn(source_tx, *param_tensors)
-            if return_trajectory:
-                return trajectory
-            else:
-                return final_state
+            trajectory = tsolver_fn(source_tx, *param_tensors)
+            return trajectory
+            # if return_trajectory:
+            #     return trajectory
+            # else:
+            #     return final_state
         else:
             source_jax = source.to("jax")
             trajectory = self._jax_solver.solve(
@@ -139,7 +139,8 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
                 solver_kwargs=solver_kwargs,
             )
             trajectory = torch_view(trajectory)
-            if return_trajectory:
-                return trajectory
-            else:
-                return trajectory[-1]
+            return trajectory
+            # if return_trajectory:
+            #     return trajectory
+            # else:
+            #     return trajectory[-1]

@@ -3,8 +3,9 @@
 
 import pytest
 import torch
-import torchsde
 from torch import Tensor
+
+pytest.importorskip("torchsde")
 
 from sc_flow.backends.torch.solvers.sde_solver import SDESolver
 

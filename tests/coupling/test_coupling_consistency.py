@@ -1,3 +1,7 @@
+import pytest
+
+pytest.importorskip("ot")
+
 import jax.numpy as jnp
 import numpy as np
 import torch

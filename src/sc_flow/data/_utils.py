@@ -1,4 +1,4 @@
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Collection, Mapping
 
 import numpy as np
 import pandas as pd
@@ -134,3 +134,12 @@ def get_one_hot_encoder(data: np.ndarray) -> OneHotEncoder:
         )
         raise ValueError(msg)
     return OneHotEncoder().fit(data)
+
+
+def convert_to_categorical_in_place(df: pd.DataFrame, cols: Collection[str] | None) -> None:
+    """Convert the given columns to categorical in place."""
+    if cols is None:
+        return
+    for c in cols:
+        if c in df.columns and not hasattr(df[c], "cat"):
+            df[c] = df[c].astype("category")

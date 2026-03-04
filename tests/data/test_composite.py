@@ -36,40 +36,35 @@ class TestMatchedData:
 
 class TestNestedData:
     @pytest.fixture
-    def reference_index(self):
-        return pd.MultiIndex.from_tuples([(0,), (1,), (2,), (3,)])
+    def mapped_index_leaf(self):
+        return MappedLevelIndex(mapping={("a",): slice(0, 2), ("b",): slice(2, 4)})
 
-    @pytest.fixture
-    def mapped_index_leaf(self, reference_index):
-        return MappedLevelIndex(mapping={("a",): reference_index[[0, 1]], ("b",): reference_index[[2, 3]]})
-
-    def test_init_leaf_node_without_source(self, reference_index, mapped_index_leaf):
+    def test_init_leaf_node_without_source(self, mapped_index_leaf):
         data = make_distribution(n=10)
-        nested = NestedData._init_leaf_node(data, reference_index, mapped_index_leaf)
+        nested = NestedData._init_leaf_node(data, mapped_index_leaf)
 
         assert isinstance(nested, NestedData)
         assert all(isinstance(v, MatchedData) for v in nested.mapping.values())
         for v in nested.mapping.values():
             assert v.source is None
 
-    def test_init_leaf_node_with_source(self, reference_index, mapped_index_leaf):
+    def test_init_leaf_node_with_source(self, mapped_index_leaf):
         data = make_distribution(n=10)
         source_key = ("a",)
-        nested = NestedData._init_leaf_node(data, reference_index, mapped_index_leaf, source_key=source_key)
+        nested = NestedData._init_leaf_node(data, mapped_index_leaf, source_key=source_key)
 
         assert isinstance(nested, NestedData)
         for v in nested.mapping.values():
             assert isinstance(v, MatchedData)
             assert v.source is not None
 
-    def test_init_tree_recursive(self, reference_index):
-        # Build a nested MappedLevelIndex
-        leaf_index_a = MappedLevelIndex(mapping={("leaf1",): reference_index[[0, 1]]})
-        leaf_index_b = MappedLevelIndex(mapping={("leaf2",): reference_index[[2, 3]]})
+    def test_init_tree_recursive(self):
+        leaf_index_a = MappedLevelIndex(mapping={("leaf1",): slice(0, 2)})
+        leaf_index_b = MappedLevelIndex(mapping={("leaf2",): slice(2, 4)})
         mapped_index = MappedLevelIndex(mapping={("a",): leaf_index_a, ("b",): leaf_index_b})
 
         data = make_distribution(n=10)
-        nested = NestedData._init_tree(data, reference_index, mapped_index)
+        nested = NestedData._init_tree(data, mapped_index)
 
         assert isinstance(nested, NestedData)
         for v in nested.mapping.values():

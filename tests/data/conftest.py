@@ -14,12 +14,12 @@ from anndata import AnnData
 # ---------------------------------------------------------------------------
 # Vocabulary
 # ---------------------------------------------------------------------------
-CELL_LINES = ["HeLa", "HEK293"]
-DRUGS = ["control", "aspirin", "ibuprofen"]
-DOSES = ["low", "high"]
+CELL_LINES = ["HeLa", "HEK293", "Jurkat"]
+DRUGS = ["control", "aspirin", "ibuprofen", "paclitaxel"]
+DOSES = ["low", "medium", "high"]
 BATCHES = ["batch_1", "batch_2", "batch_3"]
-PLATES = ["plate_A", "plate_B"]
-CELLS_PER_COMBINATION = 2
+PLATES = ["plate_A", "plate_B", "plate_C"]
+CELLS_PER_COMBINATION = 4
 
 N_CELL_LINES = len(CELL_LINES)
 N_DRUGS = len(DRUGS)
@@ -27,8 +27,8 @@ N_DOSES = len(DOSES)
 N_BATCHES = len(BATCHES)
 N_PLATES = len(PLATES)
 
-N_GENES = 5
-REP_DIM = 4
+N_GENES = 10
+REP_DIM = 8
 
 # Column order defines sort order: groups first, conditions second.
 ALL_COLUMNS = {

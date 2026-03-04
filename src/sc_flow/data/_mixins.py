@@ -4,7 +4,6 @@ from dataclasses import field as dc_field
 from typing import Any, ClassVar
 
 import numpy as np
-import pandas as pd
 
 from sc_flow.data._abc import DataT, DataTree, DataTreeT
 
@@ -116,7 +115,7 @@ class MappedTree(DataTree):
 @dataclass(frozen=True)
 class MappedLevelIndex(MappedTree):
     _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = tuple
-    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = pd.MultiIndex
+    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = slice
 
 
 @dataclass(frozen=True)

@@ -71,6 +71,10 @@ class CategoricalData(BaseData):
         categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] | None = None,
         inplace: bool = False,
     ) -> "CategoricalData":
+        """Create a CategoricalData object from a pandas DataFrame.
+
+        TODO: document properly but most importantly note that for better performance it is recommended to pass the data in place.
+        """
         if not inplace:
             ann_df = ann_df.copy()
         convert_to_categorical_in_place(ann_df, ann_df.columns)

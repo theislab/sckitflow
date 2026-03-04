@@ -20,7 +20,7 @@ class TestMixedTypeData:
                 MixedTypeData()
             return
 
-        categorical_data = CategoricalData(adata.obs) if use_categorical_covariates else None
+        categorical_data = CategoricalData.from_pandas(adata.obs) if use_categorical_covariates else None
         continuous_data = BatchMixin(adata.obsm) if use_continuous_covariates else None
 
         mixed_data = MixedTypeData(
@@ -33,7 +33,7 @@ class TestMixedTypeData:
         assert len(mixed_data) == adata.n_obs
 
     def test_init_shape_mismatch(self, adata: AnnData) -> None:
-        categorical_data = CategoricalData(adata.obs.iloc[:-1])
+        categorical_data = CategoricalData.from_pandas(adata.obs.iloc[:-1])
         continuous_data = BatchMixin(adata.obsm)
 
         with pytest.raises(ValueError, match="Shape mismatch"):
@@ -43,7 +43,7 @@ class TestMixedTypeData:
             )
 
     def test_getitem_slice(self, adata: AnnData) -> None:
-        categorical_data = CategoricalData(adata.obs)
+        categorical_data = CategoricalData.from_pandas(adata.obs)
         continuous_data = BatchMixin(adata.obsm)
 
         mixed_data = MixedTypeData(
@@ -59,7 +59,7 @@ class TestMixedTypeData:
         assert subset.continuous_covariates is not None
 
     def test_getitem_array(self, adata: AnnData) -> None:
-        categorical_data = CategoricalData(adata.obs)
+        categorical_data = CategoricalData.from_pandas(adata.obs)
         continuous_data = BatchMixin(adata.obsm)
 
         mixed_data = MixedTypeData(

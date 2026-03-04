@@ -1,6 +1,8 @@
 import numpy as np
+import pytest
 from anndata import AnnData
 
+from sc_flow._constants import ORIGINAL_INDEX_KEY
 from sc_flow.data._composite import MatchedData, NestedData
 from sc_flow.data._manager import DataManager
 from sc_flow.data.containers._categorical import CategoricalData
@@ -9,95 +11,188 @@ from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.containers._state import StateData
 
+from tests.data.conftest import (
+    CELL_LINES,
+    DRUGS,
+    N_CELL_LINES,
+    N_DRUGS,
+    _make_obs,
+)
 
-class TestDataManager:
-    def test_datamanager_basic(self, adata: AnnData):
-        """Test basic DataManager functionality."""
-        manager = DataManager()
-        distr_data: DistributionData = manager.get_distribution_data(adata)
 
-        # DistributionData type and lengths
-        n_obs = adata.n_obs
-        assert isinstance(distr_data, DistributionData)
-        assert len(distr_data) == n_obs
-        assert isinstance(distr_data.state_data, StateData)
-        assert isinstance(distr_data.groups_data, CategoricalData)
-        assert len(distr_data.state_data) == n_obs
-        assert len(distr_data.groups_data) == n_obs
-        if distr_data.condition_data is not None:
-            assert isinstance(distr_data.condition_data, MixedTypeData)
-            assert len(distr_data.condition_data) == n_obs
-        if distr_data.target_data is not None:
-            assert isinstance(distr_data.target_data, MixedTypeData)
-            assert len(distr_data.target_data) == n_obs
+def _make_manager(**overrides) -> DataManager:
+    """DataManager with cell_line as group and drug as condition."""
+    defaults = dict(
+        conditions={"drug": ("drug",)},
+        conditions_reps={"drug": "drug"},
+        groups=("cell_line",),
+        groups_reps={"cell_line": "cell_line"},
+    )
+    defaults.update(overrides)
+    return DataManager(**defaults)
 
-        # Slicing works
-        idxs = np.random.choice(len(distr_data), min(5, len(distr_data)), replace=False)
-        sliced = distr_data[idxs]
-        assert len(sliced) == len(idxs)
-        assert all(
-            len(getattr(sliced, attr)) == len(idxs)
-            for attr in ["state_data", "groups_data", "condition_data", "target_data"]
-            if getattr(sliced, attr) is not None
-        )
 
-        # __repr__ contains key info
-        repr_str = repr(distr_data)
-        assert "DistributionData" in repr_str
-        assert f"n_obs={len(distr_data)}" in repr_str
+class TestDistributionData:
+    """get_distribution_data: building DistributionData from AnnData."""
 
-    def test_nested_data_leaves(self, adata: AnnData):
-        """Check that NestedData leaves are MatchedData with proper lengths."""
-        manager = DataManager()
-        nested: NestedData = manager.compile_adata(adata)
+    def test_types_and_lengths(self, adata_small: AnnData):
+        manager = _make_manager()
+        distr = manager.get_distribution_data(adata_small)
+
+        assert isinstance(distr, DistributionData)
+        assert len(distr) == adata_small.n_obs
+        assert isinstance(distr.state_data, StateData)
+        assert isinstance(distr.groups_data, CategoricalData)
+        assert len(distr.state_data) == adata_small.n_obs
+        assert len(distr.groups_data) == adata_small.n_obs
+        if distr.condition_data is not None:
+            assert isinstance(distr.condition_data, MixedTypeData)
+            assert len(distr.condition_data) == adata_small.n_obs
+
+    def test_slicing(self, adata_small: AnnData):
+        manager = _make_manager()
+        distr = manager.get_distribution_data(adata_small)
+        n_slice = 5
+        idxs = np.arange(n_slice)
+        sliced = distr[idxs]
+
+        assert len(sliced) == n_slice
+        for attr in ("state_data", "groups_data", "condition_data", "response_data"):
+            val = getattr(sliced, attr)
+            if val is not None:
+                assert len(val) == n_slice
+
+    def test_empty_slice(self, adata_small: AnnData):
+        manager = _make_manager()
+        distr = manager.get_distribution_data(adata_small)
+        sliced = distr[np.array([], dtype=int)]
+
+        assert len(sliced) == 0
+        for attr in ("state_data", "groups_data", "condition_data", "response_data"):
+            val = getattr(sliced, attr)
+            if val is not None:
+                assert len(val) == 0
+
+    def test_repr(self, adata_small: AnnData):
+        manager = _make_manager()
+        distr = manager.get_distribution_data(adata_small)
+        r = repr(distr)
+        assert "DistributionData" in r
+        assert f"n_obs={adata_small.n_obs}" in r
+
+    def test_coupling_defaults_to_state(self, adata_small: AnnData):
+        manager = _make_manager()
+        distr = manager.get_distribution_data(adata_small)
+        assert isinstance(distr.source_coupling_data, CouplingData)
+        assert isinstance(distr.target_coupling_data, CouplingData)
+        assert len(distr.source_coupling_data) == adata_small.n_obs
+        assert len(distr.target_coupling_data) == adata_small.n_obs
+
+
+class TestCompileAdata:
+    """compile_adata: sorting, validation, and nested output."""
+
+    def test_sort_produces_nested_data(self, adata_small: AnnData):
+        manager = _make_manager()
+        nested = manager.compile_adata(adata_small, sort=True)
         assert isinstance(nested, NestedData)
 
-        def check_leaf(node):
+    def test_sort_leaves_are_matched(self, adata_small: AnnData):
+        manager = _make_manager()
+        nested = manager.compile_adata(adata_small, sort=True)
+
+        def check(node):
             if isinstance(node, NestedData):
                 for v in node.mapping.values():
-                    check_leaf(v)
+                    check(v)
             else:
                 assert isinstance(node, MatchedData)
                 assert len(node.target) > 0
-                if node.source is not None:
-                    assert len(node.source) > 0
 
-        check_leaf(nested)
+        check(nested)
 
-    def test_source_key_with_control_values(self, adata: AnnData):
-        """Verify that control values are correctly propagated."""
+    def test_leaf_count_matches_combinations(self, adata_small: AnnData):
+        """Number of leaves equals |groups| * |conditions|."""
+        manager = _make_manager()
+        nested = manager.compile_adata(adata_small, sort=True)
+
+        leaves = []
+
+        def collect(node):
+            if isinstance(node, NestedData):
+                for v in node.mapping.values():
+                    collect(v)
+            else:
+                leaves.append(node)
+
+        collect(nested)
+        assert len(leaves) == N_CELL_LINES * N_DRUGS
+
+    def test_unsorted_without_sort_raises(self, adata_small: AnnData):
+        rng = np.random.default_rng(0)
+        shuffled = adata_small[rng.permutation(adata_small.n_obs)].copy()
+
+        manager = _make_manager()
+        with pytest.raises(ValueError, match="not sorted"):
+            manager.compile_adata(shuffled, sort=False)
+
+    def test_presorted_without_sort_succeeds(self, adata_small: AnnData):
+        manager = _make_manager()
+        sorted_ad = manager.sort_adata(adata_small)
+        nested = manager.compile_adata(sorted_ad, sort=False)
+        assert isinstance(nested, NestedData)
+
+
+class TestSortAdata:
+    """sort_adata: returns sorted copy, preserves original index."""
+
+    def test_preserves_original_index(self, adata_small: AnnData):
+        manager = _make_manager()
+        original_names = adata_small.obs_names.copy()
+        sorted_ad = manager.sort_adata(adata_small)
+
+        assert ORIGINAL_INDEX_KEY in sorted_ad.obs.columns
+        assert len(sorted_ad) == adata_small.n_obs
+        assert set(sorted_ad.obs[ORIGINAL_INDEX_KEY]) == set(original_names)
+
+    def test_does_not_mutate_input(self, adata_small: AnnData):
+        original_names = adata_small.obs_names.copy()
+        manager = _make_manager()
+        _ = manager.sort_adata(adata_small)
+        assert (adata_small.obs_names == original_names).all()
+
+    def test_result_is_sorted(self, adata_small: AnnData):
+        manager = _make_manager()
+        sorted_ad = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(sorted_ad)
+        assert distr.is_sorted
+
+    def test_shuffle_then_sort_is_sorted(self, adata_small: AnnData):
+        rng = np.random.default_rng(7)
+        shuffled = adata_small[rng.permutation(adata_small.n_obs)].copy()
+
+        manager = _make_manager()
+        sorted_ad = manager.sort_adata(shuffled)
+        distr = manager.get_distribution_data(sorted_ad)
+        assert distr.is_sorted
+
+    def test_noop_without_columns(self, adata_small: AnnData):
+        manager = DataManager()
+        sorted_ad = manager.sort_adata(adata_small)
+        assert (sorted_ad.obs_names == adata_small.obs_names).all()
+
+
+class TestSourceKey:
+    def test_with_control_values(self):
         manager = DataManager(
-            conditions={
-                "drug": ("drugA", "drugB"),
-                "ko": ("koA", "koB"),
-            },
-            conditions_reps={
-                "drug": "drug",
-                "ko": "ko",
-            },
-            control_values_dict={"drug": "control", "ko": "control"},
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            control_values_dict={"drug": "control"},
         )
         key = manager.source_key
         assert isinstance(key, tuple)
         assert len(key) > 0
 
-    def test_zero_length_slice(self, adata: AnnData):
-        """Check that slicing with empty indices returns empty DistributionData."""
-        manager = DataManager()
-        distr_data: DistributionData = manager.get_distribution_data(adata)
-        sliced = distr_data[np.array([], dtype=int)]
-        assert len(sliced) == 0
-        for attr in ["state_data", "groups_data", "condition_data", "target_data"]:
-            val = getattr(sliced, attr)
-            if val is not None:
-                assert len(val) == 0
-
-    def test_coupling_data_shapes(self, adata: AnnData):
-        """Check that source and target coupling data are valid."""
-        manager = DataManager()
-        distr_data: DistributionData = manager.get_distribution_data(adata)
-        source_coupling, target_coupling = distr_data.source_coupling_data, distr_data.target_coupling_data
-        assert isinstance(source_coupling, CouplingData)
-        assert isinstance(target_coupling, CouplingData)
-        assert len(source_coupling) == len(distr_data)
-        assert len(target_coupling) == len(distr_data)
+    def test_none_without_control_values(self):
+        manager = _make_manager()
+        assert manager.source_key is None

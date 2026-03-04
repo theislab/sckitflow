@@ -121,7 +121,7 @@ class ResponseDataSchema(StrictDataSchema):
             fn_dict=self._encoding_transform_fn,
             inverse_fn_dict=self._encoding_inverse_transform_fn,
         )
-        return CategoricalData(covariates_df, categorical_encoders=encoders_dict)
+        return CategoricalData.from_pandas(covariates_df, categorical_encoders=encoders_dict)
 
     def _get_continuous_covariates(
         self,

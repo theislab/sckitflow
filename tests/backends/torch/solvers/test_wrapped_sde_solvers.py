@@ -58,7 +58,7 @@ def constant_diffusion_scalar(sigma: float = 0.1):
 
 
 def time_varying_diffusion(t: Tensor, y: Tensor) -> Tensor:
-    return torch.full_like(y, 0.1 * (1.0 + t))
+    return torch.ones_like(y) * (0.1 * (1.0 + t))
 
 
 # ── fixtures ───────────────────────────────────────────────────────────────────

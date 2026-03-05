@@ -28,6 +28,7 @@ dependencies = [
   "flax",
   "jax",
   "ott-jax",
+  "scikit-learn",
 
   # for debug logging (referenced from the issue template)
   "session-info2",

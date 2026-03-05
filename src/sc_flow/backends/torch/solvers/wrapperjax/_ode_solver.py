@@ -1,5 +1,6 @@
 from typing import Any
 
+import numpy as np
 import torch
 import torchax
 from torch import Tensor, nn
@@ -113,7 +114,13 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
         )
 
         if requires_grad and param_tensors:
-            source_torchax = source.to("jax")
+            source_torchax = source.to("jax").requires_grad_(True)
+
+            def _propagate_grad(grad):
+                """Propagate gradients from the final state back to the source"""
+                source.grad = torch.tensor(np.array(jax_view(grad)), dtype=source.dtype)
+
+            source_torchax.register_hook(_propagate_grad)
 
             def jax_solve_with_backprop(source_torchax, *params_torchax):
                 source_jax = jax_view(source_torchax)
@@ -142,7 +149,6 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
             if return_trajectory:
                 return trajectory
             else:
-                print("result[-1]:", final_state.requires_grad, getattr(final_state, "grad_fn", None))
                 return final_state
         else:
             source_jax = source.to("jax")

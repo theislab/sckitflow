@@ -32,11 +32,9 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
         super().__init__(dynamics=dynamics, method=method, device_id=device_id)
         torchax.enable_globally()
 
-        # get wrapper for original terms
         drift_raw, diffusion_raw = dynamics
-        _convert_to_torchax(drift_raw)  # converts W, b in-place on the nn.Module
+        _convert_to_torchax(drift_raw)
 
-        # Now build wrappers — closures will capture torchax tensors
         drift_term, diffusion_term = _init_wrapped_sde_terms(
             dynamics,
             vf_kwargs=vf_kwargs,
@@ -45,8 +43,6 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
         self._drift_fn = drift_raw
         self._diffusion_fn = diffusion_raw
 
-        # _convert_to_torchax on the wrapper objects is now a no-op for nn.Module params
-        # but still needed for dataclass-style dynamics with nn.Parameter attrs
         drift_term = _convert_to_torchax(drift_term)
         diffusion_term = _convert_to_torchax(diffusion_term)
 
@@ -91,14 +87,6 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
         requires_grad = torch.is_grad_enabled() and (
             source.requires_grad or any(p.requires_grad for p in drift_terms_tensors + diffusion_terms_tensors)
         )
-        print("drift_params_dict:", drift_params_dict)
-        print("diffusion_params_dict:", diffusion_params_dict)
-        print("source.requires_grad:", source.requires_grad)
-        print(
-            "param requires_grad:",
-            [getattr(p, "requires_grad", None) for p in drift_terms_tensors + diffusion_terms_tensors],
-        )
-        print("torch.is_grad_enabled():", torch.is_grad_enabled())
 
         param_tensors = drift_terms_tensors + diffusion_terms_tensors
         param_names = drift_names + diffusion_names

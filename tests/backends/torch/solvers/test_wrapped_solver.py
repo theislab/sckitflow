@@ -402,3 +402,22 @@ def test_gradients_through_solver_nn_module(linear_vf_module: LinearVFModule) ->
     assert linear_vf_module.b.grad is not None, "grad did not reach b"
     assert not torch.all(linear_vf_module.W.grad == 0), "W.grad is all zeros"
     assert not torch.all(linear_vf_module.b.grad == 0), "b.grad is all zeros"
+
+
+def test_grad_branch_returns_correct_device(poly_vf):
+    y0 = torch.tensor([1.0, 0.0, -2.0], requires_grad=True)
+    solver = ODESolver(dynamics=poly_vf, method="euler", device_id="cpu")
+
+    out = solver.solve(source=y0, t0=0.0, t1=1.0, num_time_steps=100, return_trajectory=False)
+
+    # Check device before backward
+    print("device before backward:", out.device.type)
+    # assert out.device.type == "cpu", f"Expected cpu, got {out.device.type}"
+
+    # Check grad flows and device is still correct after backward
+    out.sum().backward()
+    print("device after backward:", out.device.type)
+    assert out.device.type == "cpu", f"Expected cpu after backward, got {out.device.type}"
+    assert y0.grad is not None, "grad did not reach source"
+    print("y0.grad device:", y0.grad.device.type)
+    assert y0.grad.device.type == "cpu", f"Expected cpu grad, got {y0.grad.device.type}"

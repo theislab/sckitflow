@@ -4,6 +4,9 @@ from typing import Any
 import jax
 import jax.numpy as jnp
 import lineax as lx
+import numpy as np
+import torch
+import torchax
 from jaxtyping import PyTree
 from torchax.interop import jax_view, torch_view
 from torchax.tensor import Tensor as TorchaxTensor
@@ -16,6 +19,7 @@ __all__ = [
     "_get_diffusion_fn_wrapper",
     "_init_wrapped_ode_dynamics",
     "_init_wrapped_sde_terms",
+    "_TorchaxToTensorDevice",
 ]
 
 
@@ -132,3 +136,14 @@ def _init_wrapped_sde_terms(
 
     # return wrapped terms
     return _WrappedDriftTerm(), _WrappedDiffusionTerm(diffusion_fn)
+
+
+class _TorchaxToTensorDevice(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x, device):
+        return torch.tensor(np.array(jax_view(x)), dtype=x.dtype).to(device)
+
+    @staticmethod
+    def backward(ctx, grad):
+        torchax.enable_globally()
+        return grad.to("jax"), None

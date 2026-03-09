@@ -173,7 +173,7 @@ def test_sde_different_seeds_give_different_results(constant_drift, y_init):
     out2 = solver.solve(
         source=y_init, t0=T0, t1=T1, brownian_motion=bm2, num_time_steps=NUM_STEPS, return_trajectory=False
     )
-    assert not torch.allclose(torch.tensor(np.array(out1)), torch.tensor(np.array(out2)))
+    assert not torch.allclose(out1.detach(), out2.detach())
 
 
 # ── backward tests ─────────────────────────────────────────────────────────────

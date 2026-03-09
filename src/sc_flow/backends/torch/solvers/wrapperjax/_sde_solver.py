@@ -12,7 +12,7 @@ from sc_flow.backends.jax.solvers._sde_solver import SDESolver as JaxSDESolver
 from sc_flow.backends.torch._types import TDevice, TSDEDynamics
 from sc_flow.backends.torch.solvers._solver import BaseSolver
 from sc_flow.backends.torch.solvers.wrapperjax._utils import _convert_to_torchax, _extract_differentiable_params
-from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_sde_terms
+from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_sde_terms, _TorchaxToTensorDevice
 
 __all__ = ["WrappedSDESolver"]
 
@@ -124,7 +124,7 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
 
             tsolver_fn = j2t_autograd(jax_solve_with_backprop)
             trajectory = tsolver_fn(source_tx, *param_tensors)
-            return trajectory
+            return _TorchaxToTensorDevice.apply(trajectory, self._device)
 
         else:
             source_jax = source.to("jax")
@@ -138,5 +138,5 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
                 return_trajectory=return_trajectory,
                 solver_kwargs=solver_kwargs,
             )
-            trajectory = torch_view(trajectory)
+            trajectory = torch_view(trajectory).to(self._device)
             return trajectory

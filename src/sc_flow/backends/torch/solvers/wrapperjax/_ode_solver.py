@@ -10,7 +10,7 @@ from sc_flow.backends.jax.solvers import ODESolver as JAXODESolver
 from sc_flow.backends.torch._types import TDevice, TODEDynamics
 from sc_flow.backends.torch.solvers._solver import BaseSolver
 from sc_flow.backends.torch.solvers.wrapperjax._utils import _extract_differentiable_params, _map_torch_method_to_jax
-from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_ode_dynamics
+from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_ode_dynamics, _TorchaxToTensorDevice
 
 __all__ = ["WrappedODESolver"]
 
@@ -113,7 +113,7 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
             source.requires_grad or any(p.requires_grad for p in param_tensors)
         )
 
-        if requires_grad and param_tensors:
+        if requires_grad:
             source_torchax = source.to("jax").requires_grad_(True)
 
             def _propagate_grad(grad):
@@ -137,19 +137,14 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
                     t0,
                     t1,
                     num_time_steps=num_time_steps,
-                    return_trajectory=True,
+                    return_trajectory=return_trajectory,
                     solver_kwargs=solve_kwargs,
                 )
-                return trajectory, trajectory[-1]
+                return trajectory
 
             tsolver_fn = j2t_autograd(jax_solve_with_backprop)
-            trajectory, final_state = tsolver_fn(source_torchax, *param_tensors)
-            print("result:", final_state.requires_grad, getattr(final_state, "grad_fn", None))
-
-            if return_trajectory:
-                return trajectory
-            else:
-                return final_state
+            trajectory = tsolver_fn(source_torchax, *param_tensors)
+            return _TorchaxToTensorDevice.apply(trajectory, self._device)
         else:
             source_jax = source.to("jax")
             trajectory = self._jax_solver.solve(
@@ -160,11 +155,8 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
                 return_trajectory=return_trajectory,
                 solver_kwargs=solver_kwargs,
             )
-            trajectory = torch_view(trajectory)
-            if return_trajectory:
-                return trajectory.to(self._device)
-            else:
-                return trajectory[-1].to(self._device)
+            trajectory = torch_view(trajectory).to(self._device)
+            return trajectory
 
     @property
     def jax_solver(self) -> JAXODESolver:

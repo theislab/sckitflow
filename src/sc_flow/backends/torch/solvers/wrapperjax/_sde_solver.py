@@ -1,6 +1,5 @@
 from typing import Any
 
-import diffrax as dfx
 import numpy as np
 import torch
 import torchax
@@ -11,6 +10,7 @@ from sc_flow.backends.jax._utils import get_sde_solver
 from sc_flow.backends.jax.solvers._sde_solver import SDESolver as JaxSDESolver
 from sc_flow.backends.torch._types import TDevice, TSDEDynamics
 from sc_flow.backends.torch.solvers._solver import BaseSolver
+from sc_flow.backends.torch.solvers.wrapperjax._brownian import AbstractBrownianMotion
 from sc_flow.backends.torch.solvers.wrapperjax._utils import _convert_to_torchax, _extract_differentiable_params
 from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_sde_terms, _TorchaxToTensorDevice
 
@@ -65,7 +65,7 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
         source: Tensor,
         t0: float = 0.0,
         t1: float = 1.0,
-        brownian_motion: dfx.AbstractBrownianPath | None = None,
+        brownian_motion: AbstractBrownianMotion | None = None,
         bm_tol: float = 1e-3,
         *,
         num_time_steps: int = 500,
@@ -90,6 +90,8 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
 
         param_tensors = drift_terms_tensors + diffusion_terms_tensors
         param_names = drift_names + diffusion_names
+
+        brownian_motion = brownian_motion.get_bm() if brownian_motion else None
 
         if requires_grad and param_tensors:
             source_tx = source.to("jax").requires_grad_(True)

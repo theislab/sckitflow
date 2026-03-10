@@ -1,15 +1,14 @@
 from dataclasses import dataclass
 
-import diffrax as dfx
-import jax
 import numpy as np
 import pytest
 import torch
 from torch import Tensor, nn
 
+from sc_flow.backends.torch.solvers.wrapperjax._brownian import VirtualBrownianTree
 from sc_flow.backends.torch.solvers.wrapperjax._sde_solver import WrappedSDESolver
 
-# dataclassics ───────────────────────────────────────────────────────────────────
+# dataclasses ───────────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -85,13 +84,7 @@ def y_init():
 
 @pytest.fixture
 def brownian_motion():
-    return dfx.VirtualBrownianTree(
-        t0=T0,
-        t1=T1,
-        shape=(DIM,),
-        tol=1e-3,
-        key=jax.random.PRNGKey(0),
-    )
+    return VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=0)
 
 
 # ── forward tests ──────────────────────────────────────────────────────────────
@@ -123,7 +116,7 @@ def test_sde_solve_returns_correct_shape_trajectory(constant_drift, y_init, brow
 
 
 def test_sde_solve_with_zero_diffusion_matches_ode(constant_drift, y_init):
-    bm = dfx.VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=jax.random.PRNGKey(0))
+    bm = VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=0)
     solver = WrappedSDESolver(
         dynamics=(constant_drift, constant_diffusion_scalar(0.0)),
         method="euler",
@@ -131,7 +124,7 @@ def test_sde_solve_with_zero_diffusion_matches_ode(constant_drift, y_init):
     )
     final = solver.solve(source=y_init, t0=T0, t1=T1, brownian_motion=bm, num_time_steps=501, return_trajectory=False)
     expected = y_init + 0.3 * (T1 - T0)
-    final_cpu = torch.tensor(np.array(final)) if not isinstance(final, torch.Tensor) else final.to("cpu")
+    final_cpu = torch.tensor(np.array(final.detach())) if final.requires_grad else final.cpu()
     assert torch.allclose(final_cpu.float(), expected.float(), atol=1e-2)
 
 
@@ -165,8 +158,8 @@ def test_sde_different_seeds_give_different_results(constant_drift, y_init):
         method="euler",
         device_id="cpu",
     )
-    bm1 = dfx.VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=jax.random.PRNGKey(0))
-    bm2 = dfx.VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=jax.random.PRNGKey(42))
+    bm1 = VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=0)
+    bm2 = VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=42)
     out1 = solver.solve(
         source=y_init, t0=T0, t1=T1, brownian_motion=bm1, num_time_steps=NUM_STEPS, return_trajectory=False
     )
@@ -180,7 +173,7 @@ def test_sde_different_seeds_give_different_results(constant_drift, y_init):
 
 
 def test_sde_gradients_constant_drift_dataclass(constant_drift, y_init):
-    bm = dfx.VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=jax.random.PRNGKey(0))
+    bm = VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=0)
     solver = WrappedSDESolver(
         dynamics=(constant_drift, constant_diffusion_scalar(0.1)),
         method="euler",
@@ -196,7 +189,7 @@ def test_sde_gradients_constant_drift_dataclass(constant_drift, y_init):
 
 
 def test_sde_gradients_nn_module_drift(linear_drift_module, y_init):
-    bm = dfx.VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=jax.random.PRNGKey(0))
+    bm = VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=0)
     solver = WrappedSDESolver(
         dynamics=(linear_drift_module, constant_diffusion_scalar(0.1)),
         method="euler",
@@ -214,7 +207,7 @@ def test_sde_gradients_nn_module_drift(linear_drift_module, y_init):
 
 
 def test_sde_gradients_source(constant_drift, y_init):
-    bm = dfx.VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=jax.random.PRNGKey(0))
+    bm = VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=0)
     solver = WrappedSDESolver(
         dynamics=(constant_drift, constant_diffusion_scalar(0.1)),
         method="euler",
@@ -227,7 +220,7 @@ def test_sde_gradients_source(constant_drift, y_init):
 
 
 def test_sde_grad_accumulates_correctly(constant_drift, y_init):
-    bm = dfx.VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=jax.random.PRNGKey(0))
+    bm = VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=0)
     solver = WrappedSDESolver(
         dynamics=(constant_drift, constant_diffusion_scalar(0.1)),
         method="euler",
@@ -240,12 +233,8 @@ def test_sde_grad_accumulates_correctly(constant_drift, y_init):
             source=y_init, t0=T0, t1=T1, brownian_motion=bm, num_time_steps=NUM_STEPS, return_trajectory=False
         )
         final.sum().backward()
-        grads.append(constant_drift.a.grad.clone())
-    assert torch.allclose(
-        torch.tensor(np.array(grads[0])),
-        torch.tensor(np.array(grads[1])),
-        atol=1e-5,
-    ), "Repeated backward passes should give identical grads"
+        grads.append(constant_drift.a.grad.detach().clone())
+    assert torch.allclose(grads[0], grads[1], atol=1e-5), "Repeated backward passes should give identical grads"
 
 
 def test_sde_no_grad_context_skips_grad_path(constant_drift, y_init, brownian_motion):

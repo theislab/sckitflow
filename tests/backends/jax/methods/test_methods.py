@@ -1,20 +1,23 @@
 import jax
 import jax.numpy as jnp
 import numpy as np
-import pytest
 import optax
-import functools
+import pytest
 from flax.training import train_state
 
 from sc_flow.backends.jax.methods import BaseMethod
 from sc_flow.backends.jax.nn._vf import MLPUnconditionalVF
 from sc_flow.backends.jax.probability_paths import LinearDiracProbabilityPath
+
+
 class DummyVFState(train_state.TrainState):
     pass
+
 
 vf_rng = jax.random.PRNGKey(0)
 batch_size = 4
 dim = 3
+
 
 # TODO replace with actual independent coupling function once merged
 def independent_coupling(
@@ -26,15 +29,17 @@ def independent_coupling(
     min_shape = min(src_random_perm_idx.shape[0], tgt_random_perm_idx.shape[0])
     return src_random_perm_idx[:min_shape], tgt_random_perm_idx[:min_shape]
 
+
 def dummy_time_sampler(rng, n):
     return jax.random.uniform(rng, shape=(n,), minval=0.0, maxval=1.0)
+
 
 class TestJaxMethods:
     @pytest.mark.parametrize("generate_from_noise", [True, False])
     @pytest.mark.parametrize("control_key", [None, "src_cell_data"])
     def test_step_fn_runs_without_error(self, generate_from_noise, control_key):
         vf = MLPUnconditionalVF(
-            state_dim=32,
+            state_dim=3,
         )
         probability_path = LinearDiracProbabilityPath(sigma=1.0)
         match_fn = independent_coupling
@@ -100,10 +105,5 @@ class TestJaxMethods:
             ("drug_2",): {"drug": np.random.rand(1, 1, 3)},
         }
 
-        x_pred = method.predict(
-            x=src, 
-            condition=cond, 
-            rng=rng,
-            batched=batched
-        )
+        x_pred = method.predict(x=src, condition=cond, rng=rng, batched=batched)
         assert x_pred[("drug_1",)].shape == (batch_size, state_dim)

@@ -1,4 +1,4 @@
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 from typing import Any
 
 import pandas as pd
@@ -40,6 +40,8 @@ class DataManager:
         groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
         groups_encoding: dict[str, TargetCovariatesEncodingId | None] | None = None,
+        groups_encoding_transform_fn: dict[str, Callable] | None = None,
+        groups_encoding_inverse_transform_fn: dict[str, Callable] | None = None,
         n_shared_dims: int | None = None,
         source_rep: str | None = None,
     ) -> None:
@@ -114,6 +116,8 @@ class DataManager:
             groups=groups,
             groups_reps=groups_reps,
             groups_encoding=groups_encoding,
+            groups_encoding_transform_fn=groups_encoding_transform_fn,
+            groups_encoding_inverse_transform_fn=groups_encoding_inverse_transform_fn,
         )
         self._indexer: HierarchicalIndexer = self._init_indexer(
             groups_cols=self._groups_data_schema.groups,
@@ -159,11 +163,15 @@ class DataManager:
         groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
         groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
+        groups_encoding_transform_fn: dict[str, Callable] | None = None,
+        groups_encoding_inverse_transform_fn: dict[str, Callable] | None = None,
     ) -> GroupsDataSchema:
         return GroupsDataSchema(
             groups=groups,
             groups_reps=groups_reps,
             groups_encoding=groups_encoding,
+            groups_encoding_transform_fn=groups_encoding_transform_fn,
+            groups_encoding_inverse_transform_fn=groups_encoding_inverse_transform_fn,
         )
 
     def _init_indexer(

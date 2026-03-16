@@ -3,12 +3,28 @@ from dataclasses import dataclass
 import numpy as np
 import pytest
 import torch
+import torchax
 from torch import Tensor, nn
+from torchax.interop import jax_view
+from torchax.tensor import Tensor as TorchaxTensor
 
 from sc_flow.backends.torch.solvers.wrapperjax._brownian import VirtualBrownianTree
 from sc_flow.backends.torch.solvers.wrapperjax._sde_solver import WrappedSDESolver
 
-# dataclasses ───────────────────────────────────────────────────────────────────
+torchax.enable_globally()
+
+# ── helpers ────────────────────────────────────────────────────────────────────
+
+
+def to_tx(t: Tensor) -> TorchaxTensor:
+    return t.to("jax")
+
+
+def to_torch(t: TorchaxTensor) -> Tensor:
+    return torch.tensor(np.array(jax_view(t.detach())), dtype=torch.float32)
+
+
+# ── dynamics ───────────────────────────────────────────────────────────────────
 
 
 @dataclass
@@ -78,7 +94,12 @@ def linear_drift_module():
 
 
 @pytest.fixture
-def y_init():
+def y_init() -> TorchaxTensor:
+    return to_tx(torch.tensor([1.0, 0.0, -2.0]))
+
+
+@pytest.fixture
+def y_init_cpu() -> Tensor:
     return torch.tensor([1.0, 0.0, -2.0])
 
 
@@ -99,6 +120,7 @@ def test_sde_solve_returns_correct_shape_final_state(constant_drift, y_init, bro
     out = solver.solve(
         source=y_init, t0=T0, t1=T1, brownian_motion=brownian_motion, num_time_steps=NUM_STEPS, return_trajectory=False
     )
+    assert isinstance(out, TorchaxTensor)
     assert out.shape == y_init.shape
 
 
@@ -111,11 +133,12 @@ def test_sde_solve_returns_correct_shape_trajectory(constant_drift, y_init, brow
     out = solver.solve(
         source=y_init, t0=T0, t1=T1, brownian_motion=brownian_motion, num_time_steps=NUM_STEPS, return_trajectory=True
     )
+    assert isinstance(out, TorchaxTensor)
     assert out.shape[0] == NUM_STEPS
     assert out.shape[1:] == y_init.shape
 
 
-def test_sde_solve_with_zero_diffusion_matches_ode(constant_drift, y_init):
+def test_sde_solve_with_zero_diffusion_matches_ode(constant_drift, y_init, y_init_cpu):
     bm = VirtualBrownianTree(t0=T0, t1=T1, shape=(DIM,), tol=1e-3, key=0)
     solver = WrappedSDESolver(
         dynamics=(constant_drift, constant_diffusion_scalar(0.0)),
@@ -123,9 +146,8 @@ def test_sde_solve_with_zero_diffusion_matches_ode(constant_drift, y_init):
         device_id="cpu",
     )
     final = solver.solve(source=y_init, t0=T0, t1=T1, brownian_motion=bm, num_time_steps=501, return_trajectory=False)
-    expected = y_init + 0.3 * (T1 - T0)
-    final_cpu = torch.tensor(np.array(final.detach())) if final.requires_grad else final.cpu()
-    assert torch.allclose(final_cpu.float(), expected.float(), atol=1e-2)
+    expected = y_init_cpu + 0.3 * (T1 - T0)
+    assert torch.allclose(to_torch(final), expected.float(), atol=1e-2)
 
 
 def test_sde_solve_nn_module_drift_forward(linear_drift_module, y_init, brownian_motion):
@@ -137,6 +159,7 @@ def test_sde_solve_nn_module_drift_forward(linear_drift_module, y_init, brownian
     out = solver.solve(
         source=y_init, t0=T0, t1=T1, brownian_motion=brownian_motion, num_time_steps=NUM_STEPS, return_trajectory=False
     )
+    assert isinstance(out, TorchaxTensor)
     assert out.shape == y_init.shape
 
 
@@ -149,6 +172,7 @@ def test_sde_solve_time_varying_diffusion(constant_drift, y_init, brownian_motio
     out = solver.solve(
         source=y_init, t0=T0, t1=T1, brownian_motion=brownian_motion, num_time_steps=NUM_STEPS, return_trajectory=False
     )
+    assert isinstance(out, TorchaxTensor)
     assert out.shape == y_init.shape
 
 
@@ -166,7 +190,7 @@ def test_sde_different_seeds_give_different_results(constant_drift, y_init):
     out2 = solver.solve(
         source=y_init, t0=T0, t1=T1, brownian_motion=bm2, num_time_steps=NUM_STEPS, return_trajectory=False
     )
-    assert not torch.allclose(out1.detach(), out2.detach())
+    assert not torch.allclose(to_torch(out1), to_torch(out2))
 
 
 # ── backward tests ─────────────────────────────────────────────────────────────

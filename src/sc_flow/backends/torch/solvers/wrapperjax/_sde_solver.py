@@ -1,10 +1,9 @@
 from typing import Any
 
-import numpy as np
 import torch
 import torchax
-from torch import Tensor
 from torchax.interop import j2t_autograd, jax_view, torch_view
+from torchax.tensor import Tensor as TorchaxTensor
 
 from sc_flow.backends.jax._utils import get_sde_solver
 from sc_flow.backends.jax.solvers._sde_solver import SDESolver as JaxSDESolver
@@ -12,7 +11,7 @@ from sc_flow.backends.torch._types import TDevice, TSDEDynamics
 from sc_flow.backends.torch.solvers._solver import BaseSolver
 from sc_flow.backends.torch.solvers.wrapperjax._brownian import AbstractBrownianMotion
 from sc_flow.backends.torch.solvers.wrapperjax._utils import _convert_to_torchax, _extract_differentiable_params
-from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_sde_terms, _TorchaxToTensorDevice
+from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_sde_terms
 
 __all__ = ["WrappedSDESolver"]
 
@@ -62,7 +61,7 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
 
     def solve(
         self,
-        source: Tensor,
+        source: TorchaxTensor,
         t0: float = 0.0,
         t1: float = 1.0,
         brownian_motion: AbstractBrownianMotion | None = None,
@@ -71,10 +70,8 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
         num_time_steps: int = 500,
         return_trajectory: bool = False,
         solver_kwargs: dict[str, Any] | None = None,
-    ) -> Tensor:
+    ) -> TorchaxTensor:
         """"""  # noqa
-        source_tx = source.to("jax")
-
         drift_params_dict = _extract_differentiable_params(self._drift_fn)
         diffusion_params_dict = _extract_differentiable_params(self._diffusion_fn)
 
@@ -93,18 +90,11 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
 
         brownian_motion = brownian_motion.get_bm() if brownian_motion else None
 
-        if requires_grad and param_tensors:
-            source_tx = source.to("jax").requires_grad_(True)
+        if requires_grad:
 
-            def _propagate_grad(grad):
-                """Propagate gradients from the final state back to the source"""
-                source.grad = torch.tensor(np.array(jax_view(grad)), dtype=source.dtype)
-
-            source_tx.register_hook(_propagate_grad)
-
-            def jax_solve_with_backprop(source_tx, *params_tx):
-                source_jax = jax_view(source_tx)
-                params_jax = [jax_view(p) for p in params_tx]
+            def jax_solve_with_backprop(source, *params):
+                source_jax = jax_view(source)
+                params_jax = [jax_view(p) for p in params]
                 solve_kwargs = {
                     **(solver_kwargs or {}),
                     "args": {
@@ -125,13 +115,12 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
                 return trajectory
 
             tsolver_fn = j2t_autograd(jax_solve_with_backprop)
-            trajectory = tsolver_fn(source_tx, *param_tensors)
-            return _TorchaxToTensorDevice.apply(trajectory, self._device)
+            trajectory = tsolver_fn(source, *param_tensors)
+            return trajectory
 
         else:
-            source_jax = source.to("jax")
             trajectory = self._jax_solver.solve(
-                jax_view(source_jax),
+                jax_view(source),
                 t0,
                 t1,
                 brownian_motion=brownian_motion,
@@ -140,5 +129,5 @@ class WrappedSDESolver(BaseSolver[TSDEDynamics]):
                 return_trajectory=return_trajectory,
                 solver_kwargs=solver_kwargs,
             )
-            trajectory = torch_view(trajectory).to(self._device)
+            trajectory = torch_view(trajectory)
             return trajectory

@@ -1,16 +1,16 @@
 from typing import Any
 
-import numpy as np
 import torch
 import torchax
-from torch import Tensor, nn
+from torch import nn
 from torchax.interop import j2t_autograd, jax_view, torch_view
+from torchax.tensor import Tensor as TorchaxTensor
 
 from sc_flow.backends.jax.solvers import ODESolver as JAXODESolver
 from sc_flow.backends.torch._types import TDevice, TODEDynamics
 from sc_flow.backends.torch.solvers._solver import BaseSolver
 from sc_flow.backends.torch.solvers.wrapperjax._utils import _extract_differentiable_params, _map_torch_method_to_jax
-from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_ode_dynamics, _TorchaxToTensorDevice
+from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_ode_dynamics
 
 __all__ = ["WrappedODESolver"]
 
@@ -66,14 +66,14 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
 
     def solve(
         self,
-        source: Tensor,
+        source: TorchaxTensor,
         t0: float = 0.0,
         t1: float = 1.0,
         *,
         num_time_steps: int = 500,
         return_trajectory: bool = False,
         solver_kwargs: dict[str, Any] | None = None,
-    ) -> Tensor:
+    ) -> TorchaxTensor:
         r"""Integrates the ODE defined by the provided velocity field.
 
         :param source: Initial state of the ODE.
@@ -114,17 +114,10 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
         )
 
         if requires_grad:
-            source_torchax = source.to("jax").requires_grad_(True)
 
-            def _propagate_grad(grad):
-                """Propagate gradients from the final state back to the source"""
-                source.grad = torch.tensor(np.array(jax_view(grad)), dtype=source.dtype)
-
-            source_torchax.register_hook(_propagate_grad)
-
-            def jax_solve_with_backprop(source_torchax, *params_torchax):
-                source_jax = jax_view(source_torchax)
-                params_jax = [jax_view(p) for p in params_torchax]
+            def jax_solve_with_backprop(source, *params):
+                source_jax = jax_view(source)
+                params_jax = [jax_view(p) for p in params]
                 solve_kwargs = {
                     **solver_kwargs,
                     "args": {
@@ -143,19 +136,18 @@ class WrappedODESolver(BaseSolver[TODEDynamics]):
                 return trajectory
 
             tsolver_fn = j2t_autograd(jax_solve_with_backprop)
-            trajectory = tsolver_fn(source_torchax, *param_tensors)
-            return _TorchaxToTensorDevice.apply(trajectory, self._device)
+            trajectory = tsolver_fn(source, *param_tensors)
+            return trajectory
         else:
-            source_jax = source.to("jax")
             trajectory = self._jax_solver.solve(
-                jax_view(source_jax),
+                jax_view(source),
                 t0,
                 t1,
                 num_time_steps=num_time_steps,
                 return_trajectory=return_trajectory,
                 solver_kwargs=solver_kwargs,
             )
-            trajectory = torch_view(trajectory).to(self._device)
+            trajectory = torch_view(trajectory)
             return trajectory
 
     @property

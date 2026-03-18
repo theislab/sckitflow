@@ -9,8 +9,8 @@ from torchax.tensor import Tensor as TorchaxTensor
 from sc_flow.backends.jax.solvers import ODESolver as JAXODESolver
 from sc_flow.backends.torch._types import TDevice, TODEDynamics
 from sc_flow.backends.torch.solvers._solver import BaseSolver
-from sc_flow.backends.torch.solvers.wrapperjax._utils import _extract_differentiable_params, _map_torch_method_to_jax
-from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_ode_dynamics
+from sc_flow.backends.torchax.solvers._utils import _extract_differentiable_params, _map_torch_method_to_jax
+from sc_flow.backends.torchax.solvers._wrappers import _init_wrapped_ode_dynamics
 
 __all__ = ["WrappedODESolver"]
 

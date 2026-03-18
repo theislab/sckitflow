@@ -10,13 +10,13 @@ import torchax
 from torch import Tensor
 from torchax.tensor import Tensor as TorchaxTensor
 
-from sc_flow.backends.torch.solvers.wrapperjax._controllers import (
+from sc_flow.backends.torchax.solvers._controllers import (
     ClipStepSizeController,
     ConstantStepSizeController,
     PIDController,
     StepTo,
 )
-from sc_flow.backends.torch.solvers.wrapperjax._ode_solver import WrappedODESolver as ODESolver
+from sc_flow.backends.torchax.solvers._ode_solver import WrappedODESolver as ODESolver
 
 torchax.enable_globally()
 

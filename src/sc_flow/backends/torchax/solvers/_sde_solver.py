@@ -9,9 +9,9 @@ from sc_flow.backends.jax._utils import get_sde_solver
 from sc_flow.backends.jax.solvers._sde_solver import SDESolver as JaxSDESolver
 from sc_flow.backends.torch._types import TDevice, TSDEDynamics
 from sc_flow.backends.torch.solvers._solver import BaseSolver
-from sc_flow.backends.torch.solvers.wrapperjax._brownian import AbstractBrownianMotion
-from sc_flow.backends.torch.solvers.wrapperjax._utils import _convert_to_torchax, _extract_differentiable_params
-from sc_flow.backends.torch.solvers.wrapperjax._wrappers import _init_wrapped_sde_terms
+from sc_flow.backends.torchax.solvers._brownian import AbstractBrownianMotion
+from sc_flow.backends.torchax.solvers._utils import _convert_to_torchax, _extract_differentiable_params
+from sc_flow.backends.torchax.solvers._wrappers import _init_wrapped_sde_terms
 
 __all__ = ["WrappedSDESolver"]
 

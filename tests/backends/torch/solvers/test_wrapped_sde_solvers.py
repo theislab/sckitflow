@@ -8,8 +8,8 @@ from torch import Tensor, nn
 from torchax.interop import jax_view
 from torchax.tensor import Tensor as TorchaxTensor
 
-from sc_flow.backends.torch.solvers.wrapperjax._brownian import VirtualBrownianTree
-from sc_flow.backends.torch.solvers.wrapperjax._sde_solver import WrappedSDESolver
+from sc_flow.backends.torchax.solvers._brownian import VirtualBrownianTree
+from sc_flow.backends.torchax.solvers._sde_solver import WrappedSDESolver
 
 torchax.enable_globally()
 

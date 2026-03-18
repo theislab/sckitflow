@@ -1,11 +1,11 @@
-from sc_flow.backends.torch.solvers.wrapperjax._controllers import (
+from sc_flow.backends.torchax.solvers._controllers import (
     AbstractStepSizeController,
     ClipStepSizeController,
     ConstantStepSizeController,
     PIDController,
     StepTo,
 )
-from sc_flow.backends.torch.solvers.wrapperjax._ode_solver import WrappedODESolver
+from sc_flow.backends.torchax.solvers._ode_solver import WrappedODESolver
 
 __all__ = [
     "WrappedODESolver",

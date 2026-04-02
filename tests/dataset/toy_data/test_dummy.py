@@ -1,5 +1,7 @@
 import pytest
 
+pytest.importorskip("sc_flow.dataset.toy_data.dummy")
+
 from sc_flow.dataset.toy_data import dummy
 
 

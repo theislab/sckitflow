@@ -7,6 +7,8 @@ import pytest
 import torch
 from torch import Tensor
 
+pytest.importorskip("torchdiffeq")
+
 from sc_flow.backends.torch.solvers.ode_solver import ODESolver
 
 

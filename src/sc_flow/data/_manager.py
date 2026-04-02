@@ -1,9 +1,11 @@
 from collections.abc import Callable, Collection, Mapping
 from typing import Any
 
+import numpy as np
 import pandas as pd
 from anndata import AnnData
 
+from sc_flow._constants import ORIGINAL_INDEX_KEY
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._composite import NestedData
 from sc_flow.data._mixins import MappedLevelIndex
@@ -220,7 +222,7 @@ class DataManager:
         response_data: MixedTypeData = self._get_target_data(adata)
         groups_data: CategoricalData = self._get_groups_data(adata)
         source_coupling_data, target_coupling_data = self._get_coupling_data(adata)
-        return DistributionData(
+        distribution_data = DistributionData(
             state_data,
             response_data=response_data,
             condition_data=condition_data,
@@ -228,14 +230,29 @@ class DataManager:
             source_coupling_data=source_coupling_data,
             target_coupling_data=target_coupling_data,
         )
+        return distribution_data
+
+    def _get_mapped_index(self, ann_df: pd.DataFrame) -> MappedLevelIndex:
+        index: pd.MultiIndex = self._indexer.create_index(ann_df)
+        mapped_index: MappedLevelIndex = self._selector.index_to_nested_dict(index)
+        return mapped_index
+
+    @staticmethod
+    def _assert_sorted(data: DistributionData) -> None:
+        if not data.is_sorted:
+            raise ValueError(
+                "DistributionData is not sorted by its annotation columns. "
+                "Either pass sort=True to compile_adata() or call "
+                "DataManager.sort_adata(adata) before compilation."
+            )
 
     def _get_matched_distributions(
         self,
         data: DistributionData,
     ) -> NestedData:
-        index: pd.DataFrame = self._indexer.create_index(data.ann_df)
-        mapped_index: MappedLevelIndex = self._selector.index_to_nested_dict(index)
-        return NestedData.init_from_data(data, index, mapped_index, source_key=self.source_key)
+        self._assert_sorted(data)
+        mapped_index = self._get_mapped_index(data.ann_df)
+        return NestedData.init_from_data(data, mapped_index, source_key=self.source_key)
 
     def get_matched_distributions(
         self,
@@ -259,15 +276,55 @@ class DataManager:
         """
         return self._get_distribution_data(adata)
 
+    def sort_adata(self, adata: AnnData) -> AnnData:
+        """Sort an AnnData by the hierarchy columns (groups then conditions).
+
+        Returns a **new** AnnData with rows reordered.  AnnData does not
+        support true in-place reordering of ``.X``, ``.obsm``, etc., so a
+        sorted copy is returned instead.  The original object is never
+        mutated.
+
+        The original ``obs_names`` are preserved in
+        ``adata.obs[ORIGINAL_INDEX_KEY]`` on the returned object so
+        they can be recovered later.
+
+        :param adata: The annotated data object to sort.
+        :type adata: class: `AnnData`
+
+        :returns: A new AnnData with rows sorted by the hierarchy columns.
+        :rtype: class: `AnnData`
+        """
+        sort_cols = list(self._indexer.sort_columns)
+        if not sort_cols:
+            return adata
+
+        sort_keys = [adata.obs[c] for c in reversed(sort_cols)]
+        order = np.lexsort(sort_keys)
+
+        sorted_adata = adata[order].copy()
+        sorted_adata.obs[ORIGINAL_INDEX_KEY] = adata.obs_names[order].values
+        sorted_adata.obs_names = pd.RangeIndex(len(sorted_adata)).astype(str)
+        return sorted_adata
+
     def compile_adata(
         self,
         adata: AnnData,
+        sort: bool = False,
     ) -> NestedData:
-        """Compiles the annotated data objects and returns the split and matched subpopulations.
+        """Compile an annotated data object into split and matched subpopulations.
 
         :param adata: The annotated data object to compile and split.
         :type adata: class: `AnnData`
+
+        :param sort: If ``True``, create a sorted copy of *adata* via
+            :meth:`sort_adata` and compile from that copy.  When setting this one
+            should keep in mind this will copy the full adata object. When ``False`` (the
+            default) the data must already be sorted; a ``ValueError``
+            is raised otherwise.
+        :type sort: class: `bool`
         """
+        if sort:
+            adata = self.sort_adata(adata)
         data: DistributionData = self._get_distribution_data(adata)
         return self._get_matched_distributions(data)
 

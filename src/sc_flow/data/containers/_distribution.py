@@ -101,15 +101,46 @@ class DistributionData(BaseData):
             target_coupling_data=target_coupling_data,
         )
 
+    @property
+    def is_sorted(self) -> bool:
+        """Whether the data is sorted lexicographically by annotation columns."""
+        df = self.ann_df
+        if df.shape[1] == 0:
+            return True
+        sort_keys = [df.iloc[:, i] for i in reversed(range(df.shape[1]))]
+        order = np.lexsort(sort_keys)
+        return bool(np.all(order[1:] >= order[:-1]))
+
+    def sort(self) -> "DistributionData":
+        """"""  # noqa
+        df = self.ann_df
+        if df.shape[1] == 0:
+            return self
+        sort_keys = [df.iloc[:, i] for i in reversed(range(df.shape[1]))]
+        sorted_idxs = np.lexsort(sort_keys)
+        return self[sorted_idxs]
+
     @cached_property
     def ann_df(self) -> pd.DataFrame:
-        """Returns the annotation data frame constructed jointly from condition and groups data."""
+        """Returns the annotation data frame from groups then conditions.
+
+        Column order matches the hierarchy (groups first, conditions second)
+        so that lexsort-based ``is_sorted`` / ``sort()`` agree with
+        ``DataManager.sort_adata``.
+        """
         dfs = []
-        if self.condition_data and self.condition_data.categorical_covariates:
-            dfs.append(self.condition_data.categorical_covariates.ann_df)
         if self.groups_data:
             dfs.append(self.groups_data.ann_df)
-        return pd.concat(dfs, axis=1) if dfs else pd.DataFrame()
+        if self.condition_data and self.condition_data.categorical_covariates:
+            dfs.append(self.condition_data.categorical_covariates.ann_df)
+
+        if len(dfs) == 0:
+            return pd.DataFrame()
+        res = pd.DataFrame(
+            {col: df[col].values for df in dfs for col in df.columns},
+            index=dfs[0].index,
+        )
+        return res
 
     @cached_property
     def index(self) -> pd.Index:

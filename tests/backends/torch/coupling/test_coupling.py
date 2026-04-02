@@ -2,6 +2,8 @@ import numpy as np
 import pytest
 import torch
 
+pytest.importorskip("ot")
+
 from sc_flow.backends.torch.coupling import (
     independent_coupling,
     ot_linear_coupling,

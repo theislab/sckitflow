@@ -21,7 +21,7 @@ class TestDistributionData:
 
         assert isinstance(dist, DistributionData)
         assert dist.state_data is state
-        assert dist.target_data is None
+        assert dist.response_data is None
         assert dist.condition_data is None
         assert dist.groups_data is None
         assert dist.source_coupling_data is None
@@ -33,17 +33,17 @@ class TestDistributionData:
 
         obs_df = adata.obs.copy()
 
-        target = MixedTypeData(
-            categorical_covariates=CategoricalData(obs_df),
+        response = MixedTypeData(
+            categorical_covariates=CategoricalData.from_pandas(obs_df),
             continuous_covariates=BatchMixin(adata.obsm),
         )
 
         condition = MixedTypeData(
-            categorical_covariates=CategoricalData(obs_df),
+            categorical_covariates=CategoricalData.from_pandas(obs_df),
             continuous_covariates=None,
         )
 
-        groups = CategoricalData(obs_df)
+        groups = CategoricalData.from_pandas(obs_df)
 
         source_coupling = CouplingData.init_from_state_data(
             StateData(adata.X),
@@ -57,7 +57,7 @@ class TestDistributionData:
 
         dist = DistributionData(
             state_data=state,
-            target_data=target,
+            response_data=response,
             condition_data=condition,
             groups_data=groups,
             source_coupling_data=source_coupling,
@@ -70,15 +70,15 @@ class TestDistributionData:
         state = StateData(adata.X)
         bad_obs = adata.obs.iloc[:-1]
 
-        target = MixedTypeData(
-            categorical_covariates=CategoricalData(bad_obs),
+        response = MixedTypeData(
+            categorical_covariates=CategoricalData.from_pandas(bad_obs),
             continuous_covariates=None,
         )
 
         with pytest.raises(ValueError):
             DistributionData(
                 state_data=state,
-                target_data=target,
+                response_data=response,
             )
 
     @pytest.mark.parametrize("idxs", [slice(0, 5), np.array([0, 2, 4])])
@@ -87,12 +87,12 @@ class TestDistributionData:
 
         obs_df = adata.obs.copy()
 
-        target = MixedTypeData(
-            categorical_covariates=CategoricalData(obs_df),
+        response = MixedTypeData(
+            categorical_covariates=CategoricalData.from_pandas(obs_df),
             continuous_covariates=BatchMixin(adata.obsm),
         )
 
-        groups = CategoricalData(obs_df)
+        groups = CategoricalData.from_pandas(obs_df)
 
         source_coupling = CouplingData.init_from_state_data(
             StateData(adata.X),
@@ -101,7 +101,7 @@ class TestDistributionData:
 
         dist = DistributionData(
             state_data=state,
-            target_data=target,
+            response_data=response,
             groups_data=groups,
             source_coupling_data=source_coupling,
         )
@@ -110,7 +110,7 @@ class TestDistributionData:
 
         assert isinstance(subset, DistributionData)
         assert len(subset) == len(state[idxs])
-        assert subset.target_data is not None
+        assert subset.response_data is not None
         assert subset.groups_data is not None
         assert subset.source_coupling_data is not None
 
@@ -127,11 +127,11 @@ class TestDistributionData:
         obs_df = adata.obs.copy()
 
         condition = MixedTypeData(
-            categorical_covariates=CategoricalData(obs_df),
+            categorical_covariates=CategoricalData.from_pandas(obs_df),
             continuous_covariates=None,
         )
 
-        groups = CategoricalData(obs_df)
+        groups = CategoricalData.from_pandas(obs_df)
 
         dist = DistributionData(
             state_data=StateData(adata.X),
@@ -143,11 +143,11 @@ class TestDistributionData:
 
         pd.testing.assert_frame_equal(
             ann_df,
-            pd.concat([obs_df, obs_df], axis=1),
+            groups.ann_df,
         )
 
     def test_index_matches_ann_df_index(self, adata: AnnData) -> None:
-        groups = CategoricalData(adata.obs.copy())
+        groups = CategoricalData.from_pandas(adata.obs.copy())
 
         dist = DistributionData(
             state_data=StateData(adata.X),
@@ -159,7 +159,7 @@ class TestDistributionData:
     def test_repr_contains_components(self, adata: AnnData) -> None:
         dist = DistributionData(
             state_data=StateData(adata.X),
-            groups_data=CategoricalData(adata.obs.copy()),
+            groups_data=CategoricalData.from_pandas(adata.obs.copy()),
         )
 
         rep = repr(dist)

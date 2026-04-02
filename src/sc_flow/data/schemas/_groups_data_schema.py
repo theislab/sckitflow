@@ -143,7 +143,7 @@ class GroupsDataSchema(StrictDataSchema):
             fn_dict=self._groups_encoding_transform_fn,
             inverse_fn_dict=self._groups_encoding_inverse_transform_fn,
         )
-        return CategoricalData(
+        return CategoricalData.from_pandas(
             covs_df_dict,
             repr_dict=repr_dict,
             categorical_encoders=encoders_dict,

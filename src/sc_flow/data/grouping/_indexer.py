@@ -1,5 +1,6 @@
 from collections.abc import Collection
 
+import numpy as np
 import pandas as pd
 
 from sc_flow._constants import BASE_LEVEL_NAME, CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
@@ -17,10 +18,9 @@ class HierarchicalIndexer:
     and the condition/perturbation level. It is possible to stack an arbitrary
     number of levels.
 
-    As each level is defined by a set of columns, the corresponding index
-    will be represented as a tuple containing the respective values for
-    each of the columns. When only one column is provided, it still
-    creates a single element tuple for consistency.
+    Each level is defined by a set of columns. Each column becomes its own
+    sub-level in the resulting MultiIndex, named as (level_name, col).
+    Columns are expected to have a Categorical dtype for efficient indexing.
     """
 
     def __init__(
@@ -64,22 +64,35 @@ class HierarchicalIndexer:
     def create_index(self, df: pd.DataFrame) -> pd.MultiIndex:
         """Creates a hierarchical index from the input dataframe.
 
+        Each registry column becomes its own sub-level named (level_name, col).
+        Columns must have Categorical dtype for efficient code-based indexing.
+        Constructs the MultiIndex directly from codes to avoid factorization.
+
         :param df: The input data frame on which to construct the hierarchical indexing.
         :type df: class: `pd.DataFrame`
         """
-        level_frames = {}
-        level_frames[BASE_LEVEL_NAME] = df.index
+        all_levels = [df.index]
+        all_codes = [np.arange(len(df))]
+        names: list[str | tuple[str, str]] = [BASE_LEVEL_NAME]
 
         for level_name, level_cols in self._registry.items():
-            # sanity check
             check_sequence_query_against_reference(
-                level_cols, df.columns, allow_missing_from_query=True, allow_missing_from_reference=False
+                level_cols, df.columns,
+                allow_missing_from_query=True,
+                allow_missing_from_reference=False,
             )
-            level_data = df[level_cols].to_numpy()
-            level_frames[level_name] = map(tuple, level_data)
+            for col in level_cols:
+                series = df[col]
+                if not hasattr(series, "cat"):
+                    raise TypeError(
+                        f"Column '{col}' must be Categorical. "
+                        f"Cast with: df['{col}'] = df['{col}'].astype('category')"
+                    )
+                all_levels.append(series.cat.categories)
+                all_codes.append(series.cat.codes.values)
+                names.append((level_name, col))
 
-        # constructing multi index
-        return pd.MultiIndex.from_frame(pd.DataFrame(level_frames))
+        return pd.MultiIndex(levels=all_levels, codes=all_codes, names=names)
 
     def update_registry(
         self,
@@ -136,6 +149,16 @@ class HierarchicalIndexer:
     def registry(self) -> dict[str, tuple[str] | None]:
         """Retrieves the registry associated to the indexer."""
         return self._registry
+
+    @property
+    def sort_columns(self) -> tuple[str, ...]:
+        """Columns that data must be sorted by (groups then conditions, each sorted)."""
+        cols: list[str] = []
+        for level_name in self._hierarchy_levels:
+            level_cols = self._registry.get(level_name)
+            if level_cols is not None:
+                cols.extend(level_cols)
+        return tuple(cols)
 
     @property
     def registry_keys(self) -> tuple[str]:

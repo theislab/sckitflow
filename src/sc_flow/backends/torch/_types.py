@@ -33,6 +33,12 @@ LinCouplingMethod = Literal["exact", "sinkhorn", "partial", "unbalanced"] | None
 QuadCouplingMethod = Literal["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"] | None
 CostFN = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
+MatchFnOut = tuple[TensorLike, TensorLike] | tuple[TensorLike, TensorLike, TensorLike]
+TMatchFn = Callable[[TensorLike, TensorLike], MatchFnOut]
+
+TTimeSamplerFn = Callable[[tuple[int, ...]], TensorLike] | Callable[[tuple[int, ...]], tuple[TensorLike, TensorLike]]
+TNoiseSamplerFn = Callable[[tuple[int, ...]], TensorLike]
+
 
 class TConditioningFn(Protocol):
     def __call__(

@@ -1,6 +1,18 @@
+from dataclasses import dataclass
+from typing import Any
+
 import torch
 
+__all__ = ["TrainStepInput"]
 
-def sample_joint(x: torch.Tensor, y: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    # TODO: implement
-    return x, y
+
+@dataclass
+class TrainStepInput:
+    target_state: torch.Tensor
+    target_coupling_lin: torch.Tensor
+    target_coupling_quad: torch.Tensor | None
+    target_condition_data: Any | None
+    target_group_data: Any | None
+    source_state: torch.Tensor | None
+    source_coupling_lin: torch.Tensor | None
+    source_coupling_quad: torch.Tensor | None

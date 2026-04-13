@@ -1,5 +1,7 @@
 from sc_flow.backends.torch.nn._modules import (
     MLP,
+    BaseModule,
+    FunctionalModule,
     Resnet1d,
 )
 from sc_flow.backends.torch.nn._time_features import (
@@ -14,6 +16,8 @@ from sc_flow.backends.torch.nn._vf import (
 )
 
 __all__ = [
+    "BaseModule",
+    "FunctionalModule",
     "MLP",
     "Resnet1d",
     "get_time_features_fn",

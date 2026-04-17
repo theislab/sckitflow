@@ -12,7 +12,7 @@ from sc_flow.backends.torch.nn._time_features import (
 )
 from sc_flow.backends.torch.nn._vf import (
     BaseVelocityField,
-    MLPUnconditionalVF,
+    MLPVelocity,
 )
 
 __all__ = [
@@ -25,5 +25,5 @@ __all__ = [
     "ott_jax_time_features",
     "torch_cfm_time_features",
     "BaseVelocityField",
-    "MLPUnconditionalVF",
+    "MLPVelocity",
 ]

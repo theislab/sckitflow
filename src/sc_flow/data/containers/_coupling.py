@@ -20,7 +20,7 @@ class CouplingData(BaseData):
     :type state_quad: class: `StateData | None`
     """
 
-    state_lin: StateData
+    state_lin: StateData | None = None
     state_quad: StateData | None = None
 
     def __post_init__(self):

@@ -6,6 +6,7 @@ from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._composite import NestedData
+from sc_flow.data._dim import DataDimensionalitiesRegistry
 from sc_flow.data._mixins import MappedLevelIndex
 from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.containers._coupling import CouplingData
@@ -237,6 +238,12 @@ class DataManager:
         mapped_index: MappedLevelIndex = self._selector.index_to_nested_dict(index)
         return NestedData.init_from_data(data, index, mapped_index, source_key=self.source_key)
 
+    def _get_data_dimensionalities(
+        self,
+        data: DistributionData,
+    ) -> DataDimensionalitiesRegistry:
+        return DataDimensionalitiesRegistry.init_from_distribution_data(data)
+
     def get_matched_distributions(
         self,
         data: DistributionData,
@@ -270,6 +277,13 @@ class DataManager:
         """
         data: DistributionData = self._get_distribution_data(adata)
         return self._get_matched_distributions(data)
+
+    def get_data_dimensionalities(
+        self,
+        adata: AnnData,
+    ) -> DataDimensionalitiesRegistry:
+        data: DistributionData = self._get_distribution_data(adata)
+        return self._get_data_dimensionalities(data)
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

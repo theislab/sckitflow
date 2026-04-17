@@ -59,7 +59,7 @@ class BaseGenerativeFlow(BaseMethod):
         target: torch.Tensor,
         condition_data: MappedTensor,
         group_data: MappedTensor,
-    ) -> torch.Tensor: ...
+    ) -> tuple[torch.Tensor, dict[str, Any]]: ...
 
     def _call_match_fn_safe(
         self,
@@ -227,10 +227,10 @@ class BaseGenerativeFlow(BaseMethod):
             return self._noise_sampler(target_reference)
         return source
 
-    def _train_step(
+    def _train_step_forward(
         self,
         step_data: TrainStepInput,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
         latent = self._prepare_latent_state(step_data.source_state, step_data.target_state)
         source, target, condition_data, group_data = self._extract_matched_observations(step_data)
         return self._compute_loss(
@@ -241,10 +241,15 @@ class BaseGenerativeFlow(BaseMethod):
             group_data,
         )
 
+    def _train_step_backward(
+        self,
+        loss: torch.Tensor,
+    ) -> None: ...
+
     def train_step(
         self,
         matched_distr: MatchedDistributions,
-    ) -> torch.Tensor:
+    ) -> tuple[float, dict[str, Any]]:
         """Single step function of the solver.
 
         :param batch: Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
@@ -252,4 +257,6 @@ class BaseGenerativeFlow(BaseMethod):
         :type batch: dict[str, torch.Tensor]
         """
         step_data = self._extract_step_data(matched_distr)
-        return self._train_step(step_data)
+        loss, step_output = self._train_step_forward(step_data)
+        self._train_step_backward(loss)
+        return loss.item(), step_output

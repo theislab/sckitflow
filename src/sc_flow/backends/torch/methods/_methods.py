@@ -2,13 +2,13 @@ from typing import Any
 
 import torch
 
-from sc_flow.backends.torch.methods._base_methods import BaseGenerativeFlow
+from sc_flow.backends.torch.methods._base import BaseGenerativeFlow
 from sc_flow.backends.torch.nn._vf import BaseVelocityField, MLPVelocity
 
-__all__ = ["FlowMatching"]
+__all__ = ["CFM"]
 
 
-class FlowMatching(BaseGenerativeFlow):
+class CFM(BaseGenerativeFlow):
     _module_cls: type[BaseVelocityField] = MLPVelocity
 
     def _compute_loss(

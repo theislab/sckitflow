@@ -3,8 +3,6 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any
 
-from anndata import AnnData
-
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
 
@@ -30,12 +28,12 @@ __all__ = ["BaseMethod"]
 
 class BaseMethod(abc.ABC):
     _module_cls: type[JaxModule | TorchModule]
-    _dm_cls: DataManager | None = None
-    _data_dimensionalities_register_cls: Any | None = None
-    _is_paired_setting_cls: bool = False
 
     def __init__(
         self,
+        dims_registry: DataDimensionalitiesRegistry,
+        dm: DataManager,
+        is_paired_setting: bool,
         *args,
         probability_path: JaxProbabilityPath | TorchProbabilityPath | None = None,
         match_fn: JaxMatchFn | TorchMatchFn | None = None,
@@ -46,19 +44,10 @@ class BaseMethod(abc.ABC):
         solver_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
-        # check that data was prepared
-        if self.__class__._dm_cls is None:
-            raise RuntimeError(
-                f"Data has not been registered with {self.__class__.__name__}. "
-                "Please call .register_adata(adata, ...) before initializing the model."
-            )
-
-        # register class attributes to instance
-        self._dm = self.__class__._dm_cls
-        self._data_dimensionalities_register = self.__class__._data_dimensionalities_register_cls
-        self._is_paired_setting = self.__class__._is_paired_setting_cls
-
         # initialize attributes
+        self._dims_registry = dims_registry
+        self._dm = dm
+        self._is_paired_setting = is_paired_setting
         self._probability_path = probability_path
         self._match_fn = match_fn
         self._noise_sampler = noise_sampler
@@ -73,7 +62,7 @@ class BaseMethod(abc.ABC):
         self._generate_from_noise = generate_from_noise
 
         # initialize module with dimensionality registry
-        self._module = self._module_cls.init_from_dims_registry(self._data_dimensionalities_register, *args, **kwargs)
+        self._module = self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
     @abc.abstractmethod
     def train_step(self, *args: Any, **kwargs: Any) -> Any:
@@ -92,8 +81,8 @@ class BaseMethod(abc.ABC):
         return self._match_fn
 
     @property
-    def solver(self) -> JaxSolver | TorchSolver | None:
-        return self._solver
+    def solver_cls(self) -> JaxSolver | TorchSolver | None:
+        return self._solver_cls
 
     @property
     def noise_sampler(self) -> JaxNoiseSampler | TorchNoiseSampler | None:
@@ -116,16 +105,5 @@ class BaseMethod(abc.ABC):
         return self._dm
 
     @property
-    def data_dimensionalities_register(self) -> DataDimensionalitiesRegistry | None:
-        return self._data_dimensionalities_register
-
-    @classmethod
-    def register_adata(
-        cls,
-        adata: AnnData,
-        **kwargs,
-    ) -> None:
-        # initialize data manager
-        cls._dm_cls = DataManager(**kwargs)
-        cls._data_dimensionalities_register_cls = cls._dm_cls.get_data_dimensionalities(adata)
-        cls._is_paired_setting_cls = cls._dm_cls.control_values_dict is not None
+    def dims_registry(self) -> DataDimensionalitiesRegistry | None:
+        return self._dims_registry

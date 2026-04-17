@@ -11,3 +11,13 @@ class EnergyDistanceState(NamedTuple):
 class MaximumMeanDiscrepancyState(NamedTuple):
     mmd_raw: ArrayLike
     total: ArrayLike
+
+
+class SinkhornDivergenceState(NamedTuple):
+    sinkhorn_raw: ArrayLike
+    total: ArrayLike
+
+
+class ClassificationState(NamedTuple):
+    preds: list
+    targets: list

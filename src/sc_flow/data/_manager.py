@@ -6,7 +6,7 @@ from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._composite import NestedData
-from sc_flow.data._dim import DataDimensionalitiesRegistry
+from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._mixins import MappedLevelIndex
 from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.containers._coupling import CouplingData

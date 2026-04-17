@@ -1,12 +1,14 @@
-from collections.abc import Mapping
+from collections import defaultdict
+from collections.abc import Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 
 import numpy as np
 import pandas as pd
+from scipy.sparse import csr_matrix
 
 from sc_flow._types import TargetCovariatesEncoderCls
-from sc_flow.data._mixins import MappedArray
+from sc_flow.data._mixins import BatchMixin, MappedArray
 from sc_flow.data.containers._base import BaseData
 
 __all__ = ["CategoricalData"]
@@ -35,6 +37,19 @@ class CategoricalData(BaseData):
     ann_df: pd.DataFrame
     repr_dict: Mapping[str, MappedArray] = dc_field(default_factory=dict)
     categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] = dc_field(default_factory=dict)
+    categorical_reps_map: Mapping[str, str] = dc_field(default_factory=dict)
+
+    def __post_init__(self):
+        # check that the representations are provided
+        for col in self.ann_df.columns:
+            # each column needs to appear in the categorical reps map
+            if col not in self.categorical_reps_map:
+                raise KeyError(f"Columnn {col} is not mapped to any realm.")
+            col_realm = self.categorical_reps_map[col]
+
+            # we need an associated representation for the corresponding realms
+            if col_realm not in self.repr_dict and col_realm not in self.categorical_encoders:
+                raise KeyError(f"No representation found for column {col} associated to realm {col_realm}.")
 
     def __repr__(self) -> str:
         n_obs, n_vars = self.ann_df.shape
@@ -57,7 +72,51 @@ class CategoricalData(BaseData):
         idxs: np.ndarray | slice,
     ) -> "CategoricalData":
         ann_df = self.ann_df.iloc[idxs]
-        return self.__class__(ann_df, repr_dict=self.repr_dict, categorical_encoders=self.categorical_encoders)
+        return self.__class__(
+            ann_df,
+            repr_dict=self.repr_dict,
+            categorical_encoders=self.categorical_encoders,
+            categorical_reps_map=self.categorical_reps_map,
+        )
 
     def __len__(self) -> int:
         return self.ann_df.shape[0]
+
+    def _extract_col_repr(
+        self,
+        col: str,
+        realm_repr_dict: dict[Hashable, np.ndarray],
+    ) -> np.ndarray:
+        col_values = self.ann_df[col].map(lambda e: realm_repr_dict[e].reshape(1, -1))
+        return np.concat(col_values.tolist(), axis=0)
+
+    def _encode_col(
+        self,
+        col: str,
+        encoder: TargetCovariatesEncoderCls,
+    ) -> np.ndarray:
+        col_values = self.ann_df[col].values.reshape(-1, 1)
+        tranformed_values = encoder.transform(col_values)
+        if isinstance(tranformed_values, csr_matrix):
+            return tranformed_values.toarray()
+        return tranformed_values
+
+    def extract_reps(self) -> BatchMixin:
+        """Extracts the representations for the underlying data."""
+        # dictionary to store the data
+        data_dict = defaultdict(list)
+
+        # iterate over annotation df columns
+        for col in self.ann_df.columns:
+            realm = self.categorical_reps_map[col]
+            if realm in self.repr_dict:
+                realm_repr_dict = self.repr_dict[realm]
+                col_repr = self._extract_col_repr(col, realm_repr_dict)
+            elif realm in self.categorical_encoders:
+                realm_encoder = self.categorical_encoders[realm]
+                col_repr = self._encode_col(col, realm_encoder)
+            data_dict[realm].append(col_repr)
+
+        # stack arrays
+        data_dict = {k: np.stack(v, axis=-2) for k, v in data_dict.items()}
+        return BatchMixin(mapping=data_dict)

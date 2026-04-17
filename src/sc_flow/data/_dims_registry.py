@@ -74,18 +74,22 @@ class DataDimensionalitiesRegistry:
 
         # Helper closures to handle None-checks cleanly
         def get_cat(container):
-            return (
-                cls._get_dims_from_categorical_data(container.categorical_covariates)
-                if container.categorical_covariates is not None
-                else None
-            )
+            if container is not None:
+                return (
+                    cls._get_dims_from_categorical_data(container.categorical_covariates)
+                    if container.categorical_covariates is not None
+                    else {}
+                )
+            return {}
 
         def get_cont(container):
-            return (
-                cls._get_dims_from_continuous_data(container.continuous_covariates)
-                if container.continuous_covariates is not None
-                else None
-            )
+            if container is not None:
+                return (
+                    cls._get_dims_from_continuous_data(container.continuous_covariates)
+                    if container.continuous_covariates is not None
+                    else {}
+                )
+            return {}
 
         # Extract dimensions
         condition_reps_dims = get_cat(data.condition_data)
@@ -95,9 +99,7 @@ class DataDimensionalitiesRegistry:
         response_continuous_dims = get_cont(data.response_data)
 
         # Handle optional groups data
-        groups_reps_dims = (
-            cls._get_dims_from_categorical_data(data.groups_data) if data.groups_data is not None else None
-        )
+        groups_reps_dims = cls._get_dims_from_categorical_data(data.groups_data) if data.groups_data is not None else {}
 
         source_lin_dim, source_quad_dim = cls._get_dims_from_coupling_data(data.source_coupling_data)
         target_lin_dim, target_quad_dim = cls._get_dims_from_coupling_data(data.target_coupling_data)

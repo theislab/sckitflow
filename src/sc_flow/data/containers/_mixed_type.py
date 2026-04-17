@@ -81,3 +81,22 @@ class MixedTypeData(BaseData):
         return self.__class__(
             categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates
         )
+
+    def extract_reps(self) -> BatchMixin:
+        """Extracts the representations for the underlying data."""
+        # extract categorical covariates
+        if self.categorical_covariates is not None:
+            cat_reps = self.categorical_covariates.extract_reps()
+        else:
+            cat_reps = BatchMixin({})
+
+        # update with continuous covariates
+        if self.continuous_covariates is not None:
+            return BatchMixin(
+                {
+                    **cat_reps.mapping,
+                    **self.continuous_covariates.mapping,
+                }
+            )
+        # otherwise return only categorical covariates
+        return cat_reps

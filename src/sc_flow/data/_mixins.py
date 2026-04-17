@@ -147,7 +147,10 @@ class BatchMixin(MappedArray):
         # iterating over the elements
         for key, value in self.mapping.items():
             # verifying that the required dimensions match
-            self._verify_shape(key, value)
+            if isinstance(value, BatchMixin):
+                value._verify_inputs()
+            else:
+                self._verify_shape(key, value)
 
     def _verify_shape(
         self,

@@ -1,6 +1,4 @@
-from collections.abc import Hashable
 from dataclasses import dataclass
-from typing import Any
 
 import numpy as np
 
@@ -23,15 +21,9 @@ class MixedTypeData(BaseData):
     """
 
     categorical_covariates: CategoricalData | None = None
-    categorical_reps_map: dict[Hashable, Any] | None = None
     continuous_covariates: BatchMixin | None = None
 
     def __post_init__(self) -> None:
-        # check that the representations are provided
-        if self.categorical_covariates is not None and self.categorical_reps_map is None:
-            msg = "When passing the categorical covariate, you need to specify the map to unique value observations."
-            raise ValueError(msg)
-
         # check matching shapes if both are provided
         if self.categorical_covariates is not None and self.continuous_covariates is not None:
             n_obs_cat = self.categorical_covariates.ann_df.shape[0]

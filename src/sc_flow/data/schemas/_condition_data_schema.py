@@ -229,7 +229,7 @@ class ConditionDataSchema(StrictDataSchema):
             return None
         covariates_df = self._get_covariates_df(adata)
         repr_dict = self._get_repr_dict(adata)
-        return CategoricalData(covariates_df, repr_dict=repr_dict)
+        return CategoricalData(covariates_df, repr_dict=repr_dict, categorical_reps_map=self.categorical_reps_map)
 
     def _get_continuous_covariates(self, adata: AnnData) -> BatchMixin | None:
         """Retrieves the continuous condition covariates from the input `AnnData`.
@@ -316,3 +316,12 @@ class ConditionDataSchema(StrictDataSchema):
         This will be `True` whenever :param: `conditions_covariates` is set at initializtion
         """
         return len(self._conditions_covariates) > 0
+
+    @property
+    def categorical_reps_map(self) -> dict[str, str]:
+        """Dictionary mapping each categorical column to the corresponding realm for their representation."""
+        reps_map = {}
+        for realm, cov_list in self.conditions.items():
+            for cov in cov_list:
+                reps_map[cov] = realm
+        return reps_map

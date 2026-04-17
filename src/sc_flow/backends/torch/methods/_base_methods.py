@@ -4,7 +4,7 @@ from typing import Any, Literal
 import torch
 
 from sc_flow.backends.torch._types import MappedTensor, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
-from sc_flow.backends.torch.methods._utils import TrainStepInput
+from sc_flow.backends.torch.methods._utils import OptimizationManager, TrainStepInput
 from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver
 from sc_flow.data._composite import MatchedDistributions
@@ -30,6 +30,13 @@ class BaseGenerativeFlow(BaseMethod):
         device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
         solver_cls: type[BaseSolver] | None = None,
         solver_kwargs: dict[str, Any] | None = None,
+        optimizer_cls: type[torch.optim.Optimizer] = torch.optim.Adam,
+        optimizer_kwargs: dict[str, Any] | None = None,
+        lr: float = 5e-5,
+        lr_scheduler_cls: type[torch.optim.lr_scheduler.LRScheduler] | None = None,
+        lr_scheduler_kwargs: dict[str, Any] | None = None,
+        lr_scheduler_step: Literal["train_step", "validation_step"] = "train_step",
+        plan_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
         # set attributes
@@ -46,6 +53,17 @@ class BaseGenerativeFlow(BaseMethod):
             solver_cls=solver_cls,
             solver_kwargs=solver_kwargs,
             **kwargs,
+        )
+
+        self._optimization_manager = OptimizationManager.init_from_module(
+            self.module,
+            optimizer_cls=optimizer_cls,
+            optimizer_kwargs=optimizer_kwargs,
+            lr=lr,
+            lr_scheduler_cls=lr_scheduler_cls,
+            lr_scheduler_kwargs=lr_scheduler_kwargs,
+            lr_scheduler_step=lr_scheduler_step,
+            plan_kwargs=plan_kwargs,
         )
 
     def _batchmixin_to_torch(self, batch_mixin: BatchMixin) -> dict[str, torch.Tensor]:
@@ -241,11 +259,6 @@ class BaseGenerativeFlow(BaseMethod):
             group_data,
         )
 
-    def _train_step_backward(
-        self,
-        loss: torch.Tensor,
-    ) -> None: ...
-
     def train_step(
         self,
         matched_distr: MatchedDistributions,
@@ -258,5 +271,5 @@ class BaseGenerativeFlow(BaseMethod):
         """
         step_data = self._extract_step_data(matched_distr)
         loss, step_output = self._train_step_forward(step_data)
-        self._train_step_backward(loss)
+        self._optimization_manager.backward_pass(loss)
         return loss.item(), step_output

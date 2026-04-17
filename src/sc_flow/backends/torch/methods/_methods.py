@@ -31,3 +31,6 @@ class FlowMatching(BaseGenerativeFlow):
         loss = torch.nn.functional.mse_loss(vt, ut)
 
         return loss, {"loss": loss.item()}
+
+    def predict(self, *args, **kwargs):
+        raise NotImplementedError

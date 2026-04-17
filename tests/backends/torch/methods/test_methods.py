@@ -8,7 +8,7 @@ from torch import Tensor, device
 from torchdiffeq import odeint
 
 from sc_flow.backends.torch.methods import BaseMethod
-from sc_flow.backends.torch.nn._vf import BaseVelocityField, MLPUnconditionalVF
+from sc_flow.backends.torch.nn._vf import BaseVelocityField, MLPVelocity
 from sc_flow.backends.torch.probability_paths import LinearDiracProbabilityPath
 
 
@@ -125,7 +125,7 @@ class TestTorchMethods:
     @pytest.mark.parametrize("generate_from_noise", [True, False])
     @pytest.mark.parametrize("control_key", [None, "src_cell_data"])
     def test_step_fn_runs_without_error(self, generate_from_noise, control_key):
-        vf = MLPUnconditionalVF(
+        vf = MLPVelocity(
             state_dim=3,
             state_encoder_output_dim=32,
             encode_state=True,
@@ -164,7 +164,7 @@ class TestTorchMethods:
     @pytest.mark.parametrize("batched", [True])
     def test_predict_batched(self, generate_from_noise, batched):
         state_dim = 3
-        vf = MLPUnconditionalVF(
+        vf = MLPVelocity(
             state_dim=state_dim,
         )
         probability_path = LinearDiracProbabilityPath(sigma=1.0)
@@ -202,7 +202,7 @@ class TestTorchMethods:
     @pytest.mark.parametrize("batched", [False])
     def test_predict_not_batched(self, generate_from_noise, batched):
         state_dim = 3
-        vf = MLPUnconditionalVF(
+        vf = MLPVelocity(
             state_dim=state_dim,
         )
         probability_path = LinearDiracProbabilityPath(sigma=1.0)

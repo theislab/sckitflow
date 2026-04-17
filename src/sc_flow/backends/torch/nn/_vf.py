@@ -23,7 +23,7 @@ from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 
 __all__ = [
     "BaseVelocityField",
-    "MLPUnconditionalVF",
+    "MLPVelocity",
 ]
 
 
@@ -59,7 +59,7 @@ class BaseVelocityField(BaseModule):
         """Compiles the velocity field function to be fed to external solvers."""
 
 
-class MLPUnconditionalVF(BaseVelocityField):
+class MLPVelocity(BaseVelocityField):
     """Class for MLP-base unconditional neural velocity fields.
 
     The architecture of unconditional velocity fields is defined as follows:
@@ -540,7 +540,7 @@ class MLPUnconditionalVF(BaseVelocityField):
         condition_encoder_input_layers: NestedLayersDict | None = None,
         source_encoder_mlp_kwargs: LayersDict | None = None,
         **kwargs,
-    ) -> "MLPUnconditionalVF":
+    ) -> "MLPVelocity":
         # get arguments from keywords when provided in kwargs
         if "condition_encoder_input_layers" in kwargs:
             condition_encoder_input_layers = kwargs.pop("condition_encoder_input_layers")

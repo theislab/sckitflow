@@ -136,8 +136,10 @@ def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray,
 
 
 def independent_coupling(
-    source: TensorLike,
-    target: TensorLike,
+    source_lin: TensorLike,
+    target_lin: TensorLike,
+    source_quad: TensorLike | None = None,
+    target_quad: TensorLike | None = None,
 ) -> tuple[NumpyArray, NumpyArray]:
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
 
@@ -159,8 +161,8 @@ def independent_coupling(
         available samples in the source and target tensors.
     """
     # randomy permuting the tensors
-    src_random_perm_idx = np.random.choice(source.shape[0], size=source.shape[0], replace=False)
-    tgt_random_perm_idx = np.random.choice(target.shape[0], size=source.shape[0], replace=False)
+    src_random_perm_idx = np.random.choice(source_lin.shape[0], size=source_lin.shape[0], replace=False)
+    tgt_random_perm_idx = np.random.choice(target_lin.shape[0], size=source_lin.shape[0], replace=False)
 
     min_shape = min(src_random_perm_idx.shape[0], tgt_random_perm_idx.shape[0])
 
@@ -169,9 +171,11 @@ def independent_coupling(
 
 @overload
 def ot_linear_coupling(
-    source: TensorLike,
-    target: TensorLike,
-    return_matrix: Literal[False],
+    source_lin: TensorLike,
+    target_lin: TensorLike,
+    source_quad: TensorLike | None = None,
+    target_quad: TensorLike | None = None,
+    return_matrix: Literal[False] = False,
     cost_fn: CostFN | None = ...,
     scale_cost: ScaleMethod = ...,
     method: LinCouplingMethod = ...,
@@ -183,9 +187,11 @@ def ot_linear_coupling(
 
 @overload
 def ot_linear_coupling(
-    source: TensorLike,
-    target: TensorLike,
-    return_matrix: Literal[True],
+    source_lin: TensorLike,
+    target_lin: TensorLike,
+    source_quad: TensorLike | None = None,
+    target_quad: TensorLike | None = None,
+    return_matrix: Literal[True] = True,
     cost_fn: CostFN | None = ...,
     scale_cost: ScaleMethod = ...,
     method: LinCouplingMethod = ...,
@@ -196,8 +202,10 @@ def ot_linear_coupling(
 
 
 def ot_linear_coupling(
-    source: TensorLike,
-    target: TensorLike,
+    source_lin: TensorLike,
+    target_lin: TensorLike,
+    source_quad: TensorLike | None = None,
+    target_quad: TensorLike | None = None,
     return_matrix: bool = False,
     cost_fn: CostFN | None = None,
     scale_cost: ScaleMethod = "mean",
@@ -253,17 +261,17 @@ def ot_linear_coupling(
     cost_fn = cost_fn or (lambda source, target: torch.cdist(source, target) ** 2)
 
     # computing weights
-    src_weights = pot.unif(source.shape[0])
-    tgt_weights = pot.unif(target.shape[0])
+    src_weights = pot.unif(source_lin.shape[0])
+    tgt_weights = pot.unif(target_lin.shape[0])
     # moving arrays to torch tensors
-    source = to_torch_tensor(source)
-    target = to_torch_tensor(target)
+    source_lin = to_torch_tensor(source_lin)
+    target_lin = to_torch_tensor(target_lin)
 
     # flattening tensors
-    source = torch.flatten(source, start_dim=1)
-    target = torch.flatten(target, start_dim=1)
+    source_lin = torch.flatten(source_lin, start_dim=1)
+    target_lin = torch.flatten(target_lin, start_dim=1)
     # computing cost matrix
-    distance_matrix = cost_fn(source, target)
+    distance_matrix = cost_fn(source_lin, target_lin)
     # normalization of cost
     distance_matrix = _scale_distance_matrix(distance_matrix, scale_method=scale_cost)
 
@@ -293,7 +301,7 @@ def ot_linear_coupling(
 
     # computing coupling matrix
     coupling_matrix = ot_fn(src_weights, tgt_weights, distance_matrix.detach().cpu().numpy())
-    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source.shape[0])
+    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source_lin.shape[0])
     if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs
@@ -301,11 +309,11 @@ def ot_linear_coupling(
 
 @overload
 def ot_quadratic_coupling(
-    source_quad: TensorLike,
-    target_quad: TensorLike,
-    return_matrix: Literal[False],
     source_lin: TensorLike | None = ...,
     target_lin: TensorLike | None = ...,
+    source_quad: TensorLike | None = ...,
+    target_quad: TensorLike | None = ...,
+    return_matrix: Literal[False] = False,
     cost_fn: CostFN | None = ...,
     scale_cost: ScaleMethod = ...,
     method: QuadCouplingMethod = ...,
@@ -315,11 +323,11 @@ def ot_quadratic_coupling(
 
 @overload
 def ot_quadratic_coupling(
-    source_quad: TensorLike,
-    target_quad: TensorLike,
-    return_matrix: Literal[True],
     source_lin: TensorLike | None = ...,
     target_lin: TensorLike | None = ...,
+    source_quad: TensorLike | None = ...,
+    target_quad: TensorLike | None = ...,
+    return_matrix: Literal[True] = True,
     cost_fn: CostFN | None = ...,
     scale_cost: ScaleMethod = ...,
     method: QuadCouplingMethod = ...,
@@ -328,18 +336,17 @@ def ot_quadratic_coupling(
 
 
 def ot_quadratic_coupling(
-    source_quad: TensorLike,
-    target_quad: TensorLike,
-    return_matrix: bool = False,
     source_lin: TensorLike | None = None,
     target_lin: TensorLike | None = None,
+    source_quad: TensorLike | None = None,
+    target_quad: TensorLike | None = None,
+    return_matrix: bool = False,
     cost_fn: CostFN | None = None,
     scale_cost: ScaleMethod = 1.0,
     method: QuadCouplingMethod = None,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray] | tuple[NumpyArray, NumpyArray, NumpyArray]:
-    """Matches source and target groups using an optimal transport-based quadratic coupling
-    (Gromov-Wasserstein or fused Gromov-Wasserstein) and returns the respective indices.
+    """Matches source and target groups using an optimal transport-based quadratic coupling (Gromov-Wasserstein or fused Gromov-Wasserstein) and returns the respective indices.
 
     :param source_quad: A tensor containing pairwise relationships within the source
         distribution (source-source structure).
@@ -385,7 +392,15 @@ def ot_quadratic_coupling(
     tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
         If ``return_matrix`` is ``True``, also returns the quadratic optimal transport coupling
         matrix computed between the source and target distributions.
-    """  # noqa
+    """
+    # check that quadratic terms were passed
+    if source_quad is None:
+        msg = "Quadratic coupling requires quadratic source representation, None found."
+        raise ValueError(msg)
+    if target_quad is None:
+        msg = "Quadratic coupling requires quadratic target representation, None found."
+        raise ValueError(msg)
+
     cost_fn = cost_fn or (lambda source, target: torch.cdist(source, target) ** 2)
     method = method or "entropic_gromov_wasserstein"
 
@@ -430,7 +445,6 @@ def ot_quadratic_coupling(
     else:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
         raise ValueError(msg)
-    print(type(coupling_matrix))
     source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix.numpy(), size=source_quad.shape[0])
     if return_matrix:
         return source_idxs, target_idxs, coupling_matrix.numpy()

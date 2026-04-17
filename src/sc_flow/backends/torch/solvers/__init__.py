@@ -1,5 +1,5 @@
-from .ode_solver import ODESolver
-from .sde_solver import SDESolver
-from .solver import BaseSolver
+from ._ode_solver import ODESolver
+from ._sde_solver import SDESolver
+from ._solver import BaseSolver
 
 __all__ = ["BaseSolver", "ODESolver", "SDESolver"]

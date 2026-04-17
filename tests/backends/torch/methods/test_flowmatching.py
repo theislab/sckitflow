@@ -3,7 +3,7 @@ import torch
 
 from sc_flow import _constants
 from sc_flow.backends.torch.methods import FlowMatching
-from sc_flow.backends.torch.nn._vf import MLPUnconditionalVF
+from sc_flow.backends.torch.nn._vf import MLPVelocity
 from sc_flow.backends.torch.probability_paths import LinearDiracProbabilityPath
 
 STATE_DIM = 20
@@ -13,7 +13,7 @@ batch[_constants.SOURCE_STATE] = torch.randn((20, STATE_DIM))
 batch[_constants.TARGET_STATE] = torch.randn((20, STATE_DIM))
 
 
-vf = MLPUnconditionalVF(state_dim=STATE_DIM)
+vf = MLPVelocity(state_dim=STATE_DIM)
 
 
 class TestTorchFlowMatching:

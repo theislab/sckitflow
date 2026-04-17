@@ -4,6 +4,7 @@ from functools import cached_property
 import numpy as np
 import pandas as pd
 
+from sc_flow.data._mixins import BatchMixin
 from sc_flow.data.containers._base import BaseData
 from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.containers._coupling import CouplingData
@@ -99,6 +100,34 @@ class DistributionData(BaseData):
             groups_data=groups_data,
             source_coupling_data=source_coupling_data,
             target_coupling_data=target_coupling_data,
+        )
+
+    def get_metadata_dict(self) -> BatchMixin:
+        """Gets the metadata associated to the current distribution."""
+        # extract condition data
+        if self.condition_data is not None:
+            condition_reps = self.condition_data.extract_reps()
+        else:
+            condition_reps = BatchMixin({})
+
+        # extract group data
+        if self.groups_data is not None:
+            groups_reps = self.groups_data.extract_reps()
+        else:
+            groups_reps = BatchMixin({})
+
+        # extract response data
+        if self.response_data is not None:
+            response_reps = self.response_data.extract_reps()
+        else:
+            response_reps = BatchMixin({})
+
+        return BatchMixin(
+            {
+                "condition": condition_reps,
+                "groups": groups_reps,
+                "response_reps": response_reps,
+            }
         )
 
     @cached_property

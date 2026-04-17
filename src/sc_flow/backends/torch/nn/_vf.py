@@ -19,6 +19,7 @@ from sc_flow.backends.torch.nn._modules import BaseModule, FunctionalModule
 from sc_flow.backends.torch.nn._set_encoder import SetEncoder
 from sc_flow.backends.torch.nn._time_features import get_time_features_fn
 from sc_flow.backends.torch.nn._utils import init_module_from_dict
+from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 
 __all__ = [
     "BaseVelocityField",
@@ -26,14 +27,8 @@ __all__ = [
 ]
 
 
-class BaseVelocityField(abc.ABC, BaseModule):
+class BaseVelocityField(BaseModule):
     """Base class for neural velocity fields."""
-
-    @abc.abstractmethod
-    def _make_vf(
-        self,
-    ) -> torch.nn.Module:
-        """Initializes the neural components of the velocity field."""
 
     @abc.abstractmethod
     def forward(
@@ -255,7 +250,7 @@ class MLPUnconditionalVF(BaseVelocityField):
             DEFAULT_SOURCE_ENCODER_OUTPUT_DIM if source_encoder_output_dim is None else source_encoder_output_dim
         )
 
-        self._vf = self._make_vf()
+        self._vf = self._make_modules()
 
     @property
     def _use_time_features(
@@ -351,7 +346,7 @@ class MLPUnconditionalVF(BaseVelocityField):
         elif encoded_condition is None and encoded_source is not None:
             return encoded_source
         elif encoded_condition is not None and encoded_source is None:
-            return encoded_source
+            return encoded_condition
         return None
 
     def _make_time_features(
@@ -465,7 +460,7 @@ class MLPUnconditionalVF(BaseVelocityField):
             output_dim=self._source_encoder_output_dim,
         )
 
-    def _make_vf(
+    def _make_modules(
         self,
     ) -> torch.nn.Module:
         """Initializes the neural components of the velocity field.
@@ -537,3 +532,56 @@ class MLPUnconditionalVF(BaseVelocityField):
     ) -> bool:
         """Whether a condition encoder is associated to velocity field."""
         return self._condition_encoder_input_layers is not None
+
+    @classmethod
+    def init_from_dims_registry(
+        cls,
+        dims_registry: DataDimensionalitiesRegistry,
+        condition_encoder_input_layers: NestedLayersDict | None = None,
+        source_encoder_mlp_kwargs: LayersDict | None = None,
+        **kwargs,
+    ) -> "MLPUnconditionalVF":
+        # get arguments from keywords when provided in kwargs
+        if "condition_encoder_input_layers" in kwargs:
+            condition_encoder_input_layers = kwargs.pop("condition_encoder_input_layers")
+        if "source_encoder_mlp_kwargs" in kwargs:
+            source_encoder_mlp_kwargs = kwargs.pop("source_encoder_mlp_kwargs")
+
+        # get dimensionalities from registry
+        state_dim = dims_registry.state_dim
+
+        # create dictionary with all conditions dimensions
+        all_dims_dict = {
+            **dims_registry.condition_reps_dims,
+            **dims_registry.condition_continuous_dims,
+            **dims_registry.groups_reps_dims,
+        }
+
+        # register input dimensionalities for condition encoder
+        if condition_encoder_input_layers is not None:
+            for cov, input_layers in condition_encoder_input_layers.items():
+                if cov not in all_dims_dict.keys():
+                    msg = f"Covariate {cov} not found in the data."
+                    raise KeyError(msg)
+                cov_input_dim = all_dims_dict[cov]
+                input_layers["input_dim"] = cov_input_dim
+
+        # register source state dimensionality when provided
+        if source_encoder_mlp_kwargs is not None:
+            # get source dimension
+            if dims_registry.source_lin_dim is not None and dims_registry.source_quad_dim is not None:
+                source_dim = dims_registry.source_lin_dim + dims_registry.source_quad_dim
+            elif dims_registry.source_lin_dim is not None:
+                source_dim = dims_registry.source_lin_dim
+            elif dims_registry.source_quad_dim is not None:
+                source_dim = dims_registry.source_quad_dim
+            else:
+                source_dim = None
+            source_encoder_mlp_kwargs["input_dim"] = source_dim
+
+        return cls(
+            state_dim,
+            condition_encoder_input_layers=condition_encoder_input_layers,
+            source_encoder_mlp_kwargs=source_encoder_mlp_kwargs,
+            **kwargs,
+        )

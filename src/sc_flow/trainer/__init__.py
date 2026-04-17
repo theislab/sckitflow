@@ -1,3 +1,3 @@
-from sc_flow.trainer._trainer import FlowTrainer
+from sc_flow.trainer._trainer import Trainer
 
-__all__ = ["FlowTrainer"]
+__all__ = ["Trainer"]

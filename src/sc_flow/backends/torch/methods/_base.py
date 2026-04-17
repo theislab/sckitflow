@@ -210,12 +210,18 @@ class BaseGenerativeFlow(BaseMethod):
             target = step_data.target_state
 
             # extract condition and groups data
-            condition_reps_dict: BatchMixin = step_data.target_condition_data.extract_reps()
-            condition_reps_dict = self._batchmixin_to_torch(condition_reps_dict)
+            if step_data.target_condition_data is not None:
+                condition_reps_dict: BatchMixin = step_data.target_condition_data.extract_reps()
+                condition_reps_dict = self._batchmixin_to_torch(condition_reps_dict)
+            else:
+                condition_reps_dict = {}
 
             # extract condition and groups data
-            group_reps_dict: BatchMixin = step_data.target_group_data.extract_reps()
-            group_reps_dict = self._batchmixin_to_torch(group_reps_dict)
+            if step_data.target_group_data is not None:
+                group_reps_dict: BatchMixin = step_data.target_group_data.extract_reps()
+                group_reps_dict = self._batchmixin_to_torch(group_reps_dict)
+            else:
+                group_reps_dict = {}
 
             return source, target, condition_reps_dict, group_reps_dict
 
@@ -262,7 +268,7 @@ class BaseGenerativeFlow(BaseMethod):
     def train_step(
         self,
         matched_distr: MatchedDistributions,
-    ) -> tuple[float, dict[str, Any]]:
+    ) -> dict[str, Any]:
         """Single step function of the solver.
 
         :param batch: Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
@@ -270,6 +276,6 @@ class BaseGenerativeFlow(BaseMethod):
         :type batch: dict[str, torch.Tensor]
         """
         step_data = self._extract_step_data(matched_distr)
-        loss, step_output = self._train_step_forward(step_data)
+        loss, step_dict = self._train_step_forward(step_data)
         self._optimization_manager.backward_pass(loss)
-        return loss.item(), step_output
+        return step_dict

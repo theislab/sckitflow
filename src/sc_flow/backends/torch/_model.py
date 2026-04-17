@@ -10,6 +10,9 @@ from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
+from sc_flow.data.samplers._train import FTrainSampler
+from sc_flow.data.samplers._validation import FValidationSampler
+from sc_flow.trainer._trainer import Trainer
 
 __all__ = ["SCFlow"]
 
@@ -25,6 +28,7 @@ class SCFlow:
         adata: AnnData,
         **kwargs,
     ) -> None:
+        """"""  # noqa
         # initialize data manager
         cls._dm_cls = DataManager(**kwargs)
         cls._dims_registry = cls._dm_cls.get_data_dimensionalities(adata)
@@ -104,9 +108,67 @@ class SCFlow:
             **kwargs,
         )
 
-    def train(self):
+        # prepare attributes
+        self._trainer: Trainer | None = None
+
+    def train(
+        self,
+        train_adata: AnnData,
+        n_train_steps: int = 10_000,
+        valid_freq: int = 1_000,
+        val_adatas_dict: dict[str, AnnData] | None = None,
+        train_batch_size: int = 128,
+        train_n_nodes: int = 1,
+        train_replace_samples: bool = False,
+        train_replace_nodes: bool = False,
+        train_use_nodes_weights: bool = True,
+        val_max_n_obs: int = 10_000,
+        val_n_nodes: int = 1,
+        val_replace_samples: bool = False,
+        val_replace_nodes: bool = False,
+        val_use_nodes_weights: bool = True,
+    ) -> None:
         """"""  # noqa
-        raise NotImplementedError
+        # compile adata
+        train_tree = self._dm.compile_adata(train_adata)
+        if val_adatas_dict is not None:
+            val_trees_dict = {
+                val_id: self._dm.compile_adata(val_adata) for val_id, val_adata in val_adatas_dict.items()
+            }
+        else:
+            val_trees_dict = {}
+
+        # create samplers
+        train_sampler = FTrainSampler(
+            train_tree,
+            batch_size=train_batch_size,
+            n_nodes=train_n_nodes,
+            replace_samples=train_replace_samples,
+            replace_nodes=train_replace_nodes,
+            use_nodes_weights=train_use_nodes_weights,
+        )
+        val_samplers_dict = {
+            val_id: FValidationSampler(
+                val_tree,
+                max_n_obs=val_max_n_obs,
+                n_nodes=val_n_nodes,
+                replace_samples=val_replace_samples,
+                replace_nodes=val_replace_nodes,
+                use_nodes_weights=val_use_nodes_weights,
+            )
+            for val_id, val_tree in val_trees_dict.items()
+        }
+
+        # initialize trainer
+        self._trainer = Trainer(self._method)
+
+        # train model
+        self._trainer.train(
+            train_sampler,
+            val_samplers_dict,
+            n_train_steps=n_train_steps,
+            valid_freq=valid_freq,
+        )
 
     def predict(self):
         """"""  # noqa
@@ -126,3 +188,8 @@ class SCFlow:
     def method(self) -> DataManager:
         """"""  # noqa
         return self._method
+
+    @property
+    def trainer(self) -> Trainer:
+        """"""  # noqa
+        return self._trainer

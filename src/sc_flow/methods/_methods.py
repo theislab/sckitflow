@@ -3,6 +3,11 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any
 
+from anndata import AnnData
+
+from sc_flow.data._dim import DataDimensionalitiesRegistry
+from sc_flow.data._manager import DataManager
+
 if TYPE_CHECKING:
     from sc_flow.backends.jax._types import TMatchFn as JaxMatchFn
     from sc_flow.backends.jax._types import TNoiseSamplerFn as JaxNoiseSampler
@@ -21,6 +26,10 @@ __all__ = ["BaseMethod"]
 
 
 class BaseMethod(abc.ABC):
+    _module_cls: type[JaxModule] | type[TorchModule]
+    _dm_cls: DataManager | None = None
+    _data_dimensionalities_register_cls: Any | None = None
+
     def __init__(
         self,
         module: JaxModule | TorchModule,
@@ -38,6 +47,17 @@ class BaseMethod(abc.ABC):
         self._noise_sampler = noise_sampler
         self._time_sampler = time_sampler
         self._generate_from_noise = generate_from_noise
+
+        # check that data was prepared
+        if self.__class__._dm_cls is None:
+            raise RuntimeError(
+                f"Data has not been registered with {self.__class__.__name__}. "
+                "Please call .register_adata(adata, ...) before initializing the model."
+            )
+
+        # register class attributes to instance
+        self._dm = self.__class__._dm_cls
+        self._data_dimensionalities_register = self.__class__._data_dimensionalities_register_cls
 
     @abc.abstractmethod
     def train_step(self, *args: Any, **kwargs: Any) -> Any:
@@ -74,3 +94,26 @@ class BaseMethod(abc.ABC):
     @property
     def generate_from_noise(self) -> bool:
         return self._generate_from_noise
+
+    @property
+    def dm(self) -> DataManager | None:
+        return self._dm
+
+    @property
+    def data_dimensionalities_register(self) -> DataDimensionalitiesRegistry | None:
+        return self._data_dimensionalities_register
+
+    @abc.abstractmethod
+    def _init_module(
+        self,
+    ) -> JaxModule | TorchModule: ...
+
+    @classmethod
+    def register_adata(
+        cls,
+        adata: AnnData,
+        **kwargs,
+    ) -> None:
+        # initialize data manager
+        cls._dm_cls = DataManager(**kwargs)
+        cls._data_dimensionalities_register_cls = cls._dm_cls.get_data_dimensionalities(adata)

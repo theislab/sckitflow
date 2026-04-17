@@ -26,7 +26,7 @@ __all__ = [
 ]
 
 
-class BaseVelocityField(abc.ABC, torch.nn.Module):
+class BaseVelocityField(abc.ABC, BaseModule):
     """Base class for neural velocity fields."""
 
     @abc.abstractmethod

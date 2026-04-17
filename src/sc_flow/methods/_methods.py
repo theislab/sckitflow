@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from anndata import AnnData
 
-from sc_flow.data._dim import DataDimensionalitiesRegistry
+from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
 
 if TYPE_CHECKING:
@@ -26,28 +26,22 @@ __all__ = ["BaseMethod"]
 
 
 class BaseMethod(abc.ABC):
-    _module_cls: type[JaxModule] | type[TorchModule]
+    _module_cls: type[JaxModule | TorchModule]
     _dm_cls: DataManager | None = None
     _data_dimensionalities_register_cls: Any | None = None
+    _is_paired_setting_cls: bool = False
 
     def __init__(
         self,
-        module: JaxModule | TorchModule,
-        probability_path: JaxProbabilityPath | TorchProbabilityPath,
-        match_fn: JaxMatchFn | TorchMatchFn,
-        solver: JaxSolver | TorchSolver,
-        noise_sampler: JaxNoiseSampler | TorchNoiseSampler,
-        time_sampler: JaxTimeSampler | TorchTimeSampler,
-        generate_from_noise: bool,
+        *args,
+        probability_path: JaxProbabilityPath | TorchProbabilityPath | None = None,
+        match_fn: JaxMatchFn | TorchMatchFn | None = None,
+        solver: JaxSolver | TorchSolver | None = None,
+        noise_sampler: JaxNoiseSampler | TorchNoiseSampler | None = None,
+        time_sampler: JaxTimeSampler | TorchTimeSampler | None = None,
+        generate_from_noise: bool = False,
+        **kwargs,
     ) -> None:
-        self._module = module
-        self._probability_path = probability_path
-        self._match_fn = match_fn
-        self._solver = solver
-        self._noise_sampler = noise_sampler
-        self._time_sampler = time_sampler
-        self._generate_from_noise = generate_from_noise
-
         # check that data was prepared
         if self.__class__._dm_cls is None:
             raise RuntimeError(
@@ -58,6 +52,23 @@ class BaseMethod(abc.ABC):
         # register class attributes to instance
         self._dm = self.__class__._dm_cls
         self._data_dimensionalities_register = self.__class__._data_dimensionalities_register_cls
+        self._is_paired_setting = self.__class__._is_paired_setting_cls
+
+        # initialize attributes
+        self._probability_path = probability_path
+        self._match_fn = match_fn
+        self._solver = solver
+        self._noise_sampler = noise_sampler
+        self._time_sampler = time_sampler
+
+        # automatically fall back to noise generation when
+        # no control values are provided
+        if not self._is_paired_setting:
+            generate_from_noise = True
+        self._generate_from_noise = generate_from_noise
+
+        # initialize module with dimensionality registry
+        self._module = self._module_cls.init_from_dims_registry(self._data_dimensionalities_register, *args, **kwargs)
 
     @abc.abstractmethod
     def train_step(self, *args: Any, **kwargs: Any) -> Any:
@@ -68,27 +79,27 @@ class BaseMethod(abc.ABC):
         pass
 
     @property
-    def probability_path(self) -> JaxProbabilityPath | TorchProbabilityPath:
+    def probability_path(self) -> JaxProbabilityPath | TorchProbabilityPath | None:
         return self._probability_path
 
     @property
-    def match_fn(self) -> JaxMatchFn | TorchMatchFn:
+    def match_fn(self) -> JaxMatchFn | TorchMatchFn | None:
         return self._match_fn
 
     @property
-    def solver(self) -> JaxSolver | TorchSolver:
+    def solver(self) -> JaxSolver | TorchSolver | None:
         return self._solver
 
     @property
-    def noise_sampler(self) -> JaxNoiseSampler | TorchNoiseSampler:
+    def noise_sampler(self) -> JaxNoiseSampler | TorchNoiseSampler | None:
         return self._noise_sampler
 
     @property
-    def time_sampler(self) -> JaxTimeSampler | TorchTimeSampler:
+    def time_sampler(self) -> JaxTimeSampler | TorchTimeSampler | None:
         return self._time_sampler
 
     @property
-    def module(self) -> JaxModule | TorchModule:
+    def module(self) -> JaxModule | TorchModule | None:
         return self._module
 
     @property
@@ -103,11 +114,6 @@ class BaseMethod(abc.ABC):
     def data_dimensionalities_register(self) -> DataDimensionalitiesRegistry | None:
         return self._data_dimensionalities_register
 
-    @abc.abstractmethod
-    def _init_module(
-        self,
-    ) -> JaxModule | TorchModule: ...
-
     @classmethod
     def register_adata(
         cls,
@@ -117,3 +123,4 @@ class BaseMethod(abc.ABC):
         # initialize data manager
         cls._dm_cls = DataManager(**kwargs)
         cls._data_dimensionalities_register_cls = cls._dm_cls.get_data_dimensionalities(adata)
+        cls._is_paired_setting_cls = cls._dm_cls.control_values_dict is not None

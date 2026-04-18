@@ -162,6 +162,9 @@ class SCFlow:
         # initialize trainer
         self._trainer = Trainer(self._method)
 
+        # module in training mode
+        self._method.module.train()
+
         # train model
         self._trainer.train(
             train_sampler,
@@ -170,8 +173,12 @@ class SCFlow:
             valid_freq=valid_freq,
         )
 
-    def predict(self):
+    def predict(self, adata: AnnData):
         """"""  # noqa
+
+        # module in training mode
+        self._method.module.eval()
+
         raise NotImplementedError
 
     @property

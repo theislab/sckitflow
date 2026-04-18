@@ -1,13 +1,17 @@
 from typing import Any, Literal
 
+import pandas as pd
 import torch
 from anndata import AnnData
+from tqdm import tqdm
 
 from sc_flow.backends.torch._types import TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
 from sc_flow.backends.torch.methods import AVAILABLE_METHODS, METHODS_REGISTRY
 from sc_flow.backends.torch.methods._base import BaseGenerativeFlow
+from sc_flow.backends.torch.methods._utils import PredictionData
 from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver
+from sc_flow.data._composite import MatchedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
 from sc_flow.data.samplers._train import FTrainSampler
@@ -37,7 +41,7 @@ class SCFlow:
     def __init__(
         self,
         *args,
-        method_cls: BaseGenerativeFlow | None = None,
+        method_cls: type[BaseGenerativeFlow] | None = None,
         method_id: AVAILABLE_METHODS | None = None,
         probability_path: BaseProbabilityPath | None = None,
         match_fn: TMatchFn | None = None,
@@ -84,7 +88,7 @@ class SCFlow:
             method_cls = METHODS_REGISTRY[method_id]
 
         # initialize method
-        self._method = method_cls(
+        self._method: BaseGenerativeFlow = method_cls(
             self._dims_registry,
             self._dm,
             self._is_paired_setting,
@@ -173,13 +177,64 @@ class SCFlow:
             valid_freq=valid_freq,
         )
 
-    def predict(self, adata: AnnData):
-        """"""  # noqa
+    def predict(
+        self, adata: AnnData, return_tensors: bool = False, **kwargs
+    ) -> AnnData | tuple[AnnData, PredictionData]:
+        """
+        Generates flow predictions.
 
-        # module in training mode
+        :param return_tensors: If True, returns the raw concatenated PredictionData
+                            keeping the computation graph alive.
+        """
         self._method.module.eval()
+        tree = self._dm.compile_adata(adata)
+        tree_flat: tuple[MatchedData] = tree.flatten()
 
-        raise NotImplementedError
+        all_samples = []
+        all_trajs = []
+        all_obs = []
+
+        pbar = tqdm(tree_flat, desc="Predicting")
+        for node in pbar:
+            # 1. Inference (Differentiable)
+            pred_obj: PredictionData = self._method.predict(node, **kwargs)
+
+            # 2. Collect Tensors (keep graph)
+            all_samples.append(pred_obj.samples)
+            if pred_obj.traj is not None:
+                all_trajs.append(pred_obj.traj)
+
+            # 3. Metadata
+            ann_df = node.source_distr.ann_df if node.source_distr else node.target_distr.ann_df
+            all_obs.append(ann_df.copy())
+
+        # --- Construct AnnData (Detached from graph) ---
+        X_final = torch.cat(all_samples, dim=0).detach().cpu().numpy()
+        obs_final = pd.concat(all_obs, axis=0)
+
+        pred_adata = AnnData(
+            X=X_final,
+            obs=obs_final,
+        )
+
+        # 4. Store Trajectory in obsm
+        if all_trajs:
+            # Concatenate on the cell dimension (dim=1 for torchdiffeq [T, N, D])
+            # We want [N, T, D] for AnnData alignment
+            full_traj = torch.cat(all_trajs, dim=1).transpose(0, 1).detach().cpu().numpy()
+
+            # AnnData obsm usually requires 2D or consistent row-dimension
+            # We store the 3D array; note that some tools prefer flattened [N, T*D]
+            pred_adata.obsm["trajectory"] = full_traj
+
+        if return_tensors:
+            # Concatenate tensors to return a single Differentiable object
+            differentiable_output = PredictionData(
+                samples=torch.cat(all_samples, dim=0), traj=torch.cat(all_trajs, dim=1) if all_trajs else None
+            )
+            return pred_adata, differentiable_output
+
+        return pred_adata
 
     @property
     def dm(self) -> DataManager:

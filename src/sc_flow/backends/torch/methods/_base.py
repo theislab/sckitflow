@@ -4,7 +4,7 @@ from typing import Any, Literal
 import torch
 
 from sc_flow.backends.torch._types import MappedTensor, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
-from sc_flow.backends.torch.methods._utils import OptimizationManager, StepData
+from sc_flow.backends.torch.methods._utils import OptimizationManager, PredictionData, StepData
 from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver
 from sc_flow.data._composite import MatchedDistributions
@@ -93,7 +93,7 @@ class BaseGenerativeFlow(BaseMethod):
         solver_kwargs: dict[str, Any] | None = None,
         return_trajectory: bool = False,
         num_steps: bool = 100,
-    ): ...
+    ) -> PredictionData: ...
 
     def _call_match_fn_safe(
         self,
@@ -304,7 +304,7 @@ class BaseGenerativeFlow(BaseMethod):
         return_trajectory: bool = False,
         num_steps: bool = 100,
         no_grad: bool = True,
-    ) -> None:
+    ) -> PredictionData:
         """Prediction on node."""
         # extract step data and prepare latent state
         step_data = self._extract_step_data(matched_distr)
@@ -325,5 +325,20 @@ class BaseGenerativeFlow(BaseMethod):
         # optionally stop gradients
         if no_grad:
             with torch.no_grad():
-                return _call_predict()
-        return _call_predict()
+                predictions = _call_predict()
+        else:
+            predictions = _call_predict()
+
+        # split samples and trajectories
+        if return_trajectory:
+            samples = predictions[-1]
+            traj = predictions
+        else:
+            samples = predictions
+            traj = None
+
+        # define prediction data
+        return PredictionData(
+            samples,
+            traj=traj,
+        )

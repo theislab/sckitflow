@@ -5,11 +5,11 @@ import torch
 
 from sc_flow.backends.torch.nn._modules import BaseModule
 
-__all__ = ["TrainStepInput", "OptimizationManager"]
+__all__ = ["StepData", "OptimizationManager"]
 
 
 @dataclass
-class TrainStepInput:
+class StepData:
     target_state: torch.Tensor
     target_coupling_lin: torch.Tensor
     target_coupling_quad: torch.Tensor | None

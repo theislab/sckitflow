@@ -295,9 +295,25 @@ class DataManager:
         self,
         adata: AnnData,
     ) -> DataDimensionalitiesRegistry:
+        """Registers the data dimensionalities from the input data according to the current schema.
+
+        :param adata: The annotated data object which to extract the dimensionalities from.
+        :type adata: class: `AnnData`
+        """
         data: DistributionData = self._get_distribution_data(adata)
         feature_names = self._get_feature_names(adata)
         return self._get_data_dimensionalities(data, feature_names)
+
+    def get_features_names(
+        self,
+        adata: AnnData,
+    ) -> pd.Index:
+        """Registers the feature names from the input data according to the current schema.
+
+        :param adata: The annotated data object which to extract the feature names from.
+        :type adata: class: `AnnData`
+        """
+        return self._get_feature_names(adata)
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

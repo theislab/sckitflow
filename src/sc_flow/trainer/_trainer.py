@@ -72,6 +72,7 @@ class Trainer:
         val_samplers_dict: dict[str, FValidationSampler] | None = None,
         n_train_steps: int = 10_000,
         valid_freq: int = 1_000,
+        pbar_freq: int = 100,
         # prng: Array | Generator | None = None,
     ) -> None:
         """Trains the model.
@@ -102,6 +103,13 @@ class Trainer:
             for node in nodes:
                 step_dict = self._method.train_step(node)
                 self._update_logs(step_dict)
+
+            # validation step
+            if ((train_step + 1) % pbar_freq == 0) and (train_step > 0):
+                msg = "| "
+                for key, val in step_dict.items():
+                    msg += f"{key}:{val} | "
+                pbar.set_description(msg)
 
             # validation step
             if ((train_step + 1) % valid_freq == 0) and (train_step > 0) and do_validation:

@@ -215,6 +215,7 @@ class SCFlow:
         pred_adata = AnnData(
             X=X_final,
             obs=obs_final,
+            var=pd.DataFrame(index=self._dims_registry.feature_names),
         )
 
         # 4. Store Trajectory in obsm
@@ -222,11 +223,9 @@ class SCFlow:
             # Concatenate on the cell dimension (dim=1 for torchdiffeq [T, N, D])
             # We want [N, T, D] for AnnData alignment
             full_traj = torch.cat(all_trajs, dim=1).transpose(0, 1).detach().cpu().numpy()
-
-            # AnnData obsm usually requires 2D or consistent row-dimension
-            # We store the 3D array; note that some tools prefer flattened [N, T*D]
             pred_adata.obsm["trajectory"] = full_traj
 
+        # optionally return differentiable tensors
         if return_tensors:
             # Concatenate tensors to return a single Differentiable object
             differentiable_output = PredictionData(
@@ -234,6 +233,8 @@ class SCFlow:
             )
             return pred_adata, differentiable_output
 
+        # clear memory
+        del all_samples, all_trajs
         return pred_adata
 
     @property

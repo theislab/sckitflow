@@ -2,17 +2,33 @@ from typing import Any
 
 import torch
 
-from sc_flow.backends.torch.methods._base import FlowMethod
-from sc_flow.backends.torch.methods._utils import PredictionData, StepData
+from sc_flow.backends.torch._types import PredictionData
+from sc_flow.backends.torch.coupling._coupling import independent_coupling
+from sc_flow.backends.torch.methods._base import TorchGenerativeFlow
+from sc_flow.backends.torch.methods._utils import StepData
 from sc_flow.backends.torch.nn._vf import BaseVelocityField, MLPVelocity
+from sc_flow.backends.torch.probability_paths._probability_paths import LinearDiracProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver, ODESolver
 
 __all__ = ["CFM"]
 
 
-class CFM(FlowMethod):
+class CFM(TorchGenerativeFlow):
     _module_cls: type[BaseVelocityField] = MLPVelocity
     _default_solver_cls: type[BaseSolver] = ODESolver
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        # set defaults
+        if self._match_fn is None:
+            self._match_fn = independent_coupling
+        if self._noise_sampler is None:
+            self._noise_sampler = torch.randn_like
+        if self._time_sampler is None:
+            self._time_sampler = torch.rand
+        if self._probability_path is None:
+            self._probability_path = LinearDiracProbabilityPath()
 
     def _prepare_latent_state(
         self,

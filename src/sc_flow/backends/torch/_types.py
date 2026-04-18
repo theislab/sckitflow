@@ -1,4 +1,5 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeVar
 
 import numpy as np
@@ -55,15 +56,10 @@ TSDEType = Literal["ito", "stratonovich"]
 
 
 TODEDynamics = TypeVar("TODEDynamics", bound="BaseVelocityField")
-
 TTimeStateDiffusion = Callable[[Tensor, Tensor], Tensor]
-
 TTimeDiffusion = Callable[[Tensor], Tensor]
-
 TDiffusion = TTimeDiffusion | TTimeStateDiffusion
-
 TSDEDynamics = tuple[TODEDynamics, TDiffusion]
-
 TSolverDynamics = TypeVar("TSolverDynamics", TODEDynamics, TSDEDynamics)
 
 
@@ -73,3 +69,19 @@ class SolverConfig(NamedTuple):
     source_on_device: Tensor
     time_on_device: Tensor
     remaining_kwargs: dict[str, Any]
+
+
+@dataclass
+class PredictionData:
+    samples: torch.Tensor
+    traj: torch.Tensor | None = None
+
+    @classmethod
+    def concatenate(cls, preds: Collection["PredictionData"]) -> "PredictionData":
+        samples = torch.cat([p.samples for p in preds], dim=0)
+        trajs = [p.traj for p in preds if p.traj is not None]
+        if trajs:
+            traj = torch.cat(trajs, dim=1)  # assuming [T, N, D] -> concat on N
+        else:
+            traj = None
+        return cls(samples=samples, traj=traj)

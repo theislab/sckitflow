@@ -1,3 +1,3 @@
-from sc_flow.methods._methods import BaseMethod
+from sc_flow.methods._methods import BaseGenerativeFlow, BaseMethod
 
-__all__ = ["BaseMethod"]
+__all__ = ["BaseMethod", "BaseGenerativeFlow"]

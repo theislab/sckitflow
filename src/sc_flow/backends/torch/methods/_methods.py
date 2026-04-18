@@ -2,25 +2,35 @@ from typing import Any
 
 import torch
 
-from sc_flow.backends.torch.methods._base import BaseGenerativeFlow
-from sc_flow.backends.torch.methods._utils import StepData
+from sc_flow.backends.torch.methods._base import FlowMethod
+from sc_flow.backends.torch.methods._utils import PredictionData, StepData
 from sc_flow.backends.torch.nn._vf import BaseVelocityField, MLPVelocity
 from sc_flow.backends.torch.solvers import BaseSolver, ODESolver
 
 __all__ = ["CFM"]
 
 
-class CFM(BaseGenerativeFlow):
+class CFM(FlowMethod):
     _module_cls: type[BaseVelocityField] = MLPVelocity
+    _default_solver_cls: type[BaseSolver] = ODESolver
+
+    def _prepare_latent_state(
+        self,
+        source: torch.Tensor | None,
+        target_reference: torch.Tensor,
+    ) -> torch.Tensor:
+        if source is None or self._generate_from_noise:
+            return self._noise_sampler(target_reference)
+        return source
 
     def _compute_loss(
         self,
-        latent: torch.Tensor,
         source: torch.Tensor | None,
         target: torch.Tensor | None,
         condition_data: dict[str, torch.Tensor] | None,
         group_data: dict[str, torch.Tensor] | None,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
+        latent = self._prepare_latent_state(source, target)
         batch_size = latent.shape[0]
         t = self._time_sampler((batch_size,), device=latent.device, dtype=latent.dtype)
         xt = self._probability_path.compute_xt(t, latent, target)
@@ -36,13 +46,19 @@ class CFM(BaseGenerativeFlow):
 
     def _predict(
         self,
-        latent: torch.Tensor,
         step_data: StepData,
+        *args,
         solver_cls: type[BaseSolver] | None = None,
         solver_kwargs: dict[str, Any] | None = None,
         return_trajectory: bool = False,
-        num_steps: bool = 100,
-    ):
+        num_steps: int = 100,
+        latent: torch.Tensor | None = None,
+        **kwargs,
+    ) -> PredictionData:
+        # prepare latent state from step data
+        if latent is None:
+            latent = self._prepare_latent_state(step_data.source_state, step_data.target_state)
+
         # extract condition and groups data
         condition_reps_dict = self._get_tensor_dict_from_data(step_data.target_condition_data)
         group_reps_dict = self._get_tensor_dict_from_data(step_data.target_group_data)
@@ -61,17 +77,33 @@ class CFM(BaseGenerativeFlow):
 
         # prepare solver and integrate dynamics
         if solver_cls is None:
-            solver_cls = ODESolver
+            solver_cls = self._default_solver_cls
         time_grid = torch.linspace(0.0, 1.0, steps=num_steps, device=latent.device, dtype=latent.dtype)
         solver = solver_cls(
             self._module,
+            *args,
             method=method,
             vf_kwargs={"condition_dict": condition_dict, "source": step_data.source_state},
             device_id=self._device_id,
+            **kwargs,
         )
-        return solver.solve(
+        predictions = solver.solve(
             latent,
             time_grid,
             solver_kwargs=solver_kwargs,
             return_trajectory=return_trajectory,
+        )
+
+        # split samples and trajectories
+        if return_trajectory:
+            samples = predictions[-1]
+            traj = predictions
+        else:
+            samples = predictions
+            traj = None
+
+        # define prediction data
+        return PredictionData(
+            samples,
+            traj=traj,
         )

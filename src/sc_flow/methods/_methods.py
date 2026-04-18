@@ -23,11 +23,12 @@ if TYPE_CHECKING:
     from sc_flow.backends.torch.probability_paths import BaseProbabilityPath as TorchProbabilityPath
     from sc_flow.backends.torch.solvers import BaseSolver as TorchSolver
 
-__all__ = ["BaseMethod"]
+__all__ = ["BaseMethod", "BaseGenerativeFlow"]
 
 
 class BaseMethod(abc.ABC):
-    _module_cls: type[JaxModule | TorchModule]
+    _module_cls: type[JaxModule | TorchModule] | None = None
+    _default_solver_cls: type[JaxSolver | TorchSolver] | None = None
 
     def __init__(
         self,
@@ -35,31 +36,13 @@ class BaseMethod(abc.ABC):
         dm: DataManager,
         is_paired_setting: bool,
         *args,
-        probability_path: JaxProbabilityPath | TorchProbabilityPath | None = None,
-        match_fn: JaxMatchFn | TorchMatchFn | None = None,
-        noise_sampler: JaxNoiseSampler | TorchNoiseSampler | None = None,
-        time_sampler: JaxTimeSampler | TorchTimeSampler | None = None,
         generate_from_noise: bool = False,
-        solver_cls: JaxSolver | TorchSolver | None = None,
-        solver_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
         # initialize attributes
         self._dims_registry = dims_registry
         self._dm = dm
         self._is_paired_setting = is_paired_setting
-        self._probability_path = probability_path
-        self._match_fn = match_fn
-        self._noise_sampler = noise_sampler
-        self._time_sampler = time_sampler
-        self._solver_cls = solver_cls
-        self._solver_kwargs = solver_kwargs
-
-        # automatically fall back to noise generation when
-        # no control values are provided
-        if not self._is_paired_setting:
-            generate_from_noise = True
-        self._generate_from_noise = generate_from_noise
 
         # initialize module with dimensionality registry
         self._module = self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
@@ -73,32 +56,8 @@ class BaseMethod(abc.ABC):
         pass
 
     @property
-    def probability_path(self) -> JaxProbabilityPath | TorchProbabilityPath | None:
-        return self._probability_path
-
-    @property
-    def match_fn(self) -> JaxMatchFn | TorchMatchFn | None:
-        return self._match_fn
-
-    @property
-    def solver_cls(self) -> JaxSolver | TorchSolver | None:
-        return self._solver_cls
-
-    @property
-    def noise_sampler(self) -> JaxNoiseSampler | TorchNoiseSampler | None:
-        return self._noise_sampler
-
-    @property
-    def time_sampler(self) -> JaxTimeSampler | TorchTimeSampler | None:
-        return self._time_sampler
-
-    @property
     def module(self) -> JaxModule | TorchModule | None:
         return self._module
-
-    @property
-    def generate_from_noise(self) -> bool:
-        return self._generate_from_noise
 
     @property
     def dm(self) -> DataManager | None:
@@ -107,3 +66,53 @@ class BaseMethod(abc.ABC):
     @property
     def dims_registry(self) -> DataDimensionalitiesRegistry | None:
         return self._dims_registry
+
+
+class BaseGenerativeFlow(BaseMethod):
+    def __init__(
+        self,
+        dims_registry: DataDimensionalitiesRegistry,
+        dm: DataManager,
+        is_paired_setting: bool,
+        *args,
+        probability_path: JaxProbabilityPath | TorchProbabilityPath | None = None,
+        match_fn: JaxMatchFn | TorchMatchFn | None = None,
+        noise_sampler: JaxNoiseSampler | TorchNoiseSampler | None = None,
+        time_sampler: JaxTimeSampler | TorchTimeSampler | None = None,
+        generate_from_noise: bool = False,
+        **kwargs,
+    ) -> None:
+        # initialize parent class
+        super().__init__(dims_registry, dm, is_paired_setting, *args, **kwargs)
+
+        # set attributes
+        self._probability_path = probability_path
+        self._match_fn = match_fn
+        self._noise_sampler = noise_sampler
+        self._time_sampler = time_sampler
+
+        # automatically fall back to noise generation when
+        # no control values are provided
+        if not self._is_paired_setting:
+            generate_from_noise = True
+        self._generate_from_noise = generate_from_noise
+
+    @property
+    def generate_from_noise(self) -> bool:
+        return self._generate_from_noise
+
+    @property
+    def probability_path(self) -> JaxProbabilityPath | TorchProbabilityPath | None:
+        return self._probability_path
+
+    @property
+    def match_fn(self) -> JaxMatchFn | TorchMatchFn | None:
+        return self._match_fn
+
+    @property
+    def noise_sampler(self) -> JaxNoiseSampler | TorchNoiseSampler | None:
+        return self._noise_sampler
+
+    @property
+    def time_sampler(self) -> JaxTimeSampler | TorchTimeSampler | None:
+        return self._time_sampler

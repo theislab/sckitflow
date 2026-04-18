@@ -6,11 +6,11 @@ from anndata import AnnData
 from tqdm import tqdm
 
 from sc_flow.backends.torch._types import TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
+from sc_flow.backends.torch.coupling._coupling import independent_coupling
 from sc_flow.backends.torch.methods import AVAILABLE_METHODS, METHODS_REGISTRY
 from sc_flow.backends.torch.methods._base import BaseGenerativeFlow
 from sc_flow.backends.torch.methods._utils import PredictionData
-from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
-from sc_flow.backends.torch.solvers import BaseSolver
+from sc_flow.backends.torch.probability_paths import BaseProbabilityPath, LinearDiracProbabilityPath
 from sc_flow.data._composite import MatchedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
@@ -69,15 +69,14 @@ class SCFlow:
         *args,
         method_cls: type[BaseGenerativeFlow] | None = None,
         method_id: AVAILABLE_METHODS | None = None,
-        probability_path: BaseProbabilityPath | None = None,
+        probability_path_cls: type[BaseProbabilityPath] | None = None,
+        probability_path_kwargs: dict[str, Any] | None = None,
         match_fn: TMatchFn | None = None,
         noise_sampler: TNoiseSamplerFn | None = None,
         time_sampler: TTimeSamplerFn | None = None,
         generate_from_noise: bool = False,
         dtype: torch.dtype = torch.float32,
         device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
-        solver_cls: type[BaseSolver] | None = None,
-        solver_kwargs: dict[str, Any] | None = None,
         optimizer_cls: type[torch.optim.Optimizer] = torch.optim.Adam,
         optimizer_kwargs: dict[str, Any] | None = None,
         lr: float = 5e-5,
@@ -102,9 +101,9 @@ class SCFlow:
             Defaults to `None`.
         :type method_id: class: `AVAILABLE_METHODS`
 
-        :param probability_path: Instance of the conditional probability path
+        :param probability_path_cls: Instance of the conditional probability path
             used to instantiate the flow model. Defaults to `None`.
-        :type probability_path: class: `BaseProbabilityPath | None`
+        :type probability_path_cls: class: `type[BaseProbabilityPath] | None`
 
         :param match_fn: Function used to match the source and target groups.
             Defaults to `None`.
@@ -131,12 +130,6 @@ class SCFlow:
         :param device_id: Identifier for the device used for the computations.
             When available, defaults to "cuda". Otherwise is set to "cpu".
         :type device_id: class: `str`
-
-        :param solver_cls: Reference to a `BaseSolver` class, used during inference. Defaults to `None`.
-        :type solver_cls: class: `type[BaseSolver] | None`
-
-        :param solver_kwargs: Keyword arguments used to initialize the solver class. Defaults to `None`
-        :type solver_kwargs: class: `dict[str, Any] | None`
 
         :param optimizer_cls: Reference to a `torch.optim.Optimizer` class, used to update the model's weights. Defaults to `torch.optim.Adam`.
         :type optimizer_cls: class: `type[torch.optim.Optimizer] | None`
@@ -177,6 +170,23 @@ class SCFlow:
         self._dims_registry = self.__class__._dims_registry
         self._is_paired_setting = self.__class__._is_paired_setting_cls
 
+        # set defaults
+        if match_fn is None:
+            match_fn = independent_coupling
+        if noise_sampler is None:
+            noise_sampler = torch.randn_like
+        if time_sampler is None:
+            # for consistency models we need two time indices
+            if method_id == "fm" and method_cls is None:
+
+                def time_sampler(shape, **kwargs):
+                    s = torch.rand(shape, **kwargs)
+                    t = torch.rand(shape, **kwargs)
+                    return s, t
+
+            # otherwise fall back to one index only
+            time_sampler = torch.rand
+
         # get method cls
         if method_cls is None and method_id is None:
             msg = "At least one of `method_id` or `method_cls` should be specified."
@@ -188,6 +198,13 @@ class SCFlow:
                 msg = f"Method {method_id} not supported, possible options are {list(METHODS_REGISTRY.keys())}."
                 raise KeyError(msg)
             method_cls = METHODS_REGISTRY[method_id]
+
+        # initialize probability path
+        if probability_path_cls is None:
+            probability_path_cls = LinearDiracProbabilityPath
+        if probability_path_kwargs is None:
+            probability_path_kwargs = {}
+        probability_path = probability_path_cls(**probability_path_kwargs)
 
         # initialize method
         self._method: BaseGenerativeFlow = method_cls(
@@ -202,8 +219,6 @@ class SCFlow:
             generate_from_noise=generate_from_noise,
             dtype=dtype,
             device_id=device_id,
-            solver_cls=solver_cls,
-            solver_kwargs=solver_kwargs,
             optimizer_cls=optimizer_cls,
             optimizer_kwargs=optimizer_kwargs,
             lr=lr,
@@ -347,7 +362,7 @@ class SCFlow:
         )
 
     def predict(
-        self, adata: AnnData, return_tensors: bool = False, **kwargs
+        self, adata: AnnData, *args, return_tensors: bool = False, **kwargs
     ) -> AnnData | tuple[AnnData, PredictionData]:
         """
         Generates flow predictions.
@@ -373,7 +388,7 @@ class SCFlow:
         pbar = tqdm(tree_flat, desc="Predicting")
         for node in pbar:
             # 1. Inference (Differentiable)
-            pred_obj: PredictionData = self._method.predict(node, **kwargs)
+            pred_obj: PredictionData = self._method.predict(node, *args, **kwargs)
 
             # 2. Collect Tensors (keep graph)
             all_samples.append(pred_obj.samples)

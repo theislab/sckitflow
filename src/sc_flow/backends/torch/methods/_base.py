@@ -5,6 +5,7 @@ import torch
 
 from sc_flow.backends.torch._types import MappedTensor, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
 from sc_flow.backends.torch.methods._utils import OptimizationManager, PredictionData, StepData
+from sc_flow.backends.torch.nn._modules import BaseModule
 from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver
 from sc_flow.data._composite import MatchedDistributions
@@ -14,12 +15,15 @@ from sc_flow.data.containers._coupling import CouplingData
 from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.containers._state import StateData
-from sc_flow.methods import BaseMethod
+from sc_flow.methods._methods import BaseGenerativeFlow
 
-__all__ = ["BaseGenerativeFlow"]
+__all__ = ["FlowMethod"]
 
 
-class BaseGenerativeFlow(BaseMethod):
+class FlowMethod(BaseGenerativeFlow):
+    _module_cls: type[BaseModule] | None = None
+    _default_solver_cls: type[BaseSolver] | None = None
+
     def __init__(
         self,
         *args,
@@ -30,8 +34,6 @@ class BaseGenerativeFlow(BaseMethod):
         generate_from_noise: bool = False,
         dtype: torch.dtype = torch.float32,
         device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
-        solver_cls: type[BaseSolver] | None = None,
-        solver_kwargs: dict[str, Any] | None = None,
         optimizer_cls: type[torch.optim.Optimizer] = torch.optim.Adam,
         optimizer_kwargs: dict[str, Any] | None = None,
         lr: float = 5e-5,
@@ -52,8 +54,6 @@ class BaseGenerativeFlow(BaseMethod):
             noise_sampler=noise_sampler,
             time_sampler=time_sampler,
             generate_from_noise=generate_from_noise,
-            solver_cls=solver_cls,
-            solver_kwargs=solver_kwargs,
             **kwargs,
         )
 
@@ -78,7 +78,6 @@ class BaseGenerativeFlow(BaseMethod):
     @abc.abstractmethod
     def _compute_loss(
         self,
-        latent: torch.Tensor,
         source: torch.Tensor | None,
         target: torch.Tensor,
         condition_data: MappedTensor,
@@ -89,10 +88,8 @@ class BaseGenerativeFlow(BaseMethod):
     def _predict(
         self,
         step_data: StepData,
-        solver_cls: type[BaseSolver] | None = None,
-        solver_kwargs: dict[str, Any] | None = None,
-        return_trajectory: bool = False,
-        num_steps: bool = 100,
+        *args,
+        **kwargs,
     ) -> PredictionData: ...
 
     def _call_match_fn_safe(
@@ -256,24 +253,12 @@ class BaseGenerativeFlow(BaseMethod):
 
         return source, target, condition_reps_dict, group_reps_dict
 
-    def _prepare_latent_state(
-        self,
-        source: torch.Tensor | None,
-        target_reference: torch.Tensor,
-    ) -> torch.Tensor:
-        if source is None or self._generate_from_noise:
-            # Tell the noise sampler to generate noise matching the target's shape
-            return self._noise_sampler(target_reference)
-        return source
-
     def _train_step_forward(
         self,
         step_data: StepData,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
-        latent = self._prepare_latent_state(step_data.source_state, step_data.target_state)
         source, target, condition_data, group_data = self._extract_matched_observations(step_data)
         return self._compute_loss(
-            latent,
             source,
             target,
             condition_data,
@@ -298,47 +283,25 @@ class BaseGenerativeFlow(BaseMethod):
     def predict(
         self,
         matched_distr: MatchedDistributions,
-        solver_cls: type[BaseSolver] | None = None,
-        solver_kwargs: dict[str, Any] | None = None,
-        latent: torch.Tensor | None = None,
-        return_trajectory: bool = False,
-        num_steps: bool = 100,
+        *args,
         no_grad: bool = True,
+        **kwargs,
     ) -> PredictionData:
         """Prediction on node."""
         # extract step data and prepare latent state
         step_data = self._extract_step_data(matched_distr)
-        if latent is None:
-            latent = self._prepare_latent_state(step_data.source_state, step_data.target_state)
-
-        # wrapper for no grad
-        def _call_predict():
-            return self._predict(
-                latent,
-                step_data,
-                solver_cls=solver_cls,
-                solver_kwargs=solver_kwargs,
-                return_trajectory=return_trajectory,
-                num_steps=num_steps,
-            )
 
         # optionally stop gradients
         if no_grad:
             with torch.no_grad():
-                predictions = _call_predict()
+                return self._predict(
+                    step_data,
+                    *args,
+                    **kwargs,
+                )
         else:
-            predictions = _call_predict()
-
-        # split samples and trajectories
-        if return_trajectory:
-            samples = predictions[-1]
-            traj = predictions
-        else:
-            samples = predictions
-            traj = None
-
-        # define prediction data
-        return PredictionData(
-            samples,
-            traj=traj,
-        )
+            return self._predict(
+                step_data,
+                *args,
+                **kwargs,
+            )

@@ -15,6 +15,7 @@ __all__ = ["DataDimensionalitiesRegistry"]
 @dataclass(frozen=True)
 class DataDimensionalitiesRegistry:
     state_dim: int
+    feature_names: pd.Index
     condition_reps_dims: dict[str, int] | None
     condition_continuous_dims: dict[str, int] | None
     response_reps_dims: dict[str, int] | None
@@ -69,7 +70,9 @@ class DataDimensionalitiesRegistry:
         return {**repr_dims, **encoded_covs_dims}
 
     @classmethod
-    def init_from_distribution_data(cls, data: DistributionData) -> "DataDimensionalitiesRegistry":
+    def init_from_distribution_data(
+        cls, data: DistributionData, feature_names: pd.Index
+    ) -> "DataDimensionalitiesRegistry":
         state_dim = data.state_data.X.shape[-1]
 
         # Helper closures to handle None-checks cleanly
@@ -106,6 +109,7 @@ class DataDimensionalitiesRegistry:
 
         return cls(
             state_dim=state_dim,
+            feature_names=feature_names,
             condition_reps_dims=condition_reps_dims,
             condition_continuous_dims=condition_continuous_dims,
             response_reps_dims=response_reps_dims,

@@ -5,7 +5,7 @@ import torch
 
 from sc_flow.backends.torch.nn._modules import BaseModule
 
-__all__ = ["StepData", "OptimizationManager", "PredictionData"]
+__all__ = ["StepData", "OptimizationManager"]
 
 
 @dataclass
@@ -76,9 +76,3 @@ class OptimizationManager:
             lr_scheduler_step=lr_scheduler_step,
             plan_kwargs=plan_kwargs if plan_kwargs is not None else {},
         )
-
-
-@dataclass
-class PredictionData:
-    samples: torch.Tensor
-    traj: torch.Tensor | None = None

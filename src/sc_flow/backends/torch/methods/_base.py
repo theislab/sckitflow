@@ -3,8 +3,8 @@ from typing import Any, Literal
 
 import torch
 
-from sc_flow.backends.torch._types import MappedTensor, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
-from sc_flow.backends.torch.methods._utils import OptimizationManager, PredictionData, StepData
+from sc_flow.backends.torch._types import MappedTensor, PredictionData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
+from sc_flow.backends.torch.methods._utils import OptimizationManager, StepData
 from sc_flow.backends.torch.nn._modules import BaseModule
 from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver
@@ -17,10 +17,10 @@ from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.containers._state import StateData
 from sc_flow.methods._methods import BaseGenerativeFlow
 
-__all__ = ["FlowMethod"]
+__all__ = ["TorchGenerativeFlow"]
 
 
-class FlowMethod(BaseGenerativeFlow):
+class TorchGenerativeFlow(BaseGenerativeFlow):
     _module_cls: type[BaseModule] | None = None
     _default_solver_cls: type[BaseSolver] | None = None
 
@@ -71,6 +71,12 @@ class FlowMethod(BaseGenerativeFlow):
             lr_scheduler_step=lr_scheduler_step,
             plan_kwargs=plan_kwargs,
         )
+
+    def set_train_mode(self, mode: bool) -> None:
+        if mode:
+            self.module.train()
+        else:
+            self.module.eval()
 
     def _batchmixin_to_torch(self, batch_mixin: BatchMixin) -> dict[str, torch.Tensor]:
         return {k: torch.from_numpy(v).to(self._dtype).to(self._device_id) for k, v in batch_mixin.mapping.items()}

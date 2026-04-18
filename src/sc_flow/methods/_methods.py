@@ -36,7 +36,6 @@ class BaseMethod(abc.ABC):
         dm: DataManager,
         is_paired_setting: bool,
         *args,
-        generate_from_noise: bool = False,
         **kwargs,
     ) -> None:
         # initialize attributes
@@ -44,8 +43,17 @@ class BaseMethod(abc.ABC):
         self._dm = dm
         self._is_paired_setting = is_paired_setting
 
+        # check module is passed
+        if self._module_cls is None:
+            raise NotImplementedError(f"{self.__class__.__name__} must define a `_module_cls` class attribute.")
+
         # initialize module with dimensionality registry
         self._module = self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
+
+    @abc.abstractmethod
+    def set_train_mode(self, mode: bool) -> None:
+        """Set the underlying module to training (True) or evaluation (False) mode."""
+        pass
 
     @abc.abstractmethod
     def train_step(self, *args: Any, **kwargs: Any) -> Any:
@@ -66,6 +74,10 @@ class BaseMethod(abc.ABC):
     @property
     def dims_registry(self) -> DataDimensionalitiesRegistry | None:
         return self._dims_registry
+
+    @property
+    def is_paired_setting(self) -> bool:
+        return self._is_paired_setting
 
 
 class BaseGenerativeFlow(BaseMethod):

@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeVar
 
 import diffrax as dfx
@@ -78,3 +79,9 @@ class OTResult(Protocol):
 
 class OTFn(Protocol):
     def __call__(self, problem: "linear_problem.LinearProblem") -> OTResult: ...
+
+
+@dataclass
+class PredictionData:
+    samples: ArrayLike
+    traj: ArrayLike | None = None

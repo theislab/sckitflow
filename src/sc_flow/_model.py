@@ -160,6 +160,15 @@ class SCFlow:
             of validation data. Defaults to `10_000`.
         :type val_max_n_obs: class: `int`
 
+        :param train_sampler_kwargs: Extra keyword arguments for the training sampler. Defaults to `None`.
+        :type train_sampler_kwargs: class: `dict[str, Any] | None`
+
+        :param val_sampler_kwargs: Extra keyword arguments for the validation sampler. Defaults to `None`.
+        :type val_sampler_kwargs: class: `dict[str, Any] | None`
+
+        :param train_kwargs: Extra keyword arguments for the call to the trainer `.train` method. Defaults to `None`.
+        :type train_kwargs: class: `dict[str, Any] | None`
+
         :param *kwargs: Keyword arguments used to initialize the trainer class.
         :type *kwargs: class: `dict[str, Any]`
         """
@@ -199,7 +208,7 @@ class SCFlow:
         if train_kwargs is None:
             train_kwargs = {}
         self._trainer.train(
-            train_sampler, val_samplers_dict, n_train_steps=n_train_steps, valid_freq=valid_freq, **kwargs
+            train_sampler, val_samplers_dict, n_train_steps=n_train_steps, valid_freq=valid_freq, **train_kwargs
         )
 
     def predict(
@@ -276,6 +285,7 @@ class SCFlow:
 
     @property
     def backend(self) -> str:
+        """Returns the backend the model was initialized on."""
         return self._backend
 
     @property

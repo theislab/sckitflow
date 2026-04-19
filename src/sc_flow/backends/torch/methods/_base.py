@@ -25,6 +25,45 @@ T = TypeVar("T")
 class TorchBaseMethod(BaseMethod):
     _module_cls: type[BaseModule] | None = None
 
+    def __init__(
+        self,
+        *args,
+        dtype: torch.dtype = torch.float32,
+        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
+        optimizer_cls: type[torch.optim.Optimizer] = torch.optim.Adam,
+        optimizer_kwargs: dict[str, Any] | None = None,
+        lr: float = 5e-5,
+        lr_scheduler_cls: type[torch.optim.lr_scheduler.LRScheduler] | None = None,
+        lr_scheduler_kwargs: dict[str, Any] | None = None,
+        lr_scheduler_step: Literal["train_step", "validation_step"] = "train_step",
+        plan_kwargs: dict[str, Any] | None = None,
+        **kwargs,
+    ) -> None:
+        # call constructor of parent class
+        super().__init__(
+            *args,
+            **kwargs,
+        )
+
+        # set attributes
+        self._dtype = dtype
+        self._device_id = device_id
+
+        # move module to device
+        self._module.to(self._dtype).to(self._device_id)
+
+        # initialize optimization manager
+        self._optimization_manager = OptimizationManager.init_from_module(
+            self.module,
+            optimizer_cls=optimizer_cls,
+            optimizer_kwargs=optimizer_kwargs,
+            lr=lr,
+            lr_scheduler_cls=lr_scheduler_cls,
+            lr_scheduler_kwargs=lr_scheduler_kwargs,
+            lr_scheduler_step=lr_scheduler_step,
+            plan_kwargs=plan_kwargs,
+        )
+
     @staticmethod
     def _safe_subscript_obj(data: T | None, idx: Any | None) -> T | None:
         if data is None:
@@ -142,21 +181,8 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
         noise_sampler: TNoiseSamplerFn | None = None,
         time_sampler: TTimeSamplerFn | None = None,
         generate_from_noise: bool = False,
-        dtype: torch.dtype = torch.float32,
-        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
-        optimizer_cls: type[torch.optim.Optimizer] = torch.optim.Adam,
-        optimizer_kwargs: dict[str, Any] | None = None,
-        lr: float = 5e-5,
-        lr_scheduler_cls: type[torch.optim.lr_scheduler.LRScheduler] | None = None,
-        lr_scheduler_kwargs: dict[str, Any] | None = None,
-        lr_scheduler_step: Literal["train_step", "validation_step"] = "train_step",
-        plan_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
-        # set attributes
-        self._dtype = dtype
-        self._device_id = device_id
-
         super().__init__(
             *args,
             probability_path=probability_path,
@@ -165,21 +191,6 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
             time_sampler=time_sampler,
             generate_from_noise=generate_from_noise,
             **kwargs,
-        )
-
-        # move module to device
-        self._module.to(self._dtype).to(self._device_id)
-
-        # initialize optimization manager
-        self._optimization_manager = OptimizationManager.init_from_module(
-            self.module,
-            optimizer_cls=optimizer_cls,
-            optimizer_kwargs=optimizer_kwargs,
-            lr=lr,
-            lr_scheduler_cls=lr_scheduler_cls,
-            lr_scheduler_kwargs=lr_scheduler_kwargs,
-            lr_scheduler_step=lr_scheduler_step,
-            plan_kwargs=plan_kwargs,
         )
 
     @abc.abstractmethod

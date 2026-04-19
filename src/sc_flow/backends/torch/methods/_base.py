@@ -1,9 +1,9 @@
 import abc
-from typing import Any, Literal
+from typing import Any, Literal, TypeVar
 
 import torch
 
-from sc_flow.backends.torch._types import MappedTensor, PredictionData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
+from sc_flow.backends.torch._types import PredictionData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
 from sc_flow.backends.torch.methods._utils import OptimizationManager, StepData
 from sc_flow.backends.torch.nn._modules import BaseModule
 from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
@@ -19,10 +19,19 @@ from sc_flow.methods._methods import BaseGenerativeFlow, BaseMethod
 
 __all__ = ["TorchBaseMethod", "TorchGenerativeFlow"]
 
+T = TypeVar("T")
+
 
 class TorchBaseMethod(BaseMethod):
     _module_cls: type[BaseModule] | None = None
-    _default_solver_cls: type[BaseSolver] | None = None
+
+    @staticmethod
+    def _safe_subscript_obj(data: T | None, idx: Any | None) -> T | None:
+        if data is None:
+            return None
+        if idx is None:
+            return data
+        return data[idx]
 
     def _batchmixin_to_torch(self, batch_mixin: BatchMixin) -> dict[str, torch.Tensor]:
         return {k: torch.from_numpy(v).to(self._dtype).to(self._device_id) for k, v in batch_mixin.mapping.items()}
@@ -176,10 +185,9 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
     @abc.abstractmethod
     def _compute_loss(
         self,
-        source: torch.Tensor | None,
-        target: torch.Tensor,
-        condition_data: MappedTensor,
-        group_data: MappedTensor,
+        step_data: StepData,
+        *args,
+        **kwargs,
     ) -> tuple[torch.Tensor, dict[str, Any]]: ...
 
     @abc.abstractmethod
@@ -215,13 +223,8 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
     def _extract_matched_observations(
         self,
         step_data: StepData,
-    ) -> tuple[
-        torch.Tensor | None,
-        torch.Tensor,
-        dict[str, torch.Tensor],
-        dict[str, torch.Tensor],
-    ]:
-        # get matched indices
+    ) -> StepData:
+        # Get matching indices
         src_idxs, tgt_idxs = self._call_match_fn_safe(
             step_data.source_coupling_lin,
             step_data.source_coupling_quad,
@@ -229,51 +232,57 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
             step_data.target_coupling_quad,
         )
 
-        # if they are none, do no operation and early return
+        # Case: no source distribution → return step_data unchanged (or with source=None)
         if src_idxs is None and tgt_idxs is None:
-            # states
-            source = None
-            target = step_data.target_state
+            # Already no source; keep target as is
+            return step_data
 
-            # extract condition and groups data
-            condition_reps_dict = self._get_tensor_dict_from_data(step_data.target_condition_data)
-            group_reps_dict = self._get_tensor_dict_from_data(step_data.target_group_data)
+        # Slice source side
+        source_state = self._safe_subscript_obj(step_data.source_state, src_idxs)
+        source_condition_data = self._safe_subscript_obj(step_data.source_condition_data, src_idxs)
+        source_group_data = self._safe_subscript_obj(step_data.source_group_data, src_idxs)
+        source_coupling_lin = self._safe_subscript_obj(step_data.source_coupling_lin, src_idxs)
+        source_coupling_quad = self._safe_subscript_obj(step_data.source_coupling_quad, src_idxs)
 
-            return source, target, condition_reps_dict, group_reps_dict
+        # Slice target side
+        target_state = self._safe_subscript_obj(step_data.target_state, tgt_idxs)
+        target_condition_data = self._safe_subscript_obj(step_data.target_condition_data, tgt_idxs)
+        target_group_data = self._safe_subscript_obj(step_data.target_group_data, tgt_idxs)
+        target_coupling_lin = self._safe_subscript_obj(step_data.target_coupling_lin, tgt_idxs)
+        target_coupling_quad = self._safe_subscript_obj(step_data.target_coupling_quad, tgt_idxs)
 
-        # slice with matched indices
-        source = step_data.source_state[src_idxs]
-        target = step_data.target_state[tgt_idxs]
-        if step_data.target_condition_data is not None:
-            condition_data = step_data.target_condition_data[tgt_idxs]
-        else:
-            condition_data = None
-        if step_data.target_group_data is not None:
-            group_data = step_data.target_group_data[tgt_idxs]
-        else:
-            group_data = None
-
-        # extract condition and groups data
-        condition_reps_dict = self._get_tensor_dict_from_data(condition_data)
-        group_reps_dict = self._get_tensor_dict_from_data(group_data)
-
-        return source, target, condition_reps_dict, group_reps_dict
+        # Return new StepData with matched slices
+        return StepData(
+            target_state=target_state,
+            target_coupling_lin=target_coupling_lin,
+            target_coupling_quad=target_coupling_quad,
+            target_condition_data=target_condition_data,
+            target_group_data=target_group_data,
+            source_state=source_state,
+            source_coupling_lin=source_coupling_lin,
+            source_coupling_quad=source_coupling_quad,
+            source_condition_data=source_condition_data,
+            source_group_data=source_group_data,
+        )
 
     def _train_step_forward(
         self,
         step_data: StepData,
+        *args,
+        **kwargs,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
-        source, target, condition_data, group_data = self._extract_matched_observations(step_data)
+        step_data = self._extract_matched_observations(step_data)
         return self._compute_loss(
-            source,
-            target,
-            condition_data,
-            group_data,
+            step_data,
+            *args,
+            **kwargs,
         )
 
     def train_step(
         self,
         matched_distr: MatchedDistributions,
+        *args,
+        **kwargs,
     ) -> dict[str, Any]:
         """Single step function of the solver.
 
@@ -281,7 +290,7 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
         :type matched_distr: dict[str, torch.Tensor]
         """
         step_data = self._extract_step_data(matched_distr)
-        loss, step_dict = self._train_step_forward(step_data)
+        loss, step_dict = self._train_step_forward(step_data, *args, **kwargs)
         self._optimization_manager.backward_pass(loss)
         return step_dict
 

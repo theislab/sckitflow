@@ -99,6 +99,9 @@ class SCFlow:
             **kwargs,
         )
 
+        # prepare attributes
+        self._trainer: Trainer | None = None
+
     def _to_numpy(self, tensor: Any) -> np.ndarray:
         """
         Convert a backend-specific tensor to a numpy array.

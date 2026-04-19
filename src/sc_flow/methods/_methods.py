@@ -28,7 +28,6 @@ __all__ = ["BaseMethod", "BaseGenerativeFlow"]
 
 class BaseMethod(abc.ABC):
     _module_cls: type[JaxModule | TorchModule] | None = None
-    _default_solver_cls: type[JaxSolver | TorchSolver] | None = None
 
     def __init__(
         self,
@@ -81,6 +80,8 @@ class BaseMethod(abc.ABC):
 
 
 class BaseGenerativeFlow(BaseMethod):
+    _default_solver_cls: type[JaxSolver | TorchSolver] | None = None
+
     def __init__(
         self,
         dims_registry: DataDimensionalitiesRegistry,

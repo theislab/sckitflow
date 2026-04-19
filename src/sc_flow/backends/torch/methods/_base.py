@@ -15,13 +15,114 @@ from sc_flow.data.containers._coupling import CouplingData
 from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.containers._state import StateData
-from sc_flow.methods._methods import BaseGenerativeFlow
+from sc_flow.methods._methods import BaseGenerativeFlow, BaseMethod
 
-__all__ = ["TorchGenerativeFlow"]
+__all__ = ["TorchBaseMethod", "TorchGenerativeFlow"]
 
 
-class TorchGenerativeFlow(BaseGenerativeFlow):
+class TorchBaseMethod(BaseMethod):
     _module_cls: type[BaseModule] | None = None
+    _default_solver_cls: type[BaseSolver] | None = None
+
+    def _batchmixin_to_torch(self, batch_mixin: BatchMixin) -> dict[str, torch.Tensor]:
+        return {k: torch.from_numpy(v).to(self._dtype).to(self._device_id) for k, v in batch_mixin.mapping.items()}
+
+    def set_train_mode(self, mode: bool) -> None:
+        if mode:
+            self.module.train()
+        else:
+            self.module.eval()
+
+    def _extract_state_data(
+        self,
+        state_data: StateData | None,
+    ) -> torch.Tensor | None:
+        if state_data is None:
+            return None
+        X_state = state_data.X
+        X_state = torch.from_numpy(X_state).to(self._dtype).to(self._device_id)
+        return X_state
+
+    def _extract_coupling_data(
+        self,
+        distribution_data: DistributionData,
+        mode: Literal["source", "target"],
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        # retrieve coupling data
+        coupling_data: CouplingData = getattr(distribution_data, f"{mode}_coupling_data")
+
+        # parse coupling data
+        state_lin: StateData | None = coupling_data.state_lin
+        state_quad: StateData | None = coupling_data.state_quad
+
+        # get states for linear term
+        X_lin = self._extract_state_data(state_lin)
+        X_quad = self._extract_state_data(state_quad)
+        return X_lin, X_quad
+
+    def _extract_distribution_data(
+        self, distribution_data: DistributionData, mode: Literal["source", "target"]
+    ) -> tuple[Any]:
+        coupling_lin, coupling_quad = self._extract_coupling_data(distribution_data, mode)
+        state_data = self._extract_state_data(distribution_data.state_data)
+        condition_data = distribution_data.condition_data
+        groups_data = distribution_data.groups_data
+        return (coupling_lin, coupling_quad, state_data, condition_data, groups_data)
+
+    def _get_tensor_dict_from_data(self, data: MixedTypeData | CategoricalData | None) -> dict[str, torch.Tensor]:
+        if data is None:
+            return {}
+        group_reps_dict = data.extract_reps()
+        return self._batchmixin_to_torch(group_reps_dict)
+
+    def _extract_step_data(
+        self,
+        matched_distr: MatchedDistributions,
+    ) -> StepData:
+        # parse dictionary of matched distributions
+        source_data_dict: DistributionData | None = matched_distr.source_distribution
+        target_data_dict: DistributionData | None = matched_distr.target_distribution
+
+        # parse target data dictionary
+        if target_data_dict is not None:
+            (target_coupling_lin, target_coupling_quad, target_state_data, target_condition_data, target_group_data) = (
+                self._extract_distribution_data(target_data_dict, "target")
+            )
+        else:
+            target_coupling_lin = None
+            target_coupling_quad = None
+            target_state_data = None
+            target_condition_data = None
+            target_group_data = None
+
+        # optionally parse target data dictionary
+        if source_data_dict is not None:
+            (source_coupling_lin, source_coupling_quad, source_state_data, source_condition_data, source_group_data) = (
+                self._extract_distribution_data(source_data_dict, "source")
+            )
+        else:
+            source_coupling_lin = None
+            source_coupling_quad = None
+            source_state_data = None
+            source_condition_data = None
+            source_group_data = None
+
+        # return structured output
+        return StepData(
+            target_state_data,
+            target_coupling_lin,
+            target_coupling_quad,
+            target_condition_data,
+            target_group_data,
+            source_state_data,
+            source_coupling_lin,
+            source_coupling_quad,
+            source_condition_data,
+            source_group_data,
+        )
+
+
+class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
     _default_solver_cls: type[BaseSolver] | None = None
 
     def __init__(
@@ -72,15 +173,6 @@ class TorchGenerativeFlow(BaseGenerativeFlow):
             plan_kwargs=plan_kwargs,
         )
 
-    def set_train_mode(self, mode: bool) -> None:
-        if mode:
-            self.module.train()
-        else:
-            self.module.eval()
-
-    def _batchmixin_to_torch(self, batch_mixin: BatchMixin) -> dict[str, torch.Tensor]:
-        return {k: torch.from_numpy(v).to(self._dtype).to(self._device_id) for k, v in batch_mixin.mapping.items()}
-
     @abc.abstractmethod
     def _compute_loss(
         self,
@@ -120,104 +212,6 @@ class TorchGenerativeFlow(BaseGenerativeFlow):
         )
         return src_idxs, tgt_idxs
 
-    def _extract_coupling_data(
-        self,
-        distribution_data: DistributionData,
-        mode: Literal["source", "target"],
-    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-        # retrieve coupling data
-        coupling_data: CouplingData = getattr(distribution_data, f"{mode}_coupling_data")
-
-        # parse coupling data
-        state_lin: StateData | None = coupling_data.state_lin
-        state_quad: StateData | None = coupling_data.state_quad
-
-        # get states for linear term
-        if state_lin is not None:
-            X_lin = state_lin.X
-            X_lin = torch.from_numpy(X_lin).to(self._dtype).to(self._device_id)
-        else:
-            X_lin = None
-
-        # get states for quadratic term
-        if state_quad is not None:
-            X_quad = state_quad.X
-            X_quad = torch.from_numpy(X_quad).to(self._dtype).to(self._device_id)
-        else:
-            X_quad = None
-
-        return X_lin, X_quad
-
-    def _extract_state_data(
-        self,
-        distribution_data: DistributionData,
-    ) -> torch.Tensor:
-        state_data: StateData = distribution_data.state_data
-        X_state = state_data.X
-        X_state = torch.from_numpy(X_state).to(self._dtype).to(self._device_id)
-        return X_state
-
-    def _extract_distribution_data(
-        self, distribution_data: DistributionData, mode: Literal["source", "target"]
-    ) -> tuple[Any]:
-        coupling_lin, coupling_quad = self._extract_coupling_data(distribution_data, mode)
-        state_data = self._extract_state_data(distribution_data)
-        condition_data = distribution_data.condition_data
-        groups_data = distribution_data.groups_data
-        return (coupling_lin, coupling_quad, state_data, condition_data, groups_data)
-
-    def _extract_step_data(
-        self,
-        matched_distr: MatchedDistributions,
-    ) -> StepData:
-        # parse dictionary of matched distributions
-        source_data_dict: DistributionData | None = matched_distr.source_distribution
-        target_data_dict: DistributionData | None = matched_distr.target_distribution
-
-        # parse target data dictionary
-        if target_data_dict is not None:
-            (target_coupling_lin, target_coupling_quad, target_state_data, target_condition_data, target_group_data) = (
-                self._extract_distribution_data(target_data_dict, "target")
-            )
-        else:
-            target_coupling_lin = None
-            target_coupling_quad = None
-            target_state_data = None
-            target_condition_data = None
-            target_group_data = None
-
-        # optionally parse target data dictionary
-        if source_data_dict is not None:
-            (source_coupling_lin, source_coupling_quad, source_state_data, source_condition_data, source_group_data) = (
-                self._extract_distribution_data(source_data_dict, "source")
-            )
-        else:
-            source_coupling_lin = None
-            source_coupling_quad = None
-            source_state_data = None
-            source_condition_data = None
-            source_group_data = None
-
-        # return structured output
-        return StepData(
-            target_state_data,
-            target_coupling_lin,
-            target_coupling_quad,
-            target_condition_data,
-            target_group_data,
-            source_state_data,
-            source_coupling_lin,
-            source_coupling_quad,
-            source_condition_data,
-            source_group_data,
-        )
-
-    def _get_tensor_dict_from_data(self, data: MixedTypeData | CategoricalData | None) -> dict[str, torch.Tensor]:
-        if data is None:
-            return {}
-        group_reps_dict = data.extract_reps()
-        return self._batchmixin_to_torch(group_reps_dict)
-
     def _extract_matched_observations(
         self,
         step_data: StepData,
@@ -250,8 +244,14 @@ class TorchGenerativeFlow(BaseGenerativeFlow):
         # slice with matched indices
         source = step_data.source_state[src_idxs]
         target = step_data.target_state[tgt_idxs]
-        condition_data = step_data.target_condition_data[tgt_idxs]
-        group_data = step_data.target_group_data[tgt_idxs]
+        if step_data.target_condition_data is not None:
+            condition_data = step_data.target_condition_data[tgt_idxs]
+        else:
+            condition_data = None
+        if step_data.target_group_data is not None:
+            group_data = step_data.target_group_data[tgt_idxs]
+        else:
+            group_data = None
 
         # extract condition and groups data
         condition_reps_dict = self._get_tensor_dict_from_data(condition_data)
@@ -277,9 +277,8 @@ class TorchGenerativeFlow(BaseGenerativeFlow):
     ) -> dict[str, Any]:
         """Single step function of the solver.
 
-        :param batch: Data batch with keys ``src_cell_data``, ``tgt_cell_data``, and
-            ``condition``.
-        :type batch: dict[str, torch.Tensor]
+        :param matched_distr: Input `MatchedDistributions` object.
+        :type matched_distr: dict[str, torch.Tensor]
         """
         step_data = self._extract_step_data(matched_distr)
         loss, step_dict = self._train_step_forward(step_data)

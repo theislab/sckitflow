@@ -39,13 +39,13 @@ class CFM(TorchGenerativeFlow):
             return self._noise_sampler(target_reference)
         return source
 
-    def _compute_loss(
-        self,
-        source: torch.Tensor | None,
-        target: torch.Tensor | None,
-        condition_data: dict[str, torch.Tensor] | None,
-        group_data: dict[str, torch.Tensor] | None,
-    ) -> tuple[torch.Tensor, dict[str, Any]]:
+    def _compute_loss(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
+        # extract step data
+        target = step_data.target_state
+        source = step_data.source_state
+        condition_data = self._get_tensor_dict_from_data(step_data.target_condition_data)
+        group_data = self._get_tensor_dict_from_data(step_data.target_group_data)
+
         latent = self._prepare_latent_state(source, target)
         batch_size = latent.shape[0]
         t = self._time_sampler((batch_size,), device=latent.device, dtype=latent.dtype)

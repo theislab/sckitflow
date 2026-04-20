@@ -1,6 +1,5 @@
 from tqdm import tqdm
 
-from sc_flow.data._composite import MatchedData
 from sc_flow.data.samplers._train import FTrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
@@ -31,21 +30,6 @@ class Trainer:
         self._method = method
         self._training_logs = {"loss": []}
 
-    def _validation_step_on_single_condition(
-        self,
-        matched_data: MatchedData,
-    ) -> dict:
-        """Run validation on a single condition
-
-        :param validation_batch: Validation batch containing one condition on which to perform a validation step
-        :type validation_batch:
-
-        Returns
-        -------
-            dict: The dictionary of matched predictions and targets to compute validation on
-        """
-        raise NotImplementedError
-
     def _update_logs(
         self,
         metrics: dict[str, float],
@@ -63,8 +47,20 @@ class Trainer:
     def _run_val_on_sampler(
         self,
         sampler: FValidationSampler,
+        *args,
+        **kwargs,
     ) -> None:
-        raise NotImplementedError
+        predictions_list = []
+        for node in sampler:
+            target = node.target_distr
+            preds = self._method.predict(node, *args, **kwargs)
+            predictions_list.append[
+                {
+                    "target": target,
+                    "preds": preds,
+                }
+            ]
+        return predictions_list
 
     def train(
         self,
@@ -73,7 +69,8 @@ class Trainer:
         n_train_steps: int = 10_000,
         valid_freq: int = 1_000,
         pbar_freq: int = 100,
-        # prng: Array | Generator | None = None,
+        *args,
+        **kwargs,
     ) -> None:
         """Trains the model.
 
@@ -104,7 +101,7 @@ class Trainer:
                 step_dict = self._method.train_step(node)
                 self._update_logs(step_dict)
 
-            # validation step
+            # log information message
             if ((train_step + 1) % pbar_freq == 0) and (train_step > 0):
                 msg = "| "
                 for key, val in step_dict.items():

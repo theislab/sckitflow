@@ -1,10 +1,16 @@
+import logging
+import tarfile
+import tempfile
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal
 
+import cloudpickle
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 from tqdm import tqdm
 
+from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
 from sc_flow.data._composite import MatchedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
@@ -121,6 +127,27 @@ class SCFlow:
             return np.array(tensor)
         else:
             raise ValueError(f"Unsupported backend: {self._backend}")
+
+    def to_device(self, device: str) -> None:
+        """Move the underlying PyTorch module and optimizer state to the specified device."""
+        if self._backend == "jax":
+            raise NotImplementedError("Device moving is currently supported only for the torch backend.")
+        elif self._backend == "torch":
+            import torch
+
+            self._method._module.to(device)
+            if self._trainer is not None and hasattr(self._trainer, "_optimization_manager"):
+                opt = self._trainer._optimization_manager.optimizer
+                for param_group in opt.param_groups:
+                    for param in param_group["params"]:
+                        if param.device.type != device.split(":")[0]:
+                            param.data = param.data.to(device)
+                for state in opt.state.values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor) and v.device.type != device.split(":")[0]:
+                            state[k] = v.to(device)
+        else:
+            raise_runtime_error_on_backend_not_supported(self._backend)
 
     def train(
         self,
@@ -285,6 +312,83 @@ class SCFlow:
             return pred_adata, merged_pred
 
         return pred_adata
+
+    def save(self, filepath: str, allow_overwrite: bool = False) -> None:
+        """
+        Save the entire model (including registered data) to a tarball.
+
+        :param filepath: Output file path (e.g., 'model.tar.gz').
+        :param allow_overwrite: If True, overwrite existing file.
+        """
+        path = Path(filepath)
+        if path.exists() and not allow_overwrite:
+            raise FileExistsError(f"{filepath} already exists. Use allow_overwrite=True.")
+        elif path.exists() and allow_overwrite:
+            path.unlink()
+
+        # Move model to CPU before pickling
+        if self._backend == "torch":
+            import torch
+
+            self._method._module.cpu()
+            if self._trainer is not None and hasattr(self._trainer, "_optimization_manager"):
+                opt = self._method._optimization_manager.optimizer
+                for state in opt.state.values():
+                    for k, v in state.items():
+                        if isinstance(v, torch.Tensor):
+                            state[k] = v.cpu()
+
+        # Save self as a tarball containing a single pickle file
+        with tarfile.open(filepath, "w:gz") as tar:
+            with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as tmp:
+                cloudpickle.dump(self, tmp)
+                tmp.flush()
+                tar.add(tmp.name, arcname="model.pkl")
+            Path(tmp.name).unlink()
+
+        logging.info(f"Model saved to {filepath} (moved to CPU).")
+
+    @classmethod
+    def load(
+        cls,
+        filepath: str,
+        adata: AnnData | None = None,
+        map_location: str | None = None,
+        **register_kwargs,
+    ) -> "SCFlow":
+        """
+        Load a saved model from a tarball.
+
+        :param filepath: Path to the saved tarball.
+        :param adata: Optional AnnData to re‑register if the saved model does not contain data.
+        :param map_location: For PyTorch models, map to a device (e.g., 'cuda:0').
+        :param register_kwargs: Additional arguments for register_adata if adata is provided.
+        :return: Loaded SCFlow instance.
+        """
+        path = Path(filepath)
+        if not path.exists():
+            raise FileNotFoundError(f"{filepath} not found.")
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            with tarfile.open(filepath, "r:gz") as tar:
+                tar.extractall(tmpdir)
+
+            with open(Path(tmpdir) / "model.pkl", "rb") as f:
+                model = cloudpickle.load(f)
+
+        # If an AnnData is provided, re‑register it (overwrites the saved data manager if any)
+        if adata is not None:
+            cls.register_adata(adata, **register_kwargs)
+            # Replace the instance's data manager with the newly registered one
+            model._dm = cls._dm_cls
+            model._dims_registry = cls._dims_registry
+            model._is_paired_setting = cls._is_paired_setting_cls
+
+        # Move to desired device if using PyTorch
+        if model._backend == "torch" and map_location is not None:
+            model.to_device(map_location)
+
+        return model
 
     @property
     def backend(self) -> str:

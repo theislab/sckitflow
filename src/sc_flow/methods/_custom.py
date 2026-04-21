@@ -1,4 +1,3 @@
-# sc_flow/backends/__init__.py
 from collections.abc import Callable
 from typing import Literal, TypeVar
 

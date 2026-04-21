@@ -250,7 +250,7 @@ class MLPVelocity(BaseVelocityField):
             DEFAULT_SOURCE_ENCODER_OUTPUT_DIM if source_encoder_output_dim is None else source_encoder_output_dim
         )
 
-        self._vf = self._make_modules()
+        self._nn = self._make_modules()
 
     @property
     def _use_time_features(
@@ -320,7 +320,7 @@ class MLPVelocity(BaseVelocityField):
             if condition_dict is None:
                 msg = "Conditional VFs should take a condition as input, found `None`."
                 raise TypeError(msg)
-            return self._vf["condition_encoder"](condition_dict)
+            return self._nn["condition_encoder"](condition_dict)
         return None
 
     def _get_encoded_source(
@@ -332,7 +332,7 @@ class MLPVelocity(BaseVelocityField):
             if source is None:
                 msg = "When using source encoder a source state should be passed, found `None`."
                 raise TypeError(msg)
-            return self._vf["source_encoder"](source)
+            return self._nn["source_encoder"](source)
         return None
 
     def _get_conditioning_input(
@@ -469,7 +469,7 @@ class MLPVelocity(BaseVelocityField):
         """
         modules = {
             "time_features": self._make_time_features(),
-            "time_encoder": self._make_time_encoder(),
+            "t_encoder": self._make_time_encoder(),
             "state_encoder": self._make_state_encoder(),
             "conditioning_layer": self._make_conditioning_layer(),
         }
@@ -501,18 +501,18 @@ class MLPVelocity(BaseVelocityField):
             each perturbation covariate.
         :type condition_dict: class: `MappedTensor`
         """
-        encoded_xt = self._vf["state_encoder"](x)
+        encoded_xt = self._nn["state_encoder"](x)
 
-        encoded_t = self._vf["time_features"](t)
-        encoded_t = self._vf["time_encoder"](encoded_t)
+        encoded_t = self._nn["time_features"](t)
+        encoded_t = self._nn["t_encoder"](encoded_t)
 
         encoded_condition = self._get_encoded_conditions(condition_dict)
         encoded_source = self._get_encoded_source(source)
 
-        encoded_concat = self._vf["conditioning_layer"](
+        encoded_concat = self._nn["conditioning_layer"](
             encoded_t, encoded_xt, encoded_condition=self._get_conditioning_input(encoded_condition, encoded_source)
         )
-        return self._vf["vf_decoder"](encoded_concat)
+        return self._nn["vf_decoder"](encoded_concat)
 
     def get_vf_fn(
         self,

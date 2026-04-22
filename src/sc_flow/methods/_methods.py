@@ -55,7 +55,7 @@ class BaseMethod(abc.ABC):
         pass
 
     @abc.abstractmethod
-    def train_step(self, *args: Any, **kwargs: Any) -> Any:
+    def train_step(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
         pass
 
     @abc.abstractmethod

@@ -3,6 +3,7 @@ from tqdm import tqdm
 from sc_flow.data.samplers._train import FTrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
+from sc_flow.methods._opt import BaseOptManager
 
 __all__ = ["Trainer"]
 
@@ -26,8 +27,10 @@ class Trainer:
     def __init__(
         self,
         method: BaseMethod,
+        opt_manager: BaseOptManager,
     ) -> None:
         self._method = method
+        self._opt_manager = opt_manager
         self._training_logs = {"loss": []}
 
     def _update_logs(
@@ -98,7 +101,8 @@ class Trainer:
             # sample nodes and perform train step on them
             nodes = train_sampler.sample()
             for node in nodes:
-                step_dict = self._method.train_step(node)
+                opt_data, step_dict = self._method.train_step(node)
+                self._opt_manager.step(opt_data)
                 self._update_logs(step_dict)
 
             # log information message
@@ -113,3 +117,7 @@ class Trainer:
                 for val_id, val_sampler in val_samplers_dict.items():  # noqa
                     val_metrics = self._run_val_on_sampler(val_sampler)
                     self._update_logs(val_metrics)
+
+    @property
+    def opt_manager(self) -> BaseOptManager:
+        return self._opt_manager

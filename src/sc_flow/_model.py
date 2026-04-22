@@ -17,6 +17,7 @@ from sc_flow.data._manager import DataManager
 from sc_flow.data.samplers._train import FTrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
+from sc_flow.methods._opt import OptimConfig
 from sc_flow.trainer._trainer import Trainer
 
 if TYPE_CHECKING:
@@ -161,6 +162,7 @@ class SCFlow:
         train_sampler_kwargs: dict[str, Any] | None = None,
         val_sampler_kwargs: dict[str, Any] | None = None,
         train_kwargs: dict[str, Any] | None = None,
+        optim_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
         """Trains the model on the input adata.
@@ -199,6 +201,9 @@ class SCFlow:
         :param train_kwargs: Extra keyword arguments for the call to the trainer `.train` method. Defaults to `None`.
         :type train_kwargs: class: `dict[str, Any] | None`
 
+        :param optim_kwargs: Keyword arguments to configure for the optimization manager (optimizer, scheduler, etc.). Defaults to `None`.
+        :type optim_kwargs: class: `OptimConfig | None`
+
         :param *kwargs: Keyword arguments used to initialize the trainer class.
         :type *kwargs: class: `dict[str, Any]`
         """
@@ -228,8 +233,24 @@ class SCFlow:
             for val_id, val_tree in val_trees_dict.items()
         }
 
-        # initialize trainer
-        self._trainer = Trainer(self._method, *args, **kwargs)
+        # prepare optimization configurations
+        if optim_kwargs is None:
+            optim_kwargs = {}
+        optim_config = OptimConfig(**optim_kwargs)
+
+        # create optimization manager
+        if self._backend == "torch":
+            from sc_flow.backends.torch.methods._opt import TorchOptimizationManager
+
+            opt_manager = TorchOptimizationManager.from_config(self._method._module, optim_config)
+        elif self._backend == "jax":
+            # Placeholder for future JAX support
+            raise NotImplementedError("JAX optimization manager not yet implemented.")
+        else:
+            raise_runtime_error_on_backend_not_supported(self._backend)
+
+        # initialize trainer (now passing optimization manager)
+        self._trainer = Trainer(self._method, opt_manager, *args, **kwargs)
 
         # module in training mode
         self._method.set_train_mode(True)
@@ -331,8 +352,9 @@ class SCFlow:
             import torch
 
             self._method._module.cpu()
+            # Fixed: access optimizer via trainer, not via method
             if self._trainer is not None and hasattr(self._trainer, "_optimization_manager"):
-                opt = self._method._optimization_manager.optimizer
+                opt = self._trainer._optimization_manager.optimizer
                 for state in opt.state.values():
                     for k, v in state.items():
                         if isinstance(v, torch.Tensor):

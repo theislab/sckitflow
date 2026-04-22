@@ -304,7 +304,7 @@ class DataManager:
         feature_names = self._get_feature_names(adata)
         return self._get_data_dimensionalities(data, feature_names)
 
-    def get_features_names(
+    def get_feature_names(
         self,
         adata: AnnData,
     ) -> pd.Index:

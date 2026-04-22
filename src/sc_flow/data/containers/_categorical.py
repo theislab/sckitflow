@@ -44,7 +44,7 @@ class CategoricalData(BaseData):
         for col in self.ann_df.columns:
             # each column needs to appear in the categorical reps map
             if col not in self.categorical_reps_map:
-                raise KeyError(f"Columnn {col} is not mapped to any realm.")
+                raise KeyError(f"Column {col} is not mapped to any realm.")
             col_realm = self.categorical_reps_map[col]
 
             # we need an associated representation for the corresponding realms
@@ -88,7 +88,7 @@ class CategoricalData(BaseData):
         realm_repr_dict: dict[Hashable, np.ndarray],
     ) -> np.ndarray:
         col_values = self.ann_df[col].map(lambda e: realm_repr_dict[e].reshape(1, -1))
-        return np.concat(col_values.tolist(), axis=0)
+        return np.concatenate(col_values.tolist(), axis=0)
 
     def _encode_col(
         self,

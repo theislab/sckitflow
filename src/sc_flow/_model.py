@@ -392,8 +392,21 @@ class SCFlow:
             raise FileNotFoundError(f"{filepath} not found.")
 
         with tempfile.TemporaryDirectory() as tmpdir:
+            extract_dir = Path(tmpdir).resolve()
             with tarfile.open(filepath, "r:gz") as tar:
-                tar.extractall(tmpdir)
+                for member in tar.getmembers():
+                    if member.issym() or member.islnk():
+                        raise ValueError(f"Refusing to extract link from archive: {member.name}")
+
+                    member_path = (extract_dir / member.name).resolve()
+                    try:
+                        member_path.relative_to(extract_dir)
+                    except ValueError as e:
+                        raise ValueError(
+                            f"Refusing to extract archive member outside target directory: {member.name}"
+                        ) from e
+
+                    tar.extract(member, tmpdir)
 
             with open(Path(tmpdir) / "model.pkl", "rb") as f:
                 model = cloudpickle.load(f)

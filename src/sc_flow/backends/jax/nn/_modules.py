@@ -9,6 +9,7 @@ from flax.typing import Axes, Initializer
 
 from sc_flow._constants import DEFAULT_NUM_RESNET_LAYERS
 from sc_flow.backends.jax._types import ArrayLike
+from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 
 __all__ = [
     "BaseModule",
@@ -37,8 +38,17 @@ class BaseModule(abc.ABC, nn.Module):
         :rtype: class: `torch.nn.Module`
         """
 
+        @classmethod
+        def init_from_dims_registry(
+            cls,
+            dims_registry: DataDimensionalitiesRegistry,
+            *args,
+            **kwargs,
+        ) -> "BaseModule":
+            return cls(*args, **kwargs)
 
-class FunctionalModule(BaseModule):
+
+class FunctionalModule(nn.Module):
     """Class for wrapping :class: `torch.nn.Modules` around callables."""
 
     fn: Callable[[ArrayLike], ArrayLike]
@@ -47,8 +57,9 @@ class FunctionalModule(BaseModule):
         """TODO."""
         pass
 
+    @nn.compact
     def __call__(self, x, *args, **kwargs):
-        """TODO."""
+        """Applies the wrapped callable to ``x``"""
         out = self.fn(x, *args, **kwargs)
         return out
 
@@ -155,6 +166,7 @@ class MLP(BaseModule):
     batchnorm_scale: bool = True
     batchnorm_bias_init: Initializer = nn.initializers.zeros
     batchnorm_scale_init: Initializer = nn.initializers.ones
+    batchnorm_track_running_stats: bool = True
     use_layernorm: bool = False
     layernorm_epsilon: float = 1e-5
     layernorm_bias: bool = True
@@ -169,22 +181,32 @@ class MLP(BaseModule):
     final_activation_cls_kwargs: dict[str, Any] = dc_field(default_factory=dict)
     bias: bool = True
 
-    @nn.compact
-    def __call__(self, x: jnp.ndarray, train: bool = False) -> jnp.ndarray:
-        for hidden_dim in self.hidden_dims:
-            x = nn.Dense(features=hidden_dim, use_bias=self.bias)(x)
-            if self.use_batchnorm:
-                x = nn.BatchNorm(
-                    use_running_average=not train,
+    _layers: list[list[nn.Module]]
+
+    def _make_layer(
+        self,
+        output_dim: int,
+        activation_cls: Callable,
+        activation_cls_kwargs: dict[str, Any],
+    ) -> list[nn.Module]:
+        layer = [nn.Dense(features=output_dim, use_bias=self.bias)]
+
+        if self.use_batchnorm:
+            layer.append(
+                nn.BatchNorm(
+                    use_running_average=not self.batchnorm_track_running_stats,
                     momentum=self.batchnorm_momentum,
                     epsilon=self.batchnorm_epsilon,
                     use_bias=self.batchnorm_bias,
                     use_scale=self.batchnorm_scale,
                     bias_init=self.batchnorm_bias_init,
                     scale_init=self.batchnorm_scale_init,
-                )(x)
-            if self.use_layernorm:
-                x = nn.LayerNorm(
+                )
+            )
+
+        if self.use_layernorm:
+            layer.append(
+                nn.LayerNorm(
                     epsilon=self.layernorm_epsilon,
                     use_bias=self.layernorm_bias,
                     use_scale=self.layernorm_scale,
@@ -192,13 +214,41 @@ class MLP(BaseModule):
                     scale_init=self.layernorm_scale_init,
                     reduction_axes=self.layernorm_reduction_axes,
                     feature_axes=self.layernorm_feature_axes,
-                )(x)
-            x = self.activation_cls(x, **self.activation_cls_kwargs)
-            if self.dropout_p > 0.0:
-                x = nn.Dropout(rate=self.dropout_p, deterministic=not train)(x)
-        x = nn.Dense(features=self.output_dim, use_bias=self.bias)(x)
-        if self.final_activation_cls is not None:
-            x = self.final_activation_cls(x, **self.final_activation_cls_kwargs)
+                )
+            )
+
+        layer.append(FunctionalModule(fn=lambda x: activation_cls(x, **activation_cls_kwargs)))
+
+        if self.dropout_p > 0.0:
+            layer.append(nn.Dropout(rate=self.dropout_p, deterministic=not self.dropout_inplace))
+
+        return layer
+
+    def _make_modules(self) -> list[list[nn.Module]]:
+        layers = []
+        for hidden_dim in self.hidden_dims:
+            layers.append(self._make_layer(hidden_dim, self.activation_cls, self.activation_cls_kwargs))
+            final_activation = self.final_activation_cls if self.final_activation_cls is not None else lambda x: x
+            layers.append(
+                self._make_layer(
+                    self.output_dim,
+                    final_activation,
+                    self.final_activation_cls_kwargs,
+                )
+            )
+        return layers
+
+    def __call__(self, x: jnp.ndarray, train: bool = False) -> jnp.ndarray:
+        """Performs a forward computation pass on the MLP."""
+        for layer in self._layers:
+            for module in layer:
+                if isinstance(module, nn.BatchNorm):
+                    x = module(x, use_running_average=not train)
+                elif isinstance(module, nn.Dropout):
+                    x = module(x, deterministic=not train)
+                else:
+                    x = module(x)
+
         return x
 
 

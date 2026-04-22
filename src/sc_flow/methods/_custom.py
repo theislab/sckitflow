@@ -49,6 +49,18 @@ def register_method(
         if category == "flow":
             class_dict["_default_solver_cls"] = getattr(user_cls, "default_solver_cls", None)
 
+            # Delegate abstract methods to user implementations
+            def _compute_loss(self, node, *args, **kwargs):
+                """Delegate to user's compute_loss method."""
+                return user_cls.compute_loss(self, node, *args, **kwargs)
+
+            def _predict(self, node, *args, **kwargs):
+                """Delegate to user's predict method."""
+                return user_cls.predict(self, node, *args, **kwargs)
+
+            class_dict["_compute_loss"] = _compute_loss
+            class_dict["_predict"] = _predict
+
             # Override __init__ to call base __init__ first, then optionally call user's __init__
             def __init__(self, *args, **kwargs):
                 prob_path_cls = getattr(user_cls, "probability_path_cls", None)

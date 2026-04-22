@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import pytest
 import torch
@@ -34,7 +34,6 @@ class DummyModule(torch.nn.Module):
 # -----------------------------------------------------------------------------
 @pytest.fixture
 def cfm_instance():
-    """Create a CFM instance with mocked module class and optimizer."""
     dims_reg = Mock()
     dims_reg.feature_names = ["g1", "g2"]
     dims_reg.n_features = 2
@@ -43,9 +42,7 @@ def cfm_instance():
     original_module_cls = CFM._module_cls
     CFM._module_cls = DummyModule
 
-    with patch("sc_flow.backends.torch.methods._base.OptimizationManager.init_from_module") as mock_init:
-        mock_init.return_value = Mock()
-        cfm = CFM(dims_registry=dims_reg, dm=dm, is_paired_setting=False, dtype=torch.float32, device_id="cpu")
+    cfm = CFM(dims_registry=dims_reg, dm=dm, is_paired_setting=False, dtype=torch.float32, device_id="cpu")
 
     CFM._module_cls = original_module_cls
     cfm._module.forward = Mock(return_value=torch.randn(4, 2))
@@ -183,11 +180,9 @@ class TestCFM:
         step_data = Mock()
         cfm_instance._extract_step_data = Mock(return_value=step_data)
         cfm_instance._train_step_forward = Mock(return_value=(torch.tensor(0.5), {"loss": 0.5}))
-        cfm_instance._optimization_manager = Mock()
-        cfm_instance._optimization_manager.backward_pass = Mock()
-        result = cfm_instance.train_step(matched_distr)
-        assert result == {"loss": 0.5}
-        cfm_instance._optimization_manager.backward_pass.assert_called_once_with(torch.tensor(0.5))
+        loss, log_dict = cfm_instance.train_step(matched_distr)
+        assert loss == torch.tensor(0.5)
+        assert log_dict == {"loss": 0.5}
 
     def test_train_step_forward_integration(self, cfm_instance):
         step_data = Mock()

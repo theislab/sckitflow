@@ -27,11 +27,13 @@ dependencies = [
   "diffrax",
   "flax",
   "jax",
+  "omegaconf",
   "ott-jax",
 
   # for debug logging (referenced from the issue template)
   "session-info2",
   "torch",
+  "wandb",
 ]
 optional-dependencies.dev = [
   "pre-commit",

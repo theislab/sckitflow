@@ -36,7 +36,7 @@ class MixedTypeData(BaseData):
                 )
                 raise ValueError(msg)
 
-        # need at leats one condition representation
+        # need at least one condition representation
         if self.categorical_covariates is None and self.continuous_covariates is None:
             msg = f"{self.__class__.__name__} must contain at least one covariate container."
             raise ValueError(msg)

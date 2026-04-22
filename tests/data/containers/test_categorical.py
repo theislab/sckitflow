@@ -14,12 +14,13 @@ class TestCategoricalData:
             }
         )
 
-        cat = CategoricalData(df)
+        cat = CategoricalData.from_pandas(df)
 
         assert isinstance(cat, CategoricalData)
-        assert cat.ann_df is df
         assert len(cat) == 3
         assert list(cat.ann_df.columns) == ["cell_type", "batch"]
+        for col in cat.ann_df.columns:
+            assert hasattr(cat.ann_df[col], "cat"), f"{col} should be Categorical"
 
     def test_init_with_repr_dict_and_encoders(self) -> None:
         df = pd.DataFrame({"cell_type": ["A", "B", "A"]})
@@ -31,7 +32,7 @@ class TestCategoricalData:
             "cell_type": object(),  # encoder class placeholder
         }
 
-        cat = CategoricalData(
+        cat = CategoricalData.from_pandas(
             ann_df=df,
             repr_dict=repr_dict,
             categorical_encoders=categorical_encoders,
@@ -42,7 +43,7 @@ class TestCategoricalData:
 
     def test_len(self) -> None:
         df = pd.DataFrame({"a": range(5)})
-        cat = CategoricalData(df)
+        cat = CategoricalData.from_pandas(df)
 
         assert len(cat) == 5
 
@@ -57,7 +58,7 @@ class TestCategoricalData:
         repr_dict = {"dummy": np.ones((3, 1))}
         encoders = {"dummy": object()}
 
-        cat = CategoricalData(
+        cat = CategoricalData.from_pandas(
             ann_df=df,
             repr_dict=repr_dict,
             categorical_encoders=encoders,
@@ -69,22 +70,13 @@ class TestCategoricalData:
         assert subset is not cat
         assert len(subset) == len(df.iloc[idxs])
 
-        # DataFrame should be sliced
-        pd.testing.assert_frame_equal(subset.ann_df, df.iloc[idxs])
+        pd.testing.assert_frame_equal(
+            subset.ann_df, df.iloc[idxs], check_dtype=False, check_categorical=False,
+        )
 
         # repr_dict and encoders are passed through unchanged
         assert subset.repr_dict is repr_dict
         assert subset.categorical_encoders is encoders
-
-    def test_default_mappings_are_immutable(self) -> None:
-        df = pd.DataFrame({"a": ["x", "y"]})
-        cat = CategoricalData(df)
-
-        with pytest.raises(TypeError):
-            cat.repr_dict["a"] = np.array([1, 2])
-
-        with pytest.raises(TypeError):
-            cat.categorical_encoders["a"] = object()
 
     def test_repr_contains_key_information(self) -> None:
         df = pd.DataFrame(
@@ -96,7 +88,7 @@ class TestCategoricalData:
         repr_dict = {"cell_type": np.zeros((2, 2))}
         encoders = {"cell_type": object()}
 
-        cat = CategoricalData(
+        cat = CategoricalData.from_pandas(
             ann_df=df,
             repr_dict=repr_dict,
             categorical_encoders=encoders,

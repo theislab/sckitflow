@@ -29,6 +29,7 @@ dependencies = [
   "jax",
   "omegaconf",
   "ott-jax",
+  "scikit-learn",
 
   # for debug logging (referenced from the issue template)
   "session-info2",

@@ -9,6 +9,7 @@ from scipy.sparse import csr_matrix
 
 from sc_flow._types import TargetCovariatesEncoderCls
 from sc_flow.data._mixins import BatchMixin, MappedArray
+from sc_flow.data._utils import convert_to_categorical_in_place
 from sc_flow.data.containers._base import BaseData
 
 __all__ = ["CategoricalData"]
@@ -120,3 +121,24 @@ class CategoricalData(BaseData):
         # stack arrays
         data_dict = {k: np.stack(v, axis=-2) for k, v in data_dict.items()}
         return BatchMixin(mapping=data_dict)
+
+    @classmethod
+    def from_pandas(
+        cls,
+        ann_df: pd.DataFrame,
+        repr_dict: Mapping[str, MappedArray] | None = None,
+        categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] | None = None,
+        inplace: bool = False,
+    ) -> "CategoricalData":
+        """Create a CategoricalData object from a pandas DataFrame.
+
+        TODO: document properly but most importantly note that for better performance it is recommended to pass the data in place.
+        """
+        if not inplace:
+            ann_df = ann_df.copy()
+        convert_to_categorical_in_place(ann_df, ann_df.columns)
+        return cls(
+            ann_df,
+            repr_dict={} if repr_dict is None else repr_dict,
+            categorical_encoders={} if categorical_encoders is None else categorical_encoders,
+        )

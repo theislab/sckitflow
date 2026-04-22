@@ -1,6 +1,9 @@
 import numpy as np
+import pytest
 import torch
 from sklearn.metrics import pairwise_distances
+
+pytest.importorskip("torchmetrics")
 
 from sc_flow.backends.torch.metrics._metrics import EnergyDistance, MaximumMeanDiscrepancy
 

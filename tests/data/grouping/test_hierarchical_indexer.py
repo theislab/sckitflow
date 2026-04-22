@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 from anndata import AnnData
 
+from sc_flow.data._utils import convert_to_categorical_in_place
 from sc_flow.data.grouping._indexer import HierarchicalIndexer
 
 wrong_key = "wrong_key"
@@ -16,11 +17,11 @@ class TestHierarchicalIndexer:
         level_cols: Collection[str],
         idxs: pd.MultiIndex,
     ) -> None:
-        level_values = idxs.get_level_values(level_name)
-        if level_cols is None:
-            assert set(level_values) == {(())}
+        sub_level_names = [n for n in idxs.names if isinstance(n, tuple) and n[0] == level_name]
+        if level_cols is None or len(level_cols) == 0:
+            assert len(sub_level_names) == 0
         else:
-            assert len(level_cols) == len(level_values[0])
+            assert len(sub_level_names) == len(level_cols)
 
     @pytest.mark.parametrize("groups_cols", [None, ["source_split"], [wrong_key]])
     @pytest.mark.parametrize("conditions_cols", [None, ["drugA", "drugB"], [wrong_key]])
@@ -33,15 +34,19 @@ class TestHierarchicalIndexer:
         )
         assert len(indexer.registry) == 2, indexer.registry.keys()
 
+        obs = adata.obs.copy()
+        convert_to_categorical_in_place(obs, groups_cols)
+        convert_to_categorical_in_place(obs, conditions_cols)
+
         if groups_cols is not None and wrong_key in groups_cols:
             with pytest.raises(ValueError, match=r"The following query columns dont appear in the reference:"):
-                idxs = indexer.create_index(adata.obs)
+                idxs = indexer.create_index(obs)
             return None
         if conditions_cols is not None and wrong_key in conditions_cols:
             with pytest.raises(ValueError, match=r"The following query columns dont appear in the reference:"):
-                idxs = indexer.create_index(adata.obs)
+                idxs = indexer.create_index(obs)
             return None
-        idxs = indexer.create_index(adata.obs)
+        idxs = indexer.create_index(obs)
 
         self._verify_level_index("groups", groups_cols, idxs)
         self._verify_level_index("conditions", conditions_cols, idxs)
@@ -78,10 +83,16 @@ class TestHierarchicalIndexer:
         else:
             assert len(indexer.registry) == 3, indexer.registry.keys()
 
+        all_cols = ["source_split", "drugA", "drugB"]
+        if level_cols is not None:
+            all_cols.extend(level_cols)
+        obs = adata.obs.copy()
+        convert_to_categorical_in_place(obs, all_cols)
+
         if level_cols is not None and wrong_key in level_cols:
             with pytest.raises(ValueError, match=r"The following query columns dont appear in the reference:"):
-                idxs = indexer.create_index(adata.obs)
+                idxs = indexer.create_index(obs)
             return None
-        idxs = indexer.create_index(adata.obs)
+        idxs = indexer.create_index(obs)
 
         self._verify_level_index(level_name, level_cols, idxs)

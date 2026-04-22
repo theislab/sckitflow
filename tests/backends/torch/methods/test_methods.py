@@ -37,7 +37,7 @@ class DummyTorchMethod(TorchBaseMethod):
     _module_cls = DummyModule
 
     def train_step(self, *args, **kwargs):
-        pass
+        return torch.tensor(0.0), {}
 
     def predict(self, *args, **kwargs):
         pass
@@ -59,6 +59,9 @@ class DummyTorchGenerativeFlow(TorchGenerativeFlow):
     def _predict(self, step_data, *args, **kwargs):
         return PredictionData(samples=torch.randn(1, 2), traj=None)
 
+    def train_step(self, *args, **kwargs):
+        return torch.tensor(0.0), {}
+
 
 # -----------------------------------------------------------------------------
 # Fixtures
@@ -78,20 +81,15 @@ def mock_data_manager():
 
 @pytest.fixture
 def torch_method(mock_dims_registry, mock_data_manager):
-    """Create a DummyTorchMethod with optimization manager patched out."""
-    with patch("sc_flow.backends.torch.methods._base.OptimizationManager.init_from_module") as mock_init:
-        mock_init.return_value = Mock()
-        method = DummyTorchMethod(mock_dims_registry, mock_data_manager, False, dtype=torch.float32, device_id="cpu")
+    # Remove the patch
+    method = DummyTorchMethod(mock_dims_registry, mock_data_manager, False, dtype=torch.float32, device_id="cpu")
     return method
 
 
 @pytest.fixture
 def torch_gen_flow(mock_dims_registry, mock_data_manager):
-    with patch("sc_flow.backends.torch.methods._base.OptimizationManager.init_from_module") as mock_init:
-        mock_init.return_value = Mock()
-        flow = DummyTorchGenerativeFlow(
-            mock_dims_registry, mock_data_manager, False, dtype=torch.float32, device_id="cpu"
-        )
+    # Remove the patch
+    flow = DummyTorchGenerativeFlow(mock_dims_registry, mock_data_manager, False, dtype=torch.float32, device_id="cpu")
     flow._match_fn = Mock(return_value=(None, None))
     return flow
 
@@ -254,17 +252,6 @@ class TestTorchGenerativeFlow:
         loss, info = torch_gen_flow._train_step_forward(step_data)
         assert loss == 0.5
         assert info["loss"] == 0.5
-
-    def test_train_step(self, torch_gen_flow):
-        matched_distr = Mock()
-        step_data = Mock()
-        torch_gen_flow._extract_step_data = Mock(return_value=step_data)
-        torch_gen_flow._train_step_forward = Mock(return_value=(torch.tensor(1.0), {"loss": 1.0}))
-        torch_gen_flow._optimization_manager = Mock()
-        torch_gen_flow._optimization_manager.backward_pass = Mock()
-        result = torch_gen_flow.train_step(matched_distr)
-        assert result == {"loss": 1.0}
-        torch_gen_flow._optimization_manager.backward_pass.assert_called_once_with(torch.tensor(1.0))
 
     def test_predict_with_no_grad(self, torch_gen_flow):
         matched_distr = Mock()

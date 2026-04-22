@@ -19,7 +19,7 @@ class ConcreteMethod(BaseMethod):
         self._train_mode = mode
 
     def train_step(self, *args, **kwargs):
-        return {"loss": 0.0}
+        return 0, {"loss": 0.0}
 
     def predict(self, *args, **kwargs):
         return None
@@ -35,7 +35,7 @@ class ConcreteGenerativeFlow(BaseGenerativeFlow):
         pass
 
     def train_step(self, *args, **kwargs):
-        return {}
+        return 0, {}
 
     def predict(self, *args, **kwargs):
         return None

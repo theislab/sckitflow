@@ -257,6 +257,15 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
             source_group_data=source_group_data,
         )
 
+    def _prepare_latent_state(
+        self,
+        source: torch.Tensor | None,
+        target_reference: torch.Tensor,
+    ) -> torch.Tensor:
+        if source is None or self._generate_from_noise:
+            return self._noise_sampler(target_reference)
+        return source
+
     def _train_step_forward(
         self,
         step_data: StepData,

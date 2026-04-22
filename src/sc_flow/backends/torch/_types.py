@@ -35,10 +35,31 @@ QuadCouplingMethod = Literal["entropic_gromov_wasserstein", "entropic_fused_grom
 CostFN = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 MatchFnOut = tuple[TensorLike, TensorLike] | tuple[TensorLike, TensorLike, TensorLike]
-TMatchFn = Callable[[TensorLike, TensorLike], MatchFnOut]
 
-TTimeSamplerFn = Callable[[tuple[int, ...]], TensorLike] | Callable[[tuple[int, ...]], tuple[TensorLike, TensorLike]]
-TNoiseSamplerFn = Callable[[tuple[int, ...]], TensorLike]
+
+class TMatchFn(Protocol):
+    def __call__(
+        self,
+        source_lin: TensorLike,
+        target_lin: TensorLike,
+        **kwargs: Any,
+    ) -> MatchFnOut: ...
+
+
+class TTimeSamplerFn(Protocol):
+    def __call__(
+        self,
+        *size: int,
+        **kwargs: Any,
+    ) -> TensorLike | tuple[TensorLike, TensorLike]: ...
+
+
+class TNoiseSamplerFn(Protocol):
+    def __call__(
+        self,
+        reference: TensorLike,
+        **kwargs: Any,
+    ) -> TensorLike: ...
 
 
 class TConditioningFn(Protocol):

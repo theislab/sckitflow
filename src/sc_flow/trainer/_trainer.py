@@ -39,6 +39,10 @@ class Trainer:
         # Validation logs: dict mapping val_id to list of dicts (one per validation run)
         self._val_logs: dict[str, list[dict[str, Any]]] = {}
 
+        # set current step
+        if not hasattr(self, "_current_step"):
+            self._current_step = 0
+
     def _append_train_log(self, log_dict: dict[str, Any]) -> None:
         """Append a log entry for a single training step (or node)."""
         self._train_logs.append(log_dict)
@@ -60,7 +64,7 @@ class Trainer:
         """Run validation on a sampler and store predictions."""
         predictions_dict = {}
         for node in sampler:
-            target = node.target_distr
+            target = self._method.extract_state_data(node.target_distr.state_data)
             preds = self._method.predict(node, *args, **kwargs)
             # Extract the actual data from PredictionData object
             if hasattr(preds, "samples"):
@@ -74,12 +78,24 @@ class Trainer:
             node_id = str(node)  # or use a better identifier
             predictions_dict[node_id] = {"predictions": preds_array, "targets": target_array}
 
-        # Store raw predictions in logs
-        self._append_val_log(val_id, {"predictions": predictions_dict, "step": step})
-
         # Trigger callbacks with the predictions dictionary
-        for cb in self._callbacks:
-            cb.on_valid_step(self, step, val_id, predictions_dict, **kwargs)
+        metrics_dict = self._callbacks.on_valid_step(self, step, val_id, predictions_dict, **kwargs)
+        metrics_dict.update({"step": self._current_step})
+
+        # Store raw predictions in logs
+        self._append_val_log(val_id, metrics_dict)
+
+    def _get_logs_df(self, logs_dict: dict[str, Any] | None) -> pd.DataFrame:
+        """Return training logs as a pandas DataFrame."""
+        if logs_dict is None:
+            return pd.DataFrame()
+        log_df = pd.DataFrame(logs_dict)
+        if "step" in log_df.columns:
+            idx = log_df["step"]
+            log_df.index = idx
+            log_df.index.name = "step"
+            log_df = log_df.drop(columns=["step"], axis=1)
+        return log_df
 
     def train(
         self,
@@ -95,8 +111,7 @@ class Trainer:
         do_validation = val_samplers_dict is not None
 
         # Call on_train_begin
-        for cb in self._callbacks:
-            cb.on_train_begin(self, **kwargs)
+        self._callbacks.on_train_begin(self, **kwargs)
 
         pbar = tqdm(range(n_train_steps))
         for self._current_step in pbar:
@@ -105,12 +120,12 @@ class Trainer:
             step_dict = {}
             for node in nodes:
                 opt_data, step_dict = self._method.train_step(node)
+                # step_dict.update({"step": self._current_step})
                 self._opt_manager.step(opt_data)
                 self._append_train_log(step_dict)
 
             # Call on_train_step with the step_dict from the last node
-            for cb in self._callbacks:
-                cb.on_train_step(self, self._current_step, step_dict, **kwargs)
+            self._callbacks.on_train_step(self, self._current_step, step_dict, **kwargs)
 
             # Update progress bar description
             if ((self._current_step + 1) % pbar_freq == 0) and (self._current_step > 0):
@@ -125,25 +140,20 @@ class Trainer:
                     self._run_val_on_sampler(val_sampler, val_id, self._current_step, *args, **kwargs)
 
         # Call on_train_end
-        for cb in self._callbacks:
-            cb.on_train_end(self, **kwargs)
+        self._callbacks.on_train_end(self, **kwargs)
 
     # -------------------------------------------------------------------------
     # Log retrieval and DataFrame conversion
     # -------------------------------------------------------------------------
     def get_train_logs_df(self) -> pd.DataFrame:
         """Return training logs as a pandas DataFrame."""
-        if not self._train_logs:
-            return pd.DataFrame()
-        return pd.DataFrame(self._train_logs)
+        return self._get_logs_df(self._train_logs)
 
     def get_val_logs_df(self, val_id: str | None = None) -> pd.DataFrame | dict[str, pd.DataFrame]:
         """Return validation logs as a pandas DataFrame."""
         if val_id is not None:
-            if val_id not in self._val_logs:
-                return pd.DataFrame()
-            return pd.DataFrame(self._val_logs[val_id])
-        return {vid: pd.DataFrame(logs) for vid, logs in self._val_logs.items()}
+            return self._get_logs_df(self._val_logs[val_id])
+        return {vid: self._get_logs_df(logs) for vid, logs in self._val_logs.items()}
 
     @property
     def train_logs_raw(self) -> list[dict[str, Any]]:
@@ -158,3 +168,7 @@ class Trainer:
     @property
     def opt_manager(self) -> BaseOptManager:
         return self._opt_manager
+
+    @property
+    def current_step(self) -> int:
+        return self._current_step

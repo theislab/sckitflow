@@ -270,6 +270,12 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
             **kwargs,
         )
 
+    def extract_state_data(
+        self,
+        state_data: StateData | None,
+    ) -> torch.Tensor | None:
+        return self._extract_state_data(state_data)
+
     def train_step(
         self,
         matched_distr: MatchedDistributions,

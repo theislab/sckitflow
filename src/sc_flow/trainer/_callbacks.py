@@ -247,6 +247,7 @@ class TrainingCallbacks(BaseCallback):
                 metrics.update(result)
         for cb in self._logging:
             cb.on_valid_step(trainer, step, val_id, metrics, **kwargs)
+        return metrics
 
     def on_train_end(self, trainer: "Trainer", **kwargs) -> None:
         for cb in self.callbacks:

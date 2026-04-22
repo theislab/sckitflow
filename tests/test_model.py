@@ -84,7 +84,7 @@ class DummyMethod(BaseMethod):
 @pytest.fixture
 def mock_optim_manager():
     """Prevent real optimizer creation in tests that don't need real training."""
-    with patch("sc_flow.backends.torch.methods._optim.TorchOptimizationManager.from_config") as mock:
+    with patch("sc_flow.backends.torch.methods._opt.TorchOptimizationManager.from_config") as mock:
         mock_manager = MagicMock()
         mock_manager.step = MagicMock()
         mock.return_value = mock_manager

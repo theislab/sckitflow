@@ -55,3 +55,15 @@ class TorchOptimizationManager(BaseOptManager):
             scheduler = sched_cls(optimizer, **config.lr_scheduler_kwargs)
 
         return cls(optimizer, lr_scheduler=scheduler, lr_scheduler_step=config.lr_scheduler_step)
+
+    @property
+    def optimizer(self) -> torch.optim.Optimizer:
+        return self._optimizer
+
+    @property
+    def lr_scheduler(self) -> torch.optim.Optimizer:
+        return self._lr_scheduler
+
+    @property
+    def lr_scheduler_step(self) -> torch.optim.Optimizer:
+        return self._lr_scheduler_step

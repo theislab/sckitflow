@@ -137,8 +137,8 @@ class SCFlow:
             import torch
 
             self._method._module.to(device)
-            if self._trainer is not None and hasattr(self._trainer, "_optimization_manager"):
-                opt = self._trainer._optimization_manager.optimizer
+            if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
+                opt = self._trainer.opt_manager.optimizer
                 for param_group in opt.param_groups:
                     for param in param_group["params"]:
                         if param.device.type != device.split(":")[0]:
@@ -353,8 +353,8 @@ class SCFlow:
 
             self._method._module.cpu()
             # Fixed: access optimizer via trainer, not via method
-            if self._trainer is not None and hasattr(self._trainer, "_optimization_manager"):
-                opt = self._trainer._optimization_manager.optimizer
+            if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
+                opt = self._trainer.opt_manager.optimizer
                 for state in opt.state.values():
                     for k, v in state.items():
                         if isinstance(v, torch.Tensor):

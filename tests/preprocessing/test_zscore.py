@@ -2,6 +2,8 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_matrix
 
+pytest.importorskip("sc_flow.data.preprocessing")
+
 from sc_flow.data.preprocessing import ZScoreTransform
 
 

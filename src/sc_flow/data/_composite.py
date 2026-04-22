@@ -1,8 +1,6 @@
 from dataclasses import asdict, dataclass
 from typing import Any, ClassVar
 
-import pandas as pd
-
 from sc_flow._runtime import attempt_tqdm_import
 from sc_flow.data._abc import DistributionT, MatchedDistributions
 from sc_flow.data._mixins import MappedLevelIndex, MappedTree
@@ -107,7 +105,6 @@ class NestedData(MappedTree):
     def init_from_data(
         cls,
         data: DistributionData,
-        reference_index: pd.MultiIndex,
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
@@ -116,10 +113,6 @@ class NestedData(MappedTree):
         :param data: The flattened, unmatched distribution data.
         :type data: class: `DistributionData`
 
-        :param reference_index: The reference index of the unmatched data,
-            needed to split it into groups.
-        :type reference_index: class: `pd.MultiIndex`
-
         :param mapped_index: The mapped tree of indices for each group.
         :type mapped_index: class: `MappedLevelIndex`
 
@@ -128,17 +121,19 @@ class NestedData(MappedTree):
             distribution will be considered.
         :type source_key: class: `tuple[Any] | None`
         """
-        return cls._init_tree(data, reference_index, mapped_index, source_key)
+        return cls._init_tree(data, mapped_index, source_key)
 
     @classmethod
     def _init_leaf_node(
         cls,
         data: DistributionData,
-        reference_index: pd.MultiIndex,
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
         """Initializes a leaf node given the input settings.
+
+        Leaf values in mapped_index are slices into the sorted data,
+        so indexing is O(1) per group with no search overhead.
 
         :param data: The flattened, unmatched distribution data.
         :type data: class: `DistributionData`
@@ -155,32 +150,25 @@ class NestedData(MappedTree):
             distribution will be considered.
         :type source_key: class: `tuple[Any] | None`
         """
-        # split source distribution apart
+        all_keys = list(mapped_index.mapping.keys())
+
         if source_key is not None:
-            source_idxs = mapped_index.mapping[source_key]
-            source_distribution = data.slice_with_index(reference_index, source_idxs)
-            rest_idxs = {k: v for k, v in mapped_index.mapping.items() if k != source_key}
+            source_distribution = data[mapped_index.mapping[source_key]]
+            rest_keys = [k for k in all_keys if k != source_key]
         else:
             source_distribution = None
-            rest_idxs = mapped_index.mapping
+            rest_keys = all_keys
 
-        # lazily import tqdm
         tqdm = attempt_tqdm_import()
-        if tqdm is not None:
-            pbar = tqdm(rest_idxs)
-        else:
-            pbar = None
+        pbar = tqdm(rest_keys) if tqdm is not None else None
 
-        # construct data dictionary
         data_dict = {}
-        for key, value in rest_idxs.items():
-            # update progress bar
+        for key in rest_keys:
             if pbar is not None:
                 pbar.update()
-
-            # update dictionary
             data_dict[key] = MatchedData(
-                data.slice_with_index(reference_index, value), source_distribution=source_distribution
+                data[mapped_index.mapping[key]],
+                source_distribution=source_distribution,
             )
         return cls(data_dict)
 
@@ -188,7 +176,6 @@ class NestedData(MappedTree):
     def _init_tree(
         cls,
         data: DistributionData,
-        reference_index: pd.MultiIndex,
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
     ) -> "NestedData":
@@ -211,9 +198,9 @@ class NestedData(MappedTree):
         """
         return cls(
             {
-                key: cls._init_leaf_node(data, reference_index, value, source_key)
+                key: cls._init_leaf_node(data, value, source_key)
                 if value.is_leaf
-                else cls._init_tree(data, reference_index, value, source_key)
+                else cls._init_tree(data, value, source_key)
                 for key, value in mapped_index.mapping.items()
             }
         )

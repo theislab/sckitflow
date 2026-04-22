@@ -1,4 +1,4 @@
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable
 from typing import Any
 
 import pytest
@@ -7,7 +7,7 @@ from sc_flow.data._mixins import MappedTree
 
 float_data_dict = lambda: {"a": 0.0, "b": 0.0}
 string_data_dict = lambda: {"a": "str", "b": "str"}
-mixed_data_dict = lambda: {"a": "str", "b": "str"}
+mixed_data_dict = lambda: {"a": "str", "b": 0.0}
 
 
 def to_int(x: float):
@@ -19,77 +19,85 @@ def double(x: float):
 
 
 class TestMixins:
-    @pytest.mark.parametrize("required_type", [None, float, str])
-    @pytest.mark.parametrize("mapping_fn", [float_data_dict, string_data_dict])
+    @pytest.mark.parametrize("required_type", [float, str])
     def test_data_mixin_init(
         self,
         required_type: type[Any] | None,
-        mapping_fn: Callable[..., Mapping[str, Any]],
     ) -> None:
         # mismatch type
-        MappedTree._REQUIRED_VALUE_TYPE = required_type
-        if (required_type is float and mapping_fn.__name__ == "string_data_dict") or (
-            required_type is str and mapping_fn.__name__ == "float_data_dict"
-        ):
-            with pytest.raises(TypeError, match="Data is of the wrong type"):
-                mixin = MappedTree(mapping=mapping_fn())
-        mixin = MappedTree(mapping=mapping_fn())
-        if mapping_fn.__name__ == "string_data_dict":
-            assert mixin.data_type is str
+        CustomMixin = type(
+            "CustomMixin",
+            (MappedTree,),
+            {"_REQUIRED_VALUE_TYPE": required_type},
+        )
+        if required_type is float:
+            data_dict = float_data_dict()
         else:
-            assert mixin.data_type is float
+            data_dict = string_data_dict()
+        mixin = CustomMixin(mapping=data_dict)
+        for value in mixin.mapping.values():
+            assert isinstance(value, required_type | MappedTree)
 
-    @pytest.mark.parametrize("required_type", [None, float])
-    def test_data_mixin_init_fail_with_mixed_type(
+    @pytest.mark.parametrize("required_type", [float, str])
+    def test_data_mixin_init_fails(
         self,
         required_type: type[Any] | None,
+    ):
+        CustomMixin = type(
+            "CustomMixin",
+            (MappedTree,),
+            {"_REQUIRED_VALUE_TYPE": required_type},
+        )
+        if required_type is str:
+            data_dict = float_data_dict()
+        else:
+            data_dict = string_data_dict()
+        with pytest.raises(TypeError, match="The values should respect the pre-defined type"):
+            _mixin = CustomMixin(mapping=data_dict)
+        return None
+
+    @pytest.mark.parametrize("required_type", [str, float])
+    def test_data_mixin_init_fail_with_mixed_type(
+        self,
+        required_type: type[Any],
     ) -> None:
+        CustomMixin = type(
+            "CustomMixin",
+            (MappedTree,),
+            {"_REQUIRED_VALUE_TYPE": required_type},
+        )
         mapping = mixed_data_dict()
-        if required_type is None:
-            with pytest.raises(TypeError, r"(The values should share the same type\.)"):
-                _mixin = MappedTree(required_type, mapping)
-        with pytest.raises(TypeError, r"(Data is of the wrong type\.)"):
-            _mixin = MappedTree(required_type, mapping)
+        with pytest.raises(TypeError, match=r"The values should respect the pre-defined type\."):
+            _mixin = CustomMixin(mapping)
+        return None
 
     @pytest.mark.parametrize("function", [to_int, double])
-    @pytest.mark.parametrize("fields", [None, ["a"]])
-    @pytest.mark.parametrize("drop_unused_fields", [False, True])
-    @pytest.mark.parametrize("recursive", [True])
-    @pytest.mark.parametrize("output_type", [None, int])
+    @pytest.mark.parametrize("output_value_type", [None, int])
     def test_data_mixin_apply(
         self,
         function: Callable[[Any], Any],
-        fields: None | Collection[str],
-        drop_unused_fields: bool,
-        recursive: bool,
-        output_type: type[Any] | None,
+        output_value_type: type[Any] | None,
     ) -> None:
         # initialize mixin
         MappedTree._REQUIRED_VALUE_TYPE = float
-        mixin = MappedTree(float_data_dict())
+        mixin_orig = MappedTree(float_data_dict())
 
         # fail cases
-        if (function.__name__ == "double" and output_type is int) or (
-            function.__name__ == "to_int" and output_type is None
+        if (function.__name__ == "double" and output_value_type is int) or (
+            function.__name__ == "to_int" and output_value_type is None
         ):
-            with pytest.raises(TypeError, match=r"Data is of the wrong type"):
-                mixin = mixin.apply(
+            with pytest.raises(TypeError, match=r"The values should respect the pre-defined type"):
+                mixin_mapped = mixin_orig.apply(
                     function,
-                    fields,
-                    drop_unused_fields=drop_unused_fields,
-                    recursive=recursive,
-                    output_type=output_type,
+                    output_value_type=output_value_type,
                 )
-        mixin = mixin.apply(
-            function, fields, drop_unused_fields=drop_unused_fields, recursive=recursive, output_type=output_type
-        )
+            return None
+        mixin_mapped = mixin_orig.apply(function, output_value_type=output_value_type)
 
-        # get expected keys
-        if drop_unused_fields and fields == ["a"]:
-            expected_keys = ["a"]
-        elif drop_unused_fields and fields is None:
-            expected_keys = ["a", "b"]
-        assert list(mixin.mapping) == expected_keys
+        assert set(mixin_orig.mapping.keys()) == set(mixin_mapped.mapping.keys())
+        for key, val in mixin_orig.mapping.items():
+            val_mapped = mixin_mapped[key]
+            assert val_mapped == 2 * val
 
     def test_batch_mixin_init(self) -> None:
         pass

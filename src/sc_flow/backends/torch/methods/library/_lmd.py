@@ -13,10 +13,10 @@ from sc_flow.backends.torch.nn._modules import BaseModule
 from sc_flow.backends.torch.probability_paths._probability_paths import LinearDiracProbabilityPath
 from sc_flow.backends.torch.solvers._fm_solver import BaseSolver, FMSolver
 
-__all__ = ["FMM"]
+__all__ = ["LMD"]
 
 
-class FMM(TorchGenerativeFlow):
+class LMD(TorchGenerativeFlow):
     _module_cls: type[BaseModule] = MLPFlowMap
     _default_solver_cls: type[BaseSolver] = FMSolver
 
@@ -69,7 +69,7 @@ class FMM(TorchGenerativeFlow):
         # register cfm
         self._cfm = cfm
 
-    def _compute_loss_distillation(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
+    def _step_fn(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
         # prepare condition
         condition_data = self._get_tensor_dict_from_data(step_data.target_condition_data)
         group_data = self._get_tensor_dict_from_data(step_data.target_group_data)
@@ -103,47 +103,6 @@ class FMM(TorchGenerativeFlow):
         vt = vf_fn(t, xts_hat)
         loss = torch.mean(self._weight_fn(s, t) * ((dXdt - vt) ** 2).sum(-1))
         return loss, {"loss": loss.item()}
-
-    def _compute_loss_e2e(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
-        # prepare condition
-        condition_data = self._get_tensor_dict_from_data(step_data.target_condition_data)
-        group_data = self._get_tensor_dict_from_data(step_data.target_group_data)
-        cond = {
-            **condition_data,
-            **group_data,
-        }
-
-        # prepare latent state from step data
-        latent = self._prepare_latent_state(step_data.source_state, step_data.target_state)
-
-        # retrieving batch size and ode time
-        batch_size = step_data.target_state.shape[0]
-        s, t = self.time_sampler(
-            (batch_size,),
-            device=step_data.target_state.device,
-            dtype=step_data.target_state.dtype,
-        )
-
-        # sample ground truth interpolant and compute corresponding velocity field
-        xt = self._probability_path.compute_xt(t, latent, step_data.target_state)
-        ut = self._probability_path.compute_ut(t, latent, step_data.target_state, xt)
-
-        # forward pass on neural networks
-        xst_hat = self._module(t, s, xt, cond, source=step_data.source_state)
-        _, dXdt = torch.func.jvp(
-            self._module.get_vf_fn(cond, source=step_data.source_state),
-            (s, t, xst_hat),
-            (torch.zeros_like(s), torch.ones_like(t), torch.zeros_like(xst_hat)),
-        )
-
-        loss = torch.mean(self._weight_fn(s, t) * ((dXdt - ut) ** 2).sum(-1))
-        return loss, {"loss": loss.item()}
-
-    def _step_fn(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
-        # distill from flow model when provided
-        if self._cfm is not None:
-            return self._compute_loss_distillation(step_data, *args, **kwargs)
-        return self._compute_loss_e2e(step_data, *args, **kwargs)
 
     def _predict(
         self,

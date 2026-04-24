@@ -50,13 +50,15 @@ def fmm_instance():
     dims_reg.n_features = 2
     dm = Mock()
 
-    original_module_cls = FMM._module_cls
-    FMM._module_cls = DummyModule
-
     # Create instance without patching _extract_matched_observations
-    fmm = FMM(dims_registry=dims_reg, dm=dm, is_paired_setting=False, dtype=torch.float32, device_id="cpu")
-
-    FMM._module_cls = original_module_cls
+    with patch.object(FMM, "_module_cls", DummyModule):
+        fmm = FMM(
+            dims_registry=dims_reg,
+            dm=dm,
+            is_paired_setting=False,
+            dtype=torch.float32,
+            device_id="cpu",
+        )
     fmm._device_id = "cpu"
     return fmm
 

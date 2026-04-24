@@ -32,9 +32,9 @@ class FMM(TorchGenerativeFlow):
         # distillation from teacher CFM model, in this case
         # take necessary attributes from cfm for compatibility
         if cfm is not None:
-            self._match_fn = cfm.match_fn
-            self._noise_sampler = cfm.noise_sampler
-            self._probability_path = cfm.probability_path
+            self._match_fn = cfm.method.match_fn
+            self._noise_sampler = cfm.method.noise_sampler
+            self._probability_path = cfm.method.probability_path
         else:
             # set defaults
             if self._match_fn is None:
@@ -104,7 +104,7 @@ class FMM(TorchGenerativeFlow):
             (torch.zeros_like(s), torch.ones_like(t), torch.zeros_like(xs)),
         )
         # evaluate vf
-        vf_fn = self._cfm._module.get_vf_fn(cond, source=step_data.source_state)
+        vf_fn = self.teacher_vf.get_vf_fn(cond, source=step_data.source_state)
         vt = vf_fn(t, xts_hat)
         loss = torch.mean(self._weight_fn(s, t) * ((dXdt - vt) ** 2).sum(-1))
         return loss, {"loss": loss.item()}
@@ -205,3 +205,10 @@ class FMM(TorchGenerativeFlow):
             samples,
             traj=traj,
         )
+
+    @property
+    def teacher_vf(self) -> BaseModule | None:
+        if self._cfm is not None:
+            return self._cfm.method.module
+        else:
+            return None

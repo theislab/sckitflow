@@ -9,7 +9,7 @@ from torch import Tensor
 
 pytest.importorskip("torchdiffeq")
 
-from sc_flow.backends.torch.solvers.ode_solver import ODESolver
+from sc_flow.backends.torch.solvers._ode_solver import ODESolver
 
 
 class PolyTimeVF:
@@ -154,7 +154,7 @@ def test_time_tensor_respected(poly_vf: PolyTimeVF) -> None:
 
 
 def test_solver_kwargs_are_forwarded_to_odeint(monkeypatch: pytest.MonkeyPatch) -> None:
-    import sc_flow.backends.torch.solvers.ode_solver as ode_solver_module
+    import sc_flow.backends.torch.solvers._ode_solver as ode_solver_module
 
     vf = PolyTimeVF()
     solver = ODESolver(dynamics=vf, method="euler", device_id="cpu")

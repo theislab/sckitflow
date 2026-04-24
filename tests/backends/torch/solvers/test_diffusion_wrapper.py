@@ -6,8 +6,7 @@ import torch
 from torch import Tensor
 
 pytest.importorskip("torchsde")
-
-from sc_flow.backends.torch.solvers.sde_solver import SDESolver
+from sc_flow.backends.torch.solvers._sde_solver import SDESolver
 
 
 def _wrap(diffusion_fn, df_kwargs: dict | None = None):

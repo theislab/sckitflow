@@ -111,7 +111,7 @@ class SetEncoder(BaseModule):
                 raise KeyError(msg)
             encoded_covariates[covariate_id] = self._condition_encoder[covariate_id](covariate_data)
 
-        pooled_covariates = torch.concatenate(tuple(encoded_covariates.values()), dim=-1)
+        pooled_covariates = torch.concatenate(tuple(encoded_covariates.values()), dim=-2)
         pooled_covariates = self._condition_encoder["pooling_layer"](pooled_covariates)
         return self._condition_encoder["output_layer"](pooled_covariates)
 
@@ -121,5 +121,6 @@ class SetEncoder(BaseModule):
     ) -> int:
         """Retrieves the input dimensionality for the output decoder."""
         # summing up all the dimensions of non pooled covariates
-        decoder_input_dim = sum(layer_dict["output_dim"] for layer_dict in self._input_layers.values())
+        # decoder_input_dim = sum(layer_dict["output_dim"] for layer_dict in self._input_layers.values())
+        decoder_input_dim = next(iter(self._input_layers.values()))["output_dim"]
         return decoder_input_dim

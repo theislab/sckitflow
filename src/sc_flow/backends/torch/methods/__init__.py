@@ -1,3 +1,11 @@
-from sc_flow.backends.torch.methods._methods import GENOT, FlowMatching, OTFlowMatching
+from typing import Literal
 
-__all__ = ["FlowMatching", "OTFlowMatching", "GENOT"]
+from sc_flow.backends.torch.methods._base import TorchBaseMethod, TorchGenerativeFlow
+from sc_flow.backends.torch.methods.library._cfm import CFM
+
+METHODS_REGISTRY = {
+    "cfm": CFM,
+}
+AVAILABLE_METHODS = Literal["cfm"]
+
+__all__ = ["TorchBaseMethod", "TorchGenerativeFlow", "CFM", "METHODS_REGISTRY", "AVAILABLE_METHODS"]

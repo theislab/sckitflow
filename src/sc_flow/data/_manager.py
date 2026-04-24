@@ -8,6 +8,7 @@ from anndata import AnnData
 from sc_flow._constants import ORIGINAL_INDEX_KEY
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._composite import NestedData
+from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._mixins import MappedLevelIndex
 from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.containers._coupling import CouplingData
@@ -186,6 +187,18 @@ class DataManager:
             conditions_cols=conditions_cols,
         )
 
+    def _get_feature_names(self, adata: AnnData) -> pd.Index:
+        """Determines feature names based on the state representation used."""
+        sample_rep = self._state_data_schema.sample_rep
+        if sample_rep is None:
+            return adata.var_names
+
+        # Case: Latent representation in .obsm (e.g., 'X_pca')
+        rep_data = adata.obsm[sample_rep]
+        n_features = rep_data.shape[1]
+
+        return pd.Index([f"{sample_rep}_{i}" for i in range(n_features)])
+
     def _get_state_data(
         self,
         adata: AnnData,
@@ -253,6 +266,13 @@ class DataManager:
         self._assert_sorted(data)
         mapped_index = self._get_mapped_index(data.ann_df)
         return NestedData.init_from_data(data, mapped_index, source_key=self.source_key)
+
+    def _get_data_dimensionalities(
+        self,
+        data: DistributionData,
+        feature_names: pd.Index,
+    ) -> DataDimensionalitiesRegistry:
+        return DataDimensionalitiesRegistry.init_from_distribution_data(data, feature_names)
 
     def get_matched_distributions(
         self,
@@ -327,6 +347,30 @@ class DataManager:
             adata = self.sort_adata(adata)
         data: DistributionData = self._get_distribution_data(adata)
         return self._get_matched_distributions(data)
+
+    def get_data_dimensionalities(
+        self,
+        adata: AnnData,
+    ) -> DataDimensionalitiesRegistry:
+        """Registers the data dimensionalities from the input data according to the current schema.
+
+        :param adata: The annotated data object which to extract the dimensionalities from.
+        :type adata: class: `AnnData`
+        """
+        data: DistributionData = self._get_distribution_data(adata)
+        feature_names = self._get_feature_names(adata)
+        return self._get_data_dimensionalities(data, feature_names)
+
+    def get_feature_names(
+        self,
+        adata: AnnData,
+    ) -> pd.Index:
+        """Registers the feature names from the input data according to the current schema.
+
+        :param adata: The annotated data object which to extract the feature names from.
+        :type adata: class: `AnnData`
+        """
+        return self._get_feature_names(adata)
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

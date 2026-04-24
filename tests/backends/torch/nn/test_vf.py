@@ -7,7 +7,7 @@ import torch
 from sc_flow._types import TimeFeaturesId
 from sc_flow.backends.torch._types import TTimeFeaturesFn
 from sc_flow.backends.torch.nn._vf import (
-    MLPUnconditionalVF,
+    MLPVelocity,
 )
 
 batch_size = 32
@@ -125,7 +125,7 @@ class TestVF:
         conditioning_fn: Callable | None,
         conditioning_kwargs: dict[str, Any],
     ):
-        vf = MLPUnconditionalVF(
+        vf = MLPVelocity(
             state_dim,
             encode_state=encode_state,
             encode_time=encode_time,

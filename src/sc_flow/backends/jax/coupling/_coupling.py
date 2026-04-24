@@ -346,7 +346,6 @@ def ot_quadratic_coupling(
 
     source_lin = to_jax_array(source_lin)
     target_lin = to_jax_array(target_lin)
-    print(source_lin)
 
     if method not in ["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"]:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"

@@ -13,10 +13,10 @@ from sc_flow.backends.torch.nn._modules import BaseModule
 from sc_flow.backends.torch.probability_paths._probability_paths import LinearDiracProbabilityPath
 from sc_flow.backends.torch.solvers._fm_solver import BaseSolver, FMSolver
 
-__all__ = ["LMD"]
+__all__ = ["EMD"]
 
 
-class LMD(TorchGenerativeFlow):
+class EMD(TorchGenerativeFlow):
     _module_cls: type[BaseModule] = MLPFlowMap
     _default_solver_cls: type[BaseSolver] = FMSolver
 
@@ -92,16 +92,25 @@ class LMD(TorchGenerativeFlow):
         # sample ground truth interpolant
         xs = self._probability_path.compute_xt(s, latent, step_data.target_state)
 
-        # forward pass on neural networks with jvp
-        xts_hat, dXdt = torch.func.jvp(
-            self._module.get_vf_fn(cond, source=step_data.source_state),
-            (s, t, xs),
-            (torch.zeros_like(s), torch.ones_like(t), torch.zeros_like(xs)),
-        )
         # evaluate vf
         vf_fn = self.teacher_vf.get_vf_fn(cond, source=step_data.source_state)
-        vt = vf_fn(t, xts_hat)
-        loss = torch.mean(self._weight_fn(s, t) * ((dXdt - vt) ** 2).sum(-1))
+        vs = vf_fn(s, xs)
+
+        # forward pass on neural networks with jvp and compute time differential
+        _, dXds = torch.func.jvp(
+            self._module.get_vf_fn(cond, source=step_data.source_state),
+            (s, t, xs),
+            (torch.ones_like(s), torch.zeros_like(t), torch.zeros_like(xs)),
+        )
+
+        # forward pass on neural networks with jvp and compute time differential
+        _, nablaXs_fn = torch.func.vjp(
+            lambda xs: self._module.get_vf_fn(cond, source=step_data.source_state)(s, t, xs),
+            xs,
+        )
+        nablaXs = nablaXs_fn(vs)[0]
+
+        loss = torch.mean(self._weight_fn(s, t) * ((nablaXs + dXds) ** 2).sum(-1))
         return loss, {"loss": loss.item()}
 
     def _predict(

@@ -131,7 +131,7 @@ class Trainer:
                 self._append_train_log(step_dict)
 
             # Call on_train_step with the step_dict from the last node
-            self._callbacks.on_train_step(self, self._current_step, step_dict, **kwargs)
+            self._callbacks.on_train_step(self, self._current_step + 1, step_dict, **kwargs)
 
             # Update progress bar description
             if ((self._current_step + 1) % pbar_freq == 0) and (self._current_step > 0):
@@ -143,7 +143,7 @@ class Trainer:
             # Validation step
             if ((self._current_step + 1) % valid_freq == 0) and (self._current_step > 0) and do_validation:
                 for val_id, val_sampler in val_samplers_dict.items():
-                    self._run_val_on_sampler(val_sampler, val_id, self._current_step, *args, **kwargs)
+                    self._run_val_on_sampler(val_sampler, val_id, self._current_step + 1, *args, **kwargs)
 
         # Call on_train_end
         self._callbacks.on_train_end(self, **kwargs)

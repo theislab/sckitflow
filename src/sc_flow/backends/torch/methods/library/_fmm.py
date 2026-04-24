@@ -69,15 +69,6 @@ class FMM(TorchGenerativeFlow):
         # register cfm
         self._cfm = cfm
 
-    def _prepare_latent_state(
-        self,
-        source: torch.Tensor | None,
-        target_reference: torch.Tensor,
-    ) -> torch.Tensor:
-        if source is None or self._generate_from_noise:
-            return self._noise_sampler(target_reference)
-        return source
-
     def _compute_loss_distillation(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
         # prepare condition
         condition_data = self._get_tensor_dict_from_data(step_data.target_condition_data)
@@ -92,7 +83,11 @@ class FMM(TorchGenerativeFlow):
 
         # retrieving batch size and ode time
         batch_size = step_data.target_state.shape[0]
-        s, t = self.time_sampler((batch_size,), device=step_data.target_state.device)
+        s, t = self.time_sampler(
+            (batch_size,),
+            device=step_data.target_state.device,
+            dtype=step_data.target_state.dtype,
+        )
 
         # sample ground truth interpolant
         xs = self._probability_path.compute_xt(s, latent, step_data.target_state)
@@ -123,7 +118,11 @@ class FMM(TorchGenerativeFlow):
 
         # retrieving batch size and ode time
         batch_size = step_data.target_state.shape[0]
-        s, t = self.time_sampler((batch_size,), device=step_data.target_state.device)
+        s, t = self.time_sampler(
+            (batch_size,),
+            device=step_data.target_state.device,
+            dtype=step_data.target_state.dtype,
+        )
 
         # sample ground truth interpolant and compute corresponding velocity field
         xt = self._probability_path.compute_xt(t, latent, step_data.target_state)

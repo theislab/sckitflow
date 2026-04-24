@@ -1,5 +1,8 @@
 import jax
 import jax.numpy as jnp
+from chex import dataclass
+
+__all__ = ["StepData", "ema_update"]
 
 
 @jax.jit
@@ -52,3 +55,17 @@ def default_prng_key(rng: jax.Array | None) -> jax.Array:
       the unmodified ``rng`` key.
     """
     return jax.random.key(0) if rng is None else rng
+
+
+@dataclass
+class StepData:
+    target_state: jnp.ndarray
+    target_coupling_lin: jnp.ndarray
+    target_coupling_quad: jnp.ndarray | None
+    target_condition_data: jnp.ndarray | None
+    target_group_data: jnp.ndarray | None
+    source_state: jnp.ndarray | None
+    source_coupling_lin: jnp.ndarray | None
+    source_coupling_quad: jnp.ndarray | None
+    source_condition_data: jnp.ndarray | None
+    source_group_data: jnp.ndarray | None

@@ -181,7 +181,8 @@ class MLP(BaseModule):
     final_activation_cls_kwargs: dict[str, Any] = dc_field(default_factory=dict)
     bias: bool = True
 
-    _layers: list[list[nn.Module]]
+    def setup(self) -> None:
+        self._layers = self._make_modules()
 
     def _make_layer(
         self,
@@ -228,14 +229,14 @@ class MLP(BaseModule):
         layers = []
         for hidden_dim in self.hidden_dims:
             layers.append(self._make_layer(hidden_dim, self.activation_cls, self.activation_cls_kwargs))
-            final_activation = self.final_activation_cls if self.final_activation_cls is not None else lambda x: x
-            layers.append(
-                self._make_layer(
-                    self.output_dim,
-                    final_activation,
-                    self.final_activation_cls_kwargs,
-                )
+        final_activation = self.final_activation_cls if self.final_activation_cls is not None else lambda x: x
+        layers.append(
+            self._make_layer(
+                self.output_dim,
+                final_activation,
+                self.final_activation_cls_kwargs,
             )
+        )
         return layers
 
     def __call__(self, x: jnp.ndarray, train: bool = False) -> jnp.ndarray:

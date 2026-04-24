@@ -2,12 +2,12 @@ from typing import Any
 
 import torch
 
-from sc_flow.backends.torch.methods._base import TorchGenerativeFlow
+from sc_flow.backends.torch.methods.library._base import BaseConsistencyModel
 
 __all__ = ["EMD"]
 
 
-class EMD(TorchGenerativeFlow):
+class EMD(BaseConsistencyModel):
     def _compute_loss(
         self,
         s: torch.Tensor,

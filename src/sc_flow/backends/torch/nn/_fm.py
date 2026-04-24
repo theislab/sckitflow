@@ -1,6 +1,6 @@
 import torch
 
-from sc_flow.backends.torch._types import MappedTensor
+from sc_flow.backends.torch._types import MappedTensor, TFmFn
 from sc_flow.backends.torch.nn._conditioning_layers import BaseConditioningLayer, get_conditioning_layer
 from sc_flow.backends.torch.nn._vf import MLPVelocity
 
@@ -26,6 +26,18 @@ class MLPFlowMap(MLPVelocity):
             conditioning_fn=self._conditioning_fn,
             conditioning_kwargs=self._conditioning_kwargs,
         )
+
+    def get_vf_fn(
+        self,
+        condition_dict: MappedTensor | None = None,
+        source: torch.Tensor | None = None,
+    ) -> TFmFn:
+        """Compiles the velocity field function to be fed to external solvers."""
+
+        def _vf_fn(s: torch.Tensor, t: torch.Tensor, x: torch.Tensor):
+            return self.forward(s, t, x, condition_dict=condition_dict, source=source)
+
+        return _vf_fn
 
     def forward(
         self,

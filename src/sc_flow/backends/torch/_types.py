@@ -23,6 +23,7 @@ TensorLike = torch.Tensor | np.ndarray
 MappedTensor = dict[str, torch.Tensor]
 
 TVfFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+TFmFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
 
 TTimeFeaturesFn = Callable[[torch.Tensor, int], torch.Tensor]
 

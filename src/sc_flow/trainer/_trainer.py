@@ -126,7 +126,7 @@ class Trainer:
             step_dict = {}
             for node in nodes:
                 opt_data, step_dict = self._method.train_step(node)
-                step_dict.update({"step": self._current_step})
+                step_dict.update({"step": self._current_step + 1})
                 self._opt_manager.step(opt_data)
                 self._append_train_log(step_dict)
 

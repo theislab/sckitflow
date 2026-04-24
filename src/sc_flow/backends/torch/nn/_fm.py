@@ -1,3 +1,5 @@
+from typing import Literal
+
 import torch
 
 from sc_flow.backends.torch._types import MappedTensor, TFmFn
@@ -8,6 +10,16 @@ __all__ = ["MLPFlowMap"]
 
 
 class MLPFlowMap(MLPVelocity):
+    def __init__(
+        self,
+        *args,
+        reparametrization_type: Literal["none", "residual", "redisual-rescaled"] = "residual",
+        **kwargs,
+    ) -> None:
+        super().__init__(*args, **kwargs)
+
+        self._reparametrization_type = reparametrization_type
+
     def _make_modules(self):
         nn = super()._make_modules()
         nn["s_encoder"] = self._make_time_encoder()
@@ -75,4 +87,19 @@ class MLPFlowMap(MLPVelocity):
         encoded_concat = self._nn["conditioning_layer"](
             time_feats, encoded_xt, encoded_condition=self._get_conditioning_input(encoded_condition, encoded_source)
         )
-        return self._nn["vf_decoder"](encoded_concat)
+        res = self._nn["vf_decoder"](encoded_concat)
+
+        # handle shape
+        t_uns = t.unsqueeze(-1)
+        s_uns = s.unsqueeze(-1)
+
+        # handle reparametrization
+        if self._reparametrization_type == "none":
+            return res
+        elif self._reparametrization_type == "residual":
+            return x + (t_uns - s_uns) * res
+        elif self._reparametrization_type == "redisual-rescaled":
+            return (1 - (t_uns - s_uns)) * x + (t_uns - s_uns) * res
+        else:
+            msg = f"{self._reparametrization_type} not supported"
+            raise ValueError(msg)

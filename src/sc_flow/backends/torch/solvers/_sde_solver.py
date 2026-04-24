@@ -9,6 +9,8 @@ from torchsde import sdeint
 from sc_flow.backends.torch._types import TDevice, TDiffusion, TNoiseType, TSDEDynamics, TSDEType, TVfFn
 from sc_flow.backends.torch.solvers._solver import BaseSolver
 
+__all__ = ["SDESolver"]
+
 
 class SDESolver(BaseSolver[TSDEDynamics]):
     r"""Class for solving stochastic differential equations (SDEs) with TorchSDE.

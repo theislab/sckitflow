@@ -7,6 +7,8 @@ from sc_flow.backends.jax._types import TVfFn
 from sc_flow.backends.torch._types import TDevice, TODEDynamics
 from sc_flow.backends.torch.solvers._solver import BaseSolver
 
+__all__ = ["ODESolver"]
+
 
 class ODESolver(BaseSolver[TODEDynamics]):
     r"""Class for solving deterministic ordinary differential equations (ODEs) with :func:`torchdiffeq.odeint`.

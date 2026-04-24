@@ -6,6 +6,8 @@ from torch import Tensor, nn
 from sc_flow.backends.torch._types import SolverConfig, TDevice, TSolverDynamics
 from sc_flow.backends.torch._utils import get_torch_device
 
+__all__ = ["BaseSolver"]
+
 
 class BaseSolver(Generic[TSolverDynamics], ABC, nn.Module):
     """Abstract Base Class for Solvers"""

@@ -61,9 +61,9 @@ class TorchOptimizationManager(BaseOptManager):
         return self._optimizer
 
     @property
-    def lr_scheduler(self) -> torch.optim.Optimizer:
+    def lr_scheduler(self) -> torch.optim.lr_scheduler.LRScheduler | None:
         return self._lr_scheduler
 
     @property
-    def lr_scheduler_step(self) -> torch.optim.Optimizer:
+    def lr_scheduler_step(self) -> str:
         return self._lr_scheduler_step

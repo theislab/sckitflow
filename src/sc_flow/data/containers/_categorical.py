@@ -128,6 +128,7 @@ class CategoricalData(BaseData):
         ann_df: pd.DataFrame,
         repr_dict: Mapping[str, MappedArray] | None = None,
         categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] | None = None,
+        categorical_reps_map: Mapping[str, str] | None = None,
         inplace: bool = False,
     ) -> "CategoricalData":
         """Create a CategoricalData object from a pandas DataFrame.
@@ -141,4 +142,5 @@ class CategoricalData(BaseData):
             ann_df,
             repr_dict={} if repr_dict is None else repr_dict,
             categorical_encoders={} if categorical_encoders is None else categorical_encoders,
+            categorical_reps_map=categorical_reps_map,
         )

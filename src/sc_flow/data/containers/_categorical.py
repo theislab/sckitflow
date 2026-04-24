@@ -131,6 +131,7 @@ class CategoricalData(BaseData):
         ann_df: pd.DataFrame,
         repr_dict: Mapping[str, MappedArray] | None = None,
         categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] | None = None,
+        categorical_reps_map: Mapping[str, str] | None = None,
         inplace: bool = False,
         categorical_reps_map: Mapping[str, str] | None = None,
     ) -> "CategoricalData":

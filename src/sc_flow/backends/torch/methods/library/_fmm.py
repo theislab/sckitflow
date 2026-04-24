@@ -11,14 +11,14 @@ from sc_flow.backends.torch.methods.library._cfm import CFM
 from sc_flow.backends.torch.nn._fm import MLPFlowMap
 from sc_flow.backends.torch.nn._modules import BaseModule
 from sc_flow.backends.torch.probability_paths._probability_paths import LinearDiracProbabilityPath
-from sc_flow.backends.torch.solvers import BaseSolver
+from sc_flow.backends.torch.solvers._fm_solver import BaseSolver, FMSolver
 
 __all__ = ["FMM"]
 
 
 class FMM(TorchGenerativeFlow):
     _module_cls: type[BaseModule] = MLPFlowMap
-    _default_solver_cls: type[BaseSolver] = None
+    _default_solver_cls: type[BaseSolver] = FMSolver
 
     def __init__(
         self,
@@ -175,35 +175,29 @@ class FMM(TorchGenerativeFlow):
             solver_cls = self._default_solver_cls
         time_grid = torch.linspace(0.0, 1.0, steps=num_steps + 1, device=latent.device, dtype=latent.dtype)
 
-        # get map fn
-        map_fn = self.module.get_vf_fn(  # TODO: rename this
-            condition_dict, source=step_data.source_state
+        # create solver instance with the condition dictionary and source
+        solver = solver_cls(
+            self._module,
+            method=None,  # not used, kept for API
+            device_id=self._device_id,
+            vf_kwargs={"condition_dict": condition_dict, "source": step_data.source_state},
         )
 
-        # simulate flow map
-        X_s = latent
-        traj = [X_s]
-        for idx, s in enumerate(time_grid[:-1]):
-            t = time_grid[idx + 1]
-            s_tensor = torch.ones([*latent.shape[:-1]], device=latent.device).float() * s
-            t_tensor = torch.ones([*latent.shape[:-1]], device=latent.device).float() * t
-            X_s = map_fn(s_tensor, t_tensor, X_s)
-            traj.append(X_s)
-        predictions = torch.stack(traj, axis=0)
+        predictions = solver.solve(
+            latent,
+            time_grid,
+            solver_kwargs=solver_kwargs,
+            return_trajectory=return_trajectory,
+        )
 
-        # split samples and trajectories
         if return_trajectory:
             samples = predictions[-1]
             traj = predictions
         else:
-            samples = predictions[-1]
+            samples = predictions
             traj = None
 
-        # define prediction data
-        return PredictionData(
-            samples,
-            traj=traj,
-        )
+        return PredictionData(samples, traj=traj)
 
     @property
     def teacher_vf(self) -> BaseModule | None:

@@ -323,10 +323,25 @@ class SCFlow:
             var=pd.DataFrame(index=self._dims_registry.feature_names),
         )
 
-        # 6. Store trajectory in obsm if available
+        # 6. Store trajectory in obsm if available.
+        # Solvers may emit trajectories as (n_time_steps, n_cells, n_features);
+        # AnnData.obsm requires the first dimension to be n_obs (= n_cells), so
+        # normalize to (n_cells, n_time_steps, n_features) before storing.
         if traj_np is not None:
-            # Trajectory shape: (n_cells, n_time_steps, n_features)
-            pred_adata.obsm["trajectory"] = traj_np
+            if traj_np.shape[0] == pred_adata.n_obs:
+                traj_obsm = traj_np
+            elif traj_np.ndim == 3 and traj_np.shape[1] == pred_adata.n_obs:
+                traj_obsm = np.transpose(traj_np, (1, 0, 2))
+            else:
+                raise ValueError(
+                    "Trajectory array has incompatible shape for AnnData.obsm: "
+                    f"got {traj_np.shape}, expected first dimension to equal "
+                    f"n_obs ({pred_adata.n_obs}) or, for 3D trajectories, second "
+                    "dimension to equal n_obs so it can be transposed from "
+                    "(n_time_steps, n_cells, n_features) to "
+                    "(n_cells, n_time_steps, n_features)."
+                )
+            pred_adata.obsm["trajectory"] = traj_obsm
 
         # 7. Optionally return differentiable tensors (for further computation)
         if return_tensors:

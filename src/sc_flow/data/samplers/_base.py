@@ -248,7 +248,7 @@ class FSampler(Sampler[MatchedDistributionsT, DataT]):
             only the target one is considered. Defaults to `True`.
         :type use_nodes_weights: class: `bool`
         """
-        self._dispatch_fn = lambda x: x if dispatch_fn is None else dispatch_fn
+        self._dispatch_fn = (lambda x: x) if dispatch_fn is None else dispatch_fn
 
         super().__init__(
             data, replace_samples=replace_samples, replace_nodes=replace_nodes, use_nodes_weights=use_nodes_weights

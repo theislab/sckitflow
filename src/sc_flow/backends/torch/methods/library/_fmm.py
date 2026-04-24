@@ -140,7 +140,7 @@ class FMM(TorchGenerativeFlow):
         loss = torch.mean(self._weight_fn(s, t) * ((dXdt - ut) ** 2).sum(-1))
         return loss, {"loss": loss.item()}
 
-    def _compute_loss(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
+    def _step_fn(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
         # distill from flow model when provided
         if self._cfm is not None:
             return self._compute_loss_distillation(step_data, *args, **kwargs)
@@ -197,7 +197,7 @@ class FMM(TorchGenerativeFlow):
             samples = predictions[-1]
             traj = predictions
         else:
-            samples = predictions
+            samples = predictions[-1]
             traj = None
 
         # define prediction data

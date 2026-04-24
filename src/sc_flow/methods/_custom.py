@@ -22,7 +22,7 @@ def register_method(
 
         if category == "flow":
             BaseClass = TorchGenerativeFlow
-            required_user_methods = ["compute_loss", "predict"]
+            required_user_methods = ["step_fn", "predict"]
         elif category == "general":
             BaseClass = TorchBaseMethod
             required_user_methods = ["train_step", "predict"]
@@ -50,15 +50,15 @@ def register_method(
             class_dict["_default_solver_cls"] = getattr(user_cls, "default_solver_cls", None)
 
             # Delegate abstract methods to user implementations
-            def _compute_loss(self, node, *args, **kwargs):
-                """Delegate to user's compute_loss method."""
-                return user_cls.compute_loss(self, node, *args, **kwargs)
+            def _step_fn(self, node, *args, **kwargs):
+                """Delegate to user's step_fn method."""
+                return user_cls.step_fn(self, node, *args, **kwargs)
 
             def _predict(self, node, *args, **kwargs):
                 """Delegate to user's predict method."""
                 return user_cls.predict(self, node, *args, **kwargs)
 
-            class_dict["_compute_loss"] = _compute_loss
+            class_dict["_step_fn"] = _step_fn
             class_dict["_predict"] = _predict
 
             # Override __init__ to call base __init__ first, then optionally call user's __init__

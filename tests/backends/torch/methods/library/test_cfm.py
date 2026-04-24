@@ -115,7 +115,7 @@ class TestCFM:
         cfm_instance._probability_path.compute_xt.return_value = torch.randn(4, 2)
         cfm_instance._probability_path.compute_ut.return_value = torch.randn(4, 2)
         cfm_instance._module = Mock(return_value=torch.randn(4, 2))
-        loss, info = cfm_instance._compute_loss(step_data)
+        loss, info = cfm_instance._step_fn(step_data)
         assert isinstance(loss, torch.Tensor)
         assert loss.ndim == 0
         assert "loss" in info
@@ -187,7 +187,7 @@ class TestCFM:
     def test_train_step_forward_integration(self, cfm_instance):
         step_data = Mock()
         cfm_instance._extract_matched_observations = Mock(return_value=step_data)
-        cfm_instance._compute_loss = Mock(return_value=(torch.tensor(0.3), {"loss": 0.3}))
+        cfm_instance._step_fn = Mock(return_value=(torch.tensor(0.3), {"loss": 0.3}))
         loss, info = cfm_instance._train_step_forward(step_data)
         assert loss == 0.3
         cfm_instance._extract_matched_observations.assert_called_once_with(step_data)

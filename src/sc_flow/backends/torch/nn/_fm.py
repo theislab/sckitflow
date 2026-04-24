@@ -65,7 +65,7 @@ class MLPFlowMap(MLPVelocity):
         encoded_t = self._nn["t_encoder"](encoded_t)
 
         encoded_s = self._nn["time_features"](s)
-        encoded_s = self._nn["t_encoder"](encoded_s)
+        encoded_s = self._nn["s_encoder"](encoded_s)
 
         time_feats = torch.concatenate((encoded_s, encoded_t), dim=-1)
 

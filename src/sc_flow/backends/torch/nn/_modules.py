@@ -6,6 +6,7 @@ from typing import Any
 import torch
 
 from sc_flow._constants import DEFAULT_NUM_RESNET_LAYERS
+from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 
 __all__ = [
     "BaseModule",
@@ -17,6 +18,9 @@ __all__ = [
 
 class BaseModule(abc.ABC, torch.nn.Module):
     """Base class for Neural Networks."""
+
+    def __init__(self, *args, **kwargs) -> None:
+        super().__init__()
 
     @abc.abstractmethod
     def _make_modules(
@@ -39,6 +43,15 @@ class BaseModule(abc.ABC, torch.nn.Module):
         :return: The output of the forward computation pass.
         :rtype: class: `torch.nn.Module`
         """
+
+    @classmethod
+    def init_from_dims_registry(
+        cls,
+        dims_registry: DataDimensionalitiesRegistry,
+        *args,
+        **kwargs,
+    ) -> "BaseModule":
+        return cls(*args, **kwargs)
 
 
 class FunctionalModule(BaseModule):

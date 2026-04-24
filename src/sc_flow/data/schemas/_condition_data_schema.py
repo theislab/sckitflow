@@ -316,3 +316,12 @@ class ConditionDataSchema(StrictDataSchema):
         This will be `True` whenever :param: `conditions_covariates` is set at initializtion
         """
         return len(self._conditions_covariates) > 0
+
+    @property
+    def categorical_reps_map(self) -> dict[str, str]:
+        """Dictionary mapping each categorical column to the corresponding realm for their representation."""
+        reps_map = {}
+        for realm, cov_list in self.conditions.items():
+            for cov in cov_list:
+                reps_map[cov] = realm
+        return reps_map

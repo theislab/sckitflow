@@ -4,6 +4,7 @@ import torch
 from torchmetrics import Metric
 
 __all__ = [
+    "rbf_kernel_torch",
     "EnergyDistance",
     "MaximumMeanDiscrepancy",
 ]

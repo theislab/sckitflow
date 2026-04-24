@@ -24,6 +24,7 @@ class MixedTypeData(BaseData):
     continuous_covariates: BatchMixin | None = None
 
     def __post_init__(self) -> None:
+        # check matching shapes if both are provided
         if self.categorical_covariates is not None and self.continuous_covariates is not None:
             n_obs_cat = self.categorical_covariates.ann_df.shape[0]
             n_obs_cont = len(self.continuous_covariates)
@@ -34,6 +35,8 @@ class MixedTypeData(BaseData):
                     f"{n_obs_cont} observations for the continuous covariates."
                 )
                 raise ValueError(msg)
+
+        # need at least one condition representation
         if self.categorical_covariates is None and self.continuous_covariates is None:
             msg = f"{self.__class__.__name__} must contain at least one covariate container."
             raise ValueError(msg)
@@ -78,3 +81,22 @@ class MixedTypeData(BaseData):
         return self.__class__(
             categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates
         )
+
+    def extract_reps(self) -> BatchMixin:
+        """Extracts the representations for the underlying data."""
+        # extract categorical covariates
+        if self.categorical_covariates is not None:
+            cat_reps = self.categorical_covariates.extract_reps()
+        else:
+            cat_reps = BatchMixin({})
+
+        # update with continuous covariates
+        if self.continuous_covariates is not None:
+            return BatchMixin(
+                {
+                    **cat_reps.mapping,
+                    **self.continuous_covariates.mapping,
+                }
+            )
+        # otherwise return only categorical covariates
+        return cat_reps

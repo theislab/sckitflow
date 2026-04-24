@@ -1,4 +1,5 @@
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Collection, Sequence
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeVar
 
 import numpy as np
@@ -33,6 +34,33 @@ LinCouplingMethod = Literal["exact", "sinkhorn", "partial", "unbalanced"] | None
 QuadCouplingMethod = Literal["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"] | None
 CostFN = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
+MatchFnOut = tuple[TensorLike, TensorLike] | tuple[TensorLike, TensorLike, TensorLike]
+
+
+class TMatchFn(Protocol):
+    def __call__(
+        self,
+        source_lin: TensorLike,
+        target_lin: TensorLike,
+        **kwargs: Any,
+    ) -> MatchFnOut: ...
+
+
+class TTimeSamplerFn(Protocol):
+    def __call__(
+        self,
+        *size: int,
+        **kwargs: Any,
+    ) -> TensorLike | tuple[TensorLike, TensorLike]: ...
+
+
+class TNoiseSamplerFn(Protocol):
+    def __call__(
+        self,
+        reference: TensorLike,
+        **kwargs: Any,
+    ) -> TensorLike: ...
+
 
 class TConditioningFn(Protocol):
     def __call__(
@@ -49,15 +77,10 @@ TSDEType = Literal["ito", "stratonovich"]
 
 
 TODEDynamics = TypeVar("TODEDynamics", bound="BaseVelocityField")
-
 TTimeStateDiffusion = Callable[[Tensor, Tensor], Tensor]
-
 TTimeDiffusion = Callable[[Tensor], Tensor]
-
 TDiffusion = TTimeDiffusion | TTimeStateDiffusion
-
 TSDEDynamics = tuple[TODEDynamics, TDiffusion]
-
 TSolverDynamics = TypeVar("TSolverDynamics", TODEDynamics, TSDEDynamics)
 
 
@@ -67,3 +90,19 @@ class SolverConfig(NamedTuple):
     source_on_device: Tensor
     time_on_device: Tensor
     remaining_kwargs: dict[str, Any]
+
+
+@dataclass
+class PredictionData:
+    samples: torch.Tensor
+    traj: torch.Tensor | None = None
+
+    @classmethod
+    def concatenate(cls, preds: Collection["PredictionData"]) -> "PredictionData":
+        samples = torch.cat([p.samples for p in preds], dim=0)
+        trajs = [p.traj for p in preds if p.traj is not None]
+        if trajs:
+            traj = torch.cat(trajs, dim=1)  # assuming [T, N, D] -> concat on N
+        else:
+            traj = None
+        return cls(samples=samples, traj=traj)

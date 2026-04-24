@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeVar
 
 import diffrax as dfx
@@ -32,6 +33,12 @@ QuadCouplingMethod = Literal["entropic_gromov_wasserstein", "entropic_fused_grom
 
 TVfFn = Callable[[ArrayLike, ArrayLike], ArrayLike]
 
+MatchFnOut = tuple[ArrayLike, ArrayLike] | tuple[ArrayLike, ArrayLike, ArrayLike]
+TMatchFn = Callable[[ArrayLike, ArrayLike], MatchFnOut]
+
+TTimeSamplerFn = Callable[[tuple[int, ...]], ArrayLike] | Callable[[tuple[int, ...]], tuple[ArrayLike, ArrayLike]]
+TNoiseSamplerFn = Callable[[tuple[int, ...]], ArrayLike]
+
 
 class TConditioningFn(Protocol):
     def __call__(
@@ -46,16 +53,12 @@ JaxDevice = type[Device]
 TDevice = str | JaxDevice
 
 TTimeStateDiffusion = Callable[[ArrayLike, ArrayLike, Any], ArrayLike]
-
 TTimeDiffusion = Callable[[ArrayLike, Any], ArrayLike]
-
 TDiffusion = TTimeDiffusion | TTimeStateDiffusion
 
 
 TODEDynamics = TypeVar("TODEDynamics", bound="BaseVelocityField")
-
 TSDEDynamics = tuple[TODEDynamics, TDiffusion]
-
 TSolverDynamics = TypeVar("TSolverDynamics", TODEDynamics, TSDEDynamics)
 
 
@@ -68,9 +71,17 @@ class SolverConfig(NamedTuple):
     saveat: dfx.SaveAt
     source_on_device: ArrayLike
     remaining_kwargs: dict[str, Any]
+
+
 class OTResult(Protocol):
     matrix: ArrayLike
 
 
 class OTFn(Protocol):
     def __call__(self, problem: "linear_problem.LinearProblem") -> OTResult: ...
+
+
+@dataclass
+class PredictionData:
+    samples: ArrayLike
+    traj: ArrayLike | None = None

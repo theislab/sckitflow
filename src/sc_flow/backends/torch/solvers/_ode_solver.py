@@ -5,7 +5,7 @@ from torchdiffeq import odeint
 
 from sc_flow.backends.jax._types import TVfFn
 from sc_flow.backends.torch._types import TDevice, TODEDynamics
-from sc_flow.backends.torch.solvers.solver import BaseSolver
+from sc_flow.backends.torch.solvers._solver import BaseSolver
 
 
 class ODESolver(BaseSolver[TODEDynamics]):

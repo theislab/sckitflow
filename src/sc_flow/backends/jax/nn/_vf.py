@@ -24,7 +24,7 @@ from sc_flow.backends.jax.nn._utils import init_module_from_dict
 
 __all__ = [
     "BaseVelocityField",
-    "MLPUnconditionalVF",
+    "MLPVelocity",
 ]
 
 
@@ -66,7 +66,7 @@ class BaseVelocityField(abc.ABC, nn.Module):
         """Compiles the velocity field function to be fed to external solvers."""
 
 
-class MLPUnconditionalVF(BaseVelocityField):
+class MLPVelocity(BaseVelocityField):
     """Class for MLP-base unconditional neural velocity fields.
 
     The architecture of unconditional velocity fields is defined as follows:

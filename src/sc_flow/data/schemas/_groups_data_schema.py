@@ -147,6 +147,7 @@ class GroupsDataSchema(StrictDataSchema):
             covs_df_dict,
             repr_dict=repr_dict,
             categorical_encoders=encoders_dict,
+            categorical_reps_map=self.categorical_reps_map,
         )
 
     @property
@@ -173,3 +174,8 @@ class GroupsDataSchema(StrictDataSchema):
     def groups_encoding_inverse_transform_fn(self) -> dict[str, Callable]:
         """Exposes to `groups_encoding_inverse_transform_fn` parameter set at initialization."""
         return self._groups_encoding_inverse_transform_fn
+
+    @property
+    def categorical_reps_map(self) -> dict[str, str]:
+        """Dictionary mapping each categorical column to the corresponding realm for their representation."""
+        return {group: group for group in self.groups}

@@ -7,7 +7,7 @@ from torch import Tensor
 from torchsde import sdeint
 
 from sc_flow.backends.torch._types import TDevice, TDiffusion, TNoiseType, TSDEDynamics, TSDEType, TVfFn
-from sc_flow.backends.torch.solvers.solver import BaseSolver
+from sc_flow.backends.torch.solvers._solver import BaseSolver
 
 
 class SDESolver(BaseSolver[TSDEDynamics]):

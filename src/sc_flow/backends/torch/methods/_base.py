@@ -175,7 +175,7 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
         )
 
     @abc.abstractmethod
-    def _compute_loss(
+    def _step_fn(
         self,
         step_data: StepData,
         *args,
@@ -264,7 +264,7 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
         **kwargs,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         step_data = self._extract_matched_observations(step_data)
-        return self._compute_loss(
+        return self._step_fn(
             step_data,
             *args,
             **kwargs,

@@ -39,7 +39,7 @@ class CFM(TorchGenerativeFlow):
             return self._noise_sampler(target_reference)
         return source
 
-    def _compute_loss(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
+    def _step_fn(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
         # extract step data
         target = step_data.target_state
         source = step_data.source_state

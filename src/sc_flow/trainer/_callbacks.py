@@ -239,7 +239,7 @@ class TrainingCallbacks(BaseCallback):
 
     def on_valid_step(
         self, trainer: "Trainer", step: int, val_id: str, predictions_dict: dict[str, Any], **kwargs
-    ) -> None:
+    ) -> dict[str, Any]:
         metrics = {}
         for cb in self._computational:
             result = cb.on_valid_step(trainer, step, val_id, predictions_dict, **kwargs)

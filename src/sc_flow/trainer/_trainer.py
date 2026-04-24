@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from typing import Any
 
 import pandas as pd
@@ -7,7 +8,7 @@ from sc_flow.data.samplers._train import FTrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
 from sc_flow.methods._opt import BaseOptManager
-from sc_flow.trainer._callbacks import BaseCallback
+from sc_flow.trainer._callbacks import BaseCallback, TrainingCallbacks
 
 __all__ = ["Trainer"]
 
@@ -16,39 +17,44 @@ class Trainer:
     """Trainer for the supported methods.
 
     :param method: Method class
-    :type method: class:
-
     :param opt_manager: Optimization manager
-    :type opt_manager: BaseOptManager
-
-    :param callbacks: List of callbacks to be invoked during training.
-    :type callbacks: list[BaseCallback] | None
+    :param callbacks: Either a TrainingCallbacks instance, a list of BaseCallback,
+        or None. If a list is given, it will be wrapped in a TrainingCallbacks.
     """
 
     def __init__(
         self,
         method: BaseMethod,
         opt_manager: BaseOptManager,
-        callbacks: list[BaseCallback] | None = None,
+        callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
     ) -> None:
         self._method = method
         self._opt_manager = opt_manager
-        self._callbacks = callbacks or []
+
+        # Normalize callbacks to a TrainingCallbacks instance
+        if callbacks is None:
+            self._callbacks = TrainingCallbacks([])
+        elif isinstance(callbacks, TrainingCallbacks):
+            self._callbacks = callbacks
+        elif isinstance(callbacks, Sequence):
+            self._callbacks = TrainingCallbacks(callbacks)
+        else:
+            raise TypeError(
+                f"callbacks must be a TrainingCallbacks, a sequence of BaseCallback, or None, got {type(callbacks)}"
+            )
+
         # Training logs: list of dicts, each dict contains metrics for one training step
         self._train_logs: list[dict[str, Any]] = []
         # Validation logs: dict mapping val_id to list of dicts (one per validation run)
         self._val_logs: dict[str, list[dict[str, Any]]] = {}
 
         # set current step
-        if not hasattr(self, "_current_step"):
-            self._current_step = 0
+        self._current_step = 0
 
     def _append_train_log(self, log_dict: dict[str, Any]) -> None:
-        """Append a log entry for a single training step (or node)."""
         self._train_logs.append(log_dict)
 
     def _append_val_log(self, val_id: str, log_dict: dict[str, Any]) -> None:
-        """Append a log entry for a validation run."""
         if val_id not in self._val_logs:
             self._val_logs[val_id] = []
         self._val_logs[val_id].append(log_dict)
@@ -120,7 +126,7 @@ class Trainer:
             step_dict = {}
             for node in nodes:
                 opt_data, step_dict = self._method.train_step(node)
-                # step_dict.update({"step": self._current_step})
+                step_dict.update({"step": self._current_step})
                 self._opt_manager.step(opt_data)
                 self._append_train_log(step_dict)
 

@@ -5,7 +5,7 @@ import torch
 
 from sc_flow.backends.torch._types import PredictionData
 from sc_flow.backends.torch.methods._utils import StepData
-from sc_flow.backends.torch.methods.library._fmm import FMM
+from sc_flow.backends.torch.methods.library._lmd import LMD
 from sc_flow.data.containers._mixed_type import MixedTypeData
 
 
@@ -51,8 +51,8 @@ def fmm_instance():
     dm = Mock()
 
     # Create instance without patching _extract_matched_observations
-    with patch.object(FMM, "_module_cls", DummyModule):
-        fmm = FMM(
+    with patch.object(LMD, "_module_cls", DummyModule):
+        fmm = LMD(
             dims_registry=dims_reg,
             dm=dm,
             is_paired_setting=False,
@@ -67,7 +67,7 @@ def fmm_instance():
 # Test suite
 # -----------------------------------------------------------------------------
 class TestFMM:
-    """Tests for Flow Map Matching (FMM) class."""
+    """Tests for Flow Map Matching (LMD) class."""
 
     def test_init_defaults(self, fmm_instance):
         assert fmm_instance._match_fn is not None
@@ -86,8 +86,8 @@ class TestFMM:
         teacher.noise_sampler = Mock()
         teacher.probability_path = Mock()
 
-        with patch.object(FMM, "_module_cls", DummyModule):
-            fmm = FMM(dims_reg, dm, False, cfm=teacher)
+        with patch.object(LMD, "_module_cls", DummyModule):
+            fmm = LMD(dims_reg, dm, False, cfm=teacher)
             assert fmm._match_fn is teacher.match_fn
             assert fmm._noise_sampler is teacher.noise_sampler
             assert fmm._probability_path is teacher.probability_path

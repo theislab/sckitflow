@@ -10,7 +10,7 @@ __all__ = ["FMSolver"]
 
 
 class FMSolver(BaseSolver):
-    r"""Solver for Flow Map Matching (FMM) that iteratively applies the learned flow map.
+    r"""Solver for Flow Map Matching (LMD) that iteratively applies the learned flow map.
 
     The dynamics must provide a function `map_fn(s, t, x)` that maps the state from time `s`
     to time `t`. The solver composes these maps over a discrete time grid.

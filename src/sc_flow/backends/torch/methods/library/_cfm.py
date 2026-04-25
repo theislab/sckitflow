@@ -14,6 +14,8 @@ __all__ = ["CFM"]
 
 
 class CFM(TorchGenerativeFlow):
+    """Conditional Flow Matching."""
+
     _module_cls: type[BaseVelocityField] = MLPVelocity
     _default_solver_cls: type[BaseSolver] = ODESolver
 

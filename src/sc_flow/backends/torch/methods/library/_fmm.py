@@ -8,6 +8,8 @@ __all__ = ["FMM"]
 
 
 class FMM(BaseConsistencyModel):
+    """Flow Map Matching."""
+
     def _compute_loss(
         self,
         s: torch.Tensor,

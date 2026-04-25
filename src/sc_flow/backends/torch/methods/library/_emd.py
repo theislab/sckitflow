@@ -8,6 +8,8 @@ __all__ = ["EMD"]
 
 
 class EMD(BaseConsistencyModel):
+    """Eulerean Map Distillation."""
+
     def _compute_loss(
         self,
         s: torch.Tensor,

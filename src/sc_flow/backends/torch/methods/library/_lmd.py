@@ -8,6 +8,8 @@ __all__ = ["LMD"]
 
 
 class LMD(BaseConsistencyModel):
+    """Lagrangian Map Distillation."""
+
     def _compute_loss(
         self,
         s: torch.Tensor,

@@ -1,4 +1,4 @@
-from collections.abc import Callable
+from collections.abc import Callable, Collection
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeVar
 
@@ -15,6 +15,7 @@ try:
 except (ImportError, TypeError):
     NumpyArray = np.ndarray
 
+import jax.numpy as jnp
 from jax import Array as JaxArray
 from jax import Device
 
@@ -85,3 +86,10 @@ class OTFn(Protocol):
 class PredictionData:
     samples: ArrayLike
     traj: ArrayLike | None = None
+
+    @classmethod
+    def concatenate(cls, preds: Collection["PredictionData"], axis: int = 0) -> "PredictionData":
+        samples = jnp.concatenate([p.samples for p in preds], axis=axis)
+        trajs = [p.traj for p in preds if p.traj is not None]
+        traj = jnp.concatenate(trajs, axis=axis) if trajs else None
+        return cls(samples=samples, traj=traj)

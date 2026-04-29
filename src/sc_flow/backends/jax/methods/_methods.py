@@ -194,7 +194,7 @@ class JaxGenerativeFlow(BaseGenerativeFlow, JaxBaseMethod):
         self,
         params: PyTree,
         step_data: StepData,
-        rng: jax.Array,
+        rng: jax.Array | None = None,
         *args,
         **kwargs,
     ) -> tuple[jnp.ndarray, dict[str, Any]]: ...

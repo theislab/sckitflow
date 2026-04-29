@@ -206,6 +206,9 @@ class MLP(BaseModule):
             )
 
         if self.use_layernorm:
+            layer.append(nn.LayerNorm())
+
+        if self.use_layernorm:
             layer.append(
                 nn.LayerNorm(
                     epsilon=self.layernorm_epsilon,

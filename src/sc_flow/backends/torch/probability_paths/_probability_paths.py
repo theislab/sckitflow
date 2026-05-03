@@ -227,6 +227,15 @@ class LinearProbabilityPath(BaseProbabilityPath, abc.ABC):
         """
         super().__init__(sigma=sigma, prng=prng)
 
+    def compute_dot_alpha_t(self, t):
+        return torch.ones_like(t)
+
+    def compute_alpha_t(self, t):
+        return t
+
+    @abc.abstractmethod
+    def compute_dot_sigma_t(self, t): ...
+
     def compute_mu_t(
         self,
         t: torch.Tensor,
@@ -304,6 +313,9 @@ class LinearGaussianProbabilityPath(LinearProbabilityPath):
         """
         return torch.ones_like(t) * self._sigma
 
+    def compute_dot_sigma_t(self, t):
+        return torch.zeros_like(t)
+
     def compute_ut(
         self,
         t: torch.Tensor,
@@ -362,7 +374,9 @@ class SchrodingerBridgeProbabilityPath(LinearProbabilityPath):
 
     _require_prng: bool = True
 
-    def __init__(self, sigma: float, prng: torch.Generator | None = None, eps: float = 1e-35) -> None:
+    def __init__(
+        self, sigma: float, sigma_min: float = 0.0, prng: torch.Generator | None = None, eps: float = 1e-35
+    ) -> None:
         r"""Initializes the gaussian probability path probability paths.
 
         :param sigma: The noise value for the flow. This will determine the factor :math: `\sigma` for standard deviation :math: `\sigma_t = \sigma\sqrt{t(1-t)}` of the conditional probability path.
@@ -375,6 +389,7 @@ class SchrodingerBridgeProbabilityPath(LinearProbabilityPath):
         :type eps: class: `float`
         """
         self._eps = eps
+        self._sigma_min = sigma_min
         super().__init__(sigma=sigma, prng=prng)
 
     def compute_sigma_t(
@@ -387,6 +402,11 @@ class SchrodingerBridgeProbabilityPath(LinearProbabilityPath):
         :type t: class: `torch.Tensor`
         """
         return self._sigma * torch.sqrt(t * (1 - t))
+
+    def compute_dot_sigma_t(self, t):
+        den = torch.sqrt(t * (1 - t))
+        num = 1 - 2 * t
+        return 0.5 * self._sigma * num / den
 
     def compute_ut(
         self,
@@ -463,6 +483,9 @@ class LinearDiracProbabilityPath(LinearProbabilityPath):
         :param t: The current time index at which to compute the interpolation.
         :type t: class: `torch.Tensor`
         """
+        return torch.zeros_like(t)
+
+    def compute_dot_sigma_t(self, t):
         return torch.zeros_like(t)
 
     def compute_ut(
@@ -546,7 +569,7 @@ class VariancePreservingDiracProbabilityPath(BaseProbabilityPath):
         t = broadcast_to_target_shape(t, x0.shape)
         self._verify_shapes(x0, x1)
         self._verify_shapes(t, x1)
-        return torch.cos(0.5 * PI * t) * x1 + torch.sin(0.5 * PI * t) * x0
+        return torch.cos(0.5 * PI * t) * x0 + torch.sin(0.5 * PI * t) * x1
 
     def compute_sigma_t(
         self,
@@ -559,7 +582,7 @@ class VariancePreservingDiracProbabilityPath(BaseProbabilityPath):
         :param t: The current time index at which to compute the interpolation.
         :type t: class: `torch.Tensor`
         """
-        return torch.zeros_like(t)
+        return self._sigma * torch.zeros_like(t)
 
     def compute_ut(
         self,
@@ -588,4 +611,4 @@ class VariancePreservingDiracProbabilityPath(BaseProbabilityPath):
         t = broadcast_to_target_shape(t, x0.shape)
         self._verify_shapes(x0, x1)
         self._verify_shapes(t, x1)
-        return -0.5 * PI * torch.sin(0.5 * PI * t) * x1 + 0.5 * PI * torch.cos(0.5 * PI * t) * x0
+        return -0.5 * PI * torch.sin(0.5 * PI * t) * x0 + 0.5 * PI * torch.cos(0.5 * PI * t) * x1

@@ -88,8 +88,11 @@ class CategoricalData(BaseData):
         col: str,
         realm_repr_dict: dict[Hashable, np.ndarray],
     ) -> np.ndarray:
-        col_values = self.ann_df[col].map(lambda e: realm_repr_dict[e].reshape(1, -1))
-        return np.concatenate(col_values.tolist(), axis=0)
+        col_values = self.ann_df[col].values
+        # Get the representation for each value (assuming all have same dimension)
+        reprs = [realm_repr_dict[val].reshape(1, -1) for val in col_values]
+        # Stack vertically -> shape (n_samples, dim)
+        return np.vstack(reprs)
 
     def _encode_col(
         self,
@@ -129,6 +132,7 @@ class CategoricalData(BaseData):
         repr_dict: Mapping[str, MappedArray] | None = None,
         categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] | None = None,
         inplace: bool = False,
+        categorical_reps_map: Mapping[str, str] | None = None,
     ) -> "CategoricalData":
         """Create a CategoricalData object from a pandas DataFrame.
 
@@ -141,4 +145,5 @@ class CategoricalData(BaseData):
             ann_df,
             repr_dict={} if repr_dict is None else repr_dict,
             categorical_encoders={} if categorical_encoders is None else categorical_encoders,
+            categorical_reps_map={} if categorical_reps_map is None else categorical_reps_map,
         )

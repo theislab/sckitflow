@@ -121,7 +121,9 @@ class ResponseDataSchema(StrictDataSchema):
             fn_dict=self._encoding_transform_fn,
             inverse_fn_dict=self._encoding_inverse_transform_fn,
         )
-        return CategoricalData.from_pandas(covariates_df, categorical_encoders=encoders_dict)
+        return CategoricalData.from_pandas(
+            covariates_df, categorical_encoders=encoders_dict, categorical_reps_map=self.categorical_reps_map
+        )
 
     def _get_continuous_covariates(
         self,
@@ -184,3 +186,8 @@ class ResponseDataSchema(StrictDataSchema):
         This will be `True` whenever :param: `continuous_covs` is set at initializtion
         """
         return len(self._continuous_covs) > 0
+
+    @property
+    def categorical_reps_map(self) -> dict[str, str]:
+        """Dictionary mapping each categorical column to the corresponding realm for their representation."""
+        return {target_covariate: target_covariate for target_covariate in self._categorical_covs_dict.keys()}

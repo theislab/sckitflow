@@ -31,11 +31,15 @@ class SCFlow:
     _dm_cls: DataManager | None = None
     _dims_registry: DataDimensionalitiesRegistry | None = None
     _is_paired_setting_cls: bool = False
+    _view_on_condition_space_cls: bool = False
+    _condition_state_key_cls: str | None = None
 
     @classmethod
     def register_adata(
         cls,
         adata: AnnData,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
         **kwargs,
     ) -> None:
         """Registers the input adata as a class attribute using the provided schema settings.
@@ -48,8 +52,14 @@ class SCFlow:
         """
         # initialize data manager
         cls._dm_cls = DataManager(**kwargs)
-        cls._dims_registry = cls._dm_cls.get_data_dimensionalities(adata)
+        cls._dims_registry = cls._dm_cls.get_data_dimensionalities(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+        )
         cls._is_paired_setting_cls = cls._dm_cls.control_values_dict is not None
+        cls._view_on_condition_space_cls = view_on_condition_space
+        cls._condition_state_key_cls = condition_state_key
 
     def __init__(
         self,
@@ -70,6 +80,8 @@ class SCFlow:
         self._dm = self.__class__._dm_cls
         self._dims_registry = self.__class__._dims_registry
         self._is_paired_setting = self.__class__._is_paired_setting_cls
+        self._view_on_condition_space = self.__class__._view_on_condition_space_cls
+        self._condition_state_key = self.__class__._condition_state_key_cls
 
         # register backend
         self._backend = backend
@@ -464,3 +476,13 @@ class SCFlow:
     def trainer(self) -> Trainer:
         """Returns the trainer used to fit the model."""
         return self._trainer
+
+    @property
+    def view_on_condition_space(self) -> Trainer:
+        """Return whether the model is operating on the condition space."""
+        return self._view_on_condition_space
+
+    @property
+    def condition_state_key(self) -> Trainer:
+        """Return the key used to extract the state from the condition."""
+        return self._condition_state_key

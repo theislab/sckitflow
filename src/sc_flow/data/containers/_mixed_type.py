@@ -107,43 +107,41 @@ class MixedTypeData(BaseData):
         state_key: str,
     ) -> StateData:
         """Converts a given key to a state data format."""
-        # check that it appears in the covariate identifiers
-        if state_key not in self.covariates_keys:
-            raise KeyError(f"Key {state_key} not found in self.covariate_keys")
-
         # get state raw data from continuous covariates
         if state_key in self.continuous_covariates.mapping:
             X_state = self.continuous_covariates[state_key]
-        else:  # get them from the categorical covariates
-            categorical_reps = self.categorical_covariates.extract_reps()
-            X_state = categorical_reps[state_key]  # N, 1, D
-
-            # check shape
-            if len(X_state.shape) != 3:
-                raise ValueError(f"Categorical data expected to have three dimensions, {X_state.shape} found.")
-            if X_state[1] != 1:
-                raise ValueError("Conversion of combinatorial categorical data is not supported for the moment.")
-
-            # get single element of the dimension
-            X_state = X_state[:, 0, :]
+        elif state_key in self.categorical_covariates.category_realms:
+            raise NotImplementedError("State conversion is not implemented for categorical covariates.")
+        else:
+            raise KeyError(f"Key {state_key} not found in self.covariate_keys")
 
         # check that the dimensions are correct
-        if len(X_state) != 2:
+        if len(X_state.shape) != 2:
             raise ValueError(f"Converted data should have two dimensions, {X_state.shape} found.")
         return StateData(X_state)
 
-    @property
-    def covariates_keys(self) -> list[str]:
-        """Returns the list of all covariate identifiers."""
-        # define store for all covariates
-        covariate_keys = []
+    def absorb_state_data(self, state_key: str, state_data: StateData, allow_override: bool = False) -> "MixedTypeData":
+        """Absorbs a state data as continuous condition at the specified key."""
+        # check that continuous covariates are actually provided
+        if self.continuous_covariates is None:
+            raise TypeError("Cannot absorb state data: no continuous covariates present.")
 
-        # get keys from continuous data
-        if self.continuous_covariates is not None:
-            keys = list(self.continuous_covariates.mapping.keys())
-            covariate_keys.extend(keys)
+        # check that the key doesnt appear already
+        if state_key in self.continuous_covariates.mapping and not allow_override:
+            raise ValueError(f"Key {state_key} already present in the data, enable override if you are sure.")
 
-        # get keys from categorical data
-        if self.categorical_covariates is not None:
-            keys.extend(self.categorical_covariates.category_realms)
-        return covariate_keys
+        # check that the state data has the correct number of dimensions
+        if len(state_data) != len(self):
+            raise ValueError(
+                f"Number of observations in state_data ({len(state_data)}) does not match the container ({len(self)})."
+            )
+
+        # update continuous covariates
+        original_mapping = dict(self.continuous_covariates.mapping)
+        original_mapping[state_key] = state_data.X
+        updated_continuos_covs = BatchMixin(original_mapping)
+
+        return self.__class__(
+            categorical_covariates=self.categorical_covariates,
+            continuous_covariates=updated_continuos_covs,
+        )

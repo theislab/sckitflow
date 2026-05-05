@@ -110,10 +110,10 @@ class MixedTypeData(BaseData):
         # get state raw data from continuous covariates
         if state_key in self.continuous_covariates.mapping:
             X_state = self.continuous_covariates[state_key]
-        elif state_key in self.categorical_covariates.category_realms:
+        elif self.categorical_covariates and state_key in self.categorical_covariates.category_realms:
             raise NotImplementedError("State conversion is not implemented for categorical covariates.")
         else:
-            raise KeyError(f"Key {state_key} not found in self.covariate_keys")
+            raise KeyError(f"Key {state_key} not found.")
 
         # check that the dimensions are correct
         if len(X_state.shape) != 2:
@@ -139,9 +139,29 @@ class MixedTypeData(BaseData):
         # update continuous covariates
         original_mapping = dict(self.continuous_covariates.mapping)
         original_mapping[state_key] = state_data.X
-        updated_continuos_covs = BatchMixin(original_mapping)
+        updated_continuous_covs = BatchMixin(original_mapping)
 
         return self.__class__(
             categorical_covariates=self.categorical_covariates,
-            continuous_covariates=updated_continuos_covs,
+            continuous_covariates=updated_continuous_covs,
         )
+
+    def pop_key(self, key: str) -> "MixedTypeData":
+        """Removes a key from the condition data."""
+        # throw errror if no continuous covariates
+        if self.continuous_covariates is None:
+            raise TypeError("Cannot remove key: no continuous covariates present.")
+
+        # remove key from categorical data
+        if self.categorical_covariates and key in self.categorical_covariates.category_realms:
+            raise NotImplementedError("State conversion is not implemented for categorical covariates.")
+        elif key in self.continuous_covariates.mapping:
+            original_mapping = dict(self.continuous_covariates.mapping)
+            original_mapping.pop(key)
+            updated_continuous_covs = BatchMixin(original_mapping)
+            return self.__class__(
+                categorical_covariates=self.categorical_covariates,
+                continuous_covariates=updated_continuous_covs,
+            )
+        else:
+            raise KeyError(f"Key {key} not found.")

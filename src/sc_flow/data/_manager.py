@@ -238,11 +238,15 @@ class DataManager:
     def _get_distribution_data(
         self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> DistributionData:
+        if view_on_condition_space and condition_state_key is None:
+            raise ValueError("When modeling on the condition space, the state key should be provided")
+
         state_data: StateData = self._get_state_data(adata)
         condition_data: MixedTypeData = self._get_condition_data(adata)
         response_data: MixedTypeData = self._get_target_data(adata)
         groups_data: CategoricalData = self._get_groups_data(adata)
         source_coupling_data, target_coupling_data = self._get_coupling_data(adata)
+
         distribution_data = DistributionData(
             state_data,
             response_data=response_data,
@@ -251,9 +255,8 @@ class DataManager:
             source_coupling_data=source_coupling_data,
             target_coupling_data=target_coupling_data,
         )
+
         if view_on_condition_space:
-            if condition_state_key is None:
-                raise ValueError("When modeling on the condition space, the state key should be provided")
             return distribution_data.view_on_condition_space(condition_state_key)
         return distribution_data
 
@@ -380,19 +383,26 @@ class DataManager:
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
         )
-        feature_names = self._get_feature_names(adata)
+        feature_names = self._get_feature_names(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+        )
         return self._get_data_dimensionalities(data, feature_names)
 
     def get_feature_names(
-        self,
-        adata: AnnData,
+        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> pd.Index:
         """Registers the feature names from the input data according to the current schema.
 
         :param adata: The annotated data object which to extract the feature names from.
         :type adata: class: `AnnData`
         """
-        return self._get_feature_names(adata)
+        return self._get_feature_names(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+        )
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

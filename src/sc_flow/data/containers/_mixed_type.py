@@ -146,7 +146,7 @@ class MixedTypeData(BaseData):
             continuous_covariates=updated_continuous_covs,
         )
 
-    def pop_key(self, key: str) -> "MixedTypeData":
+    def pop_key(self, key: str) -> "MixedTypeData | None":
         """Removes a key from the condition data."""
         # throw errror if no continuous covariates
         if self.continuous_covariates is None:
@@ -158,6 +158,11 @@ class MixedTypeData(BaseData):
         elif key in self.continuous_covariates.mapping:
             original_mapping = dict(self.continuous_covariates.mapping)
             original_mapping.pop(key)
+
+            # when no covariates are left, return None
+            if not len(original_mapping) and self.categorical_covariates is None:
+                return None
+
             updated_continuous_covs = BatchMixin(original_mapping)
             return self.__class__(
                 categorical_covariates=self.categorical_covariates,

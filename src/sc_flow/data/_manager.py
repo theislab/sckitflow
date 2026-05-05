@@ -187,9 +187,18 @@ class DataManager:
             conditions_cols=conditions_cols,
         )
 
-    def _get_feature_names(self, adata: AnnData) -> pd.Index:
+    def _get_feature_names(
+        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
+    ) -> pd.Index:
         """Determines feature names based on the state representation used."""
-        sample_rep = self._state_data_schema.sample_rep
+        # use it as sample rep as it should come from obsm
+        if view_on_condition_space:
+            if condition_state_key is None:
+                raise ValueError("When modeling on the condition space, the state key should be provided")
+            sample_rep = condition_state_key
+        else:
+            sample_rep = self._state_data_schema.sample_rep
+
         if sample_rep is None:
             return adata.var_names
 
@@ -227,8 +236,7 @@ class DataManager:
         return self._target_data_schema.get_data(adata)
 
     def _get_distribution_data(
-        self,
-        adata: AnnData,
+        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> DistributionData:
         state_data: StateData = self._get_state_data(adata)
         condition_data: MixedTypeData = self._get_condition_data(adata)
@@ -243,6 +251,10 @@ class DataManager:
             source_coupling_data=source_coupling_data,
             target_coupling_data=target_coupling_data,
         )
+        if view_on_condition_space:
+            if condition_state_key is None:
+                raise ValueError("When modeling on the condition space, the state key should be provided")
+            return distribution_data.view_on_condition_space(condition_state_key)
         return distribution_data
 
     def _get_mapped_index(self, ann_df: pd.DataFrame) -> MappedLevelIndex:
@@ -286,15 +298,16 @@ class DataManager:
         return self._get_matched_distributions(data)
 
     def get_distribution_data(
-        self,
-        adata: AnnData,
+        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> DistributionData:
         """Compiles an annotated data object into a distribution data container.
 
         :param adata: The annotated data object to compile.
         :type adata: class: `AnnData`
         """
-        return self._get_distribution_data(adata)
+        return self._get_distribution_data(
+            adata, view_on_condition_space=view_on_condition_space, condition_state_key=condition_state_key
+        )
 
     def sort_adata(self, adata: AnnData) -> AnnData:
         """Sort an AnnData by the hierarchy columns (groups then conditions).
@@ -330,6 +343,8 @@ class DataManager:
         self,
         adata: AnnData,
         sort: bool = False,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
     ) -> NestedData:
         """Compile an annotated data object into split and matched subpopulations.
 
@@ -345,19 +360,26 @@ class DataManager:
         """
         if sort:
             adata = self.sort_adata(adata)
-        data: DistributionData = self._get_distribution_data(adata)
+        data: DistributionData = self._get_distribution_data(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+        )
         return self._get_matched_distributions(data)
 
     def get_data_dimensionalities(
-        self,
-        adata: AnnData,
+        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> DataDimensionalitiesRegistry:
         """Registers the data dimensionalities from the input data according to the current schema.
 
         :param adata: The annotated data object which to extract the dimensionalities from.
         :type adata: class: `AnnData`
         """
-        data: DistributionData = self._get_distribution_data(adata)
+        data: DistributionData = self._get_distribution_data(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+        )
         feature_names = self._get_feature_names(adata)
         return self._get_data_dimensionalities(data, feature_names)
 

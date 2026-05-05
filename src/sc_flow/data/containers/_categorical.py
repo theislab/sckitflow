@@ -147,3 +147,8 @@ class CategoricalData(BaseData):
             categorical_encoders={} if categorical_encoders is None else categorical_encoders,
             categorical_reps_map={} if categorical_reps_map is None else categorical_reps_map,
         )
+
+    @property
+    def category_realms(self) -> list[str]:
+        """Returns the category realms associated to the object."""
+        return list(set(self.categorical_reps_map))

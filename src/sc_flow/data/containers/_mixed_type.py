@@ -5,6 +5,7 @@ import numpy as np
 from sc_flow.data._mixins import BatchMixin
 from sc_flow.data.containers._base import BaseData
 from sc_flow.data.containers._categorical import CategoricalData
+from sc_flow.data.containers._state import StateData
 
 __all__ = ["MixedTypeData"]
 
@@ -100,3 +101,49 @@ class MixedTypeData(BaseData):
             )
         # otherwise return only categorical covariates
         return cat_reps
+
+    def view_as_state_data(
+        self,
+        state_key: str,
+    ) -> StateData:
+        """Converts a given key to a state data format."""
+        # check that it appears in the covariate identifiers
+        if state_key not in self.covariates_keys:
+            raise KeyError(f"Key {state_key} not found in self.covariate_keys")
+
+        # get state raw data from continuous covariates
+        if state_key in self.continuous_covariates.mapping:
+            X_state = self.continuous_covariates[state_key]
+        else:  # get them from the categorical covariates
+            categorical_reps = self.categorical_covariates.extract_reps()
+            X_state = categorical_reps[state_key]  # N, 1, D
+
+            # check shape
+            if len(X_state.shape) != 3:
+                raise ValueError(f"Categorical data expected to have three dimensions, {X_state.shape} found.")
+            if X_state[1] != 1:
+                raise ValueError("Conversion of combinatorial categorical data is not supported for the moment.")
+
+            # get single element of the dimension
+            X_state = X_state[:, 0, :]
+
+        # check that the dimensions are correct
+        if len(X_state) != 2:
+            raise ValueError(f"Converted data should have two dimensions, {X_state.shape} found.")
+        return StateData(X_state)
+
+    @property
+    def covariates_keys(self) -> list[str]:
+        """Returns the list of all covariate identifiers."""
+        # define store for all covariates
+        covariate_keys = []
+
+        # get keys from continuous data
+        if self.continuous_covariates is not None:
+            keys = list(self.continuous_covariates.mapping.keys())
+            covariate_keys.extend(keys)
+
+        # get keys from categorical data
+        if self.categorical_covariates is not None:
+            keys.extend(self.categorical_covariates.category_realms)
+        return covariate_keys

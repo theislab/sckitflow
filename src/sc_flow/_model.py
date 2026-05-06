@@ -483,6 +483,6 @@ class SCFlow:
         return self._view_on_condition_space
 
     @property
-    def condition_state_key(self) -> Trainer:
+    def condition_state_key(self) -> str | None:
         """Return the key used to extract the state from the condition."""
         return self._condition_state_key

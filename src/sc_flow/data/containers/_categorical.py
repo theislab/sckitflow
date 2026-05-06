@@ -141,11 +141,13 @@ class CategoricalData(BaseData):
         if not inplace:
             ann_df = ann_df.copy()
         convert_to_categorical_in_place(ann_df, ann_df.columns)
+        if categorical_reps_map is None:
+            categorical_reps_map = {col: col for col in ann_df.columns}
         return cls(
             ann_df,
             repr_dict={} if repr_dict is None else repr_dict,
             categorical_encoders={} if categorical_encoders is None else categorical_encoders,
-            categorical_reps_map={} if categorical_reps_map is None else categorical_reps_map,
+            categorical_reps_map=categorical_reps_map,
         )
 
     @property

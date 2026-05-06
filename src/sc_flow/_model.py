@@ -175,6 +175,7 @@ class SCFlow:
         val_sampler_kwargs: dict[str, Any] | None = None,
         train_kwargs: dict[str, Any] | None = None,
         optim_kwargs: dict[str, Any] | None = None,
+        sort: bool = True,
         **kwargs,
     ) -> None:
         """Trains the model on the input adata.
@@ -220,10 +221,21 @@ class SCFlow:
         :type *kwargs: class: `dict[str, Any]`
         """
         # compile adata
-        train_tree = self._dm.compile_adata(train_adata)
+        train_tree = self._dm.compile_adata(
+            train_adata,
+            sort=sort,
+            view_on_condition_space=self._view_on_condition_space,
+            condition_state_key=self._condition_state_key,
+        )
         if val_adatas_dict is not None:
             val_trees_dict = {
-                val_id: self._dm.compile_adata(val_adata) for val_id, val_adata in val_adatas_dict.items()
+                val_id: self._dm.compile_adata(
+                    val_adata,
+                    sort=sort,
+                    view_on_condition_space=self._view_on_condition_space,
+                    condition_state_key=self._condition_state_key,
+                )
+                for val_id, val_adata in val_adatas_dict.items()
             }
         else:
             val_trees_dict = {}
@@ -279,6 +291,7 @@ class SCFlow:
         adata: AnnData,
         *args,
         return_tensors: bool = False,
+        sort: bool = True,
         **kwargs,
     ) -> AnnData | tuple[AnnData, "TorchPredictionData | JaxPredictionData"]:
         """
@@ -294,7 +307,12 @@ class SCFlow:
         self._method.set_train_mode(False)
 
         # Compile the data tree
-        tree = self._dm.compile_adata(adata)
+        tree = self._dm.compile_adata(
+            adata,
+            sort=sort,
+            view_on_condition_space=self._view_on_condition_space,
+            condition_state_key=self._condition_state_key,
+        )
         tree_flat: tuple[MatchedData] = tree.flatten()
 
         # define store

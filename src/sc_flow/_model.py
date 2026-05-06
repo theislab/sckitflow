@@ -478,7 +478,7 @@ class SCFlow:
         return self._trainer
 
     @property
-    def view_on_condition_space(self) -> Trainer:
+    def view_on_condition_space(self) -> bool:
         """Return whether the model is operating on the condition space."""
         return self._view_on_condition_space
 

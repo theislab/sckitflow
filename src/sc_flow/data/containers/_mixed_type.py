@@ -108,7 +108,7 @@ class MixedTypeData(BaseData):
     ) -> StateData:
         """Converts a given key to a state data format."""
         # get state raw data from continuous covariates
-        if state_key in self.continuous_covariates.mapping:
+        if self.continuous_covariates is not None and state_key in self.continuous_covariates.mapping:
             X_state = self.continuous_covariates[state_key]
         elif self.categorical_covariates and state_key in self.categorical_covariates.category_realms:
             raise NotImplementedError("State conversion is not implemented for categorical covariates.")

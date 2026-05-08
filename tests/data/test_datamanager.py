@@ -1,6 +1,10 @@
 import numpy as np
 import pytest
 from anndata import AnnData
+from tests.data.conftest import (
+    N_CELL_LINES,
+    N_DRUGS,
+)
 
 from sc_flow._constants import ORIGINAL_INDEX_KEY
 from sc_flow.data._composite import MatchedData, NestedData
@@ -11,23 +15,28 @@ from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.containers._state import StateData
 
-from tests.data.conftest import (
-    CELL_LINES,
-    DRUGS,
-    N_CELL_LINES,
-    N_DRUGS,
-    _make_obs,
-)
-
 
 def _make_manager(**overrides) -> DataManager:
     """DataManager with cell_line as group and drug as condition."""
-    defaults = dict(
-        conditions={"drug": ("drug",)},
-        conditions_reps={"drug": "drug"},
-        groups=("cell_line",),
-        groups_reps={"cell_line": "cell_line"},
-    )
+    defaults = {
+        "conditions": {"drug": ("drug",)},
+        "conditions_reps": {"drug": "drug"},
+        "groups": ("cell_line",),
+        "groups_reps": {"cell_line": "cell_line"},
+    }
+    defaults.update(overrides)
+    return DataManager(**defaults)
+
+
+def _make_manager_with_continuous(**overrides):
+    """DataManager with a continuous condition covariate (X_repr) and categorical drug condition."""
+    defaults = {
+        "conditions": {"drug": ("drug",)},
+        "conditions_reps": {"drug": "drug"},
+        "conditions_covariates": ["X_repr"],  # continuous covariate from obsm
+        "groups": ("cell_line",),
+        "groups_reps": {"cell_line": "cell_line"},
+    }
     defaults.update(overrides)
     return DataManager(**defaults)
 
@@ -196,3 +205,52 @@ class TestSourceKey:
     def test_none_without_control_values(self):
         manager = _make_manager()
         assert manager.source_key is None
+
+
+class TestConditionSpaceView:
+    def test_get_distribution_data_with_condition_space(self, adata_small: AnnData):
+        manager = _make_manager_with_continuous()
+        # ensure X_repr exists in obsm
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        distr = manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="X_repr")
+        # state_data becomes the continuous covariate
+        assert isinstance(distr.state_data, StateData)
+        np.testing.assert_array_equal(distr.state_data.X, adata_small.obsm["X_repr"])
+
+        # condition_data still exists (categorical part remains)
+        assert distr.condition_data is not None
+        # The continuous key "X_repr" should be removed. Since it was the only continuous key,
+        # continuous_covariates becomes None. That's acceptable.
+        if distr.condition_data.continuous_covariates is not None:
+            assert "X_repr" not in distr.condition_data.continuous_covariates.mapping
+        # categorical part remains
+        assert distr.condition_data.categorical_covariates is not None
+
+        # coupling data reinitialized
+        assert distr.source_coupling_data is not None
+        assert distr.target_coupling_data is not None
+        assert len(distr.source_coupling_data) == len(distr.state_data)
+
+    def test_get_distribution_data_invalid_condition_state_key(self, adata_small: AnnData):
+        # Use a manager without continuous covariates – only categorical conditions.
+        manager = _make_manager()  # from the fixture, no `conditions_covariates`
+        # The condition_data has only categorical covariates (drug).
+        with pytest.raises(KeyError, match="Key invalid_key not found"):
+            manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="invalid_key")
+
+    def test_get_data_dimensionalities_with_condition_space(self, adata_small: AnnData):
+        manager = _make_manager_with_continuous()
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        dims = manager.get_data_dimensionalities(
+            adata_small, view_on_condition_space=True, condition_state_key="X_repr"
+        )
+        # state dimension comes from continuous covariate
+        assert dims.state_dim == adata_small.obsm["X_repr"].shape[1]
+        # condition has a categorical part (drug) so categorical dim should be present
+        assert dims.condition_reps_dims is not None and all(d > 0 for d in dims.condition_reps_dims.values())
+        # the continuous covariate was consumed, so continuous condition dim should be 0 or None
+        assert dims.condition_continuous_dims == {}

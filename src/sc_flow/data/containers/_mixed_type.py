@@ -162,8 +162,10 @@ class MixedTypeData(BaseData):
             # when no covariates are left, return None
             if not len(original_mapping) and self.categorical_covariates is None:
                 return None
-
-            updated_continuous_covs = BatchMixin(original_mapping)
+            elif not len(original_mapping):
+                updated_continuous_covs = None
+            else:
+                updated_continuous_covs = BatchMixin(original_mapping)
             return self.__class__(
                 categorical_covariates=self.categorical_covariates,
                 continuous_covariates=updated_continuous_covs,

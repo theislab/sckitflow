@@ -5,6 +5,14 @@ import pytest
 from sc_flow.data.containers import CategoricalData
 
 
+# Dummy encoder that returns a fixed 2D array of ones (shape: (n_samples, 1))
+class DummyEncoder:
+    def transform(self, X):
+        # X is (n_samples, 1) – we ignore its values and return a constant array
+        n = X.shape[0]
+        return np.ones((n, 1))
+
+
 class TestCategoricalData:
     def test_init_basic(self) -> None:
         df = pd.DataFrame(
@@ -13,8 +21,10 @@ class TestCategoricalData:
                 "batch": ["x", "x", "y"],
             }
         )
+        # Provide an encoder for each column (realm = column name)
+        encoders = {col: DummyEncoder() for col in df.columns}
 
-        cat = CategoricalData.from_pandas(df)
+        cat = CategoricalData.from_pandas(df, categorical_encoders=encoders)
 
         assert isinstance(cat, CategoricalData)
         assert len(cat) == 3
@@ -25,26 +35,30 @@ class TestCategoricalData:
     def test_init_with_repr_dict_and_encoders(self) -> None:
         df = pd.DataFrame({"cell_type": ["A", "B", "A"]})
 
+        # repr_dict must map realm -> dict of value -> array
         repr_dict = {
-            "cell_type": np.array([[1, 0], [0, 1], [1, 0]]),
+            "cell_type": {
+                "A": np.array([1, 0]),
+                "B": np.array([0, 1]),
+            }
         }
-        categorical_encoders = {
-            "cell_type": object(),  # encoder class placeholder
-        }
+        # Provide an encoder for the same realm; it will be ignored because repr_dict takes precedence
+        categorical_encoders = {"cell_type": DummyEncoder()}
 
         cat = CategoricalData.from_pandas(
-            ann_df=df,
+            df,
             repr_dict=repr_dict,
             categorical_encoders=categorical_encoders,
         )
 
         assert cat.repr_dict is repr_dict
         assert cat.categorical_encoders is categorical_encoders
+        # The realm "cell_type" is present in repr_dict, so no error
 
     def test_len(self) -> None:
         df = pd.DataFrame({"a": range(5)})
-        cat = CategoricalData.from_pandas(df)
-
+        encoders = {"a": DummyEncoder()}
+        cat = CategoricalData.from_pandas(df, categorical_encoders=encoders)
         assert len(cat) == 5
 
     @pytest.mark.parametrize("idxs", [slice(0, 2), np.array([0, 2])])
@@ -55,11 +69,13 @@ class TestCategoricalData:
                 "batch": ["x", "x", "y"],
             }
         )
-        repr_dict = {"dummy": np.ones((3, 1))}
-        encoders = {"dummy": object()}
+        # Provide encoders for both columns
+        encoders = {col: DummyEncoder() for col in df.columns}
+        # Also provide a dummy repr_dict for 'cell_type' (optional, just to test passing)
+        repr_dict = {"cell_type": {"A": np.array([1, 0]), "B": np.array([0, 1]), "C": np.array([1, 1])}}
 
         cat = CategoricalData.from_pandas(
-            ann_df=df,
+            df,
             repr_dict=repr_dict,
             categorical_encoders=encoders,
         )
@@ -71,7 +87,10 @@ class TestCategoricalData:
         assert len(subset) == len(df.iloc[idxs])
 
         pd.testing.assert_frame_equal(
-            subset.ann_df, df.iloc[idxs], check_dtype=False, check_categorical=False,
+            subset.ann_df,
+            df.iloc[idxs],
+            check_dtype=False,
+            check_categorical=False,
         )
 
         # repr_dict and encoders are passed through unchanged
@@ -85,11 +104,12 @@ class TestCategoricalData:
                 "batch": ["x", "y"],
             }
         )
-        repr_dict = {"cell_type": np.zeros((2, 2))}
-        encoders = {"cell_type": object()}
+        # Provide representations for both realms
+        repr_dict = {"cell_type": {"A": np.array([1, 0]), "B": np.array([0, 1])}}
+        encoders = {"batch": DummyEncoder()}
 
         cat = CategoricalData.from_pandas(
-            ann_df=df,
+            df,
             repr_dict=repr_dict,
             categorical_encoders=encoders,
         )
@@ -101,5 +121,6 @@ class TestCategoricalData:
         assert "n_vars=2" in rep
         assert "cell_type" in rep
         assert "batch" in rep
+        # repr_dict_keys includes 'cell_type', categorical_encoders_keys includes 'batch'
         assert "repr_dict_keys=['cell_type']" in rep
-        assert "categorical_encoders_keys=['cell_type']" in rep
+        assert "categorical_encoders_keys=['batch']" in rep

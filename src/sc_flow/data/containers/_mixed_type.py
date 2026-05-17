@@ -171,7 +171,7 @@ class MixedTypeData(BaseData):
         :param key: The identifier for the continuous covariate to remove.
         :type key: class: `str`
         """
-        # throw errror if no continuous covariates
+        # throw error if no continuous covariates
         if self.continuous_covariates is None:
             raise TypeError("Cannot remove key: no continuous covariates present.")
 

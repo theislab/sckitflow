@@ -326,8 +326,24 @@ class SCFlow:
             all_preds.append(pred_obj)
 
             # 2. Collect observation metadata
-            ann_df = node.target_distr.ann_df
-            all_obs.append(ann_df.copy())
+            ann_df = node.target_distr.ann_df.copy()
+            cond_df = ann_df.drop_duplicates()
+
+            # 3. Check that the node contains only one condition
+            n_unique_conds = cond_df.shape[0]
+            if n_unique_conds != 1:
+                msg = f"Node should contain unique condition, {n_unique_conds} found."
+                raise ValueError(msg)
+
+            # 4. Get number of generated observations
+            if hasattr(pred_obj, "samples"):
+                n_pred_obs = pred_obj.samples.shape[0]
+            else:
+                n_pred_obs = 1
+
+            # 5. Align dataframe and update
+            pred_df = pd.DataFrame(np.repeat(cond_df, n_pred_obs, axis=0), columns=ann_df.columns)
+            all_obs.append(pred_df.copy())
 
         # early return
         if not all_preds:

@@ -106,7 +106,13 @@ class MixedTypeData(BaseData):
         self,
         state_key: str,
     ) -> StateData:
-        """Converts a given key to a state data format."""
+        """Converts a given key to a state data format.
+
+        Only continuous covariates can be viewed as state data.
+
+        :param state_key: The continuous covariate key to view as state data.
+        :type state_key: class: str
+        """
         # get state raw data from continuous covariates
         if self.continuous_covariates is not None and state_key in self.continuous_covariates.mapping:
             X_state = self.continuous_covariates[state_key]
@@ -121,7 +127,18 @@ class MixedTypeData(BaseData):
         return StateData(X_state)
 
     def absorb_state_data(self, state_key: str, state_data: StateData, allow_override: bool = False) -> "MixedTypeData":
-        """Absorbs a state data as continuous condition at the specified key."""
+        """Absorbs a state data as continuous condition at the specified key.
+
+        :param state_key: The continuous covariate key to add.
+        :type state_key: class: str
+
+        :param state_data: The state data container for the new continuous covariates.
+        :type state_data: class: `StateData`
+
+        :param allow_override: Whether to allow ovveriding keys when :param: `state_key` is already
+            present as a continuous covariate. Defaults to `False`.
+        :type allow_override: class: `bool`
+        """
         # check that continuous covariates are actually provided
         if self.continuous_covariates is None:
             raise TypeError("Cannot absorb state data: no continuous covariates present.")
@@ -147,7 +164,13 @@ class MixedTypeData(BaseData):
         )
 
     def pop_key(self, key: str) -> "MixedTypeData | None":
-        """Removes a key from the condition data."""
+        """Removes a key from the condition data.
+
+        Only keys for continous covariates can be removed.
+
+        :param key: The identifier for the continuous covariate to remove.
+        :type key: class: `str`
+        """
         # throw errror if no continuous covariates
         if self.continuous_covariates is None:
             raise TypeError("Cannot remove key: no continuous covariates present.")

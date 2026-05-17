@@ -11,6 +11,7 @@ __all__ = [
     "get_covariate_encoder",
     "get_label_encoder",
     "get_one_hot_encoder",
+    "convert_to_categorical_in_place",
 ]
 
 

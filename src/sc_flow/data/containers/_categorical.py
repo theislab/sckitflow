@@ -9,7 +9,7 @@ from scipy.sparse import csr_matrix
 
 from sc_flow._types import TargetCovariatesEncoderCls
 from sc_flow.data._mixins import BatchMixin, MappedArray
-from sc_flow.data._utils import convert_to_categorical_in_place
+from sc_flow.data._utils import convert_to_categorical_in_place, get_one_hot_encoder
 from sc_flow.data.containers._base import BaseData
 
 __all__ = ["CategoricalData"]
@@ -141,8 +141,21 @@ class CategoricalData(BaseData):
         if not inplace:
             ann_df = ann_df.copy()
         convert_to_categorical_in_place(ann_df, ann_df.columns)
-        if categorical_reps_map is None:
-            categorical_reps_map = {col: col for col in ann_df.columns}
+
+        # prepare defaults containers
+        categorical_reps_map = (
+            {col: col for col in ann_df.columns} if categorical_reps_map is None else categorical_reps_map
+        )
+        repr_dict = {} if repr_dict is None else repr_dict
+        categorical_encoders = {} if categorical_encoders is None else categorical_encoders
+
+        # set default encoders
+        for cov_realm in set(categorical_reps_map.values()):
+            if cov_realm not in categorical_encoders and cov_realm not in repr_dict:
+                cov_data = ann_df.loc[:, cov_realm].values
+                ohe = get_one_hot_encoder(cov_data)
+                categorical_encoders[cov_realm] = ohe
+
         return cls(
             ann_df,
             repr_dict={} if repr_dict is None else repr_dict,

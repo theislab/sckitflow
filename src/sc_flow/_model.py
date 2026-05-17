@@ -2,7 +2,7 @@ import logging
 import tarfile
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import cloudpickle
 import numpy as np
@@ -31,11 +31,15 @@ class SCFlow:
     _dm_cls: DataManager | None = None
     _dims_registry: DataDimensionalitiesRegistry | None = None
     _is_paired_setting_cls: bool = False
+    _view_on_condition_space_cls: bool = False
+    _condition_state_key_cls: str | None = None
 
     @classmethod
     def register_adata(
         cls,
         adata: AnnData,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
         **kwargs,
     ) -> None:
         """Registers the input adata as a class attribute using the provided schema settings.
@@ -43,13 +47,28 @@ class SCFlow:
         :param adata: The input adata to register.
         :type adata: class: `AnnData`
 
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
+
         :param **kwargs: Other key-word arguments used to initialize the `DataManager`.
         :type **kwargs: class: `dict[str, Any]`
         """
         # initialize data manager
         cls._dm_cls = DataManager(**kwargs)
-        cls._dims_registry = cls._dm_cls.get_data_dimensionalities(adata)
+        cls._dims_registry = cls._dm_cls.get_data_dimensionalities(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+        )
         cls._is_paired_setting_cls = cls._dm_cls.control_values_dict is not None
+        cls._view_on_condition_space_cls = view_on_condition_space
+        cls._condition_state_key_cls = condition_state_key
 
     def __init__(
         self,
@@ -70,6 +89,8 @@ class SCFlow:
         self._dm = self.__class__._dm_cls
         self._dims_registry = self.__class__._dims_registry
         self._is_paired_setting = self.__class__._is_paired_setting_cls
+        self._view_on_condition_space = self.__class__._view_on_condition_space_cls
+        self._condition_state_key = self.__class__._condition_state_key_cls
 
         # register backend
         self._backend = backend
@@ -108,6 +129,26 @@ class SCFlow:
 
         # prepare attributes
         self._trainer: Trainer | None = None
+
+    @overload
+    def predict(
+        self,
+        adata: AnnData,
+        *args,
+        return_tensors: Literal[False],
+        sort: bool = True,
+        **kwargs,
+    ) -> AnnData: ...
+
+    @overload
+    def predict(
+        self,
+        adata: AnnData,
+        *args,
+        return_tensors: Literal[True],
+        sort: bool = True,
+        **kwargs,
+    ) -> tuple[AnnData, "TorchPredictionData | JaxPredictionData"]: ...
 
     def _to_numpy(self, tensor: Any) -> np.ndarray:
         """
@@ -163,6 +204,7 @@ class SCFlow:
         val_sampler_kwargs: dict[str, Any] | None = None,
         train_kwargs: dict[str, Any] | None = None,
         optim_kwargs: dict[str, Any] | None = None,
+        sort: bool = False,
         **kwargs,
     ) -> None:
         """Trains the model on the input adata.
@@ -204,14 +246,32 @@ class SCFlow:
         :param optim_kwargs: Keyword arguments to configure for the optimization manager (optimizer, scheduler, etc.). Defaults to `None`.
         :type optim_kwargs: class: `OptimConfig | None`
 
+        :param sort: If ``True``, create a sorted copy of *adata* via
+            :meth:`sort_adata` and compile from that copy.  When setting this one
+            should keep in mind this will copy the full adata object. When ``False`` (the
+            default) the data must already be sorted; a ``ValueError``
+            is raised otherwise.
+        :type sort: class: `bool`
+
         :param *kwargs: Keyword arguments used to initialize the trainer class.
         :type *kwargs: class: `dict[str, Any]`
         """
         # compile adata
-        train_tree = self._dm.compile_adata(train_adata)
+        train_tree = self._dm.compile_adata(
+            train_adata,
+            sort=sort,
+            view_on_condition_space=self._view_on_condition_space,
+            condition_state_key=self._condition_state_key,
+        )
         if val_adatas_dict is not None:
             val_trees_dict = {
-                val_id: self._dm.compile_adata(val_adata) for val_id, val_adata in val_adatas_dict.items()
+                val_id: self._dm.compile_adata(
+                    val_adata,
+                    sort=sort,
+                    view_on_condition_space=self._view_on_condition_space,
+                    condition_state_key=self._condition_state_key,
+                )
+                for val_id, val_adata in val_adatas_dict.items()
             }
         else:
             val_trees_dict = {}
@@ -267,14 +327,26 @@ class SCFlow:
         adata: AnnData,
         *args,
         return_tensors: bool = False,
+        sort: bool = True,
         **kwargs,
     ) -> AnnData | tuple[AnnData, "TorchPredictionData | JaxPredictionData"]:
         """
         Generates flow predictions.
 
         :param adata: The input adata containing the metadata for prediction.
+        :type adata: class: `AnnData`
+
         :param return_tensors: If True, returns the raw concatenated PredictionData
             keeping the computation graph alive. Defaults to `False`.
+        :type return_tensors: class: `bool`
+
+        :param sort: If ``True``, create a sorted copy of *adata* via
+            :meth:`sort_adata` and compile from that copy.  When setting this one
+            should keep in mind this will copy the full adata object. When ``False`` (the
+            default) the data must already be sorted; a ``ValueError``
+            is raised otherwise.
+        :type sort: class: `bool`
+
         :return: Either an AnnData with predictions, or a tuple (AnnData, PredictionData)
             if `return_tensors` is True.
         """
@@ -282,7 +354,12 @@ class SCFlow:
         self._method.set_train_mode(False)
 
         # Compile the data tree
-        tree = self._dm.compile_adata(adata)
+        tree = self._dm.compile_adata(
+            adata,
+            sort=sort,
+            view_on_condition_space=self._view_on_condition_space,
+            condition_state_key=self._condition_state_key,
+        )
         tree_flat: tuple[MatchedData] = tree.flatten()
 
         # define store
@@ -296,8 +373,24 @@ class SCFlow:
             all_preds.append(pred_obj)
 
             # 2. Collect observation metadata
-            ann_df = node.target_distr.ann_df
-            all_obs.append(ann_df.copy())
+            ann_df = node.target_distr.ann_df.copy()
+            cond_df = ann_df.drop_duplicates()
+
+            # 3. Check that the node contains only one condition
+            n_unique_conds = cond_df.shape[0]
+            if n_unique_conds != 1:
+                msg = f"Node should contain unique condition, {n_unique_conds} found."
+                raise ValueError(msg)
+
+            # 4. Get number of generated observations
+            if hasattr(pred_obj, "samples"):
+                n_pred_obs = pred_obj.samples.shape[0]
+            else:
+                n_pred_obs = 1
+
+            # 5. Align dataframe and update
+            pred_df = pd.DataFrame(np.repeat(cond_df, n_pred_obs, axis=0), columns=ann_df.columns)
+            all_obs.append(pred_df.copy())
 
         # early return
         if not all_preds:
@@ -464,3 +557,13 @@ class SCFlow:
     def trainer(self) -> Trainer:
         """Returns the trainer used to fit the model."""
         return self._trainer
+
+    @property
+    def view_on_condition_space(self) -> bool:
+        """Return whether the model is operating on the condition space."""
+        return self._view_on_condition_space
+
+    @property
+    def condition_state_key(self) -> str | None:
+        """Return the key used to extract the state from the condition."""
+        return self._condition_state_key

@@ -2,7 +2,7 @@ import logging
 import tarfile
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, overload
 
 import cloudpickle
 import numpy as np
@@ -46,7 +46,6 @@ class SCFlow:
 
         :param adata: The input adata to register.
         :type adata: class: `AnnData`
-
 
         :param view_on_condition_space: Whether to model condiion as states.
             Defaults to `False`.
@@ -131,6 +130,26 @@ class SCFlow:
         # prepare attributes
         self._trainer: Trainer | None = None
 
+    @overload
+    def predict(
+        self,
+        adata: AnnData,
+        *args,
+        return_tensors: Literal[False],
+        sort: bool = True,
+        **kwargs,
+    ) -> AnnData: ...
+
+    @overload
+    def predict(
+        self,
+        adata: AnnData,
+        *args,
+        return_tensors: Literal[True],
+        sort: bool = True,
+        **kwargs,
+    ) -> tuple[AnnData, "TorchPredictionData | JaxPredictionData"]: ...
+
     def _to_numpy(self, tensor: Any) -> np.ndarray:
         """
         Convert a backend-specific tensor to a numpy array.
@@ -185,7 +204,7 @@ class SCFlow:
         val_sampler_kwargs: dict[str, Any] | None = None,
         train_kwargs: dict[str, Any] | None = None,
         optim_kwargs: dict[str, Any] | None = None,
-        sort: bool = True,
+        sort: bool = False,
         **kwargs,
     ) -> None:
         """Trains the model on the input adata.
@@ -226,6 +245,13 @@ class SCFlow:
 
         :param optim_kwargs: Keyword arguments to configure for the optimization manager (optimizer, scheduler, etc.). Defaults to `None`.
         :type optim_kwargs: class: `OptimConfig | None`
+
+        :param sort: If ``True``, create a sorted copy of *adata* via
+            :meth:`sort_adata` and compile from that copy.  When setting this one
+            should keep in mind this will copy the full adata object. When ``False`` (the
+            default) the data must already be sorted; a ``ValueError``
+            is raised otherwise.
+        :type sort: class: `bool`
 
         :param *kwargs: Keyword arguments used to initialize the trainer class.
         :type *kwargs: class: `dict[str, Any]`
@@ -308,8 +334,19 @@ class SCFlow:
         Generates flow predictions.
 
         :param adata: The input adata containing the metadata for prediction.
+        :type adata: class: `AnnData`
+
         :param return_tensors: If True, returns the raw concatenated PredictionData
             keeping the computation graph alive. Defaults to `False`.
+        :type return_tensors: class: `bool`
+
+        :param sort: If ``True``, create a sorted copy of *adata* via
+            :meth:`sort_adata` and compile from that copy.  When setting this one
+            should keep in mind this will copy the full adata object. When ``False`` (the
+            default) the data must already be sorted; a ``ValueError``
+            is raised otherwise.
+        :type sort: class: `bool`
+
         :return: Either an AnnData with predictions, or a tuple (AnnData, PredictionData)
             if `return_tensors` is True.
         """

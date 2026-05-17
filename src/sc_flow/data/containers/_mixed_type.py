@@ -5,6 +5,7 @@ import numpy as np
 from sc_flow.data._mixins import BatchMixin
 from sc_flow.data.containers._base import BaseData
 from sc_flow.data.containers._categorical import CategoricalData
+from sc_flow.data.containers._state import StateData
 
 __all__ = ["MixedTypeData"]
 
@@ -100,3 +101,97 @@ class MixedTypeData(BaseData):
             )
         # otherwise return only categorical covariates
         return cat_reps
+
+    def view_as_state_data(
+        self,
+        state_key: str,
+    ) -> StateData:
+        """Converts a given key to a state data format.
+
+        Only continuous covariates can be viewed as state data.
+
+        :param state_key: The continuous covariate key to view as state data.
+        :type state_key: class: str
+        """
+        # get state raw data from continuous covariates
+        if self.continuous_covariates is not None and state_key in self.continuous_covariates.mapping:
+            X_state = self.continuous_covariates[state_key]
+        elif self.categorical_covariates and state_key in self.categorical_covariates.category_realms:
+            raise NotImplementedError("State conversion is not implemented for categorical covariates.")
+        else:
+            raise KeyError(f"Key {state_key} not found.")
+
+        # check that the dimensions are correct
+        if len(X_state.shape) != 2:
+            raise ValueError(f"Converted data should have two dimensions, {X_state.shape} found.")
+        return StateData(X_state)
+
+    def absorb_state_data(self, state_key: str, state_data: StateData, allow_override: bool = False) -> "MixedTypeData":
+        """Absorbs a state data as continuous condition at the specified key.
+
+        :param state_key: The continuous covariate key to add.
+        :type state_key: class: str
+
+        :param state_data: The state data container for the new continuous covariates.
+        :type state_data: class: `StateData`
+
+        :param allow_override: Whether to allow ovveriding keys when :param: `state_key` is already
+            present as a continuous covariate. Defaults to `False`.
+        :type allow_override: class: `bool`
+        """
+        # check that continuous covariates are actually provided
+        if self.continuous_covariates is None:
+            raise TypeError("Cannot absorb state data: no continuous covariates present.")
+
+        # check that the key doesnt appear already
+        if state_key in self.continuous_covariates.mapping and not allow_override:
+            raise ValueError(f"Key {state_key} already present in the data, enable override if you are sure.")
+
+        # check that the state data has the correct number of dimensions
+        if len(state_data) != len(self):
+            raise ValueError(
+                f"Number of observations in state_data ({len(state_data)}) does not match the container ({len(self)})."
+            )
+
+        # update continuous covariates
+        original_mapping = dict(self.continuous_covariates.mapping)
+        original_mapping[state_key] = state_data.X
+        updated_continuous_covs = BatchMixin(original_mapping)
+
+        return self.__class__(
+            categorical_covariates=self.categorical_covariates,
+            continuous_covariates=updated_continuous_covs,
+        )
+
+    def pop_key(self, key: str) -> "MixedTypeData | None":
+        """Removes a key from the condition data.
+
+        Only keys for continous covariates can be removed.
+
+        :param key: The identifier for the continuous covariate to remove.
+        :type key: class: `str`
+        """
+        # throw error if no continuous covariates
+        if self.continuous_covariates is None:
+            raise TypeError("Cannot remove key: no continuous covariates present.")
+
+        # remove key from categorical data
+        if self.categorical_covariates and key in self.categorical_covariates.category_realms:
+            raise NotImplementedError("State conversion is not implemented for categorical covariates.")
+        elif key in self.continuous_covariates.mapping:
+            original_mapping = dict(self.continuous_covariates.mapping)
+            original_mapping.pop(key)
+
+            # when no covariates are left, return None
+            if not len(original_mapping) and self.categorical_covariates is None:
+                return None
+            elif not len(original_mapping):
+                updated_continuous_covs = None
+            else:
+                updated_continuous_covs = BatchMixin(original_mapping)
+            return self.__class__(
+                categorical_covariates=self.categorical_covariates,
+                continuous_covariates=updated_continuous_covs,
+            )
+        else:
+            raise KeyError(f"Key {key} not found.")

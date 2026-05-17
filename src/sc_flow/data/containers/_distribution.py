@@ -130,6 +130,34 @@ class DistributionData(BaseData):
             }
         )
 
+    def view_on_condition_space(self, state_key: str):
+        """Views the current distribution as being defined on the condition space.
+
+        Only continuous condition covariates can be modeled as states.
+
+        :param state_key: The identifier for the condition covariate to model as state.
+        :type state_key: class: `str`
+        """
+        # check that conditions are defined
+        if self.condition_data is None:
+            raise TypeError("Cannot view as condition: no condition data provided.")
+
+        # get state data from condition and update condition
+        cond_state_data = self.condition_data.view_as_state_data(state_key)
+        updated_condition_data = self.condition_data.pop_key(state_key)
+
+        # update coupling data and return
+        source_coupling_data = CouplingData.init_from_state_data(cond_state_data)
+        target_coupling_data = CouplingData.init_from_state_data(cond_state_data)
+        return self.__class__(
+            cond_state_data,
+            response_data=self.response_data,
+            condition_data=updated_condition_data,
+            groups_data=self.groups_data,
+            source_coupling_data=source_coupling_data,
+            target_coupling_data=target_coupling_data,
+        )
+
     @property
     def is_sorted(self) -> bool:
         """Whether the data is sorted lexicographically by annotation columns."""

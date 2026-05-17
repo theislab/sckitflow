@@ -187,9 +187,18 @@ class DataManager:
             conditions_cols=conditions_cols,
         )
 
-    def _get_feature_names(self, adata: AnnData) -> pd.Index:
+    def _get_feature_names(
+        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
+    ) -> pd.Index:
         """Determines feature names based on the state representation used."""
-        sample_rep = self._state_data_schema.sample_rep
+        # use it as sample rep as it should come from obsm
+        if view_on_condition_space:
+            if condition_state_key is None:
+                raise ValueError("When modeling on the condition space, the state key should be provided")
+            sample_rep = condition_state_key
+        else:
+            sample_rep = self._state_data_schema.sample_rep
+
         if sample_rep is None:
             return adata.var_names
 
@@ -227,14 +236,17 @@ class DataManager:
         return self._target_data_schema.get_data(adata)
 
     def _get_distribution_data(
-        self,
-        adata: AnnData,
+        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> DistributionData:
+        if view_on_condition_space and condition_state_key is None:
+            raise ValueError("When modeling on the condition space, the state key should be provided")
+
         state_data: StateData = self._get_state_data(adata)
         condition_data: MixedTypeData = self._get_condition_data(adata)
         response_data: MixedTypeData = self._get_target_data(adata)
         groups_data: CategoricalData = self._get_groups_data(adata)
         source_coupling_data, target_coupling_data = self._get_coupling_data(adata)
+
         distribution_data = DistributionData(
             state_data,
             response_data=response_data,
@@ -243,6 +255,9 @@ class DataManager:
             source_coupling_data=source_coupling_data,
             target_coupling_data=target_coupling_data,
         )
+
+        if view_on_condition_space:
+            return distribution_data.view_on_condition_space(condition_state_key)
         return distribution_data
 
     def _get_mapped_index(self, ann_df: pd.DataFrame) -> MappedLevelIndex:
@@ -286,15 +301,25 @@ class DataManager:
         return self._get_matched_distributions(data)
 
     def get_distribution_data(
-        self,
-        adata: AnnData,
+        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> DistributionData:
         """Compiles an annotated data object into a distribution data container.
 
         :param adata: The annotated data object to compile.
         :type adata: class: `AnnData`
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
         """
-        return self._get_distribution_data(adata)
+        return self._get_distribution_data(
+            adata, view_on_condition_space=view_on_condition_space, condition_state_key=condition_state_key
+        )
 
     def sort_adata(self, adata: AnnData) -> AnnData:
         """Sort an AnnData by the hierarchy columns (groups then conditions).
@@ -330,6 +355,8 @@ class DataManager:
         self,
         adata: AnnData,
         sort: bool = False,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
     ) -> NestedData:
         """Compile an annotated data object into split and matched subpopulations.
 
@@ -342,35 +369,76 @@ class DataManager:
             default) the data must already be sorted; a ``ValueError``
             is raised otherwise.
         :type sort: class: `bool`
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
         """
         if sort:
             adata = self.sort_adata(adata)
-        data: DistributionData = self._get_distribution_data(adata)
+        data: DistributionData = self._get_distribution_data(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+        )
         return self._get_matched_distributions(data)
 
     def get_data_dimensionalities(
-        self,
-        adata: AnnData,
+        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> DataDimensionalitiesRegistry:
         """Registers the data dimensionalities from the input data according to the current schema.
 
         :param adata: The annotated data object which to extract the dimensionalities from.
         :type adata: class: `AnnData`
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
         """
-        data: DistributionData = self._get_distribution_data(adata)
-        feature_names = self._get_feature_names(adata)
+        data: DistributionData = self._get_distribution_data(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+        )
+        feature_names = self._get_feature_names(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+        )
         return self._get_data_dimensionalities(data, feature_names)
 
     def get_feature_names(
-        self,
-        adata: AnnData,
+        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> pd.Index:
         """Registers the feature names from the input data according to the current schema.
 
         :param adata: The annotated data object which to extract the feature names from.
         :type adata: class: `AnnData`
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
         """
-        return self._get_feature_names(adata)
+        return self._get_feature_names(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+        )
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

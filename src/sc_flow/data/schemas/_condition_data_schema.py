@@ -229,7 +229,9 @@ class ConditionDataSchema(StrictDataSchema):
             return None
         covariates_df = self._get_covariates_df(adata)
         repr_dict = self._get_repr_dict(adata)
-        return CategoricalData.from_pandas(covariates_df, repr_dict=repr_dict)
+        return CategoricalData.from_pandas(
+            covariates_df, repr_dict=repr_dict, categorical_reps_map=self.categorical_reps_map
+        )
 
     def _get_continuous_covariates(self, adata: AnnData) -> BatchMixin | None:
         """Retrieves the continuous condition covariates from the input `AnnData`.

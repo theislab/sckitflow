@@ -9,7 +9,7 @@ from scipy.sparse import csr_matrix
 
 from sc_flow._types import TargetCovariatesEncoderCls
 from sc_flow.data._mixins import BatchMixin, MappedArray
-from sc_flow.data._utils import convert_to_categorical_in_place
+from sc_flow.data._utils import convert_to_categorical_in_place, get_one_hot_encoder
 from sc_flow.data.containers._base import BaseData
 
 __all__ = ["CategoricalData"]
@@ -88,8 +88,11 @@ class CategoricalData(BaseData):
         col: str,
         realm_repr_dict: dict[Hashable, np.ndarray],
     ) -> np.ndarray:
-        col_values = self.ann_df[col].map(lambda e: realm_repr_dict[e].reshape(1, -1))
-        return np.concatenate(col_values.tolist(), axis=0)
+        col_values = self.ann_df[col].values
+        # Get the representation for each value (assuming all have same dimension)
+        reprs = [realm_repr_dict[val].reshape(1, -1) for val in col_values]
+        # Stack vertically -> shape (n_samples, dim)
+        return np.vstack(reprs)
 
     def _encode_col(
         self,
@@ -129,6 +132,7 @@ class CategoricalData(BaseData):
         repr_dict: Mapping[str, MappedArray] | None = None,
         categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] | None = None,
         inplace: bool = False,
+        categorical_reps_map: Mapping[str, str] | None = None,
     ) -> "CategoricalData":
         """Create a CategoricalData object from a pandas DataFrame.
 
@@ -137,8 +141,29 @@ class CategoricalData(BaseData):
         if not inplace:
             ann_df = ann_df.copy()
         convert_to_categorical_in_place(ann_df, ann_df.columns)
+
+        # prepare defaults containers
+        categorical_reps_map = (
+            {col: col for col in ann_df.columns} if categorical_reps_map is None else categorical_reps_map
+        )
+        repr_dict = {} if repr_dict is None else repr_dict
+        categorical_encoders = {} if categorical_encoders is None else categorical_encoders
+
+        # set default encoders
+        for cov_realm in set(categorical_reps_map.values()):
+            if cov_realm not in categorical_encoders and cov_realm not in repr_dict:
+                cov_data = ann_df.loc[:, cov_realm].values
+                ohe = get_one_hot_encoder(cov_data)
+                categorical_encoders[cov_realm] = ohe
+
         return cls(
             ann_df,
             repr_dict={} if repr_dict is None else repr_dict,
             categorical_encoders={} if categorical_encoders is None else categorical_encoders,
+            categorical_reps_map=categorical_reps_map,
         )
+
+    @property
+    def category_realms(self) -> list[str]:
+        """Returns the category realms associated to the object."""
+        return list(set(self.categorical_reps_map.values()))

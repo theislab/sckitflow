@@ -166,4 +166,4 @@ class CategoricalData(BaseData):
     @property
     def category_realms(self) -> list[str]:
         """Returns the category realms associated to the object."""
-        return list(set(self.categorical_reps_map))
+        return list(set(self.categorical_reps_map.values()))

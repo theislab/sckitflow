@@ -47,6 +47,16 @@ class SCFlow:
         :param adata: The input adata to register.
         :type adata: class: `AnnData`
 
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
+
         :param **kwargs: Other key-word arguments used to initialize the `DataManager`.
         :type **kwargs: class: `dict[str, Any]`
         """

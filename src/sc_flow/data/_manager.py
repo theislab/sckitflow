@@ -307,6 +307,15 @@ class DataManager:
 
         :param adata: The annotated data object to compile.
         :type adata: class: `AnnData`
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
         """
         return self._get_distribution_data(
             adata, view_on_condition_space=view_on_condition_space, condition_state_key=condition_state_key
@@ -360,6 +369,15 @@ class DataManager:
             default) the data must already be sorted; a ``ValueError``
             is raised otherwise.
         :type sort: class: `bool`
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
         """
         if sort:
             adata = self.sort_adata(adata)
@@ -377,6 +395,15 @@ class DataManager:
 
         :param adata: The annotated data object which to extract the dimensionalities from.
         :type adata: class: `AnnData`
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
         """
         data: DistributionData = self._get_distribution_data(
             adata,
@@ -397,6 +424,15 @@ class DataManager:
 
         :param adata: The annotated data object which to extract the feature names from.
         :type adata: class: `AnnData`
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
         """
         return self._get_feature_names(
             adata,

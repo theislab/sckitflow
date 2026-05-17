@@ -131,7 +131,13 @@ class DistributionData(BaseData):
         )
 
     def view_on_condition_space(self, state_key: str):
-        """Views the current distribution as being defined on the condition space."""
+        """Views the current distribution as being defined on the condition space.
+
+        Only continuous condition covariates can be modeled as states.
+
+        :param state_key: The identifier for the condition covariate to model as state.
+        :type state_key: class: `str`
+        """
         # check that conditions are defined
         if self.condition_data is None:
             raise TypeError("Cannot view as condition: no condition data provided.")

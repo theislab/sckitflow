@@ -53,24 +53,26 @@ class TorchBaseMethod(BaseMethod):
             return data
         return data[idx]
 
-    def _batchmixin_to_torch(self, batch_mixin: BatchMixin) -> dict[str, torch.Tensor]:
-        return {k: torch.from_numpy(v).to(self._dtype).to(self._device_id) for k, v in batch_mixin.mapping.items()}
-
     def set_train_mode(self, mode: bool) -> None:
         if mode:
             self.module.train()
         else:
             self.module.eval()
 
-    def _extract_state_data(
-        self,
-        state_data: StateData | None,
-    ) -> torch.Tensor | None:
+    def _batchmixin_to_torch(self, batch_mixin: BatchMixin) -> dict[str, torch.Tensor]:
+        # Pre-define kwargs to avoid dictionary creation overhead in the loop
+        transfer_kwargs = {"device": self._device_id, "dtype": self._dtype, "non_blocking": True}
+
+        # Use a dictionary comprehension with combined, non-blocking calls
+        return {k: torch.from_numpy(v).to(**transfer_kwargs) for k, v in batch_mixin.mapping.items()}
+
+    def _extract_state_data(self, state_data: StateData | None) -> torch.Tensor | None:
         if state_data is None:
             return None
-        X_state = state_data.X
-        X_state = torch.from_numpy(X_state).to(self._dtype).to(self._device_id)
-        return X_state
+
+        # torch.as_tensor is often safer/faster than from_numpy if
+        # the input might already be a tensor
+        return torch.as_tensor(state_data.X).to(device=self._device_id, dtype=self._dtype, non_blocking=True)
 
     def _extract_coupling_data(
         self,

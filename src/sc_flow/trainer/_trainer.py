@@ -106,18 +106,22 @@ class Trainer:
     def train(
         self,
         train_sampler: FTrainSampler,
+        *args,
         val_samplers_dict: dict[str, FValidationSampler] | None = None,
         n_train_steps: int = 10_000,
         valid_freq: int = 1_000,
         pbar_freq: int = 100,
-        *args,
+        cb_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
         """Trains the model."""
         do_validation = val_samplers_dict is not None
 
+        # prepare callbacks keywargs
+        cb_kwargs = {} if cb_kwargs is None else cb_kwargs
+
         # Call on_train_begin
-        self._callbacks.on_train_begin(self, **kwargs)
+        self._callbacks.on_train_begin(self, **cb_kwargs)
 
         pbar = tqdm(range(n_train_steps))
         for self._current_step in pbar:
@@ -125,13 +129,13 @@ class Trainer:
             nodes = train_sampler.sample()
             step_dict = {}
             for node in nodes:
-                opt_data, step_dict = self._method.train_step(node)
+                opt_data, step_dict = self._method.train_step(node, *args, **kwargs)
                 step_dict.update({"step": self._current_step})
                 self._opt_manager.step(opt_data)
                 self._append_train_log(step_dict)
 
             # Call on_train_step with the step_dict from the last node
-            self._callbacks.on_train_step(self, self._current_step, step_dict, **kwargs)
+            self._callbacks.on_train_step(self, self._current_step, step_dict, **cb_kwargs)
 
             # Update progress bar description
             if ((self._current_step + 1) % pbar_freq == 0) and (self._current_step > 0):
@@ -143,10 +147,10 @@ class Trainer:
             # Validation step
             if ((self._current_step + 1) % valid_freq == 0) and (self._current_step > 0) and do_validation:
                 for val_id, val_sampler in val_samplers_dict.items():
-                    self._run_val_on_sampler(val_sampler, val_id, self._current_step, *args, **kwargs)
+                    self._run_val_on_sampler(val_sampler, val_id, self._current_step, **cb_kwargs)
 
         # Call on_train_end
-        self._callbacks.on_train_end(self, **kwargs)
+        self._callbacks.on_train_end(self, **cb_kwargs)
 
     # -------------------------------------------------------------------------
     # Log retrieval and DataFrame conversion

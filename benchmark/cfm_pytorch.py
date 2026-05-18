@@ -65,7 +65,7 @@ def train(config):
     adata.X = adata.X.toarray().astype("float32")
 
     # Register data
-    SCFlow.register_adata(adata)
+    SCFlow.register_adata(adata, sample_rep="X_pca")
 
     # Initiallize logger and model
     logger = WandBLogger(project_name=f"{config['run_name']}", log_dir="./logs", config=config)

@@ -1,0 +1,36 @@
+# General Run Configuration
+run_name: "scflow_combosciplex_001"
+output_dir: "./results"
+
+# Data Configuration
+data:
+  path: "data/combosciplex.h5ad"
+
+# Model Architecture and Logic
+model:
+  method_id: "cfm"
+  device_id: "mps"  # Use "cpu" if no GPU is available
+  conditioning_id: "concat"
+  time_features_id: "torch-cfm"
+
+  # Probability Path Configuration
+  # Options: "schrodinger_bridge", "linear_gaussian", "linear_dirac", "variance_preserving_dirac"
+  probability_path_id: "linear_dirac"
+  probability_path_sigma: 0.1
+
+  # MLP Keyword Arguments (Dictionaries)
+  vf_decoder_mlp_kwargs:
+    # hidden_dims: [64, 64]
+    hidden_dims: [32, 32]
+
+  # state_encoder_mlp_kwargs:
+  #   hidden_dims: [32]
+
+  # time_encoder_mlp_kwargs:
+  #   hidden_dims: [16]
+
+# Hyperparameters
+training:
+  batch_size: 256
+  lr: 0.0001
+  n_train_steps: 1000

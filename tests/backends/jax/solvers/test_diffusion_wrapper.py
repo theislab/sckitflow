@@ -4,7 +4,7 @@ import jax.random as jr
 import lineax as lx
 import pytest
 
-from sc_flow.backends.jax.solvers.sde_solver import SDESolver
+from sc_flow.backends.jax.solvers._sde_solver import SDESolver
 
 
 def _wrap(diffusion_fn, df_kwargs=None):

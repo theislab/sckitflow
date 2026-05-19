@@ -70,6 +70,7 @@ optional-dependencies.test = [
   "pytest",
   "pytest-cov",
   "scanpy",
+  "torch",
 ]
 optional-dependencies.torch = [
   "pot",         # noqa

@@ -182,10 +182,12 @@ class FlowTrainer:
             )
             logger.warning(msg)
             prng = random.PRNGKey(0)
+        """"
         elif (not self._require_prng) and (prng is not None):
             msg = f"PRNG provided to {self.__class__.__name__}, which is deterministic. Setting it to `None`."
             logger.warning(msg)
             prng = None
+        """
 
         pbar = tqdm(range(num_iterations))
         # prng_data = np.random.default_rng(0)

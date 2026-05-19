@@ -6,12 +6,13 @@ import jax
 import optax
 import torch
 import torchax.interop as interop
-from torchax.interop import JittableModule, jax_view, torch_view
+from torchax.interop import JittableModule, call_jax, jax_value_and_grad, jax_view, torch_view
 
 import sc_flow.methods as basemethods
 from sc_flow import _constants
 from sc_flow.backends.torchax.nn._vf import MLPUnconditionalVF
 from sc_flow.backends.torchax.probability_paths._probability_paths import BaseProbabilityPath
+from sc_flow.backends.torchax.solvers._ode_solver import WrappedODESolver
 
 __all__ = ["FlowMatching"]
 
@@ -102,13 +103,15 @@ class FlowMatching(basemethods.FlowMatching):
 
         def train_step(weights, opt_state, t, xt, ut, condition):
             def compute_loss(weights):
-                vt = model_fn(weights, buffers, (t, xt), {"condition_dict": condition})
+                vt = model_fn(weights, buffers, t=t, x=xt, condition_dict={"condition_dict": condition})
                 return torch.nn.functional.mse_loss(vt, ut)
 
-            loss, grads = jax.value_and_grad(compute_loss)(weights)
-            updates, new_opt_state = optimizer.update(grads, opt_state)
-            new_weights = optax.apply_updates(weights, updates)
-            return loss, new_weights, new_opt_state
+            grad_fn = jax_value_and_grad(compute_loss)
+            loss, grads = grad_fn(weights)
+            updates, opt_state = call_jax(optimizer.update, grads, opt_state)
+            new_weights = call_jax(optax.apply_updates, weights, updates)
+
+            return loss, new_weights, opt_state
 
         return train_step
 
@@ -164,5 +167,53 @@ class FlowMatching(basemethods.FlowMatching):
         """Trainer-compatible wrapper around :meth:`step_fn`."""
         return self.step_fn(prng, batch)
 
-    def predict(self, *args: Any, **kwargs: Any) -> Any:
-        raise NotImplementedError
+    def predict(
+        self,
+        source: Any,
+        t0: float = 0.0,
+        t1: float = 1.0,
+        *,
+        num_time_steps: int = 500,
+        return_trajectory: bool = False,
+        condition: dict[str, Any] | None = None,
+        solver: "WrappedODESolver | None" = None,
+        solver_kwargs: dict[str, Any] | None = None,
+    ) -> Any:
+        weights_ema = self._weights_ema
+        model_fn = self._model_fn
+        buffers = self._buffers
+        condition_jax = {k: v.to("jax") for k, v in condition.items()} if condition is not None else None
+
+        class _EMAVFWrapper(torch.nn.Module):
+            def forward(self, t: Any, x: Any, condition_dict: Any = None) -> Any:
+                return model_fn(
+                    weights_ema,
+                    buffers,
+                    t=t,
+                    x=x,
+                    condition_dict={"condition_dict": condition_dict},
+                )
+
+            def get_vf_fn(self, **vf_kwargs: Any):
+                """Return a plain callable ``(t, x) -> vt`` as expected by the solver wrappers."""
+                _condition = condition_jax
+
+                def vf_fn(t: Any, x: Any) -> Any:
+                    return self.forward(t, x, condition_dict=_condition)
+
+                return vf_fn
+
+        ema_vf = _EMAVFWrapper()
+
+        if solver is None:
+            solver = WrappedODESolver(dynamics=ema_vf, method="euler")
+
+        source_jax = source.to("jax")
+        return solver.solve(
+            source_jax,
+            t0,
+            t1,
+            num_time_steps=num_time_steps,
+            return_trajectory=return_trajectory,
+            solver_kwargs=solver_kwargs,
+        )

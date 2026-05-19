@@ -68,6 +68,7 @@ optional-dependencies.jax = [
 optional-dependencies.test = [
   "coverage",
   "pytest",
+  "scanpy",
 ]
 optional-dependencies.torch = [
   "pot",         # noqa

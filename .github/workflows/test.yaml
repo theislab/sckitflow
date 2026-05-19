@@ -99,7 +99,7 @@ jobs:
       - name: Run tests
         env:
           MPLBACKEND: agg
-        run: uv run pytest tests/ -v --cov=sc_flow --cov-report=xml --ignore=tests/backends/jax
+        run: uv run pytest tests/ --cov=sc_flow --cov-report=xml --ignore=tests/backends/jax
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:

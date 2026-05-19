@@ -1,8 +1,8 @@
 from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
+import torch
 
-# import torch
 from sc_flow.trainer._callbacks import (
     BaseCallback,
     ComputationalCallback,
@@ -157,18 +157,18 @@ class TestMetricsCallback:
         result = cb._apply_transforms(5, [transform])
         assert result == 6
 
-    # def test_to_tensor_numpy_torch_backend(self):
-    #     cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch", device="cpu")
-    #     data = np.array([1.0, 2.0, 3.0])
-    #     tensor = cb._to_tensor(data)
-    #     assert isinstance(tensor, torch.Tensor)
-    #     assert tensor.shape == (3,)
+    def test_to_tensor_numpy_torch_backend(self):
+        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch", device="cpu")
+        data = np.array([1.0, 2.0, 3.0])
+        tensor = cb._to_tensor(data)
+        assert isinstance(tensor, torch.Tensor)
+        assert tensor.shape == (3,)
 
-    # def test_to_tensor_torch_tensor_torch_backend(self):
-    #     cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch", device="cpu")
-    #     data = torch.tensor([1.0, 2.0, 3.0])
-    #     tensor = cb._to_tensor(data)
-    #     assert tensor is data
+    def test_to_tensor_torch_tensor_torch_backend(self):
+        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch", device="cpu")
+        data = torch.tensor([1.0, 2.0, 3.0])
+        tensor = cb._to_tensor(data)
+        assert tensor is data
 
     def test_to_tensor_jax_backend_returns_numpy(self):
         cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="jax")

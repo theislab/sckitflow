@@ -68,6 +68,7 @@ optional-dependencies.jax = [
 optional-dependencies.test = [
   "coverage",
   "jax",
+  "ott-jax",
   "pytest",
   "pytest-cov",
   "scanpy",

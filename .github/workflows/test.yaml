@@ -95,7 +95,7 @@ jobs:
         with:
           python-version: "3.10"
       - name: Install package with torch extra
-        run: uv pip install -e .[torch]
+        run: uv pip install -e .[torch, test]
       - name: Run tests
         env:
           MPLBACKEND: agg
@@ -116,7 +116,7 @@ jobs:
         with:
           python-version: "3.10"
       - name: Install package with jax extra
-        run: uv pip install -e .[jax]
+        run: uv pip install -e .[jax, test]
       - name: Run tests
         env:
           MPLBACKEND: agg

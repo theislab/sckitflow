@@ -67,6 +67,7 @@ optional-dependencies.jax = [
 ]
 optional-dependencies.test = [
   "coverage",
+  "diffrax",
   "jax",
   "ott-jax",
   "pytest",

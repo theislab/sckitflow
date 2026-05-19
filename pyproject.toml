@@ -24,18 +24,20 @@ classifiers = [
 ]
 dependencies = [
   "anndata",
+  "omegaconf",
+  "scikit-learn",
+  "session-info2",
+  "tqdm",
+  "wandb",
+]
+optional-dependencies.all = [
   "diffrax",
   "flax",
   "jax",
-  "omegaconf",
   "ott-jax",
-  "scikit-learn",
-
-  # for debug logging (referenced from the issue template)
-  "session-info2",
   "torch",
-  "wandb",
 ]
+
 optional-dependencies.dev = [
   "pre-commit",
   "twine>=4.0.2",
@@ -56,9 +58,21 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
+optional-dependencies.jax = [
+  "diffrax",
+  "flax",
+  "jax",
+  "ott-jax",
+]
 optional-dependencies.test = [
   "coverage",
   "pytest",
+]
+optional-dependencies.torch = [
+  "pot",
+  "torch",
+  "torchdiffeq",
+  "torchsde",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://sc-flow-tools.readthedocs.io/"

@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from typing import Any, Literal
 
 import torch
@@ -17,8 +18,11 @@ class SetEncoder(BaseModule):
         self,
         input_layers: NestedLayersDict,
         output_dim: int,
-        pooling_mode: Literal["mean", "sum"] = "mean",
+        pooling_mode: Literal["mean", "sum", "attention-token", "attention-seed"] = "mean",
         pooling_kwargs: dict[str, Any] | None = None,
+        pooling_proj_dim: int = 32,
+        pooling_proj_bias: bool = True,
+        covariates_not_pooled: Collection[str] | None = None,
         output_layers_kwargs: LayersDict | None = None,
     ) -> None:
         """Initializes the set encoder.
@@ -38,6 +42,18 @@ class SetEncoder(BaseModule):
             Ignored when pooling is `"mean"` or `"sum"`, defaults to `None`.
         :type pooling_kwargs: class: `dict[str, Any]`
 
+        :param pooling_proj_dim: Shared projection dimension for the covariates to pool,
+            defaults to `32`.
+        :type pooling_proj_dim: class: `int`
+
+        :param pooling_proj_bias: Whether to use bias term for linear projection of
+            covariates to pool, defaults to `True`.
+        :type pooling_proj_bias: class: `int`
+
+        :param covariates_not_pooled: String identifier for the covariates not to pool,
+            defaults to `None`.
+        :type covariates_not_pooled: class: `Collection[str] | None`
+
         :param output_layers_kwargs: Dictionary containing the configurations for the output layer.
             Defaults to `None`.
         :type output_layers_kwargs: class: `LayersDict | None`
@@ -47,6 +63,9 @@ class SetEncoder(BaseModule):
         self._output_dim = output_dim
         self._pooling_mode = pooling_mode
         self._pooling_kwargs = {} if pooling_kwargs is None else pooling_kwargs
+        self._pooling_proj_dim = pooling_proj_dim
+        self._pooling_proj_bias = pooling_proj_bias
+        self._covariates_not_pooled = [] if covariates_not_pooled is None else covariates_not_pooled
         self._output_layers_kwargs = {} if output_layers_kwargs is None else output_layers_kwargs
 
         self._condition_encoder = self._make_modules()
@@ -70,6 +89,10 @@ class SetEncoder(BaseModule):
         elif self._pooling_mode == "sum":
             pooling_fn = lambda x: torch.sum(x, dim=-2)
             return FunctionalModule(pooling_fn)
+        elif self._pooling_mode == "attention-token":
+            raise NotImplementedError
+        elif self._pooling_mode == "attention-seed":
+            raise NotImplementedError
         else:
             msg = f'Pooling mode {self._pooling_mode} is not supported, possible options are `["mean", "sum"]`'
             raise ValueError(msg)
@@ -86,8 +109,27 @@ class SetEncoder(BaseModule):
         self,
     ) -> torch.nn.Module:
         """Initializes the module."""
+        # prepare dict for projection of pooled covariates
+        proj_layers = {}
+        for cov, cov_dict in self._input_layers.items():
+            # only for covariates to pool
+            if cov not in self._covariates_not_pooled:
+                # get covariate encoder output dim
+                # and initialize projection
+                cov_out_dim = cov_dict["output_dim"]
+                cov_proj = torch.nn.Linear(
+                    cov_out_dim,
+                    self._pooling_proj_dim,
+                    bias=self._pooling_proj_bias,
+                )
+
+                # update dictionary
+                proj_key = f"{cov}_proj"
+                proj_layers[proj_key] = cov_proj
+
         layers = {
             **self._make_input_layers(),
+            **proj_layers,
             "pooling_layer": self._make_pooling_layer(),
             "output_layer": self._make_output_layer(),
         }
@@ -103,24 +145,77 @@ class SetEncoder(BaseModule):
             each perturbation covariate.
         :type condition_dict: class: `MappedTensor`
         """
+        # prepare dictionary to store encoded covariates
+        encoded_covariates_to_pool = {}
+        encoded_covariates_not_pooled = {}
+
         # iterating over perturbation covariates
-        encoded_covariates = {}
         for covariate_id, covariate_data in condition_dict.items():
+            # check that the covariate is present in the data
             if covariate_id not in self._condition_encoder.keys():
                 msg = f"Input encoder not found for covariate {covariate_id}"
                 raise KeyError(msg)
-            encoded_covariates[covariate_id] = self._condition_encoder[covariate_id](covariate_data)
 
-        pooled_covariates = torch.concatenate(tuple(encoded_covariates.values()), dim=-2)
-        pooled_covariates = self._condition_encoder["pooling_layer"](pooled_covariates)
-        return self._condition_encoder["output_layer"](pooled_covariates)
+            # get covariate latent representation
+            cov_enc = self._condition_encoder[covariate_id]
+            z_cov = cov_enc(covariate_data)
+
+            # update dictionaries
+            if covariate_id in self._covariates_not_pooled:
+                encoded_covariates_not_pooled[covariate_id] = z_cov
+
+            else:
+                # get shared projection layer
+                proj_key = f"{covariate_id}_proj"
+                cov_proj = self._condition_encoder[proj_key]
+
+                # apply projection and update dict
+                z_cov = cov_proj(z_cov)
+                encoded_covariates_to_pool[covariate_id] = z_cov
+
+        # pooled covariates
+        if len(encoded_covariates_to_pool) > 0:
+            pooled_covariates = torch.concatenate(tuple(encoded_covariates_to_pool.values()), dim=-2)
+            pooled_covariates = self._condition_encoder["pooling_layer"](pooled_covariates)
+        else:
+            pooled_covariates = None
+
+        # not pooled covariates
+        if len(encoded_covariates_not_pooled) > 0:
+            covariates_not_pooled = torch.concatenate(tuple(encoded_covariates_not_pooled.values()), dim=-1)
+        else:
+            covariates_not_pooled = None
+
+        # get joint representation
+        to_concat = []
+        if pooled_covariates is not None:
+            to_concat.append(pooled_covariates)
+        if covariates_not_pooled is not None:
+            to_concat.append(covariates_not_pooled)
+        if len(to_concat) == 0:
+            msg = "No condition covariate found."
+            raise ValueError(msg)
+        latent_cond = torch.concatenate(to_concat, dim=-1)
+
+        return self._condition_encoder["output_layer"](latent_cond)
 
     @property
     def decoder_input_dim(
         self,
     ) -> int:
         """Retrieves the input dimensionality for the output decoder."""
-        # summing up all the dimensions of non pooled covariates
-        # decoder_input_dim = sum(layer_dict["output_dim"] for layer_dict in self._input_layers.values())
-        decoder_input_dim = next(iter(self._input_layers.values()))["output_dim"]
+        # define list to store dimensions
+        not_pooled_input_dims = []
+
+        # iterate over each covariate
+        for cov, cov_dict in self._input_layers.items():
+            # get output dimension
+            output_dim = cov_dict["output_dim"]
+
+            # update store
+            if cov in self._covariates_not_pooled:
+                not_pooled_input_dims.append(output_dim)
+
+        # construct decoder input dim
+        decoder_input_dim = self._pooling_proj_dim + sum(not_pooled_input_dims)
         return decoder_input_dim

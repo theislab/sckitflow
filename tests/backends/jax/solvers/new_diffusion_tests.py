@@ -3,7 +3,7 @@ import jax
 import jax.numpy as jnp
 import lineax as lx
 
-from sc_flow.backends.jax.solvers.sde_solver import SDESolver
+from sc_flow.backends.jax.solvers._sde_solver import SDESolver
 
 
 class ConstantDriftVF:

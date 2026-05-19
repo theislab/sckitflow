@@ -1,6 +1,7 @@
 import logging
 import tarfile
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, overload
 
@@ -18,6 +19,7 @@ from sc_flow.data.samplers._train import FTrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
 from sc_flow.methods._opt import OptimConfig
+from sc_flow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sc_flow.trainer._trainer import Trainer
 
 if TYPE_CHECKING:
@@ -196,6 +198,7 @@ class SCFlow:
         train_adata: AnnData,
         *args,
         val_adatas_dict: dict[str, AnnData] | None = None,
+        callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
         n_train_steps: int = 100_000,
         valid_freq: int = 1_000,
         train_batch_size: int = 128,
@@ -212,11 +215,14 @@ class SCFlow:
         :param train_adata: The train adata.
         :type train_adata: class: `AnnData`
 
-        :param *args: Positional arguments used to initialize the trainer class.
+        :param *args: Positional arguments used to call the `.train` method of the trainer class.
         :type *args: class: `Sequence[Any]`
 
         :param val_adatas_dict: Dictionary containing the validation adatas.
         :type val_adatas_dict: class: `dict[str, AnnData]`
+
+        :param callbacks: Callbacks to be used during training.
+        :type callbacks: class: `TrainingCallbacks | Sequence[BaseCallback] | None`
 
         :param n_train_steps: The number of training steps to train the model over.
             Defaults to `10_000`
@@ -240,9 +246,6 @@ class SCFlow:
         :param val_sampler_kwargs: Extra keyword arguments for the validation sampler. Defaults to `None`.
         :type val_sampler_kwargs: class: `dict[str, Any] | None`
 
-        :param train_kwargs: Extra keyword arguments for the call to the trainer `.train` method. Defaults to `None`.
-        :type train_kwargs: class: `dict[str, Any] | None`
-
         :param optim_kwargs: Keyword arguments to configure for the optimization manager (optimizer, scheduler, etc.). Defaults to `None`.
         :type optim_kwargs: class: `OptimConfig | None`
 
@@ -253,7 +256,7 @@ class SCFlow:
             is raised otherwise.
         :type sort: class: `bool`
 
-        :param *kwargs: Keyword arguments used to initialize the trainer class.
+        :param *kwargs: Keyword arguments used to call the `.train` method of the trainer class.
         :type *kwargs: class: `dict[str, Any]`
         """
         # compile adata
@@ -310,16 +313,14 @@ class SCFlow:
             raise_runtime_error_on_backend_not_supported(self._backend)
 
         # initialize trainer (now passing optimization manager)
-        self._trainer = Trainer(self._method, opt_manager, *args, **kwargs)
+        self._trainer = Trainer(self._method, opt_manager, callbacks)
 
         # module in training mode
         self._method.set_train_mode(True)
 
         # train model
-        if train_kwargs is None:
-            train_kwargs = {}
         self._trainer.train(
-            train_sampler, val_samplers_dict, n_train_steps=n_train_steps, valid_freq=valid_freq, **train_kwargs
+            train_sampler, val_samplers_dict, *args, n_train_steps=n_train_steps, valid_freq=valid_freq, **kwargs
         )
 
     def predict(

@@ -88,10 +88,10 @@ class CategoricalData(BaseData):
         col: str,
         realm_repr_dict: dict[Hashable, np.ndarray],
     ) -> np.ndarray:
-        col_values = self.ann_df[col].values
-        # Get the representation for each value (assuming all have same dimension)
+        # Get the representation for each unique value (assuming all have same dimension)
+        col_values = self.ann_df[col].drop_duplicates().values
         reprs = [realm_repr_dict[val].reshape(1, -1) for val in col_values]
-        # Stack vertically -> shape (n_samples, dim)
+        # Stack vertically -> shape (n_unique_values, dim)
         return np.vstack(reprs)
 
     def _encode_col(

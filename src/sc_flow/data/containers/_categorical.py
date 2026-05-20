@@ -209,15 +209,15 @@ class CategoricalData(BaseData):
 
             # update
             ann_dfs_list.append(element.ann_df)
-            repr_dict.extend(element.repr_dict)
-            categorical_encoders.extend(element.categorical_encoders)
-            categorical_reps_map.extend(element.categorical_reps_map)
+            repr_dict.update(element.repr_dict)
+            categorical_encoders.update(element.categorical_encoders)
+            categorical_reps_map.update(element.categorical_reps_map)
 
         # concatenate df
         ann_df = pd.concat(ann_dfs_list, axis=0)
         return cls(
             ann_df,
             repr_dict=repr_dict,
-            categorical_encoder=categorical_encoders,
+            categorical_encoders=categorical_encoders,
             categorical_reps_map=categorical_reps_map,
         )

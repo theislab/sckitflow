@@ -436,10 +436,13 @@ class SCFlow:
             cond_df = ann_df.drop_duplicates()
 
             # 3. Check that the node contains only one condition
-            n_unique_conds = cond_df.shape[0]
-            if n_unique_conds != 1:
-                msg = f"Node should contain unique condition, {n_unique_conds} found."
-                raise ValueError(msg)
+            #    or that the are actually columns inside
+            n_ann_cols = len(cond_df.columns)
+            if n_ann_cols:
+                n_unique_conds = cond_df.shape[0]
+                if n_unique_conds != 1:
+                    msg = f"Node should contain unique condition, {n_unique_conds} found."
+                    raise ValueError(msg)
 
             # 4. Get number of generated observations
             if hasattr(pred_obj, "samples"):
@@ -448,7 +451,12 @@ class SCFlow:
                 n_pred_obs = 1
 
             # 5. Align dataframe and update
-            pred_df = pd.DataFrame(np.repeat(cond_df, n_pred_obs, axis=0), columns=ann_df.columns)
+            # only when there are columns we need to repeat, otherwise keep as is
+            if n_ann_cols:
+                df_data = np.repeat(cond_df, n_pred_obs, axis=0)
+            else:
+                df_data = cond_df
+            pred_df = pd.DataFrame(df_data, columns=ann_df.columns)
             all_obs.append(pred_df.copy())
 
         # early return

@@ -15,6 +15,7 @@ from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
 from sc_flow.data._composite import MatchedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
+from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.samplers._train import FTrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
@@ -171,6 +172,61 @@ class SCFlow:
             return np.array(tensor)
         else:
             raise ValueError(f"Unsupported backend: {self._backend}")
+
+    def _prepare_node_for_predict(self, node: MatchedData) -> MatchedData:
+        """Prepare the input node for prediction.
+
+        When no continuous covariates are present or when no source states
+        are modeled, the node will be unchanged. Otherwise the source
+        distribution will be repeated to align the batch dimension with the target data.
+
+        :param node: The input node to prepare for prediction on.
+        :type node: class: `MatchedData`
+        """
+        # return node when no continuous covariates are present
+        if not self._dm.condition_data_schema.has_continuous_covariates:
+            return node
+        # return node when no source states are present
+        if node.source is None:
+            return node
+
+        # get number of observation in source and target data
+        n_src_obs = len(node.source)
+        n_tgt_obs = len(node.target)
+
+        # return node when they have same number of observations
+        if n_tgt_obs == n_src_obs:
+            return node
+
+        # slice source when there are less observations
+        if n_tgt_obs < n_src_obs:
+            tgt_slice = slice(n_tgt_obs)
+            src_data = node.source[tgt_slice]
+            return MatchedData(
+                node.target,
+                source_distribution=src_data,
+            )
+
+        # repeat source as many times as needed
+        n_repeats = n_tgt_obs // n_src_obs
+        n_remainders = n_tgt_obs % n_src_obs
+
+        # prepare for concatenation
+        src_to_concat = []
+        for _ in range(n_repeats):
+            src_data = node.source
+            src_to_concat.append(src_data)
+
+        # append remainder
+        src_data = node.source[slice(n_remainders)]
+        src_to_concat.append(src_data)
+
+        # concatenate distribution data
+        src_data = DistributionData.concat_collection(src_to_concat)
+        return MatchedData(
+            node.target,
+            source_distribution=src_data,
+        )
 
     def to_device(self, device: str) -> None:
         """Move the underlying PyTorch module and optimizer state to the specified device."""
@@ -370,6 +426,7 @@ class SCFlow:
         # Iterate over each node (e.g., cell type / condition group)
         for node in tqdm(tree_flat, desc="Predicting"):
             # 1. Inference – returns backend‑specific PredictionData
+            node = self._prepare_node_for_predict(node)
             pred_obj = self._method.predict(node, *args, **kwargs)
             all_preds.append(pred_obj)
 

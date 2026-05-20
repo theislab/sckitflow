@@ -50,7 +50,7 @@ class SetEncoder(BaseModule):
             covariates to pool, defaults to `True`.
         :type pooling_proj_bias: class: `bool`
 
-        :param covariates_not_pooled: String identifier for the covariates not to pool,
+        :param covariates_not_pooled: Collection of string identifiers for the covariates not to pool,
             defaults to `None`.
         :type covariates_not_pooled: class: `Collection[str] | None`
 

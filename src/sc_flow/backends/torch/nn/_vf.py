@@ -207,9 +207,9 @@ class MLPVelocity(BaseVelocityField):
 
         :param condition_encoder_pooling_proj_bias: Whether to use bias term for linear projection of
             covariates to pool, defaults to `True`.
-        :type condition_encoder_pooling_proj_bias: class: `int`
+        :type condition_encoder_pooling_proj_bias: class: `bool`
 
-        :param condition_encoder_covariates_not_pooled: String identifier for the covariates not to pool,
+        :param condition_encoder_covariates_not_pooled: Collection of string identifiers for the covariates not to pool,
             defaults to `None`.
         :type condition_encoder_covariates_not_pooled: class: `Collection[str] | None`
 

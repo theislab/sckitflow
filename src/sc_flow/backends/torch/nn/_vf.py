@@ -1,4 +1,5 @@
 import abc
+from collections.abc import Collection
 from typing import Any, Literal
 
 import torch
@@ -92,6 +93,9 @@ class MLPVelocity(BaseVelocityField):
         condition_encoder_output_dim: int | None = None,
         condition_encoder_pooling_mode: Literal["mean", "sum"] = "mean",
         condition_encoder_pooling_kwargs: dict[str, Any] | None = None,
+        condition_encoder_pooling_proj_dim: int | None = None,
+        condition_encoder_pooling_proj_bias: bool = True,
+        condition_encoder_covariates_not_pooled: Collection[str] | None = None,
         condition_encoder_output_layers_kwargs: LayersDict | None = None,
         source_encoder_mlp_kwargs: LayersDict | None = None,
         source_encoder_output_dim: int | None = None,
@@ -197,9 +201,18 @@ class MLPVelocity(BaseVelocityField):
             Ignored when pooling is `"mean"` or `"sum"`, defaults to `None`.
         :type condition_encoder_pooling_kwargs: class: `dict[str, Any]`
 
-        :param condition_encoder_covariates_not_pooled: Optional sequence of the perturbation covariate
-            identifiers for which the pooling should not be applied. Defaults to `None`.
-        :class condition_encoder_covariates_not_pooled: class: `Sequence[int] | None`
+        :param condition_encoder_pooling_proj_dim: Shared projection dimension for the covariates to pool,
+            defaults to `None`, in which case it will be set to the minimum output
+            dimensionality of the input encoder for pooled covariates.
+        :type condition_encoder_pooling_proj_dim: class: `int | None`
+
+        :param condition_encoder_pooling_proj_bias: Whether to use bias term for linear projection of
+            covariates to pool, defaults to `True`.
+        :type condition_encoder_pooling_proj_bias: class: `bool`
+
+        :param condition_encoder_covariates_not_pooled: Collection of string identifiers for the covariates not to pool,
+            defaults to `None`.
+        :type condition_encoder_covariates_not_pooled: class: `Collection[str] | None`
 
         :param condition_encoder_output_layers_kwargs: Dictionary containing the configurations for the output layer.
             Defaults to `None`.
@@ -244,6 +257,9 @@ class MLPVelocity(BaseVelocityField):
         )
         self._condition_encoder_pooling_mode = condition_encoder_pooling_mode
         self._condition_encoder_pooling_kwargs = condition_encoder_pooling_kwargs
+        self._condition_encoder_pooling_proj_dim = condition_encoder_pooling_proj_dim
+        self._condition_encoder_pooling_proj_bias = condition_encoder_pooling_proj_bias
+        self._condition_encoder_covariates_not_pooled = condition_encoder_covariates_not_pooled
         self._condition_encoder_output_layers_kwargs = condition_encoder_output_layers_kwargs
         self._source_encoder_mlp_kwargs = source_encoder_mlp_kwargs
         self._source_encoder_output_dim = (
@@ -426,6 +442,9 @@ class MLPVelocity(BaseVelocityField):
             self._condition_encoder_output_dim,
             pooling_mode=self._condition_encoder_pooling_mode,
             pooling_kwargs=self._condition_encoder_pooling_kwargs,
+            pooling_proj_dim=self._condition_encoder_pooling_proj_dim,
+            pooling_proj_bias=self._condition_encoder_pooling_proj_bias,
+            covariates_not_pooled=self._condition_encoder_covariates_not_pooled,
             output_layers_kwargs=self._condition_encoder_output_layers_kwargs,
         )
 
@@ -541,14 +560,11 @@ class MLPVelocity(BaseVelocityField):
         source_encoder_mlp_kwargs: LayersDict | None = None,
         **kwargs,
     ) -> "MLPVelocity":
-        # get arguments from keywords when provided in kwargs
-        if "condition_encoder_input_layers" in kwargs:
-            condition_encoder_input_layers = kwargs.pop("condition_encoder_input_layers")
-        if "source_encoder_mlp_kwargs" in kwargs:
-            source_encoder_mlp_kwargs = kwargs.pop("source_encoder_mlp_kwargs")
-
         # get dimensionalities from registry
         state_dim = dims_registry.state_dim
+
+        # get covariates not to pool from registry
+        condition_encoder_covariates_not_pooled = []
 
         # create dictionary with all conditions dimensions
         all_dims_dict = {
@@ -560,11 +576,18 @@ class MLPVelocity(BaseVelocityField):
         # register input dimensionalities for condition encoder
         if condition_encoder_input_layers is not None:
             for cov, input_layers in condition_encoder_input_layers.items():
+                # check that covariate appears in the data
                 if cov not in all_dims_dict.keys():
                     msg = f"Covariate {cov} not found in the data."
                     raise KeyError(msg)
+
+                # update dimensionality
                 cov_input_dim = all_dims_dict[cov]
                 input_layers["input_dim"] = cov_input_dim
+
+                # add continuous covariates to the covariates not to pool
+                if cov in dims_registry.condition_continuous_dims.keys():
+                    condition_encoder_covariates_not_pooled.append(cov)
 
         # register source state dimensionality when provided
         if source_encoder_mlp_kwargs is not None:
@@ -579,9 +602,17 @@ class MLPVelocity(BaseVelocityField):
                 source_dim = None
             source_encoder_mlp_kwargs["input_dim"] = source_dim
 
+        # promote arguments passed from kwargs
+        condition_encoder_input_layers = kwargs.pop("condition_encoder_input_layers", condition_encoder_input_layers)
+        source_encoder_mlp_kwargs = kwargs.pop("source_encoder_mlp_kwargs", source_encoder_mlp_kwargs)
+        condition_encoder_covariates_not_pooled = kwargs.pop(
+            "condition_encoder_covariates_not_pooled", condition_encoder_covariates_not_pooled
+        )
+
         return cls(
             state_dim,
             condition_encoder_input_layers=condition_encoder_input_layers,
             source_encoder_mlp_kwargs=source_encoder_mlp_kwargs,
+            condition_encoder_covariates_not_pooled=condition_encoder_covariates_not_pooled,
             **kwargs,
         )

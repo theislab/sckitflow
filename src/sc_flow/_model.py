@@ -68,7 +68,10 @@ class SCFlow:
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
         )
-        cls._is_paired_setting_cls = cls._dm_cls.control_values_dict is not None
+        cls._is_paired_setting_cls = (
+            cls._dm_cls.control_values_dict is not None
+            or cls._dm_cls.matched_keys is not None
+        )
         cls._view_on_condition_space_cls = view_on_condition_space
         cls._condition_state_key_cls = condition_state_key
 

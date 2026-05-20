@@ -48,6 +48,7 @@ class DataManager:
         n_shared_dims: int | None = None,
         source_rep: str | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
+        allow_paired_settings_on_condition_view: bool = False,
     ) -> None:
         """Initializes the object.
 
@@ -107,9 +108,18 @@ class DataManager:
             When passed, takes precedence over :param: `source_key`.
             Defaults to `None`, in which case falls back to one to many coupling.
         :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
+
+        :param allow_paired_settings_on_condition_view: Whether to allow paired settings
+            when viewing the distribution on the conditoin space. Defaults to `False`,
+            in which case the condition space view will fall back to the unpaired
+            conditional generation setting regardless of the configurations
+            set for the state space view
+            (namely :param: `control_values_dict` and :param: `matched_keys`).
+        :type allow_paired_settings_on_condition_view: class: `bool`
         """
         self._control_values_dict = control_values_dict
         self._matched_keys = matched_keys
+        self._allow_paired_settings_on_condition_view = allow_paired_settings_on_condition_view
 
         self._state_data_schema: StateDataSchema = self._init_state_data_schema(sample_rep=sample_rep)
         self._condition_data_schema: ConditionDataSchema = self._init_condition_data_schema(
@@ -283,17 +293,22 @@ class DataManager:
                 "DataManager.sort_adata(adata) before compilation."
             )
 
-    def _get_matched_distributions(
-        self,
-        data: DistributionData,
-    ) -> NestedData:
+    def _get_matched_distributions(self, data: DistributionData, view_on_condition_space: bool = False) -> NestedData:
+        # optionally allow paired settings on condition space
+        if view_on_condition_space and not self._allow_paired_settings_on_condition_view:
+            source_key = None
+            matched_keys = None
+        else:
+            source_key = self.source_key
+            matched_keys = self.matched_keys
+
         self._assert_sorted(data)
         mapped_index = self._get_mapped_index(data.ann_df)
         return NestedData.init_from_data(
             data,
             mapped_index,
-            source_key=self.source_key,
-            matched_keys=self.matched_keys,
+            source_key=source_key,
+            matched_keys=matched_keys,
         )
 
     def _get_data_dimensionalities(
@@ -303,16 +318,16 @@ class DataManager:
     ) -> DataDimensionalitiesRegistry:
         return DataDimensionalitiesRegistry.init_from_distribution_data(data, feature_names)
 
-    def get_matched_distributions(
-        self,
-        data: DistributionData,
-    ) -> NestedData:
+    def get_matched_distributions(self, data: DistributionData, view_on_condition_space: bool = False) -> NestedData:
         """Hierachically splits a distribution data container into matched subpopulations.
 
         :param data: The distribution data container for the whole population.
         :type data: class: `DistributionData`
         """
-        return self._get_matched_distributions(data)
+        return self._get_matched_distributions(
+            data,
+            view_on_condition_space=view_on_condition_space,
+        )
 
     def get_distribution_data(
         self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
@@ -400,7 +415,7 @@ class DataManager:
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
         )
-        return self._get_matched_distributions(data)
+        return self._get_matched_distributions(data, view_on_condition_space=view_on_condition_space)
 
     def get_data_dimensionalities(
         self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None

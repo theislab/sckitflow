@@ -254,3 +254,96 @@ class TestConditionSpaceView:
         assert dims.condition_reps_dims is not None and all(d > 0 for d in dims.condition_reps_dims.values())
         # the continuous covariate was consumed, so continuous condition dim should be 0 or None
         assert dims.condition_continuous_dims == {}
+
+
+class TestConditionSpacePairedSettings:
+    """Test the allow_paired_settings_on_condition_view flag."""
+
+    def test_paired_disabled_by_default_on_condition_view(self, adata_small: AnnData):
+        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False (default),
+        the source_key / matched_keys are ignored, so no source distribution appears in MatchedData."""
+        # Add continuous covariate
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        # Create manager with control values (paired setting) but allow_paired_settings_on_condition_view=False
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=False,
+        )
+        # Compile with view_on_condition_space=True
+        nested = manager.compile_adata(
+            adata_small, sort=True, view_on_condition_space=True, condition_state_key="X_repr"
+        )
+
+        # Flatten and check that none of the MatchedData nodes have a source distribution
+        def check_no_source(node):
+            if isinstance(node, NestedData):
+                for v in node.mapping.values():
+                    check_no_source(v)
+            else:
+                assert node.source is None
+
+        check_no_source(nested)
+
+    def test_paired_enabled_on_condition_view(self, adata_small: AnnData):
+        """When allow_paired_settings_on_condition_view=True, pairing works as usual."""
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=True,
+        )
+        nested = manager.compile_adata(
+            adata_small, sort=True, view_on_condition_space=True, condition_state_key="X_repr"
+        )
+        # Check that some MatchedData nodes have source
+        has_source = False
+
+        def check_source_present(node):
+            nonlocal has_source
+            if isinstance(node, NestedData):
+                for v in node.mapping.values():
+                    check_source_present(v)
+            else:
+                if node.source is not None:
+                    has_source = True
+
+        check_source_present(nested)
+        assert has_source
+
+    def test_paired_setting_without_condition_view_ignores_flag(self, adata_small: AnnData):
+        """When view_on_condition_space=False, the flag has no effect; pairing works."""
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=False,  # should be ignored
+        )
+        nested = manager.compile_adata(adata_small, sort=True, view_on_condition_space=False)
+        has_source = False
+
+        def check_source(node):
+            nonlocal has_source
+            if isinstance(node, NestedData):
+                for v in node.mapping.values():
+                    check_source(v)
+            else:
+                if node.source is not None:
+                    has_source = True
+
+        check_source(nested)
+        assert has_source  # pairing still active

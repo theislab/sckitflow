@@ -15,6 +15,7 @@ from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
 from sc_flow.data._composite import MatchedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
+from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.samplers._train import FTrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
@@ -172,6 +173,61 @@ class SCFlow:
         else:
             raise ValueError(f"Unsupported backend: {self._backend}")
 
+    def _prepare_node_for_predict(self, node: MatchedData) -> MatchedData:
+        """Prepare the input node for prediction.
+
+        When no continuous covariates are present or when no source states
+        are modeled, the node will be unchanged. Otherwise the source
+        distribution will be repeated to align the batch dimension with the target data.
+
+        :param node: The input node to prepare for prediction on.
+        :type node: class: `MatchedData`
+        """
+        # return node when no continuous covariates are present
+        if not self._dm.condition_data_schema.has_continuous_covariates:
+            return node
+        # return node when no source states are present
+        if node.source is None:
+            return node
+
+        # get number of observation in source and target data
+        n_src_obs = len(node.source)
+        n_tgt_obs = len(node.target)
+
+        # return node when they have same number of observations
+        if n_tgt_obs == n_src_obs:
+            return node
+
+        # slice source when there are less observations
+        if n_tgt_obs < n_src_obs:
+            tgt_slice = slice(n_tgt_obs)
+            src_data = node.source[tgt_slice]
+            return MatchedData(
+                node.target,
+                source_distribution=src_data,
+            )
+
+        # repeat source as many times as needed
+        n_repeats = n_tgt_obs // n_src_obs
+        n_remainders = n_tgt_obs % n_src_obs
+
+        # prepare for concatenation
+        src_to_concat = []
+        for _ in range(n_repeats):
+            src_data = node.source
+            src_to_concat.append(src_data)
+
+        # append remainder
+        src_data = node.source[slice(n_remainders)]
+        src_to_concat.append(src_data)
+
+        # concatenate distribution data
+        src_data = DistributionData.concat_collection(src_to_concat)
+        return MatchedData(
+            node.target,
+            source_distribution=src_data,
+        )
+
     def to_device(self, device: str) -> None:
         """Move the underlying PyTorch module and optimizer state to the specified device."""
         if self._backend == "jax":
@@ -312,8 +368,9 @@ class SCFlow:
         else:
             raise_runtime_error_on_backend_not_supported(self._backend)
 
-        # initialize trainer (now passing optimization manager)
-        self._trainer = Trainer(self._method, opt_manager, callbacks)
+        # initialize trainer
+        if self._trainer is None:
+            self._trainer = Trainer(self._method, opt_manager, callbacks)
 
         # module in training mode
         self._method.set_train_mode(True)
@@ -370,6 +427,7 @@ class SCFlow:
         # Iterate over each node (e.g., cell type / condition group)
         for node in tqdm(tree_flat, desc="Predicting"):
             # 1. Inference – returns backend‑specific PredictionData
+            node = self._prepare_node_for_predict(node)
             pred_obj = self._method.predict(node, *args, **kwargs)
             all_preds.append(pred_obj)
 
@@ -378,10 +436,13 @@ class SCFlow:
             cond_df = ann_df.drop_duplicates()
 
             # 3. Check that the node contains only one condition
-            n_unique_conds = cond_df.shape[0]
-            if n_unique_conds != 1:
-                msg = f"Node should contain unique condition, {n_unique_conds} found."
-                raise ValueError(msg)
+            #    or that the are actually columns inside
+            n_ann_cols = len(cond_df.columns)
+            if n_ann_cols:
+                n_unique_conds = cond_df.shape[0]
+                if n_unique_conds != 1:
+                    msg = f"Node should contain unique condition, {n_unique_conds} found."
+                    raise ValueError(msg)
 
             # 4. Get number of generated observations
             if hasattr(pred_obj, "samples"):
@@ -390,7 +451,12 @@ class SCFlow:
                 n_pred_obs = 1
 
             # 5. Align dataframe and update
-            pred_df = pd.DataFrame(np.repeat(cond_df, n_pred_obs, axis=0), columns=ann_df.columns)
+            # only when there are columns we need to repeat, otherwise keep as is
+            if n_ann_cols:
+                df_data = np.repeat(cond_df, n_pred_obs, axis=0)
+            else:
+                df_data = cond_df
+            pred_df = pd.DataFrame(df_data, columns=ann_df.columns)
             all_obs.append(pred_df.copy())
 
         # early return

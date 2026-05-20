@@ -4,6 +4,7 @@ from typing import Any, Literal
 import torch
 
 from sc_flow._types import LayersDict, NestedLayersDict
+from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.backends.torch._types import MappedTensor
 from sc_flow.backends.torch.nn._modules import BaseModule, FunctionalModule
 from sc_flow.backends.torch.nn._utils import init_module_from_dict
@@ -87,6 +88,23 @@ class SetEncoder(BaseModule):
             layers[covariate_id] = init_module_from_dict(covariate_layers_dict)
         return layers
 
+    def _make_proj_layers(self) -> dict[str, torch.nn.Module]:
+        """Initializes the projection layers."""
+        layers = {}
+        for covariate_id, covariate_layers_dict in self._input_layers.items():
+            if covariate_id not in self._covariates_not_pooled:
+                # and initialize projection
+                cov_out_dim = covariate_layers_dict["output_dim"]
+                cov_proj = torch.nn.Linear(
+                    cov_out_dim,
+                    self._pooling_proj_dim,
+                    bias=self._pooling_proj_bias,
+                )
+
+                # update dictionary
+                layers[covariate_id] = cov_proj
+        return layers
+
     def _make_pooling_layer(
         self,
     ) -> torch.nn.Module:
@@ -117,27 +135,17 @@ class SetEncoder(BaseModule):
         self,
     ) -> torch.nn.Module:
         """Initializes the module."""
-        # prepare dict for projection of pooled covariates
-        proj_layers = {}
-        for cov, cov_dict in self._input_layers.items():
-            # only for covariates to pool
-            if cov not in self._covariates_not_pooled:
-                # get covariate encoder output dim
-                # and initialize projection
-                cov_out_dim = cov_dict["output_dim"]
-                cov_proj = torch.nn.Linear(
-                    cov_out_dim,
-                    self._pooling_proj_dim,
-                    bias=self._pooling_proj_bias,
-                )
+        # make input layers
+        input_layers_dict = self._make_input_layers()
+        input_layers = torch.nn.ModuleDict(input_layers_dict)
 
-                # update dictionary
-                proj_key = f"{cov}_proj"
-                proj_layers[proj_key] = cov_proj
+        # make projection layers
+        proj_layers_dict = self._make_proj_layers()
+        proj_layers = torch.nn.ModuleDict(proj_layers_dict)
 
         layers = {
-            **self._make_input_layers(),
-            **proj_layers,
+            "input_layers": input_layers,
+            "proj_layers": proj_layers,
             "pooling_layer": self._make_pooling_layer(),
             "output_layer": self._make_output_layer(),
         }
@@ -153,6 +161,14 @@ class SetEncoder(BaseModule):
             each perturbation covariate.
         :type condition_dict: class: `MappedTensor`
         """
+        # check that the right keys are present
+        check_sequence_query_against_reference(
+            condition_dict.keys(),
+            self._condition_encoder["input_layers"].keys(),
+            allow_missing_from_reference=False,
+            allow_missing_from_query=False,
+        )
+
         # prepare dictionary to store encoded covariates
         encoded_covariates_to_pool = {}
         encoded_covariates_not_pooled = {}
@@ -165,7 +181,7 @@ class SetEncoder(BaseModule):
                 raise KeyError(msg)
 
             # get covariate latent representation
-            cov_enc = self._condition_encoder[covariate_id]
+            cov_enc = self._condition_encoder["input_layers"][covariate_id]
             z_cov = cov_enc(covariate_data)
 
             # update dictionaries
@@ -174,8 +190,7 @@ class SetEncoder(BaseModule):
 
             else:
                 # get shared projection layer
-                proj_key = f"{covariate_id}_proj"
-                cov_proj = self._condition_encoder[proj_key]
+                cov_proj = self._condition_encoder["proj_layers"][covariate_id]
 
                 # apply projection and update dict
                 z_cov = cov_proj(z_cov)

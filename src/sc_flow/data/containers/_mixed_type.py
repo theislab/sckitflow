@@ -276,7 +276,7 @@ class MixedTypeData(BaseData):
             continuous_covariates = BatchMixin(mapping)
 
         else:
-            categorical_covariates = None
+            continuous_covariates = None
 
         return cls(
             categorical_covariates=categorical_covariates,

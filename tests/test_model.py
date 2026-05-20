@@ -7,9 +7,6 @@ import pandas as pd
 import pytest
 from anndata import AnnData
 
-# Import the adata_small fixture from conftest
-from tests.data.conftest import adata_small  # noqa: F401
-
 from sc_flow import SCFlow
 from sc_flow.data._manager import DataManager
 from sc_flow.methods._methods import BaseMethod
@@ -369,11 +366,11 @@ class TestSCFlow:
 
 
 class TestSCFlowConditionSpace:
-    """Test SCFlow with view_on_condition_space=True using adata_small."""
+    """Test SCFlow with view_on_condition_space=True using adata."""
 
-    def test_register_adata_with_condition_space(self, adata_small: AnnData):  # noqa
+    def test_register_adata_with_condition_space(self, adata: AnnData):
         """Registering with condition space should set class attributes."""
-        adata = _add_continuous_covariate(adata_small)
+        adata = _add_continuous_covariate(adata)
         SCFlow.register_adata(
             adata,
             view_on_condition_space=True,
@@ -393,9 +390,9 @@ class TestSCFlowConditionSpace:
         SCFlow._view_on_condition_space_cls = False
         SCFlow._condition_state_key_cls = None
 
-    def test_train_with_condition_space(self, adata_small: AnnData, mock_optim_manager):  # noqa
+    def test_train_with_condition_space(self, adata: AnnData, mock_optim_manager):
         """Training with condition space should correctly transform the data."""
-        adata = _add_continuous_covariate(adata_small)
+        adata = _add_continuous_covariate(adata)
         SCFlow.register_adata(
             adata,
             view_on_condition_space=True,
@@ -433,9 +430,9 @@ class TestSCFlowConditionSpace:
         SCFlow._view_on_condition_space_cls = False
         SCFlow._condition_state_key_cls = None
 
-    def test_predict_with_condition_space(self, adata_small: AnnData):  # noqa
+    def test_predict_with_condition_space(self, adata: AnnData):
         """Predict with condition space should yield predictions with correct shape."""
-        adata = _add_continuous_covariate(adata_small)
+        adata = _add_continuous_covariate(adata)
         SCFlow.register_adata(
             adata,
             view_on_condition_space=True,
@@ -461,9 +458,9 @@ class TestSCFlowConditionSpace:
         SCFlow._view_on_condition_space_cls = False
         SCFlow._condition_state_key_cls = None
 
-    def test_save_load_with_condition_space(self, adata_small: AnnData):  # noqa
+    def test_save_load_with_condition_space(self, adata: AnnData):
         """Save and load model that was configured with condition space."""
-        adata = _add_continuous_covariate(adata_small)
+        adata = _add_continuous_covariate(adata)
         SCFlow.register_adata(
             adata,
             view_on_condition_space=True,
@@ -504,3 +501,247 @@ class TestSCFlowConditionSpace:
         SCFlow._is_paired_setting_cls = False
         SCFlow._view_on_condition_space_cls = False
         SCFlow._condition_state_key_cls = None
+
+
+class TestSCFlowPredictCombinations:
+    @pytest.fixture(autouse=True)
+    def _reset_class_state(self):
+        """Ensure SCFlow class attributes are clean before/after each test."""
+        SCFlow._dm_cls = None
+        SCFlow._dims_registry = None
+        SCFlow._is_paired_setting_cls = False
+        SCFlow._view_on_condition_space_cls = False
+        SCFlow._condition_state_key_cls = None
+        yield
+        SCFlow._dm_cls = None
+        SCFlow._dims_registry = None
+        SCFlow._is_paired_setting_cls = False
+        SCFlow._view_on_condition_space_cls = False
+        SCFlow._condition_state_key_cls = None
+
+    @pytest.mark.parametrize(
+        "has_cont_cond, has_cat_cond, has_groups, has_source, view_on_condition_space",
+        [
+            # All combinations where view_on_condition_space requires has_cont_cond=True
+            (False, False, False, False, False),
+            (False, False, False, True, False),
+            (False, False, True, False, False),
+            (False, False, True, True, False),
+            (False, True, False, False, False),
+            (False, True, False, True, False),
+            (False, True, True, False, False),
+            (False, True, True, True, False),
+            (True, False, False, False, False),
+            (True, False, False, False, True),
+            (True, False, False, True, False),
+            (True, False, False, True, True),
+            (True, True, False, False, False),
+            (True, True, False, False, True),
+            (True, True, False, True, False),
+            (True, True, False, True, True),
+            (True, False, True, False, False),
+            (True, False, True, False, True),
+            (True, False, True, True, False),
+            (True, False, True, True, True),
+            (True, True, True, False, False),
+            (True, True, True, False, True),
+            (True, True, True, True, False),
+            (True, True, True, True, True),
+        ],
+    )
+    def test_predict_combinations(
+        self,
+        adata,
+        has_cont_cond,
+        has_cat_cond,
+        has_groups,
+        has_source,
+        view_on_condition_space,
+    ):
+        """Test prediction with all schema feature combinations."""
+        # Skip invalid: view_on_condition_space requires has_cont_cond
+        if view_on_condition_space and not has_cont_cond:
+            pytest.skip("view_on_condition_space requires a continuous condition covariate")
+
+        adata = adata.copy()
+        base_n_obs = adata.n_obs
+
+        # Build condition and group specifications
+        conditions = {}
+        conditions_reps = {}
+        conditions_covariates = [] if has_cont_cond else None
+        groups = None
+        groups_reps = {}
+        control_values_dict = None
+
+        # Add categorical condition column if requested
+        if has_cat_cond:
+            # Use an existing categorical column, e.g., 'drug'
+            cat_col = "drug"
+            conditions[cat_col] = (cat_col,)
+            conditions_reps[cat_col] = cat_col
+
+        # Add continuous condition if requested
+        cont_key = "X_repr"
+        if has_cont_cond:
+            adata = _add_continuous_covariate(adata, key=cont_key, n_dim=5)
+            conditions_covariates = [cont_key]
+            # If view_on_condition_space, this key will become the state; otherwise just a condition
+
+        # Add groups if requested
+        if has_groups:
+            group_col = "cell_line"
+            groups = (group_col,)
+            groups_reps[group_col] = group_col
+
+        # For paired setting (has_source), define a control value dict
+        if has_source:
+            if has_cat_cond:
+                control_values_dict = {"drug": "control"}
+            else:
+                # Create a dummy categorical column for pairing
+                adata.obs["dummy_group"] = ["control"] * (base_n_obs // 2) + ["treatment"] * (
+                    base_n_obs - base_n_obs // 2
+                )
+                adata.obs["dummy_group"] = adata.obs["dummy_group"].astype("category")
+                conditions["dummy_group"] = ("dummy_group",)
+                conditions_reps["dummy_group"] = "dummy_group"
+                control_values_dict = {"dummy_group": "control"}
+
+        # Register the data
+        SCFlow.register_adata(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=cont_key if view_on_condition_space else None,
+            conditions=conditions,
+            conditions_reps=conditions_reps,
+            conditions_covariates=conditions_covariates,
+            groups=groups,
+            groups_reps=groups_reps,
+            control_values_dict=control_values_dict,
+        )
+
+        # Create model with dummy method
+        model = SCFlow(method_cls=DummyMethod, backend="torch")
+
+        # Capture the matched distribution passed to the method's predict
+        captured_matched_distr = []
+        original_predict = model.method.predict
+
+        def spy_predict(matched_distr, *args, **kwargs):
+            captured_matched_distr.append(matched_distr)
+            return original_predict(matched_distr, *args, **kwargs)
+
+        model.method.predict = spy_predict
+
+        # Run prediction
+        pred_adata = model.predict(adata, sort=False)  # sort=False to keep original order
+
+        # --- Assertions ---
+        # 1. Output AnnData has correct number of observations
+        assert pred_adata.n_obs == base_n_obs
+
+        # 2. Feature dimension depends on view_on_condition_space
+        if view_on_condition_space:
+            expected_n_vars = adata.obsm[cont_key].shape[1]
+        else:
+            expected_n_vars = len(SCFlow._dims_registry.feature_names)
+        assert pred_adata.n_vars == expected_n_vars
+
+        # 3. If view_on_condition_space, verify that condition_data still contains other covariates
+        if view_on_condition_space:
+            matched = captured_matched_distr[0]
+            cond_data = matched.target_distr.condition_data
+            assert cond_data is not None
+
+            # Continuous condition covariates that are NOT the state key should remain
+            if has_cont_cond:
+                # The continuous covariate used as state (cont_key) is removed from condition_data
+                if cond_data.continuous_covariates is not None:
+                    assert cont_key not in cond_data.continuous_covariates.mapping
+                # Other continuous covariates (none in this test) would stay – not tested here
+            # Categorical condition covariates should still be present
+            if has_cat_cond:
+                assert cond_data.categorical_covariates is not None
+                # The categorical column used should be in the categorical reps map
+                cat_cols = set(cond_data.categorical_covariates.ann_df.columns)
+                # The column that was originally a condition (e.g., 'drug') should be there
+                # Note: the exact column name may be the realm name; we check that at least one categorical column exists
+                assert len(cat_cols) > 0
+            # Groups should also still be present (as groups_data, not condition_data)
+            if has_groups:
+                assert matched.target_distr.groups_data is not None
+            else:
+                assert matched.target_distr.groups_data is None
+
+        # 4. If has_source=True (paired setting), ensure source distribution is present in the matched data
+        if has_source:
+            matched = captured_matched_distr[0]
+            assert matched.source is not None
+        else:
+            matched = captured_matched_distr[0]
+            assert matched.source is None
+
+    def test_condition_space_preserves_all_other_covariates(self, adata):
+        """Explicit test that after view_on_condition_space, all non-state condition
+        covariates (categorical and continuous) and groups remain."""
+        adata = adata.copy()
+        # Add two continuous covariates: one will be the state, one a regular condition
+        cont_state_key = "X_state"
+        cont_cond_key = "X_cond"
+        adata.obsm[cont_state_key] = np.random.randn(adata.n_obs, 4)
+        adata.obsm[cont_cond_key] = np.random.randn(adata.n_obs, 3)
+
+        # Use categorical condition and groups
+        cat_cond_col = "drug"
+        group_col = "cell_line"
+
+        conditions = {cat_cond_col: (cat_cond_col,)}
+        conditions_reps = {cat_cond_col: cat_cond_col}
+        conditions_covariates = [cont_cond_key]  # continuous condition that is NOT the state
+        groups = (group_col,)
+        groups_reps = {group_col: group_col}
+
+        SCFlow.register_adata(
+            adata,
+            view_on_condition_space=True,
+            condition_state_key=cont_state_key,
+            conditions=conditions,
+            conditions_reps=conditions_reps,
+            conditions_covariates=conditions_covariates,
+            groups=groups,
+            groups_reps=groups_reps,
+        )
+
+        model = SCFlow(method_cls=DummyMethod, backend="torch")
+
+        # Capture the matched distribution to inspect
+        captured = []
+        original_predict = model.method.predict
+
+        def spy(matched_distr, *args, **kwargs):
+            captured.append(matched_distr)
+            return original_predict(matched_distr, *args, **kwargs)
+
+        model.method.predict = spy
+
+        model.predict(adata, sort=False)
+        matched = captured[0]
+
+        # Verify condition_data
+        cond_data = matched.target_distr.condition_data
+        assert cond_data is not None
+
+        # Continuous part: the state key should be removed, the other continuous key remains
+        assert cond_data.continuous_covariates is not None
+        assert cont_state_key not in cond_data.continuous_covariates.mapping
+        assert cont_cond_key in cond_data.continuous_covariates.mapping
+        np.testing.assert_array_equal(cond_data.continuous_covariates.mapping[cont_cond_key], adata.obsm[cont_cond_key])
+
+        # Categorical part: the categorical condition column should still be there
+        assert cond_data.categorical_covariates is not None
+        assert cat_cond_col in cond_data.categorical_covariates.ann_df.columns
+
+        # Groups should be intact
+        assert matched.target_distr.groups_data is not None
+        assert group_col in matched.target_distr.groups_data.ann_df.columns

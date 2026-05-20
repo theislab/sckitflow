@@ -313,9 +313,7 @@ class SCFlow:
             raise_runtime_error_on_backend_not_supported(self._backend)
 
         # initialize trainer (now passing optimization manager)
-
-        if self._trainer is None:
-            self._trainer = Trainer(self._method, opt_manager, callbacks)
+        self._trainer = Trainer(self._method, opt_manager, callbacks)
 
         # module in training mode
         self._method.set_train_mode(True)

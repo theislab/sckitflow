@@ -70,10 +70,13 @@ optional-dependencies.test = [
   "diffrax",
   "jax",
   "ott-jax",
+  "pot",
   "pytest",
   "pytest-cov",
   "scanpy",
   "torch",
+  "torchdiffeq",
+  "torchsde",
 ]
 optional-dependencies.torch = [
   "pot",         # noqa

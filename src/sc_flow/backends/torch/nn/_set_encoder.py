@@ -48,7 +48,7 @@ class SetEncoder(BaseModule):
 
         :param pooling_proj_bias: Whether to use bias term for linear projection of
             covariates to pool, defaults to `True`.
-        :type pooling_proj_bias: class: `int`
+        :type pooling_proj_bias: class: `bool`
 
         :param covariates_not_pooled: String identifier for the covariates not to pool,
             defaults to `None`.
@@ -94,7 +94,7 @@ class SetEncoder(BaseModule):
         elif self._pooling_mode == "attention-seed":
             raise NotImplementedError
         else:
-            msg = f'Pooling mode {self._pooling_mode} is not supported, possible options are `["mean", "sum"]`'
+            msg = f'Pooling mode {self._pooling_mode} is not supported, possible options are `["mean", "sum", "attention-token", "attention-seed"]`'
             raise ValueError(msg)
 
     def _make_output_layer(

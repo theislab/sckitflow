@@ -1,3 +1,4 @@
+from collections.abc import Collection
 from dataclasses import dataclass
 
 import numpy as np
@@ -32,3 +33,32 @@ class StateData(BaseData):
     ) -> "StateData":
         X = self.X[idxs]
         return self.__class__(X)
+
+    @classmethod
+    def concat_collection(
+        cls,
+        collection: "Collection[StateData]",
+    ) -> "StateData":
+        """Concatenates a collection of instances into a single object."""
+        # store for data
+        X_collection = []
+
+        # define base dimension
+        ref_dim = -1
+
+        # iterate over each element
+        for idx, element in enumerate(collection):
+            # get reference dimension from first element
+            if idx == 0:
+                ref_dim = element.X.shape[1]
+
+            # get data for current element
+            X_element = element.X
+
+            # raise error if dimensions are mismatching
+            if ref_dim != X_element.shape[1]:
+                raise ValueError("Mismatching dimensions for concatenated object")
+
+            X_collection.append(X_element)
+        X = np.concatenate(X_collection)
+        return cls(X)

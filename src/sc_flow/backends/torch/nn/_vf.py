@@ -93,7 +93,7 @@ class MLPVelocity(BaseVelocityField):
         condition_encoder_output_dim: int | None = None,
         condition_encoder_pooling_mode: Literal["mean", "sum"] = "mean",
         condition_encoder_pooling_kwargs: dict[str, Any] | None = None,
-        condition_encoder_pooling_proj_dim: int = 32,
+        condition_encoder_pooling_proj_dim: int | None = None,
         condition_encoder_pooling_proj_bias: bool = True,
         condition_encoder_covariates_not_pooled: Collection[str] | None = None,
         condition_encoder_output_layers_kwargs: LayersDict | None = None,
@@ -202,8 +202,9 @@ class MLPVelocity(BaseVelocityField):
         :type condition_encoder_pooling_kwargs: class: `dict[str, Any]`
 
         :param condition_encoder_pooling_proj_dim: Shared projection dimension for the covariates to pool,
-            defaults to `32`.
-        :type condition_encoder_pooling_proj_dim: class: `int`
+            defaults to `None`, in which case it will be set to the minimum output
+            dimensionality of the input encoder for pooled covariates.
+        :type condition_encoder_pooling_proj_dim: class: `int | None`
 
         :param condition_encoder_pooling_proj_bias: Whether to use bias term for linear projection of
             covariates to pool, defaults to `True`.

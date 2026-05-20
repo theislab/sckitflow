@@ -20,7 +20,7 @@ class SetEncoder(BaseModule):
         output_dim: int,
         pooling_mode: Literal["mean", "sum", "attention-token", "attention-seed"] = "mean",
         pooling_kwargs: dict[str, Any] | None = None,
-        pooling_proj_dim: int = 32,
+        pooling_proj_dim: int | None = None,
         pooling_proj_bias: bool = True,
         covariates_not_pooled: Collection[str] | None = None,
         output_layers_kwargs: LayersDict | None = None,
@@ -43,8 +43,9 @@ class SetEncoder(BaseModule):
         :type pooling_kwargs: class: `dict[str, Any]`
 
         :param pooling_proj_dim: Shared projection dimension for the covariates to pool,
-            defaults to `32`.
-        :type pooling_proj_dim: class: `int`
+            defaults to `None`, in which case it will be set to the minimum output
+            dimensionality of the input encoder for pooled covariates.
+        :type pooling_proj_dim: class: `int | None`
 
         :param pooling_proj_bias: Whether to use bias term for linear projection of
             covariates to pool, defaults to `True`.
@@ -63,12 +64,19 @@ class SetEncoder(BaseModule):
         self._output_dim = output_dim
         self._pooling_mode = pooling_mode
         self._pooling_kwargs = {} if pooling_kwargs is None else pooling_kwargs
-        self._pooling_proj_dim = pooling_proj_dim
+        self._pooling_proj_dim = pooling_proj_dim if pooling_proj_dim else self._min_pooled_dims
         self._pooling_proj_bias = pooling_proj_bias
         self._covariates_not_pooled = [] if covariates_not_pooled is None else covariates_not_pooled
         self._output_layers_kwargs = {} if output_layers_kwargs is None else output_layers_kwargs
 
         self._condition_encoder = self._make_modules()
+
+    @property
+    def _min_pooled_dims(self) -> int | None:
+        if len(self.covariates_pooled) == 0:
+            return None
+        dims = [self._input_layers[cov]["output_dim"] for cov in self.covariates_pooled]
+        return min(dims)
 
     def _make_input_layers(
         self,

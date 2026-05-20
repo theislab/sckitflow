@@ -559,6 +559,10 @@ class MLPVelocity(BaseVelocityField):
         source_encoder_mlp_kwargs: LayersDict | None = None,
         **kwargs,
     ) -> "MLPVelocity":
+        # promote arguments passed from kwargs
+        condition_encoder_input_layers = kwargs.pop("condition_encoder_input_layers", condition_encoder_input_layers)
+        source_encoder_mlp_kwargs = kwargs.pop("source_encoder_mlp_kwargs", source_encoder_mlp_kwargs)
+
         # get dimensionalities from registry
         state_dim = dims_registry.state_dim
 

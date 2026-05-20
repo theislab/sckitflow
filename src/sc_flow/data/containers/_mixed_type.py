@@ -1,7 +1,10 @@
+from collections import defaultdict
+from collections.abc import Collection
 from dataclasses import dataclass
 
 import numpy as np
 
+from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data._mixins import BatchMixin
 from sc_flow.data.containers._base import BaseData
 from sc_flow.data.containers._categorical import CategoricalData
@@ -195,3 +198,87 @@ class MixedTypeData(BaseData):
             )
         else:
             raise KeyError(f"Key {key} not found.")
+
+    @classmethod
+    def concat_collection(
+        cls,
+        collection: "Collection[MixedTypeData]",
+    ) -> "MixedTypeData":
+        """Concatenates a collection of instances into a single object."""
+        # define store for data
+        categorical_covariates_list = []
+        continuous_covariates_list = []
+
+        # reference settings
+        has_categorical_covs = False
+        has_continuous_covs = False
+        continuous_covs_keys = []
+
+        # iterate over collection
+        for idx, element in enumerate(collection):
+            # get reference settings from first element
+            if idx == 0:
+                has_categorical_covs = element.categorical_covariates is not None
+                has_continuous_covs = element.continuous_covariates is not None
+                if has_continuous_covs:
+                    continuous_covs_keys = list(element.continuous_covariates.mapping.keys())
+
+            # ---- Categorical Covariates ----
+            # check that the current element has matching settings
+            if element.categorical_covariates is not None:
+                if not has_categorical_covs:
+                    raise ValueError("Trying to concatenate incompatible objects")
+
+                # update store
+                categorical_covariates_list.append(element.categorical_covariates)
+
+            # raise error when categorical covariates are missing but required
+            elif has_categorical_covs:
+                raise ValueError("Trying to concatenate incompatible objects")
+
+            # ---- Continuous Covariates ----
+            # check that the current element has matching settings
+            if element.continuous_covariates is not None:
+                # continuous covariates are required
+                if not has_continuous_covs:
+                    raise ValueError("Trying to concatenate incompatible objects")
+
+                # check that we have the same keys
+                check_sequence_query_against_reference(
+                    continuous_covs_keys,
+                    list(element.continuous_covariates.mapping.keys()),
+                    allow_missing_from_reference=False,
+                    allow_missing_from_query=False,
+                )
+
+                # update store
+                continuous_covariates_list.append(element.continuous_covariates)
+
+            # raise error when continuous covariates are missing but required
+            elif has_continuous_covs:
+                raise ValueError("Trying to concatenate incompatible objects")
+
+        # concatenate categorical covariates
+        if len(categorical_covariates_list) > 0:
+            categorical_covariates = CategoricalData.concat_collection(categorical_covariates_list)
+        else:
+            categorical_covariates = None
+
+        # concatenate continuous covariates
+        if len(continuous_covariates_list) > 0:
+            mapping = defaultdict(list)
+
+            for element in continuous_covariates_list:
+                for key, v in element.mapping.items():
+                    mapping[key].append(v)
+
+            mapping = {key: np.concatenate(val, axis=0) for key, val in mapping.items()}
+            continuous_covariates = BatchMixin(mapping)
+
+        else:
+            categorical_covariates = None
+
+        return cls(
+            categorical_covariates=categorical_covariates,
+            continuous_covariates=continuous_covariates,
+        )

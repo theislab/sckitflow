@@ -1,4 +1,5 @@
 import abc
+from collections.abc import Collection
 from dataclasses import asdict, dataclass
 from typing import Any, Literal, TypeVar, overload
 
@@ -121,3 +122,11 @@ class BaseData(abc.ABC):
     def to_dict(self) -> dict[str, Any]:
         """"""  # noqa
         return asdict(self)
+
+    @classmethod
+    @abc.abstractmethod
+    def concat_collection(
+        cls,
+        collection: "Collection[BaseData]",
+    ) -> "BaseData":
+        """Concatenates a collection of instances into a single object."""

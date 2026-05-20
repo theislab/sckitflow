@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Hashable, Mapping
+from collections.abc import Collection, Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 
@@ -8,6 +8,7 @@ import pandas as pd
 from scipy.sparse import csr_matrix
 
 from sc_flow._types import TargetCovariatesEncoderCls
+from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data._mixins import BatchMixin, MappedArray
 from sc_flow.data._utils import convert_to_categorical_in_place, get_one_hot_encoder
 from sc_flow.data.containers._base import BaseData
@@ -88,10 +89,10 @@ class CategoricalData(BaseData):
         col: str,
         realm_repr_dict: dict[Hashable, np.ndarray],
     ) -> np.ndarray:
-        col_values = self.ann_df[col].values
-        # Get the representation for each value (assuming all have same dimension)
+        # Get the representation for each unique value (assuming all have same dimension)
+        col_values = self.ann_df[col].drop_duplicates().values
         reprs = [realm_repr_dict[val].reshape(1, -1) for val in col_values]
-        # Stack vertically -> shape (n_samples, dim)
+        # Stack vertically -> shape (n_unique_values, dim)
         return np.vstack(reprs)
 
     def _encode_col(
@@ -167,3 +168,47 @@ class CategoricalData(BaseData):
     def category_realms(self) -> list[str]:
         """Returns the category realms associated to the object."""
         return list(set(self.categorical_reps_map.values()))
+
+    @classmethod
+    def concat_collection(
+        cls,
+        collection: "Collection[CategoricalData]",
+    ) -> "CategoricalData":
+        """Concatenates a collection of instances into a single object."""
+        # store for data
+        ann_dfs_list = []
+        repr_dict = {}
+        categorical_encoders = {}
+        categorical_reps_map = {}
+
+        # prepare columns
+        ref_cols = None
+
+        # iterate over element of collection
+        for idx, element in enumerate(collection):
+            # get reference columns from first element
+            if idx == 0:
+                ref_cols = element.ann_df.columns
+
+            # check that columns are matching
+            check_sequence_query_against_reference(
+                element.ann_df.columns,
+                ref_cols,
+                allow_missing_from_reference=False,
+                allow_missing_from_query=False,
+            )
+
+            # update
+            ann_dfs_list.append(element.ann_df)
+            repr_dict.extend(element.repr_dict)
+            categorical_encoders.extend(element.categorical_encoders)
+            categorical_reps_map.extend(element.categorical_reps_map)
+
+        # concatenate df
+        ann_df = pd.concat(ann_dfs_list, axis=0)
+        return cls(
+            ann_df,
+            repr_dict=repr_dict,
+            categorical_encoder=categorical_encoders,
+            categorical_reps_map=categorical_reps_map,
+        )

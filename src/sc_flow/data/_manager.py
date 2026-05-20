@@ -47,6 +47,7 @@ class DataManager:
         groups_encoding_inverse_transform_fn: dict[str, Callable] | None = None,
         n_shared_dims: int | None = None,
         source_rep: str | None = None,
+        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> None:
         """Initializes the object.
 
@@ -100,8 +101,16 @@ class DataManager:
             used when matching distributions over incomparable spaces. Used to initialize
             the coupling data schema. Defaults to `None`.
         :type source_rep: class: `str | None`
+
+        :param matched_keys: Optional keys used to identify the source  and
+            corresponding target groups in the case of fixed matches.
+            When passed, takes precedence over :param: `source_key`.
+            Defaults to `None`, in which case falls back to one to many coupling.
+        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
         """
         self._control_values_dict = control_values_dict
+        self._matched_keys = matched_keys
+
         self._state_data_schema: StateDataSchema = self._init_state_data_schema(sample_rep=sample_rep)
         self._condition_data_schema: ConditionDataSchema = self._init_condition_data_schema(
             conditions=conditions,
@@ -280,7 +289,12 @@ class DataManager:
     ) -> NestedData:
         self._assert_sorted(data)
         mapped_index = self._get_mapped_index(data.ann_df)
-        return NestedData.init_from_data(data, mapped_index, source_key=self.source_key)
+        return NestedData.init_from_data(
+            data,
+            mapped_index,
+            source_key=self.source_key,
+            matched_keys=self.matched_keys,
+        )
 
     def _get_data_dimensionalities(
         self,
@@ -444,6 +458,11 @@ class DataManager:
     def control_values_dict(self) -> dict[str, str] | None:
         """Exposes the homonymous attribute set at initialization."""
         return self._control_values_dict
+
+    @property
+    def matched_keys(self) -> dict[tuple[Any], tuple[Any]] | None:
+        """Exposes the homonymous attribute set at initialization."""
+        return self._matched_keys
 
     @property
     def indexer(self) -> HierarchicalIndexer:

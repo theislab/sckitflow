@@ -107,6 +107,7 @@ class NestedData(MappedTree):
         data: DistributionData,
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
+        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> "NestedData":
         """Initialized the recursive mapping from the input.
 
@@ -120,11 +121,17 @@ class NestedData(MappedTree):
             each leaf mapping. Defaults to `None`, in which case no source
             distribution will be considered.
         :type source_key: class: `tuple[Any] | None`
+
+        :param matched_keys: Optional keys used to identify the source  and
+            corresponding target groups in the case of fixed matches.
+            When passed, takes precedence over :param: `source_key`.
+            Defaults to `None`, in which case falls back to one to many coupling.
+        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
         """
-        return cls._init_tree(data, mapped_index, source_key)
+        return cls._init_tree(data, mapped_index, source_key=source_key, matched_keys=matched_keys)
 
     @classmethod
-    def _init_leaf_node(
+    def _init_leaf_node_one_to_many(
         cls,
         data: DistributionData,
         mapped_index: MappedLevelIndex,
@@ -153,6 +160,8 @@ class NestedData(MappedTree):
         all_keys = list(mapped_index.mapping.keys())
 
         if source_key is not None:
+            if source_key not in all_keys:
+                raise KeyError(f"Source key {source_key} not ƒound.")
             source_distribution = data[mapped_index.mapping[source_key]]
             rest_keys = [k for k in all_keys if k != source_key]
         else:
@@ -173,11 +182,63 @@ class NestedData(MappedTree):
         return cls(data_dict)
 
     @classmethod
+    def _init_leaf_node_one_to_one(
+        cls,
+        data: DistributionData,
+        mapped_index: MappedLevelIndex,
+        matched_keys: dict[tuple[Any], tuple[Any]],
+    ) -> "NestedData":
+        # initialize progress bar
+        tqdm = attempt_tqdm_import()
+        pbar = tqdm(matched_keys) if tqdm is not None else None
+
+        # iterate over the matched keys
+        data_dict = {}
+        for source_key, target_key in matched_keys.items():
+            if pbar is not None:
+                pbar.update()
+
+            # check that keys are present
+            if source_key not in mapped_index.mapping:
+                raise KeyError(f"Source key {source_key} not ƒound.")
+            if target_key not in mapped_index.mapping:
+                raise KeyError(f"Target key {target_key} not ƒound.")
+
+            # get distributions
+            source_distribution = data[mapped_index.mapping[source_key]]
+            target_distribution = data[mapped_index.mapping[target_key]]
+
+            # initialize matched distribution
+            matched_data = MatchedData(target_distribution, source_distribution=source_distribution)
+
+            # store data
+            key = (source_key, target_key)
+            data_dict[key] = matched_data
+        return cls(data_dict)
+
+    @classmethod
+    def _init_leaf_node(
+        cls,
+        data: DistributionData,
+        mapped_index: MappedLevelIndex,
+        source_key: tuple[Any] | None = None,
+        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
+    ) -> "NestedData":
+        if matched_keys is not None:
+            return cls._init_leaf_node_one_to_one(data, mapped_index, matched_keys=matched_keys)
+        return cls._init_leaf_node_one_to_many(
+            data,
+            mapped_index,
+            source_key=source_key,
+        )
+
+    @classmethod
     def _init_tree(
         cls,
         data: DistributionData,
         mapped_index: MappedLevelIndex,
         source_key: tuple[Any] | None = None,
+        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> "NestedData":
         """Initializes the tree from the given settings.
 
@@ -198,9 +259,9 @@ class NestedData(MappedTree):
         """
         return cls(
             {
-                key: cls._init_leaf_node(data, value, source_key)
+                key: cls._init_leaf_node(data, value, source_key=source_key, matched_keys=matched_keys)
                 if value.is_leaf
-                else cls._init_tree(data, value, source_key)
+                else cls._init_tree(data, value, source_key=source_key, matched_keys=matched_keys)
                 for key, value in mapped_index.mapping.items()
             }
         )

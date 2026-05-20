@@ -121,6 +121,12 @@ class NestedData(MappedTree):
             each leaf mapping. Defaults to `None`, in which case no source
             distribution will be considered.
         :type source_key: class: `tuple[Any] | None`
+
+        :param matched_keys: Optional keys used to identify the source  and
+            corresponding target groups in the case of fixed matches.
+            When passed, takes precedence over :param: `source_key`.
+            Defaults to `None`, in which case falls back to one to many coupling.
+        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
         """
         return cls._init_tree(data, mapped_index, source_key=source_key, matched_keys=matched_keys)
 
@@ -154,6 +160,8 @@ class NestedData(MappedTree):
         all_keys = list(mapped_index.mapping.keys())
 
         if source_key is not None:
+            if source_key not in all_keys:
+                raise KeyError(f"Source key {source_key} not ƒound.")
             source_distribution = data[mapped_index.mapping[source_key]]
             rest_keys = [k for k in all_keys if k != source_key]
         else:
@@ -189,6 +197,13 @@ class NestedData(MappedTree):
         for source_key, target_key in matched_keys.items():
             if pbar is not None:
                 pbar.update()
+
+            # check that keys are present
+            if source_key not in mapped_index.mapping:
+                raise KeyError(f"Source key {source_key} not ƒound.")
+            if target_key not in mapped_index.mapping:
+                raise KeyError(f"Target key {target_key} not ƒound.")
+
             # get distributions
             source_distribution = data[mapped_index.mapping[source_key]]
             target_distribution = data[mapped_index.mapping[target_key]]
@@ -241,12 +256,6 @@ class NestedData(MappedTree):
             each leaf mapping. Defaults to `None`, in which case no source
             distribution will be considered.
         :type source_key: class: `tuple[Any] | None`
-
-        :param matched_keys: Optional keys used to identify the source  and
-            corresponding target groups in the case of fixed matches.
-            When passed, takes precedence over :param: `source_key`.
-            Defaults to `None`, in which case falls back to one to many coupling.
-        :type matched_keys: class: `tuple[Any] | None`
         """
         return cls(
             {

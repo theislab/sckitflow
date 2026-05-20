@@ -209,13 +209,22 @@ class SetEncoder(BaseModule):
 
         # iterate over each covariate
         for cov, cov_dict in self._input_layers.items():
-            # get output dimension
-            output_dim = cov_dict["output_dim"]
-
             # update store
             if cov in self._covariates_not_pooled:
+                output_dim = cov_dict["output_dim"]
                 not_pooled_input_dims.append(output_dim)
 
+        # get pooling projection dim if pooled covariates are present
+        if len(self.covariates_pooled) > 0:
+            pooling_proj_dim = self._pooling_proj_dim
+        else:
+            pooling_proj_dim = 0
+
         # construct decoder input dim
-        decoder_input_dim = self._pooling_proj_dim + sum(not_pooled_input_dims)
+        decoder_input_dim = pooling_proj_dim + sum(not_pooled_input_dims)
         return decoder_input_dim
+
+    @property
+    def covariates_pooled(self) -> list[str]:
+        """Returns the list of covariates that need to be pooled together."""
+        return [cov for cov in self._input_layers.keys() if cov not in self._covariates_not_pooled]

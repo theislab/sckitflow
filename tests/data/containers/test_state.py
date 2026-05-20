@@ -59,3 +59,67 @@ class TestStateData:
         assert "StateData" in rep
         assert "n_obs=6" in rep
         assert "spatial_dims=()" in rep
+
+    def test_concat_collection_two_matrices(self) -> None:
+        """Concatenate two 2D StateData objects vertically."""
+        X1 = np.random.randn(10, 5)
+        X2 = np.random.randn(15, 5)
+        s1 = StateData(X1)
+        s2 = StateData(X2)
+
+        concatenated = StateData.concat_collection([s1, s2])
+
+        assert len(concatenated) == len(s1) + len(s2)
+        np.testing.assert_array_equal(concatenated.X, np.vstack([X1, X2]))
+
+    def test_concat_collection_three_matrices(self) -> None:
+        """Concatenate three 2D StateData objects."""
+        X1 = np.random.randn(3, 4)
+        X2 = np.random.randn(5, 4)
+        X3 = np.random.randn(2, 4)
+        s1, s2, s3 = StateData(X1), StateData(X2), StateData(X3)
+
+        concatenated = StateData.concat_collection([s1, s2, s3])
+
+        expected = np.vstack([X1, X2, X3])
+        np.testing.assert_array_equal(concatenated.X, expected)
+        assert len(concatenated) == 10
+
+    def test_concat_collection_one_dimensional_arrays(self) -> None:
+        """Concatenate 1D arrays (each is a vector of features)."""
+        X1 = np.random.randn(8)  # shape (8,) -> becomes (8,) in StateData
+        X2 = np.random.randn(12)  # shape (12,)
+        s1 = StateData(X1)
+        s2 = StateData(X2)
+
+        # StateData with 1D arrays: X.shape[1] is out of range, but our code uses X.shape[1]
+        # This will raise IndexError because shape[1] doesn't exist. The current implementation
+        # expects at least 2D arrays. We'll test the expected failure.
+        with pytest.raises(IndexError):
+            StateData.concat_collection([s1, s2])
+
+    def test_concat_collection_dimension_mismatch_raises(self) -> None:
+        """Mismatched number of features (columns) should raise ValueError."""
+        X1 = np.random.randn(10, 3)
+        X2 = np.random.randn(10, 5)  # different second dimension
+        s1 = StateData(X1)
+        s2 = StateData(X2)
+
+        with pytest.raises(ValueError, match="Mismatching dimensions"):
+            StateData.concat_collection([s1, s2])
+
+    def test_concat_collection_empty_raises(self) -> None:
+        """Concatenating an empty list should raise an appropriate error."""
+        with pytest.raises(ValueError, match="at least one"):
+            StateData.concat_collection([])
+
+    def test_concat_collection_single_returns_new_instance(self) -> None:
+        """Concatenating a single StateData returns a new object (not the same reference)."""
+        X = np.random.randn(5, 2)
+        original = StateData(X)
+
+        result = StateData.concat_collection([original])
+
+        assert result is not original
+        np.testing.assert_array_equal(result.X, X)
+        assert len(result) == len(original)

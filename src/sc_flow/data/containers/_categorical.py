@@ -91,6 +91,15 @@ class CategoricalData(BaseData):
     ) -> np.ndarray:
         # Get the representation for each unique value (assuming all have same dimension)
         col_values = self.ann_df[col].drop_duplicates().values
+
+        # raise error when more than one unique value is found
+        if col_values.shape[0] != 1:
+            raise ValueError(
+                "The node contains more than one unique value for the "
+                "categorical covariates. Ensure you extract the representation "
+                "from a leaf after having properly built the data tree."
+            )
+
         reprs = [realm_repr_dict[val].reshape(1, -1) for val in col_values]
         # Stack vertically -> shape (n_unique_values, dim)
         return np.vstack(reprs)

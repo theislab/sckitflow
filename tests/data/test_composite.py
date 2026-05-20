@@ -128,10 +128,12 @@ class TestNestedData:
         assert key in actual.mapping
         # Compare scalar attributes
         source_a = data[leaf_index.mapping[("a",)]]
+        source_c = data[leaf_index.mapping[("c",)]]
         assert len(actual.mapping[key].source) == len(source_a)
         assert actual.mapping[key].source.state_data.X[0] == source_a.state_data.X[0]
-        # Ensure source is not from ("c",)
-        assert actual.mapping[key].source is not data[leaf_index.mapping[("c",)]]
+        # Ensure source_key=("c",) was ignored by checking against slice contents
+        assert len(actual.mapping[key].source) != len(source_c)
+        assert actual.mapping[key].source.state_data.X[0] != source_c.state_data.X[0]
 
     def test_init_tree_with_matched_keys_nested(self):
         """Test a nested tree with one branch only (to avoid missing keys)."""

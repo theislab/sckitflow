@@ -310,6 +310,7 @@ class DataManager:
         self,
         data: DistributionData,
         view_on_condition_space: bool = False,
+        control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> NestedData:
         # optionally allow paired settings on condition space
@@ -317,7 +318,11 @@ class DataManager:
             source_key = None
             matched_keys = None
         else:
-            source_key = self.source_key
+            if control_values_dict:
+                source_key = self._get_source_key(control_values_dict)
+            else:
+                source_key = self.source_key
+
             if matched_keys is None:
                 matched_keys = self.matched_keys
 
@@ -341,6 +346,7 @@ class DataManager:
         self,
         data: DistributionData,
         view_on_condition_space: bool = False,
+        control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> NestedData:
         """Hierachically splits a distribution data container into matched subpopulations.
@@ -351,6 +357,7 @@ class DataManager:
         return self._get_matched_distributions(
             data,
             view_on_condition_space=view_on_condition_space,
+            control_values_dict=control_values_dict,
             matched_keys=matched_keys,
         )
 
@@ -411,6 +418,7 @@ class DataManager:
         sort: bool = False,
         view_on_condition_space: bool = False,
         condition_state_key: str | None = None,
+        control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> NestedData:
         """Compile an annotated data object into split and matched subpopulations.
@@ -451,7 +459,10 @@ class DataManager:
             condition_state_key=condition_state_key,
         )
         return self._get_matched_distributions(
-            data, view_on_condition_space=view_on_condition_space, matched_keys=matched_keys
+            data,
+            view_on_condition_space=view_on_condition_space,
+            control_values_dict=control_values_dict,
+            matched_keys=matched_keys,
         )
 
     def get_data_dimensionalities(

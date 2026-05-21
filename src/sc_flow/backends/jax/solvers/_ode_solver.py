@@ -102,7 +102,6 @@ class ODESolver(BaseSolver[TODEDynamics]):
             solver_kwargs=solver_kwargs,
         )
         terms = ODETerm(self._vf)
-        args = config.remaining_kwargs.pop("args", None)
 
         trajectory = dfx.diffeqsolve(
             terms,
@@ -114,7 +113,6 @@ class ODESolver(BaseSolver[TODEDynamics]):
             saveat=config.saveat,
             max_steps=config.max_steps,
             stepsize_controller=config.stepsize_controller,
-            args=args,
             **config.remaining_kwargs,
         )
 

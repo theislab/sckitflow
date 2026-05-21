@@ -1,3 +1,5 @@
+import functools
+import inspect
 import warnings
 from typing import Any
 
@@ -11,7 +13,6 @@ from jaxtyping import PyTree
 from sc_flow.backends.jax._types import ArrayLike, TDevice, TDiffusion, TSDEDynamics, TTimeStateDiffusion, TVfFn
 from sc_flow.backends.jax._utils import get_sde_solver
 from sc_flow.backends.jax.solvers._solver import BaseSolver
-from sc_flow.backends.jax.solvers._utils import _prepare_diffusion_fn
 
 
 class SDESolver(BaseSolver[TSDEDynamics]):
@@ -47,7 +48,7 @@ class SDESolver(BaseSolver[TSDEDynamics]):
         self._method = get_sde_solver(method)
         vf_kwargs = vf_kwargs or {}
         self._drift_fn = dynamics[0].get_vf_fn(**vf_kwargs)
-        self._diffusion_fn = self._get_diffusion_fn_wrapper(dynamics[1], df_kwargs)
+        self._diffusion_fn = self._diffusion_fn_wrapper(dynamics[1], df_kwargs)
 
     def solve(
         self,
@@ -142,7 +143,8 @@ class SDESolver(BaseSolver[TSDEDynamics]):
             ODETerm(self._drift_fn),
             ControlTerm(self._diffusion_fn, brownian_motion),
         )
-
+        print(terms)
+        print(config.source_on_device.shape)
         trajectory = dfx.diffeqsolve(
             terms,
             solver=self._method,
@@ -160,16 +162,22 @@ class SDESolver(BaseSolver[TSDEDynamics]):
         else:
             return trajectory.ys[-1]
 
-    def _get_diffusion_fn_wrapper(
+    def _diffusion_fn_wrapper(
         self,
         diffusion_fn: TDiffusion,
         df_kwargs: PyTree[Any] | None = None,
     ) -> TTimeStateDiffusion:
         """Wraps the diffusion function to ensure it has the correct signature for TorchSDE."""
-        # compile diffusion function with the additional arguments
-        partial_diffusion, num_params = _prepare_diffusion_fn(diffusion_fn, df_kwargs)
+        df_kwargs = df_kwargs or {}
+        partial_diffusion = functools.partial(diffusion_fn, **df_kwargs)
 
-        def _wrapped_diffusion_fn(t: ArrayLike, y: ArrayLike, args: Any = None) -> ArrayLike:
+        sig = inspect.signature(diffusion_fn)
+        params = sig.parameters
+
+        remaining_params = [p for p in params if p not in df_kwargs]
+        num_params = len(remaining_params)
+
+        def wrapped_diffusion(t: ArrayLike, y: ArrayLike, args: Any = None) -> ArrayLike:
             if num_params >= 2:
                 out = partial_diffusion(t, y)
             else:
@@ -187,7 +195,7 @@ class SDESolver(BaseSolver[TSDEDynamics]):
 
             return lx.PyTreeLinearOperator(out, jax.eval_shape(lambda: y))
 
-        return _wrapped_diffusion_fn
+        return wrapped_diffusion
 
     def _validate_sde_config(
         self,

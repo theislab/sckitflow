@@ -15,19 +15,21 @@ class TorchOptimizationManager(BaseOptManager):
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
         lr_scheduler_step: str = "train_step",
-        use_amp: bool = True,
+        use_amp: bool = False,
         scaler_kwargs: dict[str, Any] | None = None,
+        n_grad_acc_steps: int = 1,
     ) -> None:
         self._optimizer = optimizer
         self._lr_scheduler = lr_scheduler
         self._lr_scheduler_step = lr_scheduler_step
         self._use_amp = use_amp
+        self._n_grad_acc_steps = n_grad_acc_steps
 
         # prepare scaler when using amp
         if self._use_amp:
             scaler_kwargs = {} if scaler_kwargs is None else scaler_kwargs
             device = scaler_kwargs.pop("device", self._device)
-            self._scaler = torch.amp.GradScaler(device=device, **self._scaler_kwargs)
+            self._scaler = torch.amp.GradScaler(device=device, **scaler_kwargs)
         else:
             self._scaler = None
 
@@ -37,8 +39,8 @@ class TorchOptimizationManager(BaseOptManager):
         if self._optimizer.param_groups:
             for param in self._optimizer.param_groups[0]["params"]:
                 if hasattr(param, "device") and param.device is not None:
-                    return param.device
-        return torch.device("cpu")
+                    return param.device.type
+        return "cpu"
 
     def _call_step_fn(self, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
         if self._use_amp:
@@ -56,15 +58,26 @@ class TorchOptimizationManager(BaseOptManager):
             **kwargs,
         )
 
+        # scale loss by gradient acc steps
+        loss = loss / self._n_grad_acc_steps
+
         # optionally scaling the loss
         if self._scaler is not None:
             self._scaler.scale(loss).backward()
         else:
             loss.backward()
 
-        # optimizer step
-        self._optimizer.zero_grad()
-        self._optimizer.step()
+        # optimizer step when grad accumulation done
+        if step_idx % self._n_grad_acc_steps == 0:
+            # optionally wrap optimizer step with scaler
+            if self._scaler is not None:
+                self._scaler.step(self._optimizer)
+                self._scaler.update()
+            else:
+                self._optimizer.step()
+
+            # zeroing gradients
+            self._optimizer.zero_grad()
 
         # lr scheduler step
         if self._lr_scheduler is not None and self._lr_scheduler_step == "train_step":

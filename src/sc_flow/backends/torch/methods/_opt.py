@@ -3,6 +3,7 @@ from typing import Any
 
 import torch
 
+from sc_flow.backends.torch.methods._ema import ExponentialMovingAverage
 from sc_flow.backends.torch.nn._modules import BaseModule
 from sc_flow.methods._opt import BaseOptManager, OptimConfig
 
@@ -18,12 +19,14 @@ class TorchOptimizationManager(BaseOptManager):
         use_amp: bool = False,
         scaler_kwargs: dict[str, Any] | None = None,
         n_grad_acc_steps: int = 1,
+        ema: ExponentialMovingAverage | None = None,
     ) -> None:
         self._optimizer = optimizer
         self._lr_scheduler = lr_scheduler
         self._lr_scheduler_step = lr_scheduler_step
         self._use_amp = use_amp
         self._n_grad_acc_steps = n_grad_acc_steps
+        self._ema = ema
 
         # prepare scaler when using amp
         if self._use_amp:
@@ -79,6 +82,10 @@ class TorchOptimizationManager(BaseOptManager):
             # zeroing gradients
             self._optimizer.zero_grad()
 
+            # optional ema step
+            if self._ema is not None:
+                self._ema.update()
+
         # lr scheduler step
         if self._lr_scheduler is not None and self._lr_scheduler_step == "train_step":
             self._lr_scheduler.step()
@@ -114,7 +121,21 @@ class TorchOptimizationManager(BaseOptManager):
                 raise TypeError(f"lr_scheduler_cls must be a string or callable, got {type(sched_cls)}")
             scheduler = sched_cls(optimizer, **config.lr_scheduler_kwargs)
 
-        return cls(optimizer, lr_scheduler=scheduler, lr_scheduler_step=config.lr_scheduler_step)
+        # initialize ema
+        if config.use_ema:
+            ema = ExponentialMovingAverage(module, decay=config.ema_decay)
+        else:
+            ema = None
+
+        return cls(
+            optimizer,
+            lr_scheduler=scheduler,
+            lr_scheduler_step=config.lr_scheduler_step,
+            use_amp=config.use_amp,
+            scaler_kwargs=config.scaler_kwargs,
+            n_grad_acc_steps=config.n_grad_acc_steps,
+            ema=ema,
+        )
 
     @property
     def optimizer(self) -> torch.optim.Optimizer:

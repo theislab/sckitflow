@@ -3,6 +3,8 @@ from typing import Any
 import torch
 import torch.nn as nn
 
+__all__ = ["ExponentialMovingAverage"]
+
 
 class ExponentialMovingAverage:
     """Exponential Moving Average for model parameters.

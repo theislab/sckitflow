@@ -353,6 +353,28 @@ class DataManager:
 
         :param data: The distribution data container for the whole population.
         :type data: class: `DistributionData`
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param control_values_dict: Optional dictionary mapping each condition
+            level to the corresponding value used to indicate control observations.
+            This overrides the homonimous attribute and is needed to allow
+            inference over arbitrary control keys at inference time.
+            Without this, inference would be bound to the source
+            group defined for training. Defaults to `None`,
+            in which case the instance attribute will be used.
+        :type control_values_dict: class: `dict[str, str] | None`
+
+        :param matched_keys: Optional keys used to identify the source  and
+            corresponding target groups in the case of fixed matches.
+            This overrides the homonimous attribute and is needed to allow
+            inference over arbitrary matched groups at inference time.
+            Without this, inference would be bound to the pairs of source
+            and target groups defined for training. Defaults to `None`,
+            in which case the instance attribute will be used.
+        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
         """
         return self._get_matched_distributions(
             data,
@@ -441,6 +463,15 @@ class DataManager:
             when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
             Defaults to `None`.
         :type condition_state_key: `str | None`
+
+        :param control_values_dict: Optional dictionary mapping each condition
+            level to the corresponding value used to indicate control observations.
+            This overrides the homonimous attribute and is needed to allow
+            inference over arbitrary control keys at inference time.
+            Without this, inference would be bound to the source
+            group defined for training. Defaults to `None`,
+            in which case the instance attribute will be used.
+        :type control_values_dict: class: `dict[str, str] | None`
 
         :param matched_keys: Optional keys used to identify the source  and
             corresponding target groups in the case of fixed matches.

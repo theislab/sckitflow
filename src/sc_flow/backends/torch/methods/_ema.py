@@ -2,7 +2,6 @@ from typing import Any
 
 import torch
 import torch.nn as nn
-from torch import Tensor
 
 
 class ExponentialMovingAverage:
@@ -48,7 +47,7 @@ class ExponentialMovingAverage:
                 if param.requires_grad and name in self._shadow_params:
                     param.data.copy_(self._shadow_params[name])
 
-    def store(self) -> dict[str, Tensor]:
+    def store(self) -> dict[str, torch.Tensor]:
         """Store current model parameters (for restoration later)."""
         stored_params = {}
         for name, param in self._model.named_parameters():
@@ -56,7 +55,7 @@ class ExponentialMovingAverage:
                 stored_params[name] = param.data.clone().detach()
         return stored_params
 
-    def restore(self, stored_params: dict[str, Tensor]) -> None:
+    def restore(self, stored_params: dict[str, torch.Tensor]) -> None:
         """Restore model parameters from stored values."""
         with torch.no_grad():
             for name, param in self._model.named_parameters():

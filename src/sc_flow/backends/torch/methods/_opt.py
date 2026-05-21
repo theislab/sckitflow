@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Any
 
 import torch
@@ -39,7 +40,22 @@ class TorchOptimizationManager(BaseOptManager):
                     return param.device
         return torch.device("cpu")
 
-    def step(self, loss: torch.Tensor) -> None:
+    def _call_step_fn(self, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
+        if self._use_amp:
+            with torch.amp.autocast(self._device):
+                return step_fn(node, *args, **kwargs)
+        else:
+            return step_fn(node, *args, **kwargs)
+
+    def step(self, step_idx: int, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
+        # call step fn
+        loss, step_dict = self._call_step_fn(
+            step_fn,
+            node,
+            *args,
+            **kwargs,
+        )
+
         # optionally scaling the loss
         if self._scaler is not None:
             self._scaler.scale(loss).backward()
@@ -53,6 +69,7 @@ class TorchOptimizationManager(BaseOptManager):
         # lr scheduler step
         if self._lr_scheduler is not None and self._lr_scheduler_step == "train_step":
             self._lr_scheduler.step()
+        return step_dict
 
     @classmethod
     def from_config(cls, module: BaseModule, config: OptimConfig) -> "TorchOptimizationManager":

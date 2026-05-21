@@ -123,15 +123,31 @@ class Trainer:
         # Call on_train_begin
         self._callbacks.on_train_begin(self, **cb_kwargs)
 
+        # track number of effective steps
+        n_effective_steps = 0
+
+        # iterate over gradient steps
         pbar = tqdm(range(n_train_steps))
         for self._current_step in pbar:
             # Sample nodes and perform training steps
             nodes = train_sampler.sample()
-            step_dict = {}
+
+            # loop over nodes in the batch
             for node in nodes:
-                opt_data, step_dict = self._method.train_step(node, *args, **kwargs)
-                step_dict.update({"step": self._current_step})
-                self._opt_manager.step(opt_data)
+                # update effective number of steps
+                n_effective_steps += +1
+
+                # forward pass on model
+                step_dict = self._opt_manager.step(
+                    n_effective_steps,
+                    self._method.train_step,
+                    node,
+                    *args,
+                    **kwargs,
+                )
+
+                # add step data and update logs
+                step_dict.update({"step": self._current_step, "eff_step": n_effective_steps})
                 self._append_train_log(step_dict)
 
             # Call on_train_step with the step_dict from the last node

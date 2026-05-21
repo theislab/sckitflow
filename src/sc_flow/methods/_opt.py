@@ -1,4 +1,5 @@
 import abc
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -7,7 +8,7 @@ __all__ = ["BaseOptManager", "OptimConfig"]
 
 class BaseOptManager(abc.ABC):
     @abc.abstractmethod
-    def step(self, optim_data: Any) -> Any:
+    def step(self, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
         """Perform one optimization step."""
         pass
 

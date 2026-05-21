@@ -1,3 +1,5 @@
+from typing import Any
+
 import torch
 
 from sc_flow.backends.torch.nn._modules import BaseModule
@@ -12,15 +14,43 @@ class TorchOptimizationManager(BaseOptManager):
         optimizer: torch.optim.Optimizer,
         lr_scheduler: torch.optim.lr_scheduler.LRScheduler | None = None,
         lr_scheduler_step: str = "train_step",
+        use_amp: bool = True,
+        scaler_kwargs: dict[str, Any] | None = None,
     ) -> None:
         self._optimizer = optimizer
         self._lr_scheduler = lr_scheduler
         self._lr_scheduler_step = lr_scheduler_step
+        self._use_amp = use_amp
+
+        # prepare scaler when using amp
+        if self._use_amp:
+            scaler_kwargs = {} if scaler_kwargs is None else scaler_kwargs
+            device = scaler_kwargs.pop("device", self._device)
+            self._scaler = torch.amp.GradScaler(device=device, **self._scaler_kwargs)
+        else:
+            self._scaler = None
+
+    @property
+    def _device(self) -> torch.device:
+        """Get device from the optimizer's parameters."""
+        if self._optimizer.param_groups:
+            for param in self._optimizer.param_groups[0]["params"]:
+                if hasattr(param, "device") and param.device is not None:
+                    return param.device
+        return torch.device("cpu")
 
     def step(self, loss: torch.Tensor) -> None:
+        # optionally scaling the loss
+        if self._scaler is not None:
+            self._scaler.scale(loss).backward()
+        else:
+            loss.backward()
+
+        # optimizer step
         self._optimizer.zero_grad()
-        loss.backward()
         self._optimizer.step()
+
+        # lr scheduler step
         if self._lr_scheduler is not None and self._lr_scheduler_step == "train_step":
             self._lr_scheduler.step()
 

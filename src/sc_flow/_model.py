@@ -386,6 +386,7 @@ class SCFlow:
         *args,
         return_tensors: bool = False,
         sort: bool = True,
+        control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
         **kwargs,
     ) -> AnnData | tuple[AnnData, "TorchPredictionData | JaxPredictionData"]:
@@ -427,6 +428,7 @@ class SCFlow:
             sort=sort,
             view_on_condition_space=self._view_on_condition_space,
             condition_state_key=self._condition_state_key,
+            control_values_dict=control_values_dict,
             matched_keys=matched_keys,
         )
         tree_flat: tuple[MatchedData] = tree.flatten()

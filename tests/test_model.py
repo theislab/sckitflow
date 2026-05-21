@@ -961,3 +961,156 @@ class TestSCFlowPredictMatchedKeys:
         model = SCFlow(method_cls=DummyMethod, backend="torch")
         with pytest.raises(KeyError, match="nonexistent"):
             model.predict(adata, sort=True, matched_keys=keys)
+
+
+class TestSCFlowPredictControlValues:
+    """Test the control_values_dict argument in SCFlow.predict."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_class_state(self):
+        """Ensure SCFlow class attributes are clean before/after each test."""
+        SCFlow._dm_cls = None
+        SCFlow._dims_registry = None
+        SCFlow._is_paired_setting_cls = False
+        SCFlow._view_on_condition_space_cls = False
+        SCFlow._condition_state_key_cls = None
+        yield
+        SCFlow._dm_cls = None
+        SCFlow._dims_registry = None
+        SCFlow._is_paired_setting_cls = False
+        SCFlow._view_on_condition_space_cls = False
+        SCFlow._condition_state_key_cls = None
+
+    def _setup_paired_data(self, adata, has_continuous=False):
+        """Create a paired dataset with drug condition and source_split groups."""
+        adata = adata.copy()
+        adata.obs = adata.obs[["drugA", "source_split"]].copy()
+        adata.obs["drugA"] = adata.obs["drugA"].astype(str)
+        n_obs = len(adata)
+        control_vals = ["control"] * (n_obs // 2)
+        treatment_vals = ["treatment"] * (n_obs - n_obs // 2)
+        adata.obs["drugA"] = control_vals + treatment_vals
+        adata.uns["drug"] = {"control": np.random.randn(4), "treatment": np.random.randn(4)}
+        unique_groups = adata.obs["source_split"].unique()
+        adata.uns["source_split"] = {g: np.random.randn(2) for g in unique_groups}
+        if has_continuous:
+            adata.obsm["X_repr"] = np.random.randn(n_obs, 5)
+        return adata
+
+    def test_predict_control_values_override(self, adata):
+        """Passing control_values_dict to predict overrides the instance's control_values_dict."""
+        adata = self._setup_paired_data(adata)
+        SCFlow.register_adata(
+            adata,
+            conditions={"drug": ("drugA",)},
+            conditions_reps={"drug": "drug"},
+            groups=("source_split",),
+            groups_reps={"source_split": "source_split"},
+            control_values_dict={"drug": "control"},
+        )
+        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        override_dict = {"drug": "control"}  # same value; test that override is used
+        pred_adata = model.predict(adata, sort=True, control_values_dict=override_dict)
+        assert pred_adata.n_obs > 0
+        assert all(pred_adata.obs["drugA"] == "treatment")
+
+    def test_predict_control_values_none_uses_instance(self, adata):
+        """When control_values_dict=None, the instance's control_values_dict is used."""
+        adata = self._setup_paired_data(adata)
+        SCFlow.register_adata(
+            adata,
+            conditions={"drug": ("drugA",)},
+            conditions_reps={"drug": "drug"},
+            groups=("source_split",),
+            groups_reps={"source_split": "source_split"},
+            control_values_dict={"drug": "control"},
+        )
+        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        pred_adata = model.predict(adata, sort=True, control_values_dict=None)
+        assert pred_adata.n_obs > 0
+        assert all(pred_adata.obs["drugA"] == "treatment")
+
+    def test_predict_control_values_without_instance(self, adata):
+        """When instance has no control_values_dict, a custom dict works."""
+        adata = self._setup_paired_data(adata)
+        SCFlow.register_adata(
+            adata,
+            conditions={"drug": ("drugA",)},
+            conditions_reps={"drug": "drug"},
+            groups=("source_split",),
+            groups_reps={"source_split": "source_split"},
+            # no control_values_dict
+        )
+        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        custom_dict = {"drug": "control"}
+        pred_adata = model.predict(adata, sort=True, control_values_dict=custom_dict)
+        assert pred_adata.n_obs > 0
+        assert all(pred_adata.obs["drugA"] == "treatment")
+
+    def test_predict_control_values_on_condition_view_paired_enabled(self, adata):
+        """With view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
+        control_values_dict is honored."""
+        adata = self._setup_paired_data(adata, has_continuous=True)
+        SCFlow.register_adata(
+            adata,
+            view_on_condition_space=True,
+            condition_state_key="X_repr",
+            conditions={"drug": ("drugA",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("source_split",),
+            groups_reps={"source_split": "source_split"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=True,
+        )
+        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        pred_adata = model.predict(
+            adata,
+            sort=True,
+            view_on_condition_space=True,
+            condition_state_key="X_repr",
+            control_values_dict={"drug": "control"},
+        )
+        assert pred_adata.n_obs > 0
+        assert all(pred_adata.obs["drugA"] == "treatment")
+
+    def test_predict_control_values_on_condition_view_paired_disabled(self, adata):
+        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
+        control_values_dict is ignored → all cells predicted."""
+        adata = self._setup_paired_data(adata, has_continuous=True)
+        SCFlow.register_adata(
+            adata,
+            view_on_condition_space=True,
+            condition_state_key="X_repr",
+            conditions={"drug": ("drugA",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("source_split",),
+            groups_reps={"source_split": "source_split"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=False,
+        )
+        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        pred_adata = model.predict(
+            adata,
+            sort=True,
+            view_on_condition_space=True,
+            condition_state_key="X_repr",
+            control_values_dict={"drug": "control"},
+        )
+        assert pred_adata.n_obs == len(adata)
+        assert set(pred_adata.obs["drugA"].unique()) == {"control", "treatment"}
+
+    def test_predict_control_values_invalid_control_raises(self, adata):
+        """If control_values_dict contains a value not present in the data, an error should be raised."""
+        adata = self._setup_paired_data(adata)
+        SCFlow.register_adata(
+            adata,
+            conditions={"drug": ("drugA",)},
+            conditions_reps={"drug": "drug"},
+            groups=("source_split",),
+            groups_reps={"source_split": "source_split"},
+        )
+        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        with pytest.raises(KeyError, match="nonexistent"):
+            model.predict(adata, sort=True, control_values_dict={"drug": "nonexistent"})

@@ -123,7 +123,7 @@ class Trainer:
         # Call on_train_begin
         self._callbacks.on_train_begin(self, **cb_kwargs)
 
-        pbar = tqdm(range(n_train_steps))
+        pbar = tqdm(range(1, n_train_steps + 1))
         for self._current_step in pbar:
             # Sample nodes and perform training steps
             nodes = train_sampler.sample()

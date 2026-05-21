@@ -206,6 +206,19 @@ class DataManager:
             conditions_cols=conditions_cols,
         )
 
+    def _get_source_key(
+        self,
+        control_values_dict: dict[str, str] | None = None,
+    ) -> tuple[Any] | None:
+        if control_values_dict is None:
+            return None
+        control_query_dict = {
+            cond: control_values_dict[level]
+            for level, conditions in self._condition_data_schema.conditions.items()
+            for cond in conditions
+        }
+        return self._selector.query_factory.query_dict_to_tuple(control_query_dict)
+
     def _get_feature_names(
         self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> pd.Index:
@@ -293,14 +306,25 @@ class DataManager:
                 "DataManager.sort_adata(adata) before compilation."
             )
 
-    def _get_matched_distributions(self, data: DistributionData, view_on_condition_space: bool = False) -> NestedData:
+    def _get_matched_distributions(
+        self,
+        data: DistributionData,
+        view_on_condition_space: bool = False,
+        control_values_dict: dict[str, str] | None = None,
+        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
+    ) -> NestedData:
         # optionally allow paired settings on condition space
         if view_on_condition_space and not self._allow_paired_settings_on_condition_view:
             source_key = None
             matched_keys = None
         else:
-            source_key = self.source_key
-            matched_keys = self.matched_keys
+            if control_values_dict:
+                source_key = self._get_source_key(control_values_dict)
+            else:
+                source_key = self.source_key
+
+            if matched_keys is None:
+                matched_keys = self.matched_keys
 
         self._assert_sorted(data)
         mapped_index = self._get_mapped_index(data.ann_df)
@@ -318,15 +342,45 @@ class DataManager:
     ) -> DataDimensionalitiesRegistry:
         return DataDimensionalitiesRegistry.init_from_distribution_data(data, feature_names)
 
-    def get_matched_distributions(self, data: DistributionData, view_on_condition_space: bool = False) -> NestedData:
+    def get_matched_distributions(
+        self,
+        data: DistributionData,
+        view_on_condition_space: bool = False,
+        control_values_dict: dict[str, str] | None = None,
+        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
+    ) -> NestedData:
         """Hierachically splits a distribution data container into matched subpopulations.
 
         :param data: The distribution data container for the whole population.
         :type data: class: `DistributionData`
+
+        :param view_on_condition_space: Whether to model condiion as states.
+            Defaults to `False`.
+        :type view_on_condition_space: class: `bool`
+
+        :param control_values_dict: Optional dictionary mapping each condition
+            level to the corresponding value used to indicate control observations.
+            This overrides the homonimous attribute and is needed to allow
+            inference over arbitrary control keys at inference time.
+            Without this, inference would be bound to the source
+            group defined for training. Defaults to `None`,
+            in which case the instance attribute will be used.
+        :type control_values_dict: class: `dict[str, str] | None`
+
+        :param matched_keys: Optional keys used to identify the source  and
+            corresponding target groups in the case of fixed matches.
+            This overrides the homonimous attribute and is needed to allow
+            inference over arbitrary matched groups at inference time.
+            Without this, inference would be bound to the pairs of source
+            and target groups defined for training. Defaults to `None`,
+            in which case the instance attribute will be used.
+        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
         """
         return self._get_matched_distributions(
             data,
             view_on_condition_space=view_on_condition_space,
+            control_values_dict=control_values_dict,
+            matched_keys=matched_keys,
         )
 
     def get_distribution_data(
@@ -386,6 +440,8 @@ class DataManager:
         sort: bool = False,
         view_on_condition_space: bool = False,
         condition_state_key: str | None = None,
+        control_values_dict: dict[str, str] | None = None,
+        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> NestedData:
         """Compile an annotated data object into split and matched subpopulations.
 
@@ -407,6 +463,24 @@ class DataManager:
             when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
             Defaults to `None`.
         :type condition_state_key: `str | None`
+
+        :param control_values_dict: Optional dictionary mapping each condition
+            level to the corresponding value used to indicate control observations.
+            This overrides the homonimous attribute and is needed to allow
+            inference over arbitrary control keys at inference time.
+            Without this, inference would be bound to the source
+            group defined for training. Defaults to `None`,
+            in which case the instance attribute will be used.
+        :type control_values_dict: class: `dict[str, str] | None`
+
+        :param matched_keys: Optional keys used to identify the source  and
+            corresponding target groups in the case of fixed matches.
+            This overrides the homonimous attribute and is needed to allow
+            inference over arbitrary matched groups at inference time.
+            Without this, inference would be bound to the pairs of source
+            and target groups defined for training. Defaults to `None`,
+            in which case the instance attribute will be used.
+        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
         """
         if sort:
             adata = self.sort_adata(adata)
@@ -415,7 +489,12 @@ class DataManager:
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
         )
-        return self._get_matched_distributions(data, view_on_condition_space=view_on_condition_space)
+        return self._get_matched_distributions(
+            data,
+            view_on_condition_space=view_on_condition_space,
+            control_values_dict=control_values_dict,
+            matched_keys=matched_keys,
+        )
 
     def get_data_dimensionalities(
         self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
@@ -517,11 +596,4 @@ class DataManager:
     @property
     def source_key(self) -> tuple[Any] | None:
         """Returns the key used to define the source subpopulations."""
-        if self._control_values_dict is None:
-            return None
-        control_query_dict = {
-            cond: self._control_values_dict[level]
-            for level, conditions in self._condition_data_schema.conditions.items()
-            for cond in conditions
-        }
-        return self._selector.query_factory.query_dict_to_tuple(control_query_dict)
+        return self._get_source_key(self._control_values_dict)

@@ -8,9 +8,9 @@ from sc_flow.backends.jax.solvers._sde_solver import SDESolver
 
 
 def _wrap(diffusion_fn, df_kwargs=None):
-    """Call SDESolver._get_diffusion_fn_wrapper without constructing a full solver."""
+    """Call SDESolver._diffusion_fn_wrapper without constructing a full solver."""
     s = SDESolver.__new__(SDESolver)  # bypass __init__
-    return s._get_diffusion_fn_wrapper(diffusion_fn, df_kwargs)
+    return s._diffusion_fn_wrapper(diffusion_fn, df_kwargs)
 
 
 def _solve_once(wrapped_diffusion, y0, *, bm_shape, t0=0.0, t1=0.2, dt0=0.02):

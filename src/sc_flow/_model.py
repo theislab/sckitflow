@@ -407,6 +407,15 @@ class SCFlow:
             is raised otherwise.
         :type sort: class: `bool`
 
+        :param control_values_dict: Optional dictionary mapping each condition
+            level to the corresponding value used to indicate control observations.
+            This overrides the homonimous attribute and is needed to allow
+            inference over arbitrary control keys at inference time.
+            Without this, inference would be bound to the source
+            group defined for training. Defaults to `None`,
+            in which case the instance attribute will be used.
+        :type control_values_dict: class: `dict[str, str] | None`
+
         :param matched_keys: Optional keys used to identify the source  and
             corresponding target groups in the case of fixed matches.
             This overrides the homonimous attribute and is needed to allow

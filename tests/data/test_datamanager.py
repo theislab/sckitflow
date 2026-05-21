@@ -347,3 +347,538 @@ class TestConditionSpacePairedSettings:
 
         check_source(nested)
         assert has_source  # pairing still active
+
+
+class TestMatchedKeys:
+    """Unified tests for matched_keys handling in compile_adata and get_matched_distributions."""
+
+    @staticmethod
+    def _collect_leaves(nested):
+        """Collect all MatchedData leaves from a NestedData tree."""
+        leaves = []
+
+        def collect(node):
+            if isinstance(node, NestedData):
+                for v in node.mapping.values():
+                    collect(v)
+            else:
+                leaves.append(node)
+
+        collect(nested)
+        return leaves
+
+    @staticmethod
+    def _get_condition_value(distribution, condition_col="drug"):
+        """Extract the condition value from a distribution's annotation DataFrame."""
+        if distribution is None:
+            return None
+        # The condition column may be 'drug' (realm) or actual column name
+        # Since our schema uses 'drug' as realm and the column is also 'drug', we use that.
+        if condition_col in distribution.ann_df.columns:
+            # Take the first unique value (all rows in a leaf have same condition)
+            return distribution.ann_df[condition_col].iloc[0]
+        return None
+
+    # ------------------ compile_adata tests ------------------
+    def test_compile_adata_matched_keys_override(self, adata_small: AnnData):
+        """Passing matched_keys to compile_adata overrides the instance's matched_keys."""
+        instance_keys = {("control",): ("ibuprofen",)}
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            matched_keys=instance_keys,
+        )
+        override_keys = {("control",): ("aspirin",)}
+        nested = manager.compile_adata(adata_small, sort=True, matched_keys=override_keys)
+        leaves = self._collect_leaves(nested)
+        # For each leaf, the target distribution should have condition 'aspirin'
+        for leaf in leaves:
+            if leaf.target is not None:
+                condition = self._get_condition_value(leaf.target)
+                assert condition == "aspirin", f"Expected target condition 'aspirin', got {condition}"
+
+    def test_compile_adata_matched_keys_none_uses_instance(self, adata_small: AnnData):
+        """When matched_keys=None, the instance's matched_keys is used."""
+        instance_keys = {("control",): ("ibuprofen",)}
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            matched_keys=instance_keys,
+        )
+        nested = manager.compile_adata(adata_small, sort=True, matched_keys=None)
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.target is not None:
+                condition = self._get_condition_value(leaf.target)
+                assert condition == "ibuprofen", f"Expected target condition 'ibuprofen', got {condition}"
+
+    def test_compile_adata_no_matched_keys_instance_none(self, adata_small: AnnData):
+        """When instance has no matched_keys and none passed, pairing falls back to control_values_dict."""
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+        )
+        nested = manager.compile_adata(adata_small, sort=True, matched_keys=None)
+        leaves = self._collect_leaves(nested)
+        # Without matched_keys, all treatment groups should be paired with control.
+        # The target condition can be any non-control value.
+        found = False
+        for leaf in leaves:
+            if leaf.target is not None:
+                cond = self._get_condition_value(leaf.target)
+                if cond != "control":
+                    found = True
+                    break
+        assert found, "No treatment target found (expected pairing based on control_values_dict)"
+
+    def test_compile_adata_matched_keys_ignored_on_condition_view_when_paired_disabled(self, adata_small: AnnData):
+        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
+        matched_keys are ignored (no pairing)."""
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=False,
+        )
+        override_keys = {("control",): ("aspirin",)}
+        nested = manager.compile_adata(
+            adata_small,
+            sort=True,
+            view_on_condition_space=True,
+            condition_state_key="X_repr",
+            matched_keys=override_keys,
+        )
+        leaves = self._collect_leaves(nested)
+        # No source should be present (pairing disabled)
+        for leaf in leaves:
+            assert leaf.source is None
+
+    def test_compile_adata_matched_keys_honored_on_condition_view_when_paired_enabled(self, adata_small: AnnData):
+        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
+        matched_keys are used."""
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=True,
+        )
+        override_keys = {("control",): ("aspirin",)}
+        nested = manager.compile_adata(
+            adata_small,
+            sort=True,
+            view_on_condition_space=True,
+            condition_state_key="X_repr",
+            matched_keys=override_keys,
+        )
+        leaves = self._collect_leaves(nested)
+        # Check that target condition is 'aspirin' for all leaves
+        for leaf in leaves:
+            if leaf.target is not None:
+                condition = self._get_condition_value(leaf.target)
+                assert condition == "aspirin", f"Expected target condition 'aspirin', got {condition}"
+
+    # ------------------ get_matched_distributions tests ------------------
+    def test_get_matched_distributions_matched_keys_override(self, adata_small: AnnData):
+        """Passing matched_keys to get_matched_distributions overrides the instance's matched_keys."""
+        instance_keys = {("control",): ("ibuprofen",)}
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            matched_keys=instance_keys,
+        )
+        adata_small = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(adata_small)
+        override_keys = {("control",): ("aspirin",)}
+        nested = manager.get_matched_distributions(distr, matched_keys=override_keys)
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.target is not None:
+                condition = self._get_condition_value(leaf.target)
+                assert condition == "aspirin", f"Expected target condition 'aspirin', got {condition}"
+
+    def test_get_matched_distributions_matched_keys_none_uses_instance(self, adata_small: AnnData):
+        """When matched_keys=None, the instance's matched_keys is used."""
+        instance_keys = {("control",): ("ibuprofen",)}
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            matched_keys=instance_keys,
+        )
+        adata_small = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(adata_small)
+        nested = manager.get_matched_distributions(distr, matched_keys=None)
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.target is not None:
+                condition = self._get_condition_value(leaf.target)
+                assert condition == "ibuprofen", f"Expected target condition 'ibuprofen', got {condition}"
+
+    def test_get_matched_distributions_no_matched_keys_instance_none(self, adata_small: AnnData):
+        """When instance has no matched_keys and none passed, pairing falls back to control_values_dict."""
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+        )
+        adata_small = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(adata_small)
+        nested = manager.get_matched_distributions(distr, matched_keys=None)
+        leaves = self._collect_leaves(nested)
+        found = False
+        for leaf in leaves:
+            if leaf.target is not None:
+                cond = self._get_condition_value(leaf.target)
+                if cond != "control":
+                    found = True
+                    break
+        assert found, "No treatment target found (expected pairing based on control_values_dict)"
+
+    def test_get_matched_distributions_matched_keys_ignored_on_condition_view_when_paired_disabled(
+        self, adata_small: AnnData
+    ):
+        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
+        matched_keys are ignored."""
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=False,
+        )
+        adata_small = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="X_repr")
+        override_keys = {("control",): ("aspirin",)}
+        nested = manager.get_matched_distributions(distr, view_on_condition_space=True, matched_keys=override_keys)
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            assert leaf.source is None
+
+    def test_get_matched_distributions_matched_keys_honored_on_condition_view_when_paired_enabled(
+        self, adata_small: AnnData
+    ):
+        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
+        matched_keys are used."""
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=True,
+        )
+        adata_small = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="X_repr")
+        override_keys = {("control",): ("aspirin",)}
+        nested = manager.get_matched_distributions(distr, view_on_condition_space=True, matched_keys=override_keys)
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.target is not None:
+                condition = self._get_condition_value(leaf.target)
+                assert condition == "aspirin", f"Expected target condition 'aspirin', got {condition}"
+
+
+class TestControlValues:
+    """Test control_values_dict handling in compile_adata and get_matched_distributions."""
+
+    @staticmethod
+    def _collect_leaves(nested):
+        """Collect all MatchedData leaves from a NestedData tree."""
+        leaves = []
+
+        def collect(node):
+            if isinstance(node, NestedData):
+                for v in node.mapping.values():
+                    collect(v)
+            else:
+                leaves.append(node)
+
+        collect(nested)
+        return leaves
+
+    @staticmethod
+    def _get_condition_value(distribution, condition_col="drug"):
+        """Extract the condition value from a distribution's annotation DataFrame."""
+        if distribution is None:
+            return None
+        if condition_col in distribution.ann_df.columns:
+            return distribution.ann_df[condition_col].iloc[0]
+        return None
+
+    # ------------------ compile_adata tests ------------------
+    def test_compile_adata_control_values_override(self, adata_small: AnnData):
+        """Passing control_values_dict to compile_adata overrides the instance's control_values_dict."""
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+        )
+        # Override with a different control value that exists in the data (ibuprofen)
+        override_dict = {"drug": "ibuprofen"}
+        nested = manager.compile_adata(adata_small, sort=True, control_values_dict=override_dict)
+        leaves = self._collect_leaves(nested)
+        # Should have source with condition 'ibuprofen'
+        for leaf in leaves:
+            if leaf.source is not None:
+                source_cond = self._get_condition_value(leaf.source)
+                assert source_cond == "ibuprofen"
+            if leaf.target is not None:
+                target_cond = self._get_condition_value(leaf.target)
+                assert target_cond != "ibuprofen"
+
+    def test_compile_adata_control_values_none_uses_instance(self, adata_small: AnnData):
+        """When control_values_dict=None, the instance's control_values_dict is used."""
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+        )
+        nested = manager.compile_adata(adata_small, sort=True, control_values_dict=None)
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.source is not None:
+                source_cond = self._get_condition_value(leaf.source)
+                assert source_cond == "control"
+            if leaf.target is not None:
+                target_cond = self._get_condition_value(leaf.target)
+                assert target_cond != "control"
+
+    def test_compile_adata_control_values_without_instance(self, adata_small: AnnData):
+        """When instance has no control_values_dict, a custom dict works."""
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            # no control_values_dict
+        )
+        custom_dict = {"drug": "control"}
+        nested = manager.compile_adata(adata_small, sort=True, control_values_dict=custom_dict)
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.source is not None:
+                source_cond = self._get_condition_value(leaf.source)
+                assert source_cond == "control"
+            if leaf.target is not None:
+                target_cond = self._get_condition_value(leaf.target)
+                assert target_cond != "control"
+
+    def test_compile_adata_control_values_ignored_on_condition_view_when_paired_disabled(self, adata_small: AnnData):
+        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
+        control_values_dict is ignored (no pairing)."""
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=False,
+        )
+        nested = manager.compile_adata(
+            adata_small,
+            sort=True,
+            view_on_condition_space=True,
+            condition_state_key="X_repr",
+            control_values_dict={"drug": "control"},
+        )
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            assert leaf.source is None
+
+    def test_compile_adata_control_values_honored_on_condition_view_when_paired_enabled(self, adata_small: AnnData):
+        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
+        control_values_dict is used."""
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=True,
+        )
+        nested = manager.compile_adata(
+            adata_small,
+            sort=True,
+            view_on_condition_space=True,
+            condition_state_key="X_repr",
+            control_values_dict={"drug": "control"},
+        )
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.source is not None:
+                source_cond = self._get_condition_value(leaf.source)
+                assert source_cond == "control"
+            if leaf.target is not None:
+                target_cond = self._get_condition_value(leaf.target)
+                assert target_cond != "control"
+
+    # ------------------ get_matched_distributions tests ------------------
+    def test_get_matched_distributions_control_values_override(self, adata_small: AnnData):
+        """Passing control_values_dict to get_matched_distributions overrides the instance's."""
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+        )
+        adata_small = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(adata_small)
+        override_dict = {"drug": "ibuprofen"}
+        nested = manager.get_matched_distributions(distr, control_values_dict=override_dict)
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.source is not None:
+                source_cond = self._get_condition_value(leaf.source)
+                assert source_cond == "ibuprofen"
+            if leaf.target is not None:
+                target_cond = self._get_condition_value(leaf.target)
+                assert target_cond != "ibuprofen"
+
+    def test_get_matched_distributions_control_values_none_uses_instance(self, adata_small: AnnData):
+        """When control_values_dict=None, the instance's is used."""
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+        )
+        adata_small = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(adata_small)
+        nested = manager.get_matched_distributions(distr, control_values_dict=None)
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.source is not None:
+                source_cond = self._get_condition_value(leaf.source)
+                assert source_cond == "control"
+            if leaf.target is not None:
+                target_cond = self._get_condition_value(leaf.target)
+                assert target_cond != "control"
+
+    def test_get_matched_distributions_control_values_without_instance(self, adata_small: AnnData):
+        """When instance has no control_values_dict, custom dict works."""
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+        )
+        adata_small = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(adata_small)
+        custom_dict = {"drug": "control"}
+        nested = manager.get_matched_distributions(distr, control_values_dict=custom_dict)
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.source is not None:
+                source_cond = self._get_condition_value(leaf.source)
+                assert source_cond == "control"
+            if leaf.target is not None:
+                target_cond = self._get_condition_value(leaf.target)
+                assert target_cond != "control"
+
+    def test_get_matched_distributions_control_values_ignored_on_condition_view_when_paired_disabled(
+        self, adata_small: AnnData
+    ):
+        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
+        control_values_dict is ignored."""
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=False,
+        )
+        adata_small = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="X_repr")
+        nested = manager.get_matched_distributions(
+            distr, view_on_condition_space=True, control_values_dict={"drug": "control"}
+        )
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            assert leaf.source is None
+
+    def test_get_matched_distributions_control_values_honored_on_condition_view_when_paired_enabled(
+        self, adata_small: AnnData
+    ):
+        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
+        control_values_dict is used."""
+        if "X_repr" not in adata_small.obsm:
+            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+
+        manager = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            conditions_covariates=["X_repr"],
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            control_values_dict={"drug": "control"},
+            allow_paired_settings_on_condition_view=True,
+        )
+        adata_small = manager.sort_adata(adata_small)
+        distr = manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="X_repr")
+        nested = manager.get_matched_distributions(
+            distr, view_on_condition_space=True, control_values_dict={"drug": "control"}
+        )
+        leaves = self._collect_leaves(nested)
+        for leaf in leaves:
+            if leaf.source is not None:
+                source_cond = self._get_condition_value(leaf.source)
+                assert source_cond == "control"
+            if leaf.target is not None:
+                target_cond = self._get_condition_value(leaf.target)
+                assert target_cond != "control"

@@ -206,6 +206,19 @@ class DataManager:
             conditions_cols=conditions_cols,
         )
 
+    def _get_source_key(
+        self,
+        control_values_dict: dict[str, str] | None = None,
+    ) -> tuple[Any] | None:
+        if control_values_dict is None:
+            return None
+        control_query_dict = {
+            cond: control_values_dict[level]
+            for level, conditions in self._condition_data_schema.conditions.items()
+            for cond in conditions
+        }
+        return self._selector.query_factory.query_dict_to_tuple(control_query_dict)
+
     def _get_feature_names(
         self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
     ) -> pd.Index:
@@ -541,11 +554,4 @@ class DataManager:
     @property
     def source_key(self) -> tuple[Any] | None:
         """Returns the key used to define the source subpopulations."""
-        if self._control_values_dict is None:
-            return None
-        control_query_dict = {
-            cond: self._control_values_dict[level]
-            for level, conditions in self._condition_data_schema.conditions.items()
-            for cond in conditions
-        }
-        return self._selector.query_factory.query_dict_to_tuple(control_query_dict)
+        return self._get_source_key(self._control_values_dict)

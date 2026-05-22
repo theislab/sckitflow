@@ -1051,8 +1051,8 @@ class TestPreprocessingIntegration:
         # Identity transform – data unchanged
         np.testing.assert_array_equal(dist.state_data.X, adata_small.X)
 
-        def test_unload_preproc_delegation(self):
-            dm = _make_manager()
-            with patch.object(StatePreprocessing, "unload") as mock_unload:
-                dm.unload_preproc()
-            mock_unload.assert_called_once()
+    def test_unload_preproc_delegation(self):
+        dm = _make_manager()
+        with patch.object(StatePreprocessing, "unload") as mock_unload:
+            dm.unload_preproc()
+        mock_unload.assert_called_once()

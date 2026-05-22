@@ -56,7 +56,7 @@ class SDESolver(BaseSolver[TSDEDynamics]):
 
         vf_kwargs = vf_kwargs or {}
         self._drift_fn = dynamics[0].get_vf_fn(**vf_kwargs)
-        self._diffusion_fn = self._diffusion_fn_wrapper(dynamics[1], df_kwargs)
+        self._diffusion_fn = self._get_diffusion_fn_wrapper(dynamics[1], df_kwargs)
 
     def solve(
         self,
@@ -149,7 +149,7 @@ class SDESolver(BaseSolver[TSDEDynamics]):
         """Returns the diffusion function used in the SDE."""
         return self._diffusion_fn
 
-    def _diffusion_fn_wrapper(
+    def _get_diffusion_fn_wrapper(
         self,
         diffusion_fn: TDiffusion,
         df_kwargs: dict[str, Any] | None = None,
@@ -162,7 +162,7 @@ class SDESolver(BaseSolver[TSDEDynamics]):
         remaining_params = [p for p in params.values() if p.name not in df_kwargs]
         num_params = len(remaining_params)
 
-        def wrapped_diffusion(t: Tensor, y: Tensor, args: Any = None) -> Tensor:
+        def wrapped_diffusion(t: Tensor, y: Tensor) -> Tensor:
             if num_params >= 2:
                 return partial_diffusion(t, y)
             else:

@@ -33,7 +33,7 @@ class BasePreprocessing(abc.ABC):
             Defaults to `None`.
         :type encoder_context: class: `ExternalModelContext | None`
 
-        :param decoder_context: The context for optional encoder models.
+        :param decoder_context: The context for optional decoder models.
             Defaults to `None`.
         :type decoder_context: class: `ExternalModelContext | None`
         """

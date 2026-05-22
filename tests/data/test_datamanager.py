@@ -1,3 +1,5 @@
+from unittest.mock import patch
+
 import numpy as np
 import pytest
 from anndata import AnnData
@@ -14,6 +16,7 @@ from sc_flow.data.containers._coupling import CouplingData
 from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.containers._state import StateData
+from sc_flow.preprocessing._state_data_preproc import StatePreprocessing
 
 
 def _make_manager(**overrides) -> DataManager:
@@ -882,3 +885,171 @@ class TestControlValues:
             if leaf.target is not None:
                 target_cond = self._get_condition_value(leaf.target)
                 assert target_cond != "control"
+
+
+class TestPreprocessingIntegration:
+    """Tests that the DataManager correctly delegates to StatePreprocessing."""
+
+    # ── flag‑driven paths ────────────────────────────────────────────
+
+    def test_get_distribution_data_no_preproc_flags(self, adata_small: AnnData):
+        """Without flags, StatePreprocessing methods are never called."""
+        dm = _make_manager()
+        with (
+            patch.object(StatePreprocessing, "fit") as mock_fit,
+            patch.object(StatePreprocessing, "transform") as mock_transform,
+        ):
+            dm.get_distribution_data(adata_small)
+        mock_fit.assert_not_called()
+        mock_transform.assert_not_called()
+
+    def test_get_distribution_data_fit_preproc_only(self, adata_small: AnnData):
+        dm = _make_manager()
+        with (
+            patch.object(StatePreprocessing, "fit") as mock_fit,
+            patch.object(StatePreprocessing, "transform") as mock_transform,
+        ):
+            dm.get_distribution_data(adata_small, fit_preproc=True)
+        mock_fit.assert_called_once()
+        mock_transform.assert_not_called()
+
+    def test_get_distribution_data_apply_transformations_only(self, adata_small: AnnData):
+        dm = _make_manager()
+        with (
+            patch.object(StatePreprocessing, "fit") as mock_fit,
+            patch.object(StatePreprocessing, "transform") as mock_transform,
+        ):
+            dm.get_distribution_data(adata_small, apply_transformations=True)
+        mock_fit.assert_not_called()
+        mock_transform.assert_called_once()
+
+    def test_get_distribution_data_both_flags(self, adata_small: AnnData):
+        dm = _make_manager()
+        with (
+            patch.object(StatePreprocessing, "fit") as mock_fit,
+            patch.object(StatePreprocessing, "transform") as mock_transform,
+        ):
+            dm.get_distribution_data(adata_small, fit_preproc=True, apply_transformations=True)
+        mock_fit.assert_called_once()
+        mock_transform.assert_called_once()
+
+    # same for compile_adata (flags are forwarded)
+
+    def test_compile_adata_no_preproc_flags(self, adata_small: AnnData):
+        dm = _make_manager()
+        with (
+            patch.object(StatePreprocessing, "fit") as mock_fit,
+            patch.object(StatePreprocessing, "transform") as mock_transform,
+        ):
+            dm.compile_adata(adata_small, sort=True)
+        mock_fit.assert_not_called()
+        mock_transform.assert_not_called()
+
+    def test_compile_adata_fit_preproc(self, adata_small: AnnData):
+        dm = _make_manager()
+        with (
+            patch.object(StatePreprocessing, "fit") as mock_fit,
+            patch.object(StatePreprocessing, "transform") as mock_transform,
+        ):
+            dm.compile_adata(adata_small, sort=True, fit_preproc=True)
+        mock_fit.assert_called_once()
+        mock_transform.assert_not_called()
+
+    def test_compile_adata_apply_transformations(self, adata_small: AnnData):
+        dm = _make_manager()
+        with (
+            patch.object(StatePreprocessing, "fit") as mock_fit,
+            patch.object(StatePreprocessing, "transform") as mock_transform,
+        ):
+            dm.compile_adata(adata_small, sort=True, fit_preproc=True, apply_transformations=True)
+        mock_fit.assert_not_called()
+        mock_transform.assert_called_once()
+
+    def test_compile_adata_both_flags(self, adata_small: AnnData):
+        dm = _make_manager()
+        with (
+            patch.object(StatePreprocessing, "fit") as mock_fit,
+            patch.object(StatePreprocessing, "transform") as mock_transform,
+        ):
+            dm.compile_adata(adata_small, sort=True, fit_preproc=True, apply_transformations=True)
+        mock_fit.assert_called_once()
+        mock_transform.assert_called_once()
+
+    # get_data_dimensionalities also supports the flags
+
+    def test_get_data_dimensionalities_flags(self, adata_small: AnnData):
+        dm = _make_manager()
+        with (
+            patch.object(StatePreprocessing, "fit") as mock_fit,
+            patch.object(StatePreprocessing, "transform") as mock_transform,
+        ):
+            dm.get_data_dimensionalities(adata_small, fit_preproc=True, apply_transformations=True)
+        mock_fit.assert_called_once()
+        mock_transform.assert_called_once()
+
+    # ── standalone methods ────────────────────────────────────────────
+
+    def test_fit_preproc_standalone(self, adata_small: AnnData):
+        dm = _make_manager()
+        dist = dm.get_distribution_data(adata_small)
+        with patch.object(StatePreprocessing, "fit") as mock_fit:
+            dm.fit_preproc(dist)
+        mock_fit.assert_called_once_with(dist)
+
+    def test_apply_preproc_transforms_standalone(self, adata_small: AnnData):
+        dm = _make_manager()
+        dist = dm.get_distribution_data(adata_small)
+        with patch.object(StatePreprocessing, "transform") as mock_transform:
+            dm.apply_preproc_transforms(dist)
+        mock_transform.assert_called_once_with(dist)
+
+    def test_apply_preproc_inverse_transforms_standalone(self, adata_small: AnnData):
+        dm = _make_manager()
+        dist = dm.get_distribution_data(adata_small)
+        with patch.object(StatePreprocessing, "inverse_transform") as mock_inv:
+            dm.apply_preproc_inverse_transforms(dist)
+        mock_inv.assert_called_once_with(dist)
+
+    # ── lazy ExternalModelContext (optional but valuable) ─────────────
+    def test_external_model_context_not_loaded_on_init(self):
+        from sc_flow.external._context import ExternalModelContext
+
+        encoder_ctx = ExternalModelContext(model_path="dummy.pkl")
+        # Patch the load method with a spy so we can assert it was not called
+        with patch.object(encoder_ctx, "load", wraps=encoder_ctx.load) as spy:
+            DataManager(state_encoder_context=encoder_ctx)
+        spy.assert_not_called()
+
+    # ── transform actually works (simple integration check) ───────────
+    # Use a real BaseTransform subclass that is a no‑op / identity to
+    # verify that fit and transform are called on the actual data.
+    def test_full_roundtrip_with_transform(self, adata_small: AnnData):
+        from sc_flow.preprocessing.transforms._base import BaseTransform
+
+        class DummyTransform(BaseTransform):
+            is_fitted: bool = True
+
+            def fit(self, X, **kwargs):
+                pass
+
+            def transform(self, X, **kwargs):
+                return X
+
+            def inverse_transform(self, X, **kwargs):
+                return X
+
+        dm = DataManager(
+            conditions={"drug": ("drug",)},
+            conditions_reps={"drug": "drug"},
+            groups=("cell_line",),
+            groups_reps={"cell_line": "cell_line"},
+            state_transform=DummyTransform(),
+        )
+        print(dm.state_preproc.is_fitted)
+        # Fit and transform in one call – we force is_fitted to True
+        # with patch.object(dm._state_preproc, 'is_fitted', True):
+        dist = dm.get_distribution_data(adata_small, fit_preproc=True, apply_transformations=True)
+        print(dm.state_preproc.is_fitted)
+        assert isinstance(dist, DistributionData)
+        # Identity transform – data unchanged
+        np.testing.assert_array_equal(dist.state_data.X, adata_small.X)

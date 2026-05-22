@@ -1114,3 +1114,83 @@ class TestSCFlowPredictControlValues:
         model = SCFlow(method_cls=DummyMethod, backend="torch")
         with pytest.raises(KeyError, match="nonexistent"):
             model.predict(adata, sort=True, control_values_dict={"drug": "nonexistent"})
+
+
+class TestSCFlowPreprocessingIntegration:
+    """Verify that the preprocessing pipeline is used correctly by SCFlow."""
+
+    @pytest.fixture(autouse=True)
+    def _reset_class_state(self):
+        """Ensure SCFlow class attributes are clean before/after each test."""
+        SCFlow._dm_cls = None
+        SCFlow._dims_registry = None
+        SCFlow._is_paired_setting_cls = False
+        SCFlow._view_on_condition_space_cls = False
+        SCFlow._condition_state_key_cls = None
+        yield
+        SCFlow._dm_cls = None
+        SCFlow._dims_registry = None
+        SCFlow._is_paired_setting_cls = False
+        SCFlow._view_on_condition_space_cls = False
+        SCFlow._condition_state_key_cls = None
+
+    def test_register_adata_fits_and_transforms(self, adata):
+        """register_adata must call get_data_dimensionalities with fit_preproc=True
+        and apply_transformations=True."""
+        with patch.object(DataManager, "get_data_dimensionalities", return_value=MagicMock()) as mock_method:
+            SCFlow.register_adata(adata)
+        mock_method.assert_called_once()
+        call_kwargs = mock_method.call_args.kwargs
+        assert call_kwargs["fit_preproc"] is True
+        assert call_kwargs["apply_transformations"] is True
+
+    def test_train_applies_transformations_without_refitting(self, adata, mock_optim_manager):
+        """train() calls compile_adata with apply_transformations=True and never re-fits."""
+        SCFlow.register_adata(adata)
+        model = SCFlow(method_cls=DummyMethod, backend="torch")
+
+        with (
+            patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
+            patch.object(model._dm._state_preproc, "fit") as fit_spy,
+        ):
+            with patch("sc_flow._model.Trainer"):
+                model.train(adata, n_train_steps=5, sort=True)
+
+        # compile_adata called once for train data
+        compile_spy.assert_called_once()
+        assert compile_spy.call_args.kwargs["apply_transformations"] is True
+        # fit_preproc should not be passed (defaults to False)
+        assert compile_spy.call_args.kwargs.get("fit_preproc", False) is False
+        fit_spy.assert_not_called()
+
+    def test_predict_applies_transformations_without_refitting(self, adata):
+        """predict() calls compile_adata with apply_transformations=True and never re-fits."""
+        SCFlow.register_adata(adata)
+        model = SCFlow(method_cls=DummyMethod)
+
+        with (
+            patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
+            patch.object(model._dm._state_preproc, "fit") as fit_spy,
+        ):
+            model.predict(adata, sort=True)
+
+        compile_spy.assert_called_once()
+        assert compile_spy.call_args.kwargs["apply_transformations"] is True
+        assert compile_spy.call_args.kwargs.get("fit_preproc", False) is False
+        fit_spy.assert_not_called()
+
+    def test_train_with_validation_also_transforms(self, adata, mock_optim_manager):
+        """Validation data must also be compiled with apply_transformations=True."""
+        SCFlow.register_adata(adata)
+        model = SCFlow(method_cls=DummyMethod)
+        val_adata = adata.copy()
+
+        with patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy:
+            with patch("sc_flow._model.Trainer"):
+                model.train(adata, val_adatas_dict={"val": val_adata}, n_train_steps=5, sort=True)
+
+        # compile_adata called for train + validation
+        assert compile_spy.call_count == 2
+        for call in compile_spy.call_args_list:
+            assert call.kwargs["apply_transformations"] is True
+            assert call.kwargs.get("fit_preproc", False) is False

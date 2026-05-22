@@ -1,212 +1,124 @@
 import abc
-from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["BaseTranform", "TransformParams"]
+from sc_flow.data.containers._distribution import DistributionData
+from sc_flow.external._context import ExternalModelContext
+from sc_flow.preprocessing.transforms._base import BaseTransform
+
+__all__ = ["BasePreprocessing"]
 
 
-@dataclass
-class TransformParams:
-    """Base class for storing fitted preprocessor parameters.
+class BasePreprocessing(abc.ABC):
+    """Base class for preprocessing distribution data.
 
-    This is a container for parameters learned during the fit process.
-    Each specific preprocessor will define its own parameter class.
-
-    Attributes
-    ----------
-        is_fitted: Whether the preprocessor has been fitted to data.
-        n_features: Number of features in the fitted data.
+    Derived classes should define the `_extract_data`
+    and `_write_data` methods and should be designed
+    to operate on :class: `DistributionData` objects.
     """
 
-    is_fitted: bool = False
-    n_features: int | None = None
+    def __init__(
+        self,
+        transform: BaseTransform | None = None,
+        encoder_context: ExternalModelContext | None = None,
+        decoder_context: ExternalModelContext | None = None,
+    ) -> None:
+        """Initializes the preprocessing module.
 
-    def _validate_fitted(self) -> None:
-        """Check that the preprocessor has been fitted.
+        :param transform: The transformation to be applied to the data.
+            Defaults to `None`.
+        :type transform: class: `BaseTransform | None`
 
-        Raises
-        ------
-            RuntimeError: If the preprocessor has not been fitted yet.
+        :param encoder_context: The context for optional encoder models.
+            Defaults to `None`.
+        :type encoder_context: class: `ExternalModelContext | None`
+
+        :param decoder_context: The context for optional encoder models.
+            Defaults to `None`.
+        :type decoder_context: class: `ExternalModelContext | None`
         """
+        self._transform = transform
+        self._encoder_context = encoder_context
+        self._decoder_context = decoder_context
+
+        self._is_fitted: bool = False
+
+    @abc.abstractmethod
+    def _extract_data(self, data: DistributionData) -> np.ndarray: ...
+
+    @abc.abstractmethod
+    def _write_data(self, X: np.ndarray, data: DistributionData) -> DistributionData: ...
+
+    def _fit_transform(self, X: np.ndarray) -> None:
+        if self._transform is not None:
+            self._transform.fit(X)
+
+    def _apply_transform(self, X: np.ndarray) -> np.ndarray:
+        if self._transform is not None:
+            X = self._transform.transform(X)
+        if self._encoder_context is not None:
+            X = self._encoder_context(X)
+        return X
+
+    def _apply_inverse_transform(self, X: np.ndarray) -> np.ndarray:
+        if self._decoder_context is not None:
+            X = self._decoder_context(X)
+        if self._transform is not None:
+            X = self._transform.inverse_transform(X)
+        return X
+
+    def fit(self, data: DistributionData) -> None:
+        """Fits the transformation on the input distribution.
+
+        :param data: The input distribution data to fit the transform on.
+        :type data: class: `DistributionData`
+        """
+        X = self._extract_data(data)
+        self._fit_transform(X)
+        self._is_fitted = True
+
+    def transform(self, data: DistributionData) -> DistributionData:
+        """Applies the transformation to the input distribution.
+
+        The :method:`self.fit` method should be called before
+        transforming the data. Raises a :class: `RuntimeError`
+        otherwise.
+
+        :param data: The input distribution data to transform.
+        :type data: class: `DistributionData`
+        """
+        # transform need to be fitted
         if not self.is_fitted:
-            raise RuntimeError(
-                "This preprocessor has not been fitted yet. "
-                "Call 'fit' or 'fit_transform' before using 'transform' or 'inverse_transform'."
-            )
+            raise RuntimeError("Preprocessing not fitted. Call fit() first.")
 
-    def _validate_n_features(self, X: np.ndarray) -> None:
-        """Check that input has correct number of features.
+        # apply transformation
+        X = self._extract_data(data)
+        X = self._apply_transform(X)
+        return self._write_data(X, data)
 
-        Args:
-            X: Input array to validate, shape (n_samples, n_features).
+    def inverse_transform(self, data: DistributionData) -> DistributionData:
+        """Applies the inverse transformation to the input distribution.
 
-        Raises
-        ------
-            ValueError: If number of features doesn't match fitted data.
+        The :method:`self.fit` method should be called before
+        transforming the data. Raises a :class: `RuntimeError`
+        otherwise.
+
+        :param data: The input distribution data which
+            to apply the inverse transformation on.
+        :type data: class: `DistributionData`
         """
-        if X.shape[1] != self.n_features:
-            raise ValueError(
-                f"Input has {X.shape[1]} features, but preprocessor was fitted with {self.n_features} features."
-            )
+        # transform need to be fitted
+        if not self.is_fitted:
+            raise RuntimeError("Preprocessing not fitted. Call fit() first.")
 
-
-class BaseTranform(abc.ABC):
-    """Abstract base class for all preprocessors.
-
-    Preprocessors work with class:'numpy' objects of shape (n_samples, n_features).
-
-    The derived classes will need to override the following abstract methods to be instantiated:
-        - _fit: Learn parameters from data
-        - _transform: Apply transformation using learned parameters
-        - _inverse_transform: Reverse the transformation
-    Maybe define  an immutable data structure for the returned object?
-    """
-
-    def __init__(self) -> None:
-        """Initialize the preprocessor.
-
-        The params attribute will store fitted parameters.
-        It should be set to a specific TransformParams subclass in subclasses.
-        """
-        self._params: TransformParams | None = None
-
-    @property
-    def params(self) -> TransformParams:
-        """Get the fitted parameters.
-
-        Returns
-        -------
-            The fitted parameters object.
-
-        Raises
-        ------
-            RuntimeError: If the preprocessor has not been fitted yet.
-        """
-        if self._params is None:
-            raise RuntimeError("Preprocessor has not been fitted yet. Call 'fit()' or 'fit_transform()' first.")
-        return self._params
+        # apply inverse transformation
+        X = self._extract_data(data)
+        X = self._apply_inverse_transform(X)
+        return self._write_data(X, data)
 
     @property
     def is_fitted(self) -> bool:
-        """Check if the preprocessor has been fitted.
-
-        Returns
-        -------
-            True if fitted, False otherwise.
-        """
-        return self._params is not None and self._params.is_fitted
-
-    def fit_transform(self, X: np.ndarray) -> np.ndarray:
-        """Fit to data, then transform it.
-
-        This is a convenience method that combines fit and transform.
-
-        Args:
-            X: Input data array, shape (n_samples, n_features).
-
-        Returns
-        -------
-            Transformed data array, shape (n_samples, n_features_out).
-        """
-        self.fit(X)
-        return self.transform(X)
-
-    def _validate_input(self, X: np.ndarray, name: str = "X") -> None:
-        """Validate input array shape and type.
-
-        Args:
-            X: Input array to validate.
-            name: Name of the parameter for error messages.
-
-        Raises
-        ------
-            TypeError: If X is not a numpy array.
-            ValueError: If X is not 2D or has invalid shape.
-        """
-        if not isinstance(X, np.ndarray):
-            raise TypeError(f"{name} must be a numpy array, got {type(X)}")
-
-        if X.ndim != 2:
-            raise ValueError(f"{name} must be 2D array with shape (n_samples, n_features), got shape {X.shape}")
-
-        if X.shape[0] == 0:
-            raise ValueError(f"{name} must have at least one sample")
-
-        if X.shape[1] == 0:
-            raise ValueError(f"{name} must have at least one feature")
-
-    @abc.abstractmethod
-    def fit(self, X: np.ndarray) -> "BaseTranform":
-        """Fit the preprocessor to the data.
-
-        This method learns parameters from the input data and stores them
-        in self._params. It should:
-        1. Validate input shape
-        2. Compute statistics/parameters
-        3. Store parameters in a _TransformParams object
-        4. Set is_fitted=True
-        5. Return self for method chaining
-
-        Args:
-            X: Input data array, shape (n_samples, n_features).
-
-        Returns
-        -------
-            Self
-
-        Raises
-        ------
-            ValueError: If input array has invalid shape.
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def transform(self, X: np.ndarray) -> np.ndarray:
-        """Transform the data using fitted parameters.
-
-        This method applies the learned transformation to new data.
-        It should:
-        1. Check that preprocessor is fitted
-        2. Validate input shape matches fitted data
-        3. Apply transformation
-        4. Return transformed array
-
-        Args:
-            X: Input data array, shape (n_samples, n_features).
-
-        Returns
-        -------
-            Transformed data array, shape (n_samples, n_features_out).
-
-        Raises
-        ------
-            RuntimeError: If preprocessor has not been fitted.
-            ValueError: If input shape is incompatible.
-        """
-        raise NotImplementedError
-
-    @abc.abstractmethod
-    def inverse_transform(self, X: np.ndarray) -> np.ndarray:
-        """Reverse the transformation.
-
-        This method reverses the transformation to recover (approximately)
-        the original data space. It should:
-        1. Check that preprocessor is fitted
-        2. Validate input shape
-        3. Apply inverse transformation
-        4. Return reconstructed array
-
-        Args:
-            X: Transformed data array, shape (n_samples, n_features_out).
-
-        Returns
-        -------
-            Reconstructed data array, shape (n_samples, n_features).
-
-        Raises
-        ------
-            RuntimeError: If preprocessor has not been fitted.
-            ValueError: If input shape is incompatible.
-        """
-        raise NotImplementedError
+        """Whether the preprocessing module was fitted."""
+        if self._transform is None:
+            return self._is_fitted
+        return self._transform.is_fitted and self._is_fitted

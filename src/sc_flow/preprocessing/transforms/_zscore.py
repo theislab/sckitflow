@@ -2,7 +2,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from sc_flow.data.preprocessing._base import BaseTranform, TransformParams
+from sc_flow.preprocessing.transforms._base import BaseTransform, TransformParams
+
+__all__ = ["ZScoreParams", "ZScoreTransform"]
 
 
 @dataclass
@@ -24,7 +26,7 @@ class ZScoreParams(TransformParams):
     std: np.ndarray | None = None
 
 
-class ZScoreTransform(BaseTranform):
+class ZScoreTransform(BaseTransform):
     """Z-score normalization
 
     This preprocessor standardizes features by removing the mean and scaling

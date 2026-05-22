@@ -44,10 +44,12 @@ class BasePreprocessing(abc.ABC):
         self._is_fitted: bool = False
 
     @abc.abstractmethod
-    def _extract_data(self, data: DistributionData) -> np.ndarray: ...
+    def _extract_data(self, data: DistributionData) -> np.ndarray:
+        pass
 
     @abc.abstractmethod
-    def _write_data(self, X: np.ndarray, data: DistributionData) -> DistributionData: ...
+    def _write_data(self, X: np.ndarray, data: DistributionData) -> DistributionData:
+        pass
 
     def _fit_transform(self, X: np.ndarray) -> None:
         if self._transform is not None:

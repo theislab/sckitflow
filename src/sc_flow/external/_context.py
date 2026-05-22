@@ -34,7 +34,8 @@ class ExternalModelContext:
 
     def __init__(
         self,
-        model_path: str,
+        model: Any | None = None,
+        model_path: str | None = None,
         model_load_args: Collection[Any] = (),
         model_load_kwargs: dict[str, Any] = None,
         forward_method: str | None = None,
@@ -46,6 +47,10 @@ class ExternalModelContext:
         allow_missing_forward_method: bool = True,
         runtime_args_first: bool = True,
     ) -> None:
+        if model is None and model_path is None:
+            raise ValueError("At least one of model or model_path should be passed")
+
+        self._model: Any = model
         self._model_path = model_path
         self._model_load_args = model_load_args
         self._model_load_kwargs = model_load_kwargs or {}
@@ -57,8 +62,6 @@ class ExternalModelContext:
         self._loader = loader
         self._allow_missing_forward_method = allow_missing_forward_method
         self._runtime_args_first = runtime_args_first
-
-        self._model: Any = None
 
     def _default_loader(self, path: Path, args: Collection[Any], kwargs: dict[str, Any]) -> Any:
         """Infer loader from file extension and load the model."""

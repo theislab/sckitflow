@@ -211,3 +211,108 @@ class TestExternalModelContext:
         assert "not loaded" in repr(ctx)
         ctx.load()
         assert "loaded" in repr(ctx)
+
+    def test_model_directly_passed(self):
+        """Pass an already instantiated model; should be ‘loaded’ immediately."""
+        model = DummyModel(value=99)
+        ctx = ExternalModelContext(model=model)
+        assert ctx.is_loaded()
+        loaded = ctx.load()
+        assert loaded is model
+        # Calling works as usual
+        result = ctx(1, 2)  # 1+2+99 = 102
+        assert result == 102
+
+    def test_model_directly_with_forward_method(self):
+        """Direct model with a forward_method and extra args."""
+        model = DummyModel(value=10)
+        ctx = ExternalModelContext(
+            model=model,
+            forward_method="predict",
+            forward_args=(5,),
+            runtime_args_first=False,
+        )
+        # forward_method="predict" -> predict(5) -> 5*2+10 = 20
+        assert ctx() == 20
+
+    def test_model_directly_with_forward_args_and_order(self):
+        """Test runtime_args_first with a directly provided model."""
+        model = DummyModel(value=0)
+        # forward_method="forward" uses x -> x - value
+        # default forward_args=(), we will set call-time and forward_args
+        ctx = ExternalModelContext(
+            model=model,
+            forward_method="forward",
+            forward_args=(10,),
+            runtime_args_first=True,  # call-time args first
+        )
+        # call-time args: (3,) -> final args = (3, 10) -> forward uses first arg
+        # forward(3) -> 3 - 0 = 3
+        assert ctx(3) == 3
+
+        # Reverse order
+        ctx_runtime_last = ExternalModelContext(
+            model=model,
+            forward_method="forward",
+            forward_args=(10,),
+            runtime_args_first=False,
+        )
+        # final args = (10, 3) -> forward(10) -> 10 - 0 = 10
+        assert ctx_runtime_last(3) == 10
+
+    def test_model_directly_post_load_callable_not_applied(self):
+        """When model is passed directly, post_load_callable is NOT called (current implementation)."""
+        model = DummyModel(value=10)
+
+        def post_load(m, factor):
+            m.value *= factor
+            return m
+
+        ctx = ExternalModelContext(
+            model=model,
+            post_load_callable=post_load,
+            post_load_kwargs={"factor": 2},
+        )
+        loaded = ctx.load()
+        # Value should remain unchanged because load() returns the stored model without calling post_load
+        assert loaded.value == 10
+        assert loaded is model
+
+    def test_model_and_path_both_passed(self, dummy_model_path):
+        """If both model and model_path are given, the passed model is used until reload()."""
+        direct_model = DummyModel(value=777)
+        ctx = ExternalModelContext(model=direct_model, model_path=dummy_model_path)
+        # initially, the direct model is active
+        assert ctx.is_loaded()
+        assert ctx.load() is direct_model
+        assert ctx() == 777  # call with no args -> 777
+
+        # reload discards the direct model and loads from path
+        reloaded = ctx.reload()
+        assert reloaded is not direct_model
+        assert reloaded.value == 10  # value from the fixture (DummyModel(value=10))
+
+    def test_model_directly_no_reload_possible(self):
+        """Reload without a model_path should raise an error."""
+        model = DummyModel(value=1)
+        ctx = ExternalModelContext(model=model)
+        with pytest.raises((TypeError, FileNotFoundError)):
+            # Path(None) raises TypeError, or if the None gets converted – either way it fails
+            ctx.reload()
+
+    def test_model_directly_unload_and_reuse(self):
+        """After unloading a direct model, trying to load without a path raises an error."""
+        model = DummyModel()
+        ctx = ExternalModelContext(model=model, model_path=None)
+        ctx.unload()
+        assert not ctx.is_loaded()
+        with pytest.raises((TypeError, FileNotFoundError)):
+            ctx.load()
+
+    def test_model_directly_repr(self):
+        """Repr should show ‘loaded’ when model is passed directly."""
+        model = DummyModel()
+        ctx = ExternalModelContext(model=model)
+        assert "loaded" in repr(ctx)
+        ctx.unload()
+        assert "not loaded" in repr(ctx)

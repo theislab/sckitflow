@@ -24,6 +24,9 @@ from sc_flow.data.schemas import (
     ResponseDataSchema,
     StateDataSchema,
 )
+from sc_flow.external._context import ExternalModelContext
+from sc_flow.preprocessing._state_data_preproc import StatePreprocessing
+from sc_flow.preprocessing.transforms._base import BaseTransform
 
 __all__ = ["DataManager"]
 
@@ -49,6 +52,9 @@ class DataManager:
         source_rep: str | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
         allow_paired_settings_on_condition_view: bool = False,
+        state_transform: BaseTransform | None = None,
+        state_encoder_context: ExternalModelContext | None = None,
+        state_decoder_context: ExternalModelContext | None = None,
     ) -> None:
         """Initializes the object.
 
@@ -116,6 +122,18 @@ class DataManager:
             set for the state space view
             (namely :param: `control_values_dict` and :param: `matched_keys`).
         :type allow_paired_settings_on_condition_view: class: `bool`
+
+        :param state_transform: The transformation to be applied to the state data.
+            Defaults to `None`.
+        :type state_transform: class: `BaseTransform | None`
+
+        :param state_encoder_context: The context for optional encoder models of state data.
+            Defaults to `None`.
+        :type state_encoder_context: class: `ExternalModelContext | None`
+
+        :param state_decoder_context: The context for optional decoder models of state data.
+            Defaults to `None`.
+        :type state_decoder_context: class: `ExternalModelContext | None`
         """
         self._control_values_dict = control_values_dict
         self._matched_keys = matched_keys
@@ -146,6 +164,10 @@ class DataManager:
             conditions_cols=self._condition_data_schema.all_condition_cols,
         )
         self._selector = IndexSelector.init_from_indexer(self._indexer)
+
+        self._state_preproc = StatePreprocessing(
+            transform=state_transform, encoder_context=state_encoder_context, decoder_context=state_decoder_context
+        )
 
     def _init_state_data_schema(
         self,
@@ -255,7 +277,12 @@ class DataManager:
         return self._target_data_schema.get_data(adata)
 
     def _get_distribution_data(
-        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
+        self,
+        adata: AnnData,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
+        fit_preproc: bool = False,
+        apply_transformations: bool = False,
     ) -> DistributionData:
         if view_on_condition_space and condition_state_key is None:
             raise ValueError("When modeling on the condition space, the state key should be provided")
@@ -274,6 +301,12 @@ class DataManager:
             source_coupling_data=source_coupling_data,
             target_coupling_data=target_coupling_data,
         )
+
+        # preprocessing
+        if fit_preproc:
+            self._fit_preproc(distribution_data)
+        if apply_transformations:
+            distribution_data = self._apply_preproc_transforms(distribution_data)
 
         if view_on_condition_space:
             return distribution_data.view_on_condition_space(condition_state_key)
@@ -318,6 +351,24 @@ class DataManager:
     ) -> DataDimensionalitiesRegistry:
         return DataDimensionalitiesRegistry.init_from_distribution_data(data, feature_names)
 
+    def _fit_preproc(self, data: DistributionData) -> None:
+        # state preprocessing
+        self._state_preproc.fit(data)
+
+    def _apply_preproc_transforms(
+        self,
+        data: DistributionData,
+    ) -> DistributionData:
+        # state preprocessing
+        self._state_preproc.transform(data)
+
+    def _apply_preproc_inverse_transforms(
+        self,
+        data: DistributionData,
+    ) -> DistributionData:
+        # state preprocessing
+        self._state_preproc.inverse_transform(data)
+
     def get_matched_distributions(self, data: DistributionData, view_on_condition_space: bool = False) -> NestedData:
         """Hierachically splits a distribution data container into matched subpopulations.
 
@@ -330,7 +381,12 @@ class DataManager:
         )
 
     def get_distribution_data(
-        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
+        self,
+        adata: AnnData,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
+        fit_preproc: bool = False,
+        apply_transformations: bool = False,
     ) -> DistributionData:
         """Compiles an annotated data object into a distribution data container.
 
@@ -345,9 +401,20 @@ class DataManager:
             when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
             Defaults to `None`.
         :type condition_state_key: `str | None`
+
+        :param fit_preproc: Whether to fit the preprocessing module on the compiled data. Defaults to `False`.
+        :type fit_preproc: class: `bool`
+
+        :param apply_transformations: Whether to apply the preprocessing transformation on the compiled data.
+            Defaults to `False`
+        :type apply_transformations: class: `bool`
         """
         return self._get_distribution_data(
-            adata, view_on_condition_space=view_on_condition_space, condition_state_key=condition_state_key
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+            fit_preproc=fit_preproc,
+            apply_transformations=apply_transformations,
         )
 
     def sort_adata(self, adata: AnnData) -> AnnData:
@@ -386,6 +453,8 @@ class DataManager:
         sort: bool = False,
         view_on_condition_space: bool = False,
         condition_state_key: str | None = None,
+        fit_preproc: bool = False,
+        apply_transformations: bool = False,
     ) -> NestedData:
         """Compile an annotated data object into split and matched subpopulations.
 
@@ -407,6 +476,13 @@ class DataManager:
             when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
             Defaults to `None`.
         :type condition_state_key: `str | None`
+
+        :param fit_preproc: Whether to fit the preprocessing module on the compiled data. Defaults to `False`.
+        :type fit_preproc: class: `bool`
+
+        :param apply_transformations: Whether to apply the preprocessing transformation on the compiled data.
+            Defaults to `False`
+        :type apply_transformations: class: `bool`
         """
         if sort:
             adata = self.sort_adata(adata)
@@ -414,11 +490,18 @@ class DataManager:
             adata,
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
+            fit_preproc=fit_preproc,
+            apply_transformations=apply_transformations,
         )
         return self._get_matched_distributions(data, view_on_condition_space=view_on_condition_space)
 
     def get_data_dimensionalities(
-        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
+        self,
+        adata: AnnData,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
+        fit_preproc: bool = False,
+        apply_transformations: bool = False,
     ) -> DataDimensionalitiesRegistry:
         """Registers the data dimensionalities from the input data according to the current schema.
 
@@ -433,11 +516,20 @@ class DataManager:
             when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
             Defaults to `None`.
         :type condition_state_key: `str | None`
+
+        :param fit_preproc: Whether to fit the preprocessing module on the compiled data. Defaults to `False`.
+        :type fit_preproc: class: `bool`
+
+        :param apply_transformations: Whether to apply the preprocessing transformation on the compiled data.
+            Defaults to `False`
+        :type apply_transformations: class: `bool`
         """
         data: DistributionData = self._get_distribution_data(
             adata,
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
+            fit_preproc=fit_preproc,
+            apply_transformations=apply_transformations,
         )
         feature_names = self._get_feature_names(
             adata,
@@ -468,6 +560,33 @@ class DataManager:
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
         )
+
+    def fit_preproc(self, data: DistributionData) -> None:
+        """Fits the preprocessing module on the input data.
+
+        :param data: The input data to fit the preprocessing module on.
+        """
+        self._fit_preproc(data)
+
+    def apply_preproc_transforms(
+        self,
+        data: DistributionData,
+    ) -> DistributionData:
+        """Applies preprocessing transforms on the input data.
+
+        :param data: The input data to transform.
+        """
+        return self._apply_preproc_transforms(data)
+
+    def apply_preproc_inverse_transforms(
+        self,
+        data: DistributionData,
+    ) -> DistributionData:
+        """Applies preprocessing inverse transforms on the input data.
+
+        :param data: The input data to transform.
+        """
+        return self._apply_preproc_inverse_transforms(data)
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

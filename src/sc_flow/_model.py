@@ -69,10 +69,7 @@ class SCFlow:
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
         )
-        cls._is_paired_setting_cls = (
-            cls._dm_cls.control_values_dict is not None
-            or cls._dm_cls.matched_keys is not None
-        )
+        cls._is_paired_setting_cls = cls._dm_cls.control_values_dict is not None or cls._dm_cls.matched_keys is not None
         cls._view_on_condition_space_cls = view_on_condition_space
         cls._condition_state_key_cls = condition_state_key
 
@@ -389,6 +386,8 @@ class SCFlow:
         *args,
         return_tensors: bool = False,
         sort: bool = True,
+        control_values_dict: dict[str, str] | None = None,
+        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
         **kwargs,
     ) -> AnnData | tuple[AnnData, "TorchPredictionData | JaxPredictionData"]:
         """
@@ -408,6 +407,24 @@ class SCFlow:
             is raised otherwise.
         :type sort: class: `bool`
 
+        :param control_values_dict: Optional dictionary mapping each condition
+            level to the corresponding value used to indicate control observations.
+            This overrides the homonimous attribute and is needed to allow
+            inference over arbitrary control keys at inference time.
+            Without this, inference would be bound to the source
+            group defined for training. Defaults to `None`,
+            in which case the instance attribute will be used.
+        :type control_values_dict: class: `dict[str, str] | None`
+
+        :param matched_keys: Optional keys used to identify the source  and
+            corresponding target groups in the case of fixed matches.
+            This overrides the homonimous attribute and is needed to allow
+            inference over arbitrary matched groups at inference time.
+            Without this, inference would be bound to the pairs of source
+            and target groups defined for training. Defaults to `None`,
+            in which case the instance attribute will be used.
+        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
+
         :return: Either an AnnData with predictions, or a tuple (AnnData, PredictionData)
             if `return_tensors` is True.
         """
@@ -420,6 +437,8 @@ class SCFlow:
             sort=sort,
             view_on_condition_space=self._view_on_condition_space,
             condition_state_key=self._condition_state_key,
+            control_values_dict=control_values_dict,
+            matched_keys=matched_keys,
         )
         tree_flat: tuple[MatchedData] = tree.flatten()
 

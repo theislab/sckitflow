@@ -1,5 +1,6 @@
 import os
 import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -1194,3 +1195,18 @@ class TestSCFlowPreprocessingIntegration:
         for call in compile_spy.call_args_list:
             assert call.kwargs["apply_transformations"] is True
             assert call.kwargs.get("fit_preproc", False) is False
+
+    def test_save_unloads_preprocessing_context(self, adata):
+        """save() must call dm.unload_preproc() to unload external models."""
+        SCFlow.register_adata(adata)
+        model = SCFlow(method_cls=DummyMethod, backend="torch")
+
+        with patch.object(model.dm, "unload_preproc") as mock_unload, patch("cloudpickle.dump") as _:
+            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                model.save(tmp_path, allow_overwrite=True)
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
+
+        mock_unload.assert_called_once()

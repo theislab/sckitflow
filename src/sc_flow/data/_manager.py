@@ -384,14 +384,14 @@ class DataManager:
         data: DistributionData,
     ) -> DistributionData:
         # state preprocessing
-        self._state_preproc.transform(data)
+        return self._state_preproc.transform(data)
 
     def _apply_preproc_inverse_transforms(
         self,
         data: DistributionData,
     ) -> DistributionData:
         # state preprocessing
-        self._state_preproc.inverse_transform(data)
+        return self._state_preproc.inverse_transform(data)
 
     def get_matched_distributions(
         self,
@@ -715,3 +715,7 @@ class DataManager:
     def source_key(self) -> tuple[Any] | None:
         """Returns the key used to define the source subpopulations."""
         return self._get_source_key(self._control_values_dict)
+
+    @property
+    def state_preproc(self) -> StatePreprocessing:
+        return self._state_preproc

@@ -956,24 +956,23 @@ class TestPreprocessingIntegration:
         mock_transform.assert_not_called()
 
     def test_compile_adata_apply_transformations(self, adata_small: AnnData):
+        """apply_transformations without prior fit → RuntimeError"""
         dm = _make_manager()
-        with (
-            patch.object(StatePreprocessing, "fit") as mock_fit,
-            patch.object(StatePreprocessing, "transform") as mock_transform,
-        ):
-            dm.compile_adata(adata_small, sort=True, fit_preproc=True, apply_transformations=True)
-        mock_fit.assert_not_called()
-        mock_transform.assert_called_once()
+        with pytest.raises(RuntimeError, match="Preprocessing not fitted"):
+            dm.compile_adata(adata_small, sort=True, apply_transformations=True)
 
     def test_compile_adata_both_flags(self, adata_small: AnnData):
+        """Both flags → fit and transform are called, pipeline succeeds."""
         dm = _make_manager()
+        # Let transform return the original data so compile_adata can continue
         with (
             patch.object(StatePreprocessing, "fit") as mock_fit,
-            patch.object(StatePreprocessing, "transform") as mock_transform,
+            patch.object(StatePreprocessing, "transform", side_effect=lambda data: data) as mock_transform,
         ):
-            dm.compile_adata(adata_small, sort=True, fit_preproc=True, apply_transformations=True)
+            nested = dm.compile_adata(adata_small, sort=True, fit_preproc=True, apply_transformations=True)
         mock_fit.assert_called_once()
         mock_transform.assert_called_once()
+        assert nested is not None
 
     # get_data_dimensionalities also supports the flags
 

@@ -1,4 +1,16 @@
-from sc_flow.data.preprocessing._pca import PCATransform
-from sc_flow.data.preprocessing._zscore import ZScoreTransform
+from sc_flow.preprocessing._base_preproc import BasePreprocessing
+from sc_flow.preprocessing._state_data_preproc import StatePreprocessing
+from sc_flow.preprocessing.transforms._base import BaseTransform, TransformParams
+from sc_flow.preprocessing.transforms._pca import PCAParams, PCATransform
+from sc_flow.preprocessing.transforms._zscore import ZScoreParams, ZScoreTransform
 
-__all__ = ["PCATransform", "ZScoreTransform"]
+__all__ = [
+    "TransformParams",
+    "BaseTransform",
+    "PCAParams",
+    "PCATransform",
+    "ZScoreParams",
+    "ZScoreTransform",
+    "BasePreprocessing",
+    "StatePreprocessing",
+]

@@ -379,6 +379,9 @@ class DataManager:
         # state preprocessing
         self._state_preproc.fit(data)
 
+    def _unload_preproc(self) -> None:
+        self._state_preproc.unload()
+
     def _apply_preproc_transforms(
         self,
         data: DistributionData,
@@ -665,6 +668,10 @@ class DataManager:
         :param data: The input data to transform.
         """
         return self._apply_preproc_inverse_transforms(data)
+
+    def unload_preproc(self) -> None:
+        """Unloads the underlying models from the context."""
+        self._unload_preproc()
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

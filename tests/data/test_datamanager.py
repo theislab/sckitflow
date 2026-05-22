@@ -1044,11 +1044,15 @@ class TestPreprocessingIntegration:
             groups_reps={"cell_line": "cell_line"},
             state_transform=DummyTransform(),
         )
-        print(dm.state_preproc.is_fitted)
         # Fit and transform in one call – we force is_fitted to True
         # with patch.object(dm._state_preproc, 'is_fitted', True):
         dist = dm.get_distribution_data(adata_small, fit_preproc=True, apply_transformations=True)
-        print(dm.state_preproc.is_fitted)
         assert isinstance(dist, DistributionData)
         # Identity transform – data unchanged
         np.testing.assert_array_equal(dist.state_data.X, adata_small.X)
+
+        def test_unload_preproc_delegation(self):
+            dm = _make_manager()
+            with patch.object(StatePreprocessing, "unload") as mock_unload:
+                dm.unload_preproc()
+            mock_unload.assert_called_once()

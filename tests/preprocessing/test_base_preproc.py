@@ -178,3 +178,30 @@ class TestBasePreprocessing:
         assert not pre.is_fitted
         pre.fit(sample_data)
         assert pre.is_fitted
+
+    def test_unload_with_no_contexts(self, sample_data):
+        pre = DummyPreprocessing()
+        # Should not raise
+        pre.unload()
+        # State remains unchanged (no effect)
+        assert pre._encoder_context is None
+        assert pre._decoder_context is None
+
+    def test_unload_calls_context_unload(self, sample_data):
+        # Use mock objects that have an unload method
+        from unittest.mock import MagicMock
+
+        mock_encoder = MagicMock()
+        mock_decoder = MagicMock()
+        pre = DummyPreprocessing(encoder_context=mock_encoder, decoder_context=mock_decoder)
+        pre.unload()
+        mock_encoder.unload.assert_called_once()
+        mock_decoder.unload.assert_called_once()
+
+    def test_unload_calls_only_existing_contexts(self, sample_data):
+        from unittest.mock import MagicMock
+
+        mock_encoder = MagicMock()
+        pre = DummyPreprocessing(encoder_context=mock_encoder)
+        pre.unload()
+        mock_encoder.unload.assert_called_once()

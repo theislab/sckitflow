@@ -118,6 +118,13 @@ class BasePreprocessing(abc.ABC):
         X = self._apply_inverse_transform(X)
         return self._write_data(X, data)
 
+    def unload(self) -> None:
+        """Unloads the model objects from the underlying contexts."""
+        if self._encoder_context is not None:
+            self._encoder_context.unload()
+        if self._decoder_context is not None:
+            self._decoder_context.unload()
+
     @property
     def is_fitted(self) -> bool:
         """Whether the preprocessing module was fitted."""

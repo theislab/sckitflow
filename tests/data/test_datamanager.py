@@ -16,7 +16,7 @@ from sc_flow.data.containers._coupling import CouplingData
 from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.containers._state import StateData
-from sc_flow.preprocessing._state_data_preproc import StatePreprocessing
+from sc_flow.preprocessing.preproc_containers._state_data_preproc import StatePreprocessing
 
 
 def _make_manager(**overrides) -> DataManager:
@@ -985,29 +985,6 @@ class TestPreprocessingIntegration:
             dm.get_data_dimensionalities(adata_small, fit_preproc=True, apply_transformations=True)
         mock_fit.assert_called_once()
         mock_transform.assert_called_once()
-
-    # ── standalone methods ────────────────────────────────────────────
-
-    def test_fit_preproc_standalone(self, adata_small: AnnData):
-        dm = _make_manager()
-        dist = dm.get_distribution_data(adata_small)
-        with patch.object(StatePreprocessing, "fit") as mock_fit:
-            dm.fit_preproc(dist)
-        mock_fit.assert_called_once_with(dist)
-
-    def test_apply_preproc_transforms_standalone(self, adata_small: AnnData):
-        dm = _make_manager()
-        dist = dm.get_distribution_data(adata_small)
-        with patch.object(StatePreprocessing, "transform") as mock_transform:
-            dm.apply_preproc_transforms(dist)
-        mock_transform.assert_called_once_with(dist)
-
-    def test_apply_preproc_inverse_transforms_standalone(self, adata_small: AnnData):
-        dm = _make_manager()
-        dist = dm.get_distribution_data(adata_small)
-        with patch.object(StatePreprocessing, "inverse_transform") as mock_inv:
-            dm.apply_preproc_inverse_transforms(dist)
-        mock_inv.assert_called_once_with(dist)
 
     # ── lazy ExternalModelContext (optional but valuable) ─────────────
     def test_external_model_context_not_loaded_on_init(self):

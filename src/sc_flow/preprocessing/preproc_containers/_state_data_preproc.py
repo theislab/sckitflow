@@ -3,7 +3,7 @@ import numpy as np
 from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.containers._state import StateData
 from sc_flow.external._context import ExternalModelContext
-from sc_flow.preprocessing._base_preproc import BasePreprocessing
+from sc_flow.preprocessing.preproc_containers._base_preproc import BasePreprocessing
 from sc_flow.preprocessing.transforms._base import BaseTransform
 
 __all__ = ["StatePreprocessing"]

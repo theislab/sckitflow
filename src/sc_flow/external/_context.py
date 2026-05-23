@@ -149,3 +149,13 @@ class ExternalModelContext:
     def __repr__(self) -> str:
         status = "loaded" if self.is_loaded() else "not loaded"
         return f"{self.__class__.__name__}(path={self._model_path!r}, status={status})"
+
+    @property
+    def model(self) -> Any | None:
+        """Returns the underlying model."""
+        return self._model
+
+    @model.setter
+    def model(self, model: Any) -> None:
+        """Sets the underlying model."""
+        self._model = model

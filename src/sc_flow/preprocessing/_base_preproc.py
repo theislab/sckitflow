@@ -1,4 +1,5 @@
 import abc
+from typing import Any
 
 import numpy as np
 
@@ -124,6 +125,31 @@ class BasePreprocessing(abc.ABC):
             self._encoder_context.unload()
         if self._decoder_context is not None:
             self._decoder_context.unload()
+
+    def load_models(self, encoder_model: Any | None = None, decoder_model: Any | None = None) -> None:
+        """Loads the model in the underlying contexts when present.
+
+        :param encoder_model: The optional model to be loaded for the encoder context.
+            Defaults to `None`.
+        :type param_encoder_model: class: `Any | None`
+
+        :param decoder_model: The optional model to be loaded for the decoder context.
+            Defaults to `None`.
+        :type param_decoder_model: class: `Any | None`
+        """
+        # ---- Set encoder models. ----
+        if encoder_model is not None:
+            # sanity check when no context is provided
+            if self._encoder_context is None:
+                raise ValueError("Cannot set encoder model, no context available.")
+            self._encoder_context.model = encoder_model
+
+        # ---- Set decoder models. ----
+        if decoder_model is not None:
+            # sanity check when no context is provided
+            if self._decoder_context is None:
+                raise ValueError("Cannot set decoder model, no context available.")
+            self._decoder_context.model = decoder_model
 
     @property
     def is_fitted(self) -> bool:

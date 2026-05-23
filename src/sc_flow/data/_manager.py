@@ -7,6 +7,7 @@ from anndata import AnnData
 
 from sc_flow._constants import ORIGINAL_INDEX_KEY
 from sc_flow._types import TargetCovariatesEncodingId
+from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data._composite import NestedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._mixins import MappedLevelIndex
@@ -25,6 +26,7 @@ from sc_flow.data.schemas import (
     StateDataSchema,
 )
 from sc_flow.external._context import ExternalModelContext
+from sc_flow.preprocessing._condition_data_preproc import ConditionPreprocessing
 from sc_flow.preprocessing._state_data_preproc import StatePreprocessing
 from sc_flow.preprocessing.transforms._base import BaseTransform
 
@@ -55,6 +57,10 @@ class DataManager:
         state_transform: BaseTransform | None = None,
         state_encoder_context: ExternalModelContext | None = None,
         state_decoder_context: ExternalModelContext | None = None,
+        state_preproc_repr_name: str | None = None,
+        condition_covariates_transform_dict: dict[str, BaseTransform | None] | None = None,
+        condition_covariates_encoder_context_dict: dict[str, ExternalModelContext | None] | None = None,
+        condition_covariates_decoder_context_dict: dict[str, ExternalModelContext | None] | None = None,
     ) -> None:
         """Initializes the object.
 
@@ -166,8 +172,66 @@ class DataManager:
         self._selector = IndexSelector.init_from_indexer(self._indexer)
 
         self._state_preproc = StatePreprocessing(
-            transform=state_transform, encoder_context=state_encoder_context, decoder_context=state_decoder_context
+            repr_name=state_preproc_repr_name,
+            transform=state_transform,
+            encoder_context=state_encoder_context,
+            decoder_context=state_decoder_context,
         )
+        self._cond_preproc_dict = self._init_cond_preproc_dict(
+            conditions_covariates=conditions_covariates,
+            condition_covariates_transform_dict=condition_covariates_transform_dict,
+            condition_covariates_encoder_context_dict=condition_covariates_encoder_context_dict,
+            condition_covariates_decoder_context_dict=condition_covariates_decoder_context_dict,
+        )
+
+    def _init_cond_preproc_dict(
+        self,
+        conditions_covariates: Collection[str] | None = None,
+        condition_covariates_transform_dict: dict[str, BaseTransform | None] | None = None,
+        condition_covariates_encoder_context_dict: dict[str, ExternalModelContext | None] | None = None,
+        condition_covariates_decoder_context_dict: dict[str, ExternalModelContext | None] | None = None,
+    ) -> dict[str, ConditionPreprocessing]:
+        # ---- Early return when no continuous covariates are present ----
+        # empty dictionary if no condition covariate is present
+        if conditions_covariates is None:
+            return {}
+
+        # ---- Prepare dictionaries ----
+        condition_covariates_transform_dict = (
+            {} if condition_covariates_transform_dict is None else condition_covariates_transform_dict
+        )
+        condition_covariates_encoder_context_dict = (
+            {} if condition_covariates_encoder_context_dict is None else condition_covariates_encoder_context_dict
+        )
+        condition_covariates_decoder_context_dict = (
+            {} if condition_covariates_decoder_context_dict is None else condition_covariates_decoder_context_dict
+        )
+
+        # ---- Check that the keys are correct ----
+        # transforms dictionary
+        check_sequence_query_against_reference(condition_covariates_transform_dict.keys(), conditions_covariates)
+        # encoder contexts
+        check_sequence_query_against_reference(condition_covariates_encoder_context_dict.keys(), conditions_covariates)
+        # decoder contexts
+        check_sequence_query_against_reference(condition_covariates_decoder_context_dict.keys(), conditions_covariates)
+
+        # ---- Initialize dictionary of preprocessing modules ----
+        # initialize preprocessing for each covariate
+        preproc_dict = {}
+
+        # loop over condition covariates
+        for cov in conditions_covariates:
+            # ---- Retrieve preprocessing setting for current covariate ----
+            cov_transform = condition_covariates_transform_dict.get(cov, None)
+            cov_encoder_ctx = condition_covariates_encoder_context_dict.get(cov, None)
+            cov_decoder_ctx = condition_covariates_decoder_context_dict.get(cov, None)
+
+            # ---- Initialize preprocessor and update dictionary
+            cov_preproc = ConditionPreprocessing(
+                cov, transform=cov_transform, encoder_context=cov_encoder_ctx, decoder_context=cov_decoder_ctx
+            )
+            preproc_dict[cov] = cov_preproc
+        return preproc_dict
 
     def _init_state_data_schema(
         self,
@@ -242,23 +306,34 @@ class DataManager:
         return self._selector.query_factory.query_dict_to_tuple(control_query_dict)
 
     def _get_feature_names(
-        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
+        self,
+        adata: AnnData,
+        n_features: int,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
     ) -> pd.Index:
         """Determines feature names based on the state representation used."""
-        # use it as sample rep as it should come from obsm
-        if view_on_condition_space:
-            if condition_state_key is None:
-                raise ValueError("When modeling on the condition space, the state key should be provided")
-            sample_rep = condition_state_key
+        # ---- Check whether the number of features is the same as number of adata vars ----
+        is_same_n_feats = n_features == adata.shape[-1]
+
+        # ---- Same logic as before -----
+        if is_same_n_feats:
+            # use it as sample rep as it should come from obsm
+            if view_on_condition_space:
+                if condition_state_key is None:
+                    raise ValueError("When modeling on the condition space, the state key should be provided")
+                sample_rep = condition_state_key
+            else:
+                sample_rep = self._state_data_schema.sample_rep
+
+            if sample_rep is None:
+                return adata.var_names
+
+            # Case: Latent representation in .obsm (e.g., 'X_pca')
+            rep_data = adata.obsm[sample_rep]
+            n_features = rep_data.shape[1]
         else:
-            sample_rep = self._state_data_schema.sample_rep
-
-        if sample_rep is None:
-            return adata.var_names
-
-        # Case: Latent representation in .obsm (e.g., 'X_pca')
-        rep_data = adata.obsm[sample_rep]
-        n_features = rep_data.shape[1]
+            sample_rep = self._state_preproc.repr_name
 
         return pd.Index([f"{sample_rep}_{i}" for i in range(n_features)])
 
@@ -376,25 +451,44 @@ class DataManager:
         return DataDimensionalitiesRegistry.init_from_distribution_data(data, feature_names)
 
     def _fit_preproc(self, data: DistributionData) -> None:
-        # state preprocessing
+        # ---- State preprocessing ----
         self._state_preproc.fit(data)
 
+        # ---- Condition preprocessing ----
+        for cond_preproc in self._cond_preproc_dict.values():
+            cond_preproc.fit(data)
+
     def _unload_preproc(self) -> None:
+        # ---- State preprocessing ----
         self._state_preproc.unload()
+
+        # ---- Condition preprocessing ----
+        for cond_preproc in self._cond_preproc_dict.values():
+            cond_preproc.unload()
 
     def _apply_preproc_transforms(
         self,
         data: DistributionData,
     ) -> DistributionData:
-        # state preprocessing
-        return self._state_preproc.transform(data)
+        # ---- State preprocessing ----
+        data = self._state_preproc.transform(data)
+
+        # ---- Condition preprocessing ----
+        for cond_preproc in self._cond_preproc_dict.values():
+            data = cond_preproc.transform(data)
+        return data
 
     def _apply_preproc_inverse_transforms(
         self,
         data: DistributionData,
     ) -> DistributionData:
-        # state preprocessing
-        return self._state_preproc.inverse_transform(data)
+        # ---- State preprocessing ----
+        data = self._state_preproc.inverse_transform(data)
+
+        # ---- Condition preprocessing ----
+        for cond_preproc in self._cond_preproc_dict.values():
+            data = cond_preproc.inverse_transform(data)
+        return data
 
     def get_matched_distributions(
         self,
@@ -612,8 +706,10 @@ class DataManager:
             fit_preproc=fit_preproc,
             apply_transformations=apply_transformations,
         )
+        n_features = data.state_data.X.shape[1]
         feature_names = self._get_feature_names(
             adata,
+            n_features,
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
         )
@@ -725,4 +821,10 @@ class DataManager:
 
     @property
     def state_preproc(self) -> StatePreprocessing:
+        """Exposes the state preprocessing object."""
         return self._state_preproc
+
+    @property
+    def cond_proproc_dict(self) -> ConditionPreprocessing:
+        """Exposes the dictionary of condition preprocessing objects."""
+        return self._cond_preproc_dict

@@ -52,7 +52,7 @@ class BasePreprocessing(abc.ABC):
     def _write_data(self, X: np.ndarray, data: DistributionData) -> DistributionData:
         pass
 
-    def _fit_transform(self, X: np.ndarray) -> None:
+    def _fit(self, X: np.ndarray) -> None:
         if self._transform is not None:
             self._transform.fit(X)
 
@@ -77,7 +77,7 @@ class BasePreprocessing(abc.ABC):
         :type data: class: `DistributionData`
         """
         X = self._extract_data(data)
-        self._fit_transform(X)
+        self._fit(X)
         self._is_fitted = True
 
     def transform(self, data: DistributionData) -> DistributionData:
@@ -126,8 +126,8 @@ class BasePreprocessing(abc.ABC):
         if self._decoder_context is not None:
             self._decoder_context.unload()
 
-    def load_models(self, encoder_model: Any | None = None, decoder_model: Any | None = None) -> None:
-        """Loads the model in the underlying contexts when present.
+    def set_models(self, encoder_model: Any | None = None, decoder_model: Any | None = None) -> None:
+        """Sets the model in the underlying contexts when present.
 
         :param encoder_model: The optional model to be loaded for the encoder context.
             Defaults to `None`.

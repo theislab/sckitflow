@@ -4,7 +4,7 @@ from sc_flow.data._mixins import BatchMixin
 from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.external._context import ExternalModelContext
-from sc_flow.preprocessing._base_preproc import BasePreprocessing
+from sc_flow.preprocessing.preproc_containers._base_preproc import BasePreprocessing
 from sc_flow.preprocessing.transforms._base import BaseTransform
 
 __all__ = ["ConditionPreprocessing"]
@@ -53,7 +53,6 @@ class ConditionPreprocessing(BasePreprocessing):
         # ---- Update condition data ----
         # create updated mapping
         updated_mapping = data.condition_data.continuous_covariates.mapping.copy()
-        updated_mapping.pop(self._cov_key)
         updated_mapping[self._cov_key] = X
 
         # prepare updated data

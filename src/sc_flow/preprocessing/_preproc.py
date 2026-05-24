@@ -11,6 +11,8 @@ __all__ = ["DataPreprocessor"]
 
 
 class DataPreprocessor:
+    """Class for handling data preprocessing pipelines."""
+
     def __init__(
         self,
         conditions_covariates: Collection[str] | None = None,
@@ -18,10 +20,44 @@ class DataPreprocessor:
         state_encoder_context: ExternalModelContext | None = None,
         state_decoder_context: ExternalModelContext | None = None,
         state_preproc_repr_name: str | None = None,
-        condition_covariates_transform_dict: dict[str, BaseTransform | None] | None = None,
-        condition_covariates_encoder_context_dict: dict[str, ExternalModelContext | None] | None = None,
-        condition_covariates_decoder_context_dict: dict[str, ExternalModelContext | None] | None = None,
+        condition_covariates_transform_dict: dict[str, BaseTransform] | None = None,
+        condition_covariates_encoder_context_dict: dict[str, ExternalModelContext] | None = None,
+        condition_covariates_decoder_context_dict: dict[str, ExternalModelContext] | None = None,
     ) -> None:
+        """Initializes the preprocessing module.
+
+        :param condition_covariates: Sequence of string identifiers for continuous condition covariates.
+            Defaults to `None`.
+        :type conditions_covariates: class: `Collection[str] | None`
+
+        :param state_transform: The transformation to be applied to the state data.
+            Defaults to `None`.
+        :type state_transform: class: `BaseTransform | None`
+
+        :param state_encoder_context: The context for optional encoder models of state data.
+            Defaults to `None`.
+        :type state_encoder_context: class: `ExternalModelContext | None`
+
+        :param state_decoder_context: The context for optional decoder models of state data.
+            Defaults to `None`.
+        :type state_decoder_context: class: `ExternalModelContext | None`
+
+        :param state_preproc_repr_name: Identifier for the variable names after preprocessing.
+            Defaults to `None`.
+        :type state_preproc_repr_name: class: `str | None`
+
+        :param condition_covariates_transform_dict: Optional dictionary mapping each continuous
+            covariates to their respective transformation object. Defaults to `None`.
+        :type condition_covariates_transform_dict: class: `dict[str, BaseTransform] | None`
+
+        :param condition_covariates_encoder_context_dict: Optional dictionary mapping each continuous
+            covariates to their respective encoder context. Defaults to `None`.
+        :type condition_covariates_encoder_context_dict: class `dict[str, ExternalModelContext] | None`
+
+        :param condition_covariates_decoder_context_dict: Optional dictionary mapping each continuous
+            covariates to their respective decoder context. Defaults to `None`.
+        :type condition_covariates_decoder_context_dict: class `dict[str, ExternalModelContext] | None`
+        """
         self._state_preproc = StatePreprocessing(
             repr_name=state_preproc_repr_name,
             transform=state_transform,
@@ -38,9 +74,9 @@ class DataPreprocessor:
     def _init_cond_preproc_dict(
         self,
         conditions_covariates: Collection[str] | None = None,
-        condition_covariates_transform_dict: dict[str, BaseTransform | None] | None = None,
-        condition_covariates_encoder_context_dict: dict[str, ExternalModelContext | None] | None = None,
-        condition_covariates_decoder_context_dict: dict[str, ExternalModelContext | None] | None = None,
+        condition_covariates_transform_dict: dict[str, BaseTransform] | None = None,
+        condition_covariates_encoder_context_dict: dict[str, ExternalModelContext] | None = None,
+        condition_covariates_decoder_context_dict: dict[str, ExternalModelContext] | None = None,
     ) -> dict[str, ConditionPreprocessing]:
         # ---- Early return when no continuous covariates are present ----
         # empty dictionary if no condition covariate is present

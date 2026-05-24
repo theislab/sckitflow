@@ -24,19 +24,25 @@ class CFM(TorchGenerativeFlow):
         if self._match_fn is None:
             self._match_fn = independent_coupling
         if self._noise_sampler is None:
-            self._noise_sampler = torch.randn_like
+            self._noise_sampler = torch.randn
         if self._time_sampler is None:
             self._time_sampler = torch.rand
         if self._probability_path is None:
             self._probability_path = LinearDiracProbabilityPath()
 
     def _prepare_latent_state(
-        self,
-        source: torch.Tensor | None,
-        target_reference: torch.Tensor,
+        self, source: torch.Tensor | None, target_reference: torch.Tensor, n_samples: int | None = None
     ) -> torch.Tensor:
+        # ---- Sample noise when needed ----
         if source is None or self._generate_from_noise:
-            return self._noise_sampler(target_reference)
+            # ---- Get shape ----
+            shape = target_reference.shape
+            if n_samples is not None:
+                shape = (n_samples, *shape)
+
+            # ---- Sample noise ----
+            return self._noise_sampler(shape, device=self._device_id, dtype=self._dtype)
+        # ---- Return source state otherwise ----
         return source
 
     def _step_fn(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
@@ -69,11 +75,12 @@ class CFM(TorchGenerativeFlow):
         return_trajectory: bool = False,
         num_steps: int = 100,
         latent: torch.Tensor | None = None,
+        n_samples: int | None = None,
         **kwargs,
     ) -> PredictionData:
         # prepare latent state from step data
         if latent is None:
-            latent = self._prepare_latent_state(step_data.source_state, step_data.target_state)
+            latent = self._prepare_latent_state(step_data.source_state, step_data.target_state, n_samples=n_samples)
 
         # extract condition and groups data
         condition_reps_dict = self._get_tensor_dict_from_data(step_data.target_condition_data)

@@ -56,9 +56,9 @@ class DataManager:
         state_encoder_context: ExternalModelContext | None = None,
         state_decoder_context: ExternalModelContext | None = None,
         state_preproc_repr_name: str | None = None,
-        condition_covariates_transform_dict: dict[str, BaseTransform | None] | None = None,
-        condition_covariates_encoder_context_dict: dict[str, ExternalModelContext | None] | None = None,
-        condition_covariates_decoder_context_dict: dict[str, ExternalModelContext | None] | None = None,
+        condition_covariates_transform_dict: dict[str, BaseTransform] | None = None,
+        condition_covariates_encoder_context_dict: dict[str, ExternalModelContext] | None = None,
+        condition_covariates_decoder_context_dict: dict[str, ExternalModelContext] | None = None,
     ) -> None:
         """Initializes the object.
 
@@ -138,6 +138,22 @@ class DataManager:
         :param state_decoder_context: The context for optional decoder models of state data.
             Defaults to `None`.
         :type state_decoder_context: class: `ExternalModelContext | None`
+
+        :param state_preproc_repr_name: Identifier for the variable names after preprocessing.
+            Defaults to `None`.
+        :type state_preproc_repr_name: class: `str | None`
+
+        :param condition_covariates_transform_dict: Optional dictionary mapping each continuous
+            covariates to their respective transformation object. Defaults to `None`.
+        :type condition_covariates_transform_dict: class: `dict[str, BaseTransform] | None`
+
+        :param condition_covariates_encoder_context_dict: Optional dictionary mapping each continuous
+            covariates to their respective encoder context. Defaults to `None`.
+        :type condition_covariates_encoder_context_dict: class `dict[str, ExternalModelContext] | None`
+
+        :param condition_covariates_decoder_context_dict: Optional dictionary mapping each continuous
+            covariates to their respective decoder context. Defaults to `None`.
+        :type condition_covariates_decoder_context_dict: class `dict[str, ExternalModelContext] | None`
         """
         self._control_values_dict = control_values_dict
         self._matched_keys = matched_keys

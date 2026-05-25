@@ -321,3 +321,17 @@ class DistributionData(BaseData):
             source_coupling_data=source_coupling_data,
             target_coupling_data=target_coupling_data,
         )
+
+    @property
+    def has_continuous_condition_covariates(self) -> bool:
+        """Whether the distribution entails continuous condition covariates."""
+        if self.condition_data is not None:
+            return self.condition_data.has_continuous_covariates
+        return False
+
+    @property
+    def has_categorical_condition_covariates(self) -> bool:
+        """Whether the distribution entails categorical covariates."""
+        if self.condition_data is not None:
+            return self.condition_data.has_categorical_covariates
+        return False

@@ -246,10 +246,24 @@ class SCFlow:
         # ---- Get trajectory ----
         traj = self._get_pred_traj(pred_obj)
 
+        # ---- Get condition continuous covariates data ----
+        if node.target.has_continuous_condition_covariates:
+            condition_continuous_covs = node.target.condition_data.continuous_covariates.mapping
+        else:
+            condition_continuous_covs = {}
+
+        # ---- Get target continuous covariates data ----
+        if node.target.has_continuous_response_covariates:
+            response_continuous_covs = node.target.response_data.continuous_covariates.mapping
+        else:
+            response_continuous_covs = {}
+
         # ---- Construct output ----
         obsm_dict = {}
         if traj is not None:
             obsm_dict["trajectory"] = traj
+        obsm_dict.update(condition_continuous_covs)
+        obsm_dict.update(response_continuous_covs)
         return obsm_dict
 
     def _aggregate_nodes_pred(

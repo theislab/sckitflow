@@ -4,7 +4,7 @@ import tempfile
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import Any, Literal, overload
 
 import cloudpickle
 import numpy as np
@@ -13,6 +13,7 @@ from anndata import AnnData
 from tqdm import tqdm
 
 from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
+from sc_flow._types import PredictionData
 from sc_flow.data._composite import MatchedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
@@ -22,12 +23,6 @@ from sc_flow.methods._methods import BaseMethod
 from sc_flow.methods._opt import OptimConfig
 from sc_flow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sc_flow.trainer._trainer import Trainer
-
-if TYPE_CHECKING:
-    from sc_flow.backends.jax._types import PredictionData as JaxPredictionData
-    from sc_flow.backends.torch._types import PredictionData as TorchPredictionData
-
-    PredictionData = JaxPredictionData | TorchPredictionData
 
 __all__ = ["SCFlow"]
 
@@ -183,7 +178,7 @@ class SCFlow:
         return_tensors: Literal[True],
         sort: bool = True,
         **kwargs,
-    ) -> tuple[AnnData, "TorchPredictionData | JaxPredictionData"]: ...
+    ) -> tuple[AnnData, PredictionData]: ...
 
     def _predict_empty(self, return_tensors: bool) -> AnnData | tuple[AnnData, None]:
         """Returns empty anndata for prediction."""
@@ -469,7 +464,7 @@ class SCFlow:
         control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
         **kwargs,
-    ) -> AnnData | tuple[AnnData, "TorchPredictionData | JaxPredictionData"]:
+    ) -> AnnData | tuple[AnnData, PredictionData]:
         """
         Generates flow predictions.
 

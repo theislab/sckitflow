@@ -134,13 +134,15 @@ class SCFlow:
     def _predict_empty(
         self,
         return_tensors: Literal[False],
-    ) -> AnnData: ...
+    ) -> AnnData:
+        pass
 
     @overload
     def _predict_empty(
         self,
         return_tensors: Literal[True],
-    ) -> tuple[AnnData, None]: ...
+    ) -> tuple[AnnData, None]:
+        pass
 
     @overload
     def _aggregate_nodes_pred(
@@ -149,7 +151,8 @@ class SCFlow:
         all_obs: list[pd.DataFrame],
         all_obsm: dict[str, list[np.ndarray]],
         return_tensors: Literal[False],
-    ) -> AnnData: ...
+    ) -> AnnData:
+        pass
 
     @overload
     def _aggregate_nodes_pred(
@@ -158,7 +161,8 @@ class SCFlow:
         all_obs: list[pd.DataFrame],
         all_obsm: dict[str, list[np.ndarray]],
         return_tensors: Literal[True],
-    ) -> tuple[AnnData, PredictionData]: ...
+    ) -> tuple[AnnData, PredictionData]:
+        pass
 
     @overload
     def predict(

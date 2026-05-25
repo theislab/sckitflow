@@ -45,6 +45,26 @@ class MatchedData(MatchedDistributions):
         return f"{self.__class__.__name__}:\n" + "\n".join(parts)
 
     def align(self) -> "MatchedData":
+        """Aligns source and target distributions.
+
+        As source and target distributions are not constrained to contain the same number of samples,
+        this method is needed for such cases where such alignment is required. In particular,
+        this is the case whenever both continuous conditioning covariates and source/control states are
+        provided, as broadcasting would fail in this scenario.
+
+        The logic for the alignment is the following:
+
+        * No-op fallback for the cases in which no continuous condition covariate is provided,
+            no source/control state is modeled (i.e.: generation from noise) or
+            source and target distributions already have the same number of observations.
+        * When the target distribution contains less observations than the source one, source states
+            are simply sliced (subsetted) to the same amount of samples in the target. The subsetting
+            is done following the order given by the array storage, hence one would need to
+            sort the source/control states according to their needs in case they want to consider
+            some specific control states.
+        * When the target distribution contains more observations than the source one, source states
+            are reapeated as many times as needed to match the number of target observations.
+        """
         # return self when no continuous covariates are present
         if not self.target.has_continuous_condition_covariates:
             return self

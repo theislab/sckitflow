@@ -27,6 +27,8 @@ if TYPE_CHECKING:
     from sc_flow.backends.jax._types import PredictionData as JaxPredictionData
     from sc_flow.backends.torch._types import PredictionData as TorchPredictionData
 
+    PredictionData = JaxPredictionData | TorchPredictionData
+
 __all__ = ["SCFlow"]
 
 
@@ -134,6 +136,18 @@ class SCFlow:
         self._trainer: Trainer | None = None
 
     @overload
+    def _predict_empty(
+        self,
+        return_tensors: Literal[False],
+    ) -> AnnData: ...
+
+    @overload
+    def _predict_empty(
+        self,
+        return_tensors: Literal[True],
+    ) -> tuple[AnnData, None]: ...
+
+    @overload
     def predict(
         self,
         adata: AnnData,
@@ -152,6 +166,43 @@ class SCFlow:
         sort: bool = True,
         **kwargs,
     ) -> tuple[AnnData, "TorchPredictionData | JaxPredictionData"]: ...
+
+    def _predict_empty(self, return_tensors: bool) -> AnnData | tuple[AnnData, None]:
+        """Returns empty anndata for prediction."""
+        empty_adata = AnnData(
+            X=np.empty((0, len(self._dims_registry.feature_names))),
+            var=pd.DataFrame(index=self._dims_registry.feature_names),
+        )
+        return empty_adata if not return_tensors else (empty_adata, None)
+
+    def _get_pred_obs_df(self, node: MatchedData, pred_obj: PredictionData) -> pd.DataFrame:
+        """Gets the observation dataframe for prediction"""
+        # 1. Collect observation metadata
+        ann_df = node.target_distr.ann_df.copy()
+        cond_df = ann_df.drop_duplicates()
+
+        # 2. Check that the node contains only one condition
+        #    or that the are actually columns inside
+        n_ann_cols = len(cond_df.columns)
+        if n_ann_cols:
+            n_unique_conds = cond_df.shape[0]
+            if n_unique_conds != 1:
+                msg = f"Node should contain unique condition, {n_unique_conds} found."
+                raise ValueError(msg)
+
+        # 3. Get number of generated observations
+        if hasattr(pred_obj, "samples"):
+            n_pred_obs = pred_obj.samples.shape[0]
+        else:
+            n_pred_obs = 1
+
+        # 4. Align dataframe and update
+        # only when there are columns we need to repeat, otherwise keep as is
+        if n_ann_cols:
+            df_data = np.repeat(cond_df, n_pred_obs, axis=0)
+        else:
+            df_data = cond_df
+        return pd.DataFrame(df_data, columns=ann_df.columns)
 
     def _to_numpy(self, tensor: Any) -> np.ndarray:
         """
@@ -442,6 +493,10 @@ class SCFlow:
         )
         tree_flat: tuple[MatchedData] = tree.flatten()
 
+        # early return
+        if not tree_flat:
+            return self._predict_empty(return_tensors)
+
         # define store
         all_preds = []
         all_obs = []
@@ -453,42 +508,9 @@ class SCFlow:
             pred_obj = self._method.predict(node, *args, **kwargs)
             all_preds.append(pred_obj)
 
-            # 2. Collect observation metadata
-            ann_df = node.target_distr.ann_df.copy()
-            cond_df = ann_df.drop_duplicates()
-
-            # 3. Check that the node contains only one condition
-            #    or that the are actually columns inside
-            n_ann_cols = len(cond_df.columns)
-            if n_ann_cols:
-                n_unique_conds = cond_df.shape[0]
-                if n_unique_conds != 1:
-                    msg = f"Node should contain unique condition, {n_unique_conds} found."
-                    raise ValueError(msg)
-
-            # 4. Get number of generated observations
-            if hasattr(pred_obj, "samples"):
-                n_pred_obs = pred_obj.samples.shape[0]
-            else:
-                n_pred_obs = 1
-
-            # 5. Align dataframe and update
-            # only when there are columns we need to repeat, otherwise keep as is
-            if n_ann_cols:
-                df_data = np.repeat(cond_df, n_pred_obs, axis=0)
-            else:
-                df_data = cond_df
-            pred_df = pd.DataFrame(df_data, columns=ann_df.columns)
+            # 2. Construct node dataframe
+            pred_df = self._get_pred_obs_df(node, pred_obj)
             all_obs.append(pred_df.copy())
-
-        # early return
-        if not all_preds:
-            # Return empty AnnData
-            empty_adata = AnnData(
-                X=np.empty((0, len(self._dims_registry.feature_names))),
-                var=pd.DataFrame(index=self._dims_registry.feature_names),
-            )
-            return empty_adata if not return_tensors else (empty_adata, None)
 
         # 3. Merge predictions using backend‑specific concatenation
         merged_pred = type(all_preds[0]).concatenate(all_preds)

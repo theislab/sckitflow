@@ -1,3 +1,5 @@
+import abc
+from collections.abc import Collection
 from typing import Any, Literal
 
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
@@ -28,3 +30,9 @@ TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
 GENOTDataMatchFn = Any  # TODO
 
 TensorLike = Any  # TODO
+
+
+class PredictionData:
+    @classmethod
+    @abc.abstractmethod
+    def concatenate(cls, preds: Collection["PredictionData"]) -> "PredictionData": ...

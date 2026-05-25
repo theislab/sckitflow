@@ -282,3 +282,13 @@ class MixedTypeData(BaseData):
             categorical_covariates=categorical_covariates,
             continuous_covariates=continuous_covariates,
         )
+
+    @property
+    def has_continuous_covariates(self) -> bool:
+        """Whether the mixed type data entails continuous covariates."""
+        return self.continuous_covariates is not None
+
+    @property
+    def has_categorical_covariates(self) -> bool:
+        """Whether the mixed type data entails categorical covariates."""
+        return self.categorical_covariates is not None

@@ -1,9 +1,31 @@
+import numpy as np
+import pandas as pd
 import pytest
 
 from sc_flow.data._composite import MatchedData, NestedData
-from sc_flow.data._mixins import MappedLevelIndex
+from sc_flow.data._mixins import BatchMixin, MappedLevelIndex
+from sc_flow.data.containers._categorical import CategoricalData
+from sc_flow.data.containers._distribution import DistributionData
+from sc_flow.data.containers._mixed_type import MixedTypeData
+from sc_flow.data.containers._state import StateData
 
 from .shared import make_distribution
+
+
+def make_distribution_with_continuous_condition(n=10, n_cont=3):
+    """Create a DistributionData that has continuous condition covariates."""
+    state = StateData(np.random.randn(n, 5))
+    # Create a continuous condition covariate
+    cont_mapping = {"X_cont": np.random.randn(n, n_cont)}
+    continuous_covs = BatchMixin(cont_mapping)
+    # Dummy categorical condition (optional, but to satisfy MixedTypeData)
+    cat_df = pd.DataFrame({"dummy": ["A"] * n})
+    cat_data = CategoricalData.from_pandas(cat_df)
+    condition_data = MixedTypeData(
+        categorical_covariates=cat_data,
+        continuous_covariates=continuous_covs,
+    )
+    return DistributionData(state_data=state, condition_data=condition_data)
 
 
 class TestMatchedData:
@@ -155,3 +177,74 @@ class TestNestedData:
         assert len(pair.target) == len(target_b)
         assert len(pair.source) == len(source_a)
         assert pair.target.state_data.X[0] == target_b.state_data.X[0]
+
+
+class TestMatchedDataAlign:
+    """Test MatchedData.align method."""
+
+    def test_no_continuous_covariates_returns_self(self):
+        """If target has no continuous condition covariates, align returns self."""
+        target = make_distribution(n=10)  # no condition_data
+        source = make_distribution(n=5)
+        matched = MatchedData(target_distribution=target, source_distribution=source)
+        aligned = matched.align()
+        assert aligned is matched
+
+    def test_source_none_returns_self(self):
+        """If source is None, align returns self."""
+        target = make_distribution_with_continuous_condition(n=10)
+        matched = MatchedData(target_distribution=target, source_distribution=None)
+        aligned = matched.align()
+        assert aligned is matched
+
+    def test_equal_obs_returns_self(self):
+        """If n_target_obs == n_source_obs, return self."""
+        target = make_distribution_with_continuous_condition(n=10)
+        source = make_distribution(n=10)  # source can be without continuous condition
+        matched = MatchedData(target_distribution=target, source_distribution=source)
+        aligned = matched.align()
+        assert aligned is matched
+
+    def test_target_shorter_slices_source(self):
+        """If target has fewer observations, source should be sliced."""
+        target = make_distribution_with_continuous_condition(n=6)
+        source = make_distribution(n=10)
+        matched = MatchedData(target_distribution=target, source_distribution=source)
+        aligned = matched.align()
+        # Sliced source should have 6 observations
+        assert len(aligned.source) == 6
+        # Check that the sliced source data matches the first 6 rows of original source
+        np.testing.assert_array_equal(aligned.source.state_data.X, source.state_data.X[:6])
+        # Target unchanged
+        assert aligned.target is target
+
+    def test_target_longer_repeats_source(self):
+        """If target has more observations, source should be repeated."""
+        target = make_distribution_with_continuous_condition(n=23)  # 23 observations
+        source = make_distribution(n=5)  # 5 observations
+        matched = MatchedData(target_distribution=target, source_distribution=source)
+        aligned = matched.align()
+        # Expected source length = 23 (repeated: 4 full repeats + remainder of 3)
+        assert len(aligned.source) == 23
+        # Check the concatenated array: should be source repeated 4 times + first 3 rows of source
+        expected = np.vstack([source.state_data.X] * 4 + [source.state_data.X[:3]])
+        np.testing.assert_array_equal(aligned.source.state_data.X, expected)
+
+    def test_target_longer_multiple_of_source(self):
+        """When target length is exact multiple of source length."""
+        target = make_distribution_with_continuous_condition(n=20)
+        source = make_distribution(n=5)
+        matched = MatchedData(target_distribution=target, source_distribution=source)
+        aligned = matched.align()
+        assert len(aligned.source) == 20
+        expected = np.vstack([source.state_data.X] * 4)
+        np.testing.assert_array_equal(aligned.source.state_data.X, expected)
+
+    def test_target_shorter_exact_slice(self):
+        """When target length is less than source length (exact match not needed)."""
+        target = make_distribution_with_continuous_condition(n=3)
+        source = make_distribution(n=10)
+        matched = MatchedData(target_distribution=target, source_distribution=source)
+        aligned = matched.align()
+        assert len(aligned.source) == 3
+        np.testing.assert_array_equal(aligned.source.state_data.X, source.state_data.X[:3])

@@ -25,7 +25,6 @@ from sc_flow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sc_flow.trainer._trainer import Trainer
 
 if TYPE_CHECKING:
-    from sc_flow.backends.jax._types import PredictionData as JaxPredictionData
     from sc_flow.backends.torch._types import PredictionData as TorchPredictionData
     from sc_flow.backends.torch.methods._opt import TorchOptimizationManager
 

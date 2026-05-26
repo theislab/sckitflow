@@ -45,7 +45,7 @@ class OptimConfig:
 
 class BaseOptManager(abc.ABC):
     @abc.abstractmethod
-    def step(self, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
+    def step(self, step_idx: int, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
         """Perform one optimization step."""
         pass
 

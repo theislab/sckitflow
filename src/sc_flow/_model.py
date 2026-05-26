@@ -301,6 +301,9 @@ class SCFlow:
 
         return pred_adata
 
+    def _predict_on_node(self, node: MatchedData, *args, **kwargs) -> PredictionData:
+        return self._method.predict(node, *args, **kwargs)
+
     def _to_numpy(self, tensor: Any) -> np.ndarray:
         """
         Convert a backend-specific tensor to a numpy array.
@@ -544,11 +547,13 @@ class SCFlow:
         all_obs = []
         all_obsm = defaultdict(list)
 
-        # Iterate over each node (e.g., cell type / condition group)
+        # Iterate over each node
         for node in tqdm(tree_flat, desc="Predicting"):
-            # 1. Inference – returns backend‑specific PredictionData
+            # 0. Align node
             node_aligned = node.align()
-            pred_obj = self._method.predict(node_aligned, *args, **kwargs)
+
+            # 1. Inference
+            pred_obj = self._predict_on_node(node_aligned, *args, **kwargs)
             all_preds.append(pred_obj)
 
             # 2. Construct node dataframe

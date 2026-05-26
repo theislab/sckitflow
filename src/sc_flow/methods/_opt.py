@@ -24,7 +24,7 @@ class OptimConfig:
     lr_scheduler_step: str = "train_step"
 
     # automatic mixed precision
-    use_amp: bool = True
+    use_amp: bool = False
     scaler_kwargs: dict[str, Any] = dc_field(default_factory=lambda: {})
 
     # gradient accumulation
@@ -45,7 +45,7 @@ class OptimConfig:
 
 class BaseOptManager(abc.ABC):
     @abc.abstractmethod
-    def step(self, step_idx: int, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
+    def step(self, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> dict[str, Any]:
         """Perform one optimization step."""
         pass
 

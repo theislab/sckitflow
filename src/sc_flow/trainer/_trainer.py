@@ -139,7 +139,6 @@ class Trainer:
 
                 # forward pass on model
                 step_dict = self._opt_manager.step(
-                    n_effective_steps,
                     self._method.train_step,
                     node,
                     *args,

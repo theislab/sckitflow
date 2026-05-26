@@ -26,6 +26,12 @@ from sc_flow.trainer._trainer import Trainer
 if TYPE_CHECKING:
     from sc_flow.backends.jax._types import PredictionData as JaxPredictionData
     from sc_flow.backends.torch._types import PredictionData as TorchPredictionData
+    from sc_flow.backends.torch.methods._opt import TorchOptimizationManager
+
+    OptimizationManager = TorchOptimizationManager
+else:
+    OptimizationManager = Any
+
 
 __all__ = ["SCFlow"]
 
@@ -132,6 +138,7 @@ class SCFlow:
 
         # prepare attributes
         self._trainer: Trainer | None = None
+        self._opt_manager: OptimizationManager | None = None
 
     @overload
     def predict(
@@ -261,9 +268,9 @@ class SCFlow:
         val_max_n_obs: int = 10_000,
         train_sampler_kwargs: dict[str, Any] | None = None,
         val_sampler_kwargs: dict[str, Any] | None = None,
-        train_kwargs: dict[str, Any] | None = None,
         optim_kwargs: dict[str, Any] | None = None,
         sort: bool = False,
+        force_opt_reinit: bool = False,
         **kwargs,
     ) -> None:
         """Trains the model on the input adata.
@@ -352,25 +359,27 @@ class SCFlow:
             for val_id, val_tree in val_trees_dict.items()
         }
 
-        # prepare optimization configurations
-        if optim_kwargs is None:
-            optim_kwargs = {}
-        optim_config = OptimConfig(**optim_kwargs)
-
         # create optimization manager
-        if self._backend == "torch":
-            from sc_flow.backends.torch.methods._opt import TorchOptimizationManager
+        if self._opt_manager is None or force_opt_reinit:
+            # prepare optimization configurations
+            if optim_kwargs is None:
+                optim_kwargs = {}
+            optim_config = OptimConfig(**optim_kwargs)
 
-            opt_manager = TorchOptimizationManager.from_config(self._method._module, optim_config)
-        elif self._backend == "jax":
-            # Placeholder for future JAX support
-            raise NotImplementedError("JAX optimization manager not yet implemented.")
-        else:
-            raise_runtime_error_on_backend_not_supported(self._backend)
+            if self._backend == "torch":
+                from sc_flow.backends.torch.methods._opt import TorchOptimizationManager
+
+                opt_manager = TorchOptimizationManager.from_config(self._method._module, optim_config)
+            elif self._backend == "jax":
+                # Placeholder for future JAX support
+                raise NotImplementedError("JAX optimization manager not yet implemented.")
+            else:
+                raise_runtime_error_on_backend_not_supported(self._backend)
+            self._opt_manager = opt_manager
 
         # initialize trainer
         if self._trainer is None:
-            self._trainer = Trainer(self._method, opt_manager, callbacks)
+            self._trainer = Trainer(self._method, self._opt_manager, callbacks)
 
         # module in training mode
         self._method.set_train_mode(True)

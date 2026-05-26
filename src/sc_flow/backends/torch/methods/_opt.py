@@ -36,8 +36,10 @@ class TorchOptimizationManager(BaseOptManager):
         else:
             self._scaler = None
 
+        self._micro_step = 0
+
     @property
-    def _device(self) -> torch.device:
+    def _device(self) -> str:
         """Get device from the optimizer's parameters."""
         if self._optimizer.param_groups:
             for param in self._optimizer.param_groups[0]["params"]:
@@ -45,14 +47,19 @@ class TorchOptimizationManager(BaseOptManager):
                     return param.device.type
         return "cpu"
 
-    def _call_step_fn(self, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
+    def _call_step_fn(
+        self, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
         if self._use_amp:
             with torch.amp.autocast(self._device):
                 return step_fn(node, *args, **kwargs)
         else:
             return step_fn(node, *args, **kwargs)
 
-    def step(self, step_idx: int, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
+    def step(self, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> dict[str, Any]:
+        # update step counter
+        self._micro_step += 1
+
         # call step fn
         loss, step_dict = self._call_step_fn(
             step_fn,
@@ -71,7 +78,7 @@ class TorchOptimizationManager(BaseOptManager):
             loss.backward()
 
         # optimizer step when grad accumulation done
-        if step_idx % self._n_grad_acc_steps == 0:
+        if self._micro_step % self._n_grad_acc_steps == 0:
             # optionally wrap optimizer step with scaler
             if self._scaler is not None:
                 self._scaler.step(self._optimizer)
@@ -86,9 +93,9 @@ class TorchOptimizationManager(BaseOptManager):
             if self._ema is not None:
                 self._ema.update()
 
-        # lr scheduler step
-        if self._lr_scheduler is not None and self._lr_scheduler_step == "train_step":
-            self._lr_scheduler.step()
+            # lr scheduler step
+            if self._lr_scheduler is not None and self._lr_scheduler_step == "train_step":
+                self._lr_scheduler.step()
         return step_dict
 
     @classmethod

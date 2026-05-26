@@ -133,14 +133,14 @@ class SCFlow:
     @overload
     def _predict_empty(
         self,
-        return_tensors: Literal[False],
+        return_raw: Literal[False],
     ) -> AnnData:
         pass
 
     @overload
     def _predict_empty(
         self,
-        return_tensors: Literal[True],
+        return_raw: Literal[True],
     ) -> tuple[AnnData, None]:
         pass
 
@@ -150,7 +150,7 @@ class SCFlow:
         all_preds: list[PredictionData],
         all_obs: list[pd.DataFrame],
         all_obsm: dict[str, list[np.ndarray]],
-        return_tensors: Literal[False],
+        return_raw: Literal[False],
     ) -> AnnData:
         pass
 
@@ -160,7 +160,7 @@ class SCFlow:
         all_preds: list[PredictionData],
         all_obs: list[pd.DataFrame],
         all_obsm: dict[str, list[np.ndarray]],
-        return_tensors: Literal[True],
+        return_raw: Literal[True],
     ) -> tuple[AnnData, PredictionData]:
         pass
 
@@ -169,7 +169,7 @@ class SCFlow:
         self,
         adata: AnnData,
         *args,
-        return_tensors: Literal[False],
+        return_raw: Literal[False],
         sort: bool = True,
         **kwargs,
     ) -> AnnData: ...
@@ -179,18 +179,18 @@ class SCFlow:
         self,
         adata: AnnData,
         *args,
-        return_tensors: Literal[True],
+        return_raw: Literal[True],
         sort: bool = True,
         **kwargs,
     ) -> tuple[AnnData, PredictionData]: ...
 
-    def _predict_empty(self, return_tensors: bool) -> AnnData | tuple[AnnData, None]:
+    def _predict_empty(self, return_raw: bool) -> AnnData | tuple[AnnData, None]:
         """Returns empty anndata for prediction."""
         empty_adata = AnnData(
             X=np.empty((0, len(self._dims_registry.feature_names))),
             var=pd.DataFrame(index=self._dims_registry.feature_names),
         )
-        return empty_adata if not return_tensors else (empty_adata, None)
+        return empty_adata if not return_raw else (empty_adata, None)
 
     def _get_pred_obs_df(self, node: MatchedData, pred_obj: PredictionData) -> pd.DataFrame:
         """Gets the observation dataframe for prediction"""
@@ -208,8 +208,8 @@ class SCFlow:
                 raise ValueError(msg)
 
         # 3. Get number of generated observations
-        if hasattr(pred_obj, "samples"):
-            n_pred_obs = pred_obj.samples.shape[0]
+        if hasattr(pred_obj, "X"):
+            n_pred_obs = pred_obj.X.shape[0]
         else:
             n_pred_obs = 1
 
@@ -227,15 +227,17 @@ class SCFlow:
             return None
 
         # get number of observations
-        n_obs = pred_obj.samples.shape[0]
+        n_obs = pred_obj.X.shape[0]
 
         # convert trajectory to numpy
         traj_np = self._to_numpy(pred_obj.traj)
 
-        if traj_np.shape[0] == n_obs:
+        if traj_np.ndim == 2:
             return traj_np
-        elif traj_np.ndim == 3 and traj_np.shape[1] == n_obs:
+        elif traj_np.ndim == 3:
             return np.transpose(traj_np, (1, 0, 2))
+        elif traj_np.ndim == 4:
+            return np.transpose(traj_np, (2, 0, 1, 3))
         else:
             raise ValueError(
                 "Trajectory array has incompatible shape for AnnData.obsm: "
@@ -246,9 +248,39 @@ class SCFlow:
                 "(n_cells, n_time_steps, n_features)."
             )
 
+    def _get_pred_raw_samples(self, pred_obj: PredictionData) -> np.ndarray | None:
+        # ---- Early return if no raw samples present ----
+        raw_samples = getattr(pred_obj, "raw_samples", None)
+        if raw_samples is None:
+            return None
+
+        # ---- Get number of observations from X ----
+        X = getattr(pred_obj, "X", None)
+        if X is None:
+            raise ValueError("Prediction object should have the .X attribute.")
+        n_obs = X.shape[0]
+
+        # ---- Convert trajectory to numpy and handle shape ----
+
+        samples_np = self._to_numpy(raw_samples)
+        if samples_np.ndim == 2:
+            return samples_np
+        elif samples_np.ndim == 3:
+            return np.transpose(samples_np, (1, 0, 2))
+        else:
+            raise ValueError(
+                "Samples array has incompatible shape for AnnData.obsm: "
+                f"got {samples_np.shape}, expected first dimension to equal "
+                f"n_obs ({n_obs}) or, for 3D trajectories, second "
+                "dimension to equal n_obs so it can be transposed from "
+                "(n_time_steps, n_cells, n_features) to "
+                "(n_cells, n_time_steps, n_features)."
+            )
+
     def _get_pred_obsm_dict(self, node: MatchedData, pred_obj: PredictionData) -> dict[str, np.ndarray]:
-        # ---- Get trajectory ----
+        # ---- Get trajectory and samples ----
         traj = self._get_pred_traj(pred_obj)
+        raw_samples = self._get_pred_raw_samples(pred_obj)
 
         # ---- Get condition continuous covariates data ----
         if node.target.has_continuous_condition_covariates:
@@ -266,6 +298,8 @@ class SCFlow:
         obsm_dict = {}
         if traj is not None:
             obsm_dict["trajectory"] = traj
+        if raw_samples is not None:
+            obsm_dict["raw_samples"] = raw_samples
         obsm_dict.update(condition_continuous_covs)
         obsm_dict.update(response_continuous_covs)
         return obsm_dict
@@ -275,7 +309,7 @@ class SCFlow:
         all_preds: list[PredictionData],
         all_obs: list[pd.DataFrame],
         all_obsm: dict[str, list[np.ndarray]],
-        return_tensors: bool = False,
+        return_raw: bool = False,
     ) -> AnnData | tuple[AnnData, PredictionData]:
         # ---- Aggregate predicted states ----
         # Merge predictions using backend‑specific concatenation
@@ -283,7 +317,7 @@ class SCFlow:
 
         # ---- Construct prediction adata ----
         # Convert to numpy
-        X_np = self._to_numpy(merged_pred.samples)
+        X_np = self._to_numpy(merged_pred.X)
 
         # Aggregate obs dataframes
         obs_final = pd.concat(all_obs, axis=0)
@@ -296,7 +330,7 @@ class SCFlow:
         )
 
         # ---- Return output ----
-        if return_tensors:
+        if return_raw:
             return pred_adata, merged_pred
 
         return pred_adata
@@ -480,7 +514,7 @@ class SCFlow:
         self,
         adata: AnnData,
         *args,
-        return_tensors: bool = False,
+        return_raw: bool = False,
         sort: bool = True,
         control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
@@ -492,9 +526,9 @@ class SCFlow:
         :param adata: The input adata containing the metadata for prediction.
         :type adata: class: `AnnData`
 
-        :param return_tensors: If True, returns the raw concatenated PredictionData
+        :param return_raw: If True, returns the raw concatenated PredictionData
             keeping the computation graph alive. Defaults to `False`.
-        :type return_tensors: class: `bool`
+        :type return_raw: class: `bool`
 
         :param sort: If ``True``, create a sorted copy of *adata* via
             :meth:`sort_adata` and compile from that copy.  When setting this one
@@ -522,7 +556,7 @@ class SCFlow:
         :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
 
         :return: Either an AnnData with predictions, or a tuple (AnnData, PredictionData)
-            if `return_tensors` is True.
+            if `return_raw` is True.
         """
         # Set module to evaluation mode (backend‑agnostic)
         self._method.set_train_mode(False)
@@ -540,7 +574,7 @@ class SCFlow:
 
         # early return
         if not tree_flat:
-            return self._predict_empty(return_tensors)
+            return self._predict_empty(return_raw)
 
         # define store
         all_preds = []
@@ -565,7 +599,7 @@ class SCFlow:
             for key, val in node_obsm_dict.items():
                 all_obsm[key].append(val)
 
-        return self._aggregate_nodes_pred(all_preds, all_obs, all_obsm, return_tensors=return_tensors)
+        return self._aggregate_nodes_pred(all_preds, all_obs, all_obsm, return_raw=return_raw)
 
     def save(self, filepath: str, allow_overwrite: bool = False) -> None:
         """

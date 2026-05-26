@@ -172,7 +172,8 @@ class SCFlow:
         return_raw: Literal[False],
         sort: bool = True,
         **kwargs,
-    ) -> AnnData: ...
+    ) -> AnnData:
+        pass
 
     @overload
     def predict(
@@ -182,7 +183,8 @@ class SCFlow:
         return_raw: Literal[True],
         sort: bool = True,
         **kwargs,
-    ) -> tuple[AnnData, PredictionData]: ...
+    ) -> tuple[AnnData, PredictionData]:
+        pass
 
     def _predict_empty(self, return_raw: bool) -> AnnData | tuple[AnnData, None]:
         """Returns empty anndata for prediction."""

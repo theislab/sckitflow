@@ -4,14 +4,7 @@ from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Any
 
-__all__ = ["BaseOptManager", "OptimConfig"]
-
-
-class BaseOptManager(abc.ABC):
-    @abc.abstractmethod
-    def step(self, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
-        """Perform one optimization step."""
-        pass
+__all__ = ["OptimConfig", "BaseOptManager"]
 
 
 @dataclass
@@ -48,3 +41,16 @@ class OptimConfig:
             self.lr_scheduler_kwargs = {}
         if self.scaler_kwargs is None:
             self.scaler_kwargs = {}
+
+
+class BaseOptManager(abc.ABC):
+    @abc.abstractmethod
+    def step(self, step_fn: Callable[[Any, ...], Any], node: Any, *args, **kwargs) -> Any:
+        """Perform one optimization step."""
+        pass
+
+    @classmethod
+    @abc.abstractmethod
+    def from_config(cls, module: Any, config: OptimConfig) -> "BaseOptManager":
+        """Initializes the optimization manager from the specified configurations."""
+        pass

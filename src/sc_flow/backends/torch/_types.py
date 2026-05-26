@@ -96,15 +96,37 @@ class SolverConfig(NamedTuple):
 
 @dataclass
 class PredictionData(PredictionData):
-    samples: torch.Tensor
+    """Stores prediction data for Flow Models
+
+    * X (B, D)
+    * samples (N, B, D) or None
+    * traj (T, 1, B, D) or (T, N, B, D) or None. The second case only when samples is not None.
+    """
+
+    X: torch.Tensor
+    raw_samples: torch.Tensor | None = None
     traj: torch.Tensor | None = None
 
     @classmethod
     def concatenate(cls, preds: Collection["PredictionData"]) -> "PredictionData":
-        samples = torch.cat([p.samples for p in preds], dim=0)
+        # ----  Early return if empty collection ----
+        if len(preds) == 0:
+            raise ValueError("Cannot concatenate empty collection")
+
+        # ---- Concatenate X, always on first dimension ----
+        X = torch.cat([p.X for p in preds], dim=0)
+
+        # --- Concatenate samples when provided ----
+        raw_samples = [p.raw_samples for p in preds if p.raw_samples is not None]
+        if raw_samples:
+            raw_samples = torch.cat(raw_samples, dim=1)  # assuming [N, B, D] -> concat on B
+        else:
+            raw_samples = None
+
+        # --- Concatenate trajectory when provided ----
         trajs = [p.traj for p in preds if p.traj is not None]
         if trajs:
-            traj = torch.cat(trajs, dim=1)  # assuming [T, N, D] -> concat on N
+            traj = torch.cat(trajs, dim=2)  # assuming [T, N, B, D] -> concat on B
         else:
             traj = None
-        return cls(samples=samples, traj=traj)
+        return cls(X=X, raw_samples=raw_samples, traj=traj)

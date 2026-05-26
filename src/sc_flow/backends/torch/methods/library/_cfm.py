@@ -20,7 +20,6 @@ class CFM(TorchGenerativeFlow):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-        # set defaults
         if self._match_fn is None:
             self._match_fn = independent_coupling
         if self._noise_sampler is None:
@@ -30,42 +29,166 @@ class CFM(TorchGenerativeFlow):
         if self._probability_path is None:
             self._probability_path = LinearDiracProbabilityPath()
 
-    def _prepare_latent_state(
-        self, source: torch.Tensor | None, target_reference: torch.Tensor, n_samples: int | None = None
-    ) -> torch.Tensor:
-        # ---- Sample noise when needed ----
+    # ------------------------------------------------------------------
+    # Expand conditioning tensors to match latent’s extra dimensions
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _expand_conditioning(
+        latent: torch.Tensor,
+        condition_dict: dict[str, torch.Tensor],
+        source: torch.Tensor | None,
+    ) -> tuple[dict[str, torch.Tensor], torch.Tensor | None]:
+        """
+        Replicate condition_dict and source along the leading dimensions of latent
+
+        Assumes original condition_dict values and source have shape (batch_size, ...)
+        and latent has shape (n_samples, batch_size, dim) or (batch_size, dim).
+        Returns expanded copies.
+        """
+        if latent.dim() <= 2:  # no extra sample dimension
+            return condition_dict, source
+
+        n_samples = latent.shape[0]
+        expanded_cond = {}
+        for k, v in condition_dict.items():
+            # v shape: (batch_size, ...)
+            expanded_cond[k] = v.repeat_interleave(n_samples, dim=0)
+        expanded_source = None
+        if source is not None:
+            expanded_source = source.repeat_interleave(n_samples, dim=0)
+        return expanded_cond, expanded_source
+
+    # ------------------------------------------------------------------
+    # Latent preparation (training vs inference)
+    # ------------------------------------------------------------------
+    def _prepare_latent_train(self, source: torch.Tensor | None, target: torch.Tensor) -> torch.Tensor:
+        """Called from _step_fn - always returns single noise per batch element."""
         if source is None or self._generate_from_noise:
-            # ---- Get shape ----
+            return self._noise_sampler(target.shape, device=self._device_id, dtype=self._dtype)
+        return source
+
+    def _prepare_latent_inference(
+        self,
+        source: torch.Tensor | None,
+        target_reference: torch.Tensor,
+        n_samples: int | None = None,
+    ) -> torch.Tensor:
+        """Called from _predict.
+
+        - If source is given and we are NOT generating from noise, return source unchanged.
+        - Otherwise sample noise with shape:
+            if n_samples is None:  (batch_size, dim)
+            else:                  (n_samples, batch_size, dim)
+        """
+        if source is None or self._generate_from_noise:
             shape = target_reference.shape
             if n_samples is not None:
                 shape = (n_samples, *shape)
-
-            # ---- Sample noise ----
             return self._noise_sampler(shape, device=self._device_id, dtype=self._dtype)
-        # ---- Return source state otherwise ----
         return source
 
+    # ------------------------------------------------------------------
+    # Training step
+    # ------------------------------------------------------------------
     def _step_fn(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
-        # extract step data
         target = step_data.target_state
         source = step_data.source_state
+
+        # condition data as tensors
         condition_data = self._get_tensor_dict_from_data(step_data.target_condition_data)
         group_data = self._get_tensor_dict_from_data(step_data.target_group_data)
+        cond = {**condition_data, **group_data}
 
-        latent = self._prepare_latent_state(source, target)
+        # latent (noise) – shape (batch_size, dim)
+        latent = self._prepare_latent_train(source, target)
         batch_size = latent.shape[0]
+
+        # sample time
         t = self._time_sampler((batch_size,), device=latent.device, dtype=latent.dtype)
+
+        # probability path: interpolant and velocity
         xt = self._probability_path.compute_xt(t, latent, target)
         ut = self._probability_path.compute_ut(t, xt, latent, target)
-        cond = {
-            **condition_data,
-            **group_data,
-        }
-        vt = self._module(t, xt, condition_dict=cond, source=source)
-        loss = torch.nn.functional.mse_loss(vt, ut)
 
+        # velocity prediction
+        vt = self._module(t, xt, condition_dict=cond, source=source)
+
+        loss = torch.nn.functional.mse_loss(vt, ut)
         return loss, {"loss": loss.item()}
 
+    # ------------------------------------------------------------------
+    # Aggregate Predictions
+    # ------------------------------------------------------------------
+    def _aggregate_predictions(
+        self,
+        predictions: torch.Tensor,
+        latent_shape: torch.Size,
+        return_trajectory: bool,
+    ) -> tuple[torch.Tensor, torch.Tensor | None, torch.Tensor | None]:
+        """
+        Convert solver output into final X, traj, and raw_samples.
+
+        Parameters
+        ----------
+        predictions : torch.Tensor
+            Solver output. If return_trajectory=True, shape is (num_steps, total_batch, dim).
+            Otherwise, shape is (total_batch, dim).
+        latent_shape : torch.Size
+            Original shape of the latent tensor before flattening (e.g., (n_samples, batch_size, dim)).
+        return_trajectory : bool
+            Whether the solver returned a full trajectory.
+
+        Returns
+        -------
+        X : torch.Tensor
+            Final predicted state, shape (batch_size, dim) after averaging (or original if no samples).
+        traj : torch.Tensor or None
+            Trajectory array, averaged over samples if applicable, shape (num_steps, batch_size, dim)
+            or None if return_trajectory=False.
+        raw_samples : torch.Tensor or None
+            Raw final states for each sample, shape (n_samples, batch_size, dim) or None if single sample.
+        """
+        # ---- Determine if we have a sample dimension from latent state ----
+        n_latent_dims = len(latent_shape)
+        if n_latent_dims == 3:
+            n_samples = latent_shape[0]
+            batch_size = latent_shape[1]
+            has_sample_dim = average_samples = True
+        elif n_latent_dims == 2:
+            n_samples = None
+            batch_size = latent_shape[0]
+            has_sample_dim = average_samples = False
+        else:
+            raise ValueError(f"Invalid shape for source latent state: {latent_shape}")
+
+        # ---- Reshape output when needed ----
+        if has_sample_dim:
+            # predictions will be of shape (T, N, B, D)
+            n_steps = predictions.shape[0]
+            traj_full = predictions.reshape(n_steps, n_samples, batch_size, -1)
+            all_final = traj_full[-1]  # (N, B, D)
+        else:
+            # No sample dimension – everything is flat batch
+            all_final = predictions[-1]
+            traj_full = predictions.unsqueeze(1)  # unsqueeze sample dim (N=1)
+
+        # ---- Average when generating multiple samples----
+        if average_samples:
+            X = all_final.mean(dim=0)  # (B, D)
+            raw_samples = all_final  # (N, B, D)
+        else:
+            X = all_final
+            raw_samples = None
+
+        # ---- Handle return of additional output ----
+        if not return_trajectory:
+            traj_full = None
+
+        return X, traj_full, raw_samples
+
+    # ------------------------------------------------------------------
+    # Inference with optional multiple noise samples
+    # ------------------------------------------------------------------
     def _predict(
         self,
         step_data: StepData,
@@ -78,38 +201,38 @@ class CFM(TorchGenerativeFlow):
         n_samples: int | None = None,
         **kwargs,
     ) -> PredictionData:
-        # prepare latent state from step data
+        # ----- 1. Prepare latent (noise) -----
         if latent is None:
-            latent = self._prepare_latent_state(step_data.source_state, step_data.target_state, n_samples=n_samples)
+            latent = self._prepare_latent_inference(step_data.source_state, step_data.target_state, n_samples=n_samples)
 
-        # extract condition and groups data
+        # ----- 2. Build conditioning dict -----
         condition_reps_dict = self._get_tensor_dict_from_data(step_data.target_condition_data)
         group_reps_dict = self._get_tensor_dict_from_data(step_data.target_group_data)
+        condition_dict = {**condition_reps_dict, **group_reps_dict}
 
-        # initialize condition dict
-        condition_dict = {
-            **condition_reps_dict,
-            **group_reps_dict,
-        }
+        # ----- 3. Expand conditioning to match latent dimensions -----
+        condition_dict, source_expanded = self._expand_conditioning(latent, condition_dict, step_data.source_state)
 
-        # handle solver kwargs
+        # ----- 4. Configure ODE solver -----
         if solver_kwargs is None:
             solver_kwargs = {}
         solver_kwargs.setdefault("method", "euler")
         method = solver_kwargs.pop("method")
 
-        # prepare solver and integrate dynamics
         if solver_cls is None:
             solver_cls = self._default_solver_cls
+
         time_grid = torch.linspace(0.0, 1.0, steps=num_steps, device=latent.device, dtype=latent.dtype)
         solver = solver_cls(
             self._module,
             *args,
             method=method,
-            vf_kwargs={"condition_dict": condition_dict, "source": step_data.source_state},
+            vf_kwargs={"condition_dict": condition_dict, "source": source_expanded},
             device_id=self._device_id,
             **kwargs,
         )
+
+        # ----- 5. Integrate -----
         predictions = solver.solve(
             latent,
             time_grid,
@@ -117,16 +240,10 @@ class CFM(TorchGenerativeFlow):
             return_trajectory=return_trajectory,
         )
 
-        # split samples and trajectories
-        if return_trajectory:
-            samples = predictions[-1]
-            traj = predictions
-        else:
-            samples = predictions
-            traj = None
-
-        # define prediction data
-        return PredictionData(
-            samples,
-            traj=traj,
+        # ----- 6. Aggregate predictions (averaging, reshaping) -----
+        X, traj, raw_samples = self._aggregate_predictions(
+            predictions=predictions,
+            latent_shape=latent.shape,
+            return_trajectory=return_trajectory,
         )
+        return PredictionData(X=X, traj=traj, raw_samples=raw_samples)

@@ -16,6 +16,8 @@ try:
 except (ImportError, TypeError):
     NumpyArray = np.ndarray
 
+from sc_flow._types import PredictionData
+
 ShapeLike = Sequence[int] | torch.Size
 
 TensorLike = torch.Tensor | np.ndarray
@@ -93,7 +95,7 @@ class SolverConfig(NamedTuple):
 
 
 @dataclass
-class PredictionData:
+class PredictionData(PredictionData):
     samples: torch.Tensor
     traj: torch.Tensor | None = None
 

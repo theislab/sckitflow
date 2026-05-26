@@ -167,8 +167,10 @@ class BatchMixin(MappedArray):
 
         # iterating over the number of required dimensions
         for dim, reference_dim in enumerate(self.reference_dims):
-            # raise error if does not match
-            if data.shape[dim] != reference_dim:
+            # raise error if does not match or if dimension
+            # is not singleton
+            data_dim = data.shape[dim]
+            if data_dim != reference_dim and data_dim != 1:
                 msg = (
                     f"Shape mismatch for {key}."
                     f"Reference dimension at index {dim}: {reference_dim}"

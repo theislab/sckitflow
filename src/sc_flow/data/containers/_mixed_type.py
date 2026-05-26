@@ -98,8 +98,8 @@ class MixedTypeData(BaseData):
         if self.continuous_covariates is not None:
             return BatchMixin(
                 {
-                    **cat_reps.mapping,
                     **self.continuous_covariates.mapping,
+                    **cat_reps.mapping,
                 }
             )
         # otherwise return only categorical covariates

@@ -1,9 +1,10 @@
 import logging
 import tarfile
 import tempfile
+from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, overload
+from typing import Any, Literal, overload
 
 import cloudpickle
 import numpy as np
@@ -12,20 +13,16 @@ from anndata import AnnData
 from tqdm import tqdm
 
 from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
+from sc_flow._types import PredictionData
 from sc_flow.data._composite import MatchedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
-from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.samplers._train import FTrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
 from sc_flow.methods._opt import OptimConfig
 from sc_flow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sc_flow.trainer._trainer import Trainer
-
-if TYPE_CHECKING:
-    from sc_flow.backends.jax._types import PredictionData as JaxPredictionData
-    from sc_flow.backends.torch._types import PredictionData as TorchPredictionData
 
 __all__ = ["SCFlow"]
 
@@ -134,6 +131,40 @@ class SCFlow:
         self._trainer: Trainer | None = None
 
     @overload
+    def _predict_empty(
+        self,
+        return_tensors: Literal[False],
+    ) -> AnnData:
+        pass
+
+    @overload
+    def _predict_empty(
+        self,
+        return_tensors: Literal[True],
+    ) -> tuple[AnnData, None]:
+        pass
+
+    @overload
+    def _aggregate_nodes_pred(
+        self,
+        all_preds: list[PredictionData],
+        all_obs: list[pd.DataFrame],
+        all_obsm: dict[str, list[np.ndarray]],
+        return_tensors: Literal[False],
+    ) -> AnnData:
+        pass
+
+    @overload
+    def _aggregate_nodes_pred(
+        self,
+        all_preds: list[PredictionData],
+        all_obs: list[pd.DataFrame],
+        all_obsm: dict[str, list[np.ndarray]],
+        return_tensors: Literal[True],
+    ) -> tuple[AnnData, PredictionData]:
+        pass
+
+    @overload
     def predict(
         self,
         adata: AnnData,
@@ -151,7 +182,127 @@ class SCFlow:
         return_tensors: Literal[True],
         sort: bool = True,
         **kwargs,
-    ) -> tuple[AnnData, "TorchPredictionData | JaxPredictionData"]: ...
+    ) -> tuple[AnnData, PredictionData]: ...
+
+    def _predict_empty(self, return_tensors: bool) -> AnnData | tuple[AnnData, None]:
+        """Returns empty anndata for prediction."""
+        empty_adata = AnnData(
+            X=np.empty((0, len(self._dims_registry.feature_names))),
+            var=pd.DataFrame(index=self._dims_registry.feature_names),
+        )
+        return empty_adata if not return_tensors else (empty_adata, None)
+
+    def _get_pred_obs_df(self, node: MatchedData, pred_obj: PredictionData) -> pd.DataFrame:
+        """Gets the observation dataframe for prediction"""
+        # 1. Collect observation metadata
+        ann_df = node.target_distr.ann_df.copy()
+        cond_df = ann_df.drop_duplicates()
+
+        # 2. Check that the node contains only one condition
+        #    or that the are actually columns inside
+        n_ann_cols = len(cond_df.columns)
+        if n_ann_cols:
+            n_unique_conds = cond_df.shape[0]
+            if n_unique_conds != 1:
+                msg = f"Node should contain unique condition, {n_unique_conds} found."
+                raise ValueError(msg)
+
+        # 3. Get number of generated observations
+        if hasattr(pred_obj, "samples"):
+            n_pred_obs = pred_obj.samples.shape[0]
+        else:
+            n_pred_obs = 1
+
+        # 4. Align dataframe and update
+        # only when there are columns we need to repeat, otherwise keep as is
+        if n_ann_cols:
+            df_data = np.repeat(cond_df, n_pred_obs, axis=0)
+        else:
+            df_data = cond_df
+        return pd.DataFrame(df_data, columns=ann_df.columns)
+
+    def _get_pred_traj(self, pred_obj: PredictionData) -> np.ndarray | None:
+        # early return if no trajectory
+        if pred_obj.traj is None:
+            return None
+
+        # get number of observations
+        n_obs = pred_obj.samples.shape[0]
+
+        # convert trajectory to numpy
+        traj_np = self._to_numpy(pred_obj.traj)
+
+        if traj_np.shape[0] == n_obs:
+            return traj_np
+        elif traj_np.ndim == 3 and traj_np.shape[1] == n_obs:
+            return np.transpose(traj_np, (1, 0, 2))
+        else:
+            raise ValueError(
+                "Trajectory array has incompatible shape for AnnData.obsm: "
+                f"got {traj_np.shape}, expected first dimension to equal "
+                f"n_obs ({n_obs}) or, for 3D trajectories, second "
+                "dimension to equal n_obs so it can be transposed from "
+                "(n_time_steps, n_cells, n_features) to "
+                "(n_cells, n_time_steps, n_features)."
+            )
+
+    def _get_pred_obsm_dict(self, node: MatchedData, pred_obj: PredictionData) -> dict[str, np.ndarray]:
+        # ---- Get trajectory ----
+        traj = self._get_pred_traj(pred_obj)
+
+        # ---- Get condition continuous covariates data ----
+        if node.target.has_continuous_condition_covariates:
+            condition_continuous_covs = node.target.condition_data.continuous_covariates.mapping
+        else:
+            condition_continuous_covs = {}
+
+        # ---- Get target continuous covariates data ----
+        if node.target.has_continuous_response_covariates:
+            response_continuous_covs = node.target.response_data.continuous_covariates.mapping
+        else:
+            response_continuous_covs = {}
+
+        # ---- Construct output ----
+        obsm_dict = {}
+        if traj is not None:
+            obsm_dict["trajectory"] = traj
+        obsm_dict.update(condition_continuous_covs)
+        obsm_dict.update(response_continuous_covs)
+        return obsm_dict
+
+    def _aggregate_nodes_pred(
+        self,
+        all_preds: list[PredictionData],
+        all_obs: list[pd.DataFrame],
+        all_obsm: dict[str, list[np.ndarray]],
+        return_tensors: bool = False,
+    ) -> AnnData | tuple[AnnData, PredictionData]:
+        # ---- Aggregate predicted states ----
+        # Merge predictions using backend‑specific concatenation
+        merged_pred = type(all_preds[0]).concatenate(all_preds)
+
+        # ---- Construct prediction adata ----
+        # Convert to numpy
+        X_np = self._to_numpy(merged_pred.samples)
+
+        # Aggregate obs dataframes
+        obs_final = pd.concat(all_obs, axis=0)
+
+        # Aggregate obsm array dictionary
+        obsm_final = {k: np.concatenate(v, axis=0) for k, v in all_obsm.items()}
+
+        pred_adata = AnnData(
+            X=X_np, obs=obs_final, var=pd.DataFrame(index=self._dims_registry.feature_names), obsm=obsm_final
+        )
+
+        # ---- Return output ----
+        if return_tensors:
+            return pred_adata, merged_pred
+
+        return pred_adata
+
+    def _predict_on_node(self, node: MatchedData, *args, **kwargs) -> PredictionData:
+        return self._method.predict(node, *args, **kwargs)
 
     def _to_numpy(self, tensor: Any) -> np.ndarray:
         """
@@ -172,61 +323,6 @@ class SCFlow:
             return np.array(tensor)
         else:
             raise ValueError(f"Unsupported backend: {self._backend}")
-
-    def _prepare_node_for_predict(self, node: MatchedData) -> MatchedData:
-        """Prepare the input node for prediction.
-
-        When no continuous covariates are present or when no source states
-        are modeled, the node will be unchanged. Otherwise the source
-        distribution will be repeated to align the batch dimension with the target data.
-
-        :param node: The input node to prepare for prediction on.
-        :type node: class: `MatchedData`
-        """
-        # return node when no continuous covariates are present
-        if not self._dm.condition_data_schema.has_continuous_covariates:
-            return node
-        # return node when no source states are present
-        if node.source is None:
-            return node
-
-        # get number of observation in source and target data
-        n_src_obs = len(node.source)
-        n_tgt_obs = len(node.target)
-
-        # return node when they have same number of observations
-        if n_tgt_obs == n_src_obs:
-            return node
-
-        # slice source when there are less observations
-        if n_tgt_obs < n_src_obs:
-            tgt_slice = slice(n_tgt_obs)
-            src_data = node.source[tgt_slice]
-            return MatchedData(
-                node.target,
-                source_distribution=src_data,
-            )
-
-        # repeat source as many times as needed
-        n_repeats = n_tgt_obs // n_src_obs
-        n_remainders = n_tgt_obs % n_src_obs
-
-        # prepare for concatenation
-        src_to_concat = []
-        for _ in range(n_repeats):
-            src_data = node.source
-            src_to_concat.append(src_data)
-
-        # append remainder
-        src_data = node.source[slice(n_remainders)]
-        src_to_concat.append(src_data)
-
-        # concatenate distribution data
-        src_data = DistributionData.concat_collection(src_to_concat)
-        return MatchedData(
-            node.target,
-            source_distribution=src_data,
-        )
 
     def to_device(self, device: str) -> None:
         """Move the underlying PyTorch module and optimizer state to the specified device."""
@@ -389,7 +485,7 @@ class SCFlow:
         control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
         **kwargs,
-    ) -> AnnData | tuple[AnnData, "TorchPredictionData | JaxPredictionData"]:
+    ) -> AnnData | tuple[AnnData, PredictionData]:
         """
         Generates flow predictions.
 
@@ -442,94 +538,34 @@ class SCFlow:
         )
         tree_flat: tuple[MatchedData] = tree.flatten()
 
+        # early return
+        if not tree_flat:
+            return self._predict_empty(return_tensors)
+
         # define store
         all_preds = []
         all_obs = []
+        all_obsm = defaultdict(list)
 
-        # Iterate over each node (e.g., cell type / condition group)
+        # Iterate over each node
         for node in tqdm(tree_flat, desc="Predicting"):
-            # 1. Inference – returns backend‑specific PredictionData
-            node = self._prepare_node_for_predict(node)
-            pred_obj = self._method.predict(node, *args, **kwargs)
+            # 0. Align node
+            node_aligned = node.align()
+
+            # 1. Inference
+            pred_obj = self._predict_on_node(node_aligned, *args, **kwargs)
             all_preds.append(pred_obj)
 
-            # 2. Collect observation metadata
-            ann_df = node.target_distr.ann_df.copy()
-            cond_df = ann_df.drop_duplicates()
-
-            # 3. Check that the node contains only one condition
-            #    or that the are actually columns inside
-            n_ann_cols = len(cond_df.columns)
-            if n_ann_cols:
-                n_unique_conds = cond_df.shape[0]
-                if n_unique_conds != 1:
-                    msg = f"Node should contain unique condition, {n_unique_conds} found."
-                    raise ValueError(msg)
-
-            # 4. Get number of generated observations
-            if hasattr(pred_obj, "samples"):
-                n_pred_obs = pred_obj.samples.shape[0]
-            else:
-                n_pred_obs = 1
-
-            # 5. Align dataframe and update
-            # only when there are columns we need to repeat, otherwise keep as is
-            if n_ann_cols:
-                df_data = np.repeat(cond_df, n_pred_obs, axis=0)
-            else:
-                df_data = cond_df
-            pred_df = pd.DataFrame(df_data, columns=ann_df.columns)
+            # 2. Construct node dataframe
+            pred_df = self._get_pred_obs_df(node_aligned, pred_obj)
             all_obs.append(pred_df.copy())
 
-        # early return
-        if not all_preds:
-            # Return empty AnnData
-            empty_adata = AnnData(
-                X=np.empty((0, len(self._dims_registry.feature_names))),
-                var=pd.DataFrame(index=self._dims_registry.feature_names),
-            )
-            return empty_adata if not return_tensors else (empty_adata, None)
+            # 3. Construct node obsm
+            node_obsm_dict = self._get_pred_obsm_dict(node_aligned, pred_obj)
+            for key, val in node_obsm_dict.items():
+                all_obsm[key].append(val)
 
-        # 3. Merge predictions using backend‑specific concatenation
-        merged_pred = type(all_preds[0]).concatenate(all_preds)
-
-        # 4. Convert to numpy for AnnData construction
-        X_np = self._to_numpy(merged_pred.samples)
-        traj_np = self._to_numpy(merged_pred.traj) if merged_pred.traj is not None else None
-
-        # 5. Build AnnData object
-        obs_final = pd.concat(all_obs, axis=0)
-        pred_adata = AnnData(
-            X=X_np,
-            obs=obs_final,
-            var=pd.DataFrame(index=self._dims_registry.feature_names),
-        )
-
-        # 6. Store trajectory in obsm if available.
-        # Solvers may emit trajectories as (n_time_steps, n_cells, n_features);
-        # AnnData.obsm requires the first dimension to be n_obs (= n_cells), so
-        # normalize to (n_cells, n_time_steps, n_features) before storing.
-        if traj_np is not None:
-            if traj_np.shape[0] == pred_adata.n_obs:
-                traj_obsm = traj_np
-            elif traj_np.ndim == 3 and traj_np.shape[1] == pred_adata.n_obs:
-                traj_obsm = np.transpose(traj_np, (1, 0, 2))
-            else:
-                raise ValueError(
-                    "Trajectory array has incompatible shape for AnnData.obsm: "
-                    f"got {traj_np.shape}, expected first dimension to equal "
-                    f"n_obs ({pred_adata.n_obs}) or, for 3D trajectories, second "
-                    "dimension to equal n_obs so it can be transposed from "
-                    "(n_time_steps, n_cells, n_features) to "
-                    "(n_cells, n_time_steps, n_features)."
-                )
-            pred_adata.obsm["trajectory"] = traj_obsm
-
-        # 7. Optionally return differentiable tensors (for further computation)
-        if return_tensors:
-            return pred_adata, merged_pred
-
-        return pred_adata
+        return self._aggregate_nodes_pred(all_preds, all_obs, all_obsm, return_tensors=return_tensors)
 
     def save(self, filepath: str, allow_overwrite: bool = False) -> None:
         """

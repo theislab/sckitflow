@@ -159,27 +159,27 @@ class DataManager:
         self._matched_keys = matched_keys
         self._allow_paired_settings_on_condition_view = allow_paired_settings_on_condition_view
 
-        self._state_data_schema: StateDataSchema = self._init_state_data_schema(sample_rep=sample_rep)
-        self._condition_data_schema: ConditionDataSchema = self._init_condition_data_schema(
+        self._state_data_schema = StateDataSchema(sample_rep=sample_rep)
+        self._condition_data_schema = ConditionDataSchema(
             conditions=conditions,
             conditions_reps=conditions_reps,
             conditions_covariates=conditions_covariates,
         )
-        self._coupling_data_schema: CouplingDataSchema = self._init_coupling_data_schema(
+        self._coupling_data_schema = CouplingDataSchema(
             source_rep=source_rep, target_rep=sample_rep, n_shared_dims=n_shared_dims
         )
-        self._target_data_schema: ResponseDataSchema = self._init_target_data_schema(
+        self._target_data_schema = ResponseDataSchema(
             categorical_covs_dict=target_categorical_covs_dict,
             continuous_covs=target_continuous_covs,
         )
-        self._groups_data_schema: GroupsDataSchema = self._init_groups_data_schema(
+        self._groups_data_schema = GroupsDataSchema(
             groups=groups,
             groups_reps=groups_reps,
             groups_encoding=groups_encoding,
             groups_encoding_transform_fn=groups_encoding_transform_fn,
             groups_encoding_inverse_transform_fn=groups_encoding_inverse_transform_fn,
         )
-        self._indexer: HierarchicalIndexer = self._init_indexer(
+        self._indexer = HierarchicalIndexer(
             groups_cols=self._groups_data_schema.groups,
             conditions_cols=self._condition_data_schema.all_condition_cols,
         )
@@ -193,65 +193,6 @@ class DataManager:
             condition_covariates_transform_dict=condition_covariates_transform_dict,
             condition_covariates_encoder_context_dict=condition_covariates_encoder_context_dict,
             condition_covariates_decoder_context_dict=condition_covariates_decoder_context_dict,
-        )
-
-    def _init_state_data_schema(
-        self,
-        sample_rep: str | None = None,
-    ) -> StateDataSchema:
-        return StateDataSchema(sample_rep=sample_rep)
-
-    def _init_condition_data_schema(
-        self,
-        conditions: dict[str, Collection[str]] | None = None,
-        conditions_reps: dict[str, str] | None = None,
-        conditions_covariates: Collection[str] | None = None,
-    ) -> ConditionDataSchema:
-        return ConditionDataSchema(
-            conditions=conditions,
-            conditions_reps=conditions_reps,
-            conditions_covariates=conditions_covariates,
-        )
-
-    def _init_coupling_data_schema(
-        self, source_rep: str | None = None, target_rep: str | None = None, n_shared_dims: int | None = None
-    ) -> CouplingDataSchema:
-        return CouplingDataSchema(source_rep=source_rep, target_rep=target_rep, n_shared_dims=n_shared_dims)
-
-    def _init_target_data_schema(
-        self,
-        categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
-        continuous_covs: Collection[str] | None = None,
-    ) -> ResponseDataSchema:
-        return ResponseDataSchema(
-            categorical_covs_dict=categorical_covs_dict,
-            continuous_covs=continuous_covs,
-        )
-
-    def _init_groups_data_schema(
-        self,
-        groups: Collection[str] | None = None,
-        groups_reps: dict[str, str] | None = None,
-        groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
-        groups_encoding_transform_fn: dict[str, Callable] | None = None,
-        groups_encoding_inverse_transform_fn: dict[str, Callable] | None = None,
-    ) -> GroupsDataSchema:
-        return GroupsDataSchema(
-            groups=groups,
-            groups_reps=groups_reps,
-            groups_encoding=groups_encoding,
-            groups_encoding_transform_fn=groups_encoding_transform_fn,
-            groups_encoding_inverse_transform_fn=groups_encoding_inverse_transform_fn,
-        )
-
-    def _init_indexer(
-        self,
-        groups_cols: Collection[str] | None = None,
-        conditions_cols: Collection[str] | None = None,
-    ) -> HierarchicalIndexer:
-        return HierarchicalIndexer(
-            groups_cols=groups_cols,
-            conditions_cols=conditions_cols,
         )
 
     def _get_source_key(

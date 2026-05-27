@@ -350,30 +350,6 @@ class DataManager:
     ) -> DataDimensionalitiesRegistry:
         return DataDimensionalitiesRegistry.init_from_distribution_data(data, feature_names)
 
-    def _apply_preproc_transforms(
-        self,
-        data: DistributionData,
-    ) -> DistributionData:
-        # ---- State preprocessing ----
-        data = self._state_preproc.transform(data)
-
-        # ---- Condition preprocessing ----
-        for cond_preproc in self._cond_preproc_dict.values():
-            data = cond_preproc.transform(data)
-        return data
-
-    def _apply_preproc_inverse_transforms(
-        self,
-        data: DistributionData,
-    ) -> DistributionData:
-        # ---- State preprocessing ----
-        data = self._state_preproc.inverse_transform(data)
-
-        # ---- Condition preprocessing ----
-        for cond_preproc in self._cond_preproc_dict.values():
-            data = cond_preproc.inverse_transform(data)
-        return data
-
     def get_matched_distributions(
         self,
         data: DistributionData,

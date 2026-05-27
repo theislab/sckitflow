@@ -155,7 +155,6 @@ class CFM(TorchGenerativeFlow):
             batch_size = latent_shape[1]
             has_sample_dim = average_samples = True
         elif n_latent_dims == 2:
-            batch_size = latent_shape[0]
             has_sample_dim = average_samples = False
         else:
             raise ValueError(f"Invalid shape for source latent state: {latent_shape}")

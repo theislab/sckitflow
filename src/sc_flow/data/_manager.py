@@ -49,6 +49,7 @@ class DataManager:
         source_rep: str | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
         allow_paired_settings_on_condition_view: bool = False,
+        coupling_rep: str | None = None,
     ) -> None:
         """Initializes the object.
 
@@ -116,6 +117,9 @@ class DataManager:
             set for the state space view
             (namely :param: `control_values_dict` and :param: `matched_keys`).
         :type allow_paired_settings_on_condition_view: class: `bool`
+
+        :param coupling_rep: String identifier for additional representation
+        :type coupling_rep: class: `str | None`
         """
         self._control_values_dict = control_values_dict
         self._matched_keys = matched_keys
@@ -128,7 +132,9 @@ class DataManager:
             conditions_covariates=conditions_covariates,
         )
         self._coupling_data_schema: CouplingDataSchema = self._init_coupling_data_schema(
-            source_rep=source_rep, target_rep=sample_rep, n_shared_dims=n_shared_dims
+            source_rep=source_rep,
+            target_rep=coupling_rep if coupling_rep is not None else sample_rep,
+            n_shared_dims=n_shared_dims,
         )
         self._target_data_schema: ResponseDataSchema = self._init_target_data_schema(
             categorical_covs_dict=target_categorical_covs_dict,

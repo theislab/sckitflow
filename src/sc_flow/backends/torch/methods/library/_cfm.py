@@ -52,10 +52,10 @@ class CFM(TorchGenerativeFlow):
         expanded_cond = {}
         for k, v in condition_dict.items():
             # v shape: (batch_size, ...)
-            expanded_cond[k] = v.repeat_interleave(n_samples, dim=0)
+            expanded_cond[k] = v.unsqueeze(0).expand(n_samples, *v.shape)
         expanded_source = None
         if source is not None:
-            expanded_source = source.repeat_interleave(n_samples, dim=0)
+            expanded_source = source.unsqueeze(0).expand(n_samples, *source.shape)
         return expanded_cond, expanded_source
 
     # ------------------------------------------------------------------

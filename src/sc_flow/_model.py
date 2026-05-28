@@ -234,11 +234,11 @@ class SCFlow:
         # convert trajectory to numpy
         traj_np = self._to_numpy(pred_obj.traj)
 
-        if traj_np.ndim == 2:
+        if traj_np.ndim == 2 and traj_np.shape[0] == n_obs:
             return traj_np
-        elif traj_np.ndim == 3:
+        elif traj_np.ndim == 3 and traj_np.shape[1] == n_obs:
             return np.transpose(traj_np, (1, 0, 2))
-        elif traj_np.ndim == 4:
+        elif traj_np.ndim == 4 and traj_np.shape[2] == n_obs:
             return np.transpose(traj_np, (2, 0, 1, 3))
         else:
             raise ValueError(
@@ -265,18 +265,15 @@ class SCFlow:
         # ---- Convert trajectory to numpy and handle shape ----
 
         samples_np = self._to_numpy(raw_samples)
-        if samples_np.ndim == 2:
+        if samples_np.ndim == 2 and samples_np.shape[0] == n_obs:
             return samples_np
-        elif samples_np.ndim == 3:
+        elif samples_np.ndim == 3 and samples_np.shape[1] == n_obs:
             return np.transpose(samples_np, (1, 0, 2))
         else:
             raise ValueError(
                 "Samples array has incompatible shape for AnnData.obsm: "
-                f"got {samples_np.shape}, expected first dimension to equal "
-                f"n_obs ({n_obs}) or, for 3D trajectories, second "
-                "dimension to equal n_obs so it can be transposed from "
-                "(n_time_steps, n_cells, n_features) to "
-                "(n_cells, n_time_steps, n_features)."
+                f"got {samples_np.shape}, expected data of shape "
+                f"(n_obs, n_features) or (n_samples, n_obs, n_features)"
             )
 
     def _get_pred_obsm_dict(self, node: MatchedData, pred_obj: PredictionData) -> dict[str, np.ndarray]:

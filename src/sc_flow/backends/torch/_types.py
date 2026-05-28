@@ -56,10 +56,12 @@ class TSamplerFn(Protocol):
     ) -> TensorLike | tuple[TensorLike, TensorLike]: ...
 
 
-class TTimeSamplerFn(TSamplerFn): ...
+class TTimeSamplerFn(TSamplerFn):
+    pass
 
 
-class TNoiseSamplerFn(TSamplerFn): ...
+class TNoiseSamplerFn(TSamplerFn):
+    pass
 
 
 class TConditioningFn(Protocol):

@@ -48,7 +48,7 @@ class TMatchFn(Protocol):
     ) -> MatchFnOut: ...
 
 
-class TTimeSamplerFn(Protocol):
+class TSamplerFn(Protocol):
     def __call__(
         self,
         *size: int,
@@ -56,12 +56,10 @@ class TTimeSamplerFn(Protocol):
     ) -> TensorLike | tuple[TensorLike, TensorLike]: ...
 
 
-class TNoiseSamplerFn(Protocol):
-    def __call__(
-        self,
-        reference: TensorLike,
-        **kwargs: Any,
-    ) -> TensorLike: ...
+class TTimeSamplerFn(TSamplerFn): ...
+
+
+class TNoiseSamplerFn(TSamplerFn): ...
 
 
 class TConditioningFn(Protocol):

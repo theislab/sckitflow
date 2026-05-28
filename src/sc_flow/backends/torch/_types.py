@@ -113,6 +113,20 @@ class PredictionData(PredictionData):
         if len(preds) == 0:
             raise ValueError("Cannot concatenate empty collection")
 
+        # ---- Sanity check as they should all contain the same fields ----
+        for idx, p in enumerate(preds):
+            # ---- Get reference values from first element ----
+            if idx == 0:
+                ref_has_raw_samples = p.has_raw_samples
+                ref_has_traj = p.has_traj
+
+            # ---- Check that the raw samples match ---
+            if p.has_raw_samples != ref_has_raw_samples:
+                raise ValueError("All elements should have the same type of `raw_samples` attribute.")
+
+            if p.has_traj != ref_has_traj:
+                raise ValueError("All elements should have the same type of `traj`attribute.")
+
         # ---- Concatenate X, always on first dimension ----
         X = torch.cat([p.X for p in preds], dim=0)
 
@@ -130,3 +144,11 @@ class PredictionData(PredictionData):
         else:
             traj = None
         return cls(X=X, raw_samples=raw_samples, traj=traj)
+
+    @property
+    def has_raw_samples(self) -> bool:
+        return self.raw_samples is not None
+
+    @property
+    def has_traj(self) -> bool:
+        return self.traj is not None

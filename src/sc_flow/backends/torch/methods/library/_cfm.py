@@ -131,22 +131,30 @@ class CFM(TorchGenerativeFlow):
         Parameters
         ----------
         predictions : torch.Tensor
-            Solver output. If return_trajectory=True, shape is (num_steps, total_batch, dim).
-            Otherwise, shape is (total_batch, dim).
+            Solver output from ``ODESolver``. If ``return_trajectory=True``, the shape is
+            ``(num_steps, *latent_shape)``. Otherwise, the shape is ``latent_shape``.
         latent_shape : torch.Size
-            Original shape of the latent tensor before flattening (e.g., (n_samples, batch_size, dim)).
+            Original shape of the latent tensor (for example,
+            ``(n_samples, batch_size, dim)`` or ``(batch_size, dim)``).
         return_trajectory : bool
             Whether the solver returned a full trajectory.
 
         Returns
         -------
         X : torch.Tensor
-            Final predicted state, shape (batch_size, dim) after averaging (or original if no samples).
+            Final predicted state. If ``latent_shape`` includes a sample dimension,
+            this is the mean of the final states over samples with shape
+            ``(batch_size, dim)``. Otherwise, this is the final state tensor with
+            shape ``(batch_size, dim)``.
         traj : torch.Tensor or None
-            Trajectory array, averaged over samples if applicable, shape (num_steps, batch_size, dim)
-            or None if return_trajectory=False.
+            Full trajectory tensor, not averaged over samples. When a sample
+            dimension is present, the shape is ``(num_steps, n_samples, batch_size, dim)``.
+            Otherwise, the returned tensor includes a singleton sample dimension
+            and has shape ``(num_steps, 1, batch_size, dim)``. Returns ``None`` if
+            ``return_trajectory=False``.
         raw_samples : torch.Tensor or None
-            Raw final states for each sample, shape (n_samples, batch_size, dim) or None if single sample.
+            Raw final states for each sample with shape ``(n_samples, batch_size, dim)``
+            when a sample dimension is present, or ``None`` otherwise.
         """
         # ---- Determine if we have a sample dimension from latent state ----
         n_latent_dims = len(latent_shape)

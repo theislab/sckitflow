@@ -149,7 +149,7 @@ class TestCFM:
         step_data.target_group_data = mock_condition_data()
         mock_solver = Mock()
         # Final state only: shape (batch, dim) -> (4, 2)
-        mock_solver.solve.return_value = torch.randn(10, 4, 2)
+        mock_solver.solve.return_value = torch.randn(4, 2)
 
         cfm_instance._default_solver_cls = Mock(return_value=mock_solver)
 

@@ -163,24 +163,29 @@ class CFM(TorchGenerativeFlow):
         if has_sample_dim:
             # predictions will be of shape (T, N, B, D)
             n_steps = predictions.shape[0]
-            traj_full = predictions.reshape(n_steps, n_samples, batch_size, -1)
-            all_final = traj_full[-1]  # (N, B, D)
+            # ---- Handle optional trajectory ----
+            if return_trajectory:
+                traj_full = predictions.reshape(n_steps, n_samples, batch_size, -1)
+                all_final = traj_full[-1]  # (N, B, D)
+            else:
+                all_final = predictions.reshape(n_samples, batch_size, -1)
+                traj_full = None
         else:
-            # No sample dimension – everything is flat batch
-            all_final = predictions[-1]
-            traj_full = predictions.unsqueeze(1)  # unsqueeze sample dim (N=1)
+            # ---- Handle optional trajectory ----
+            if return_trajectory:
+                all_final = predictions[-1]  # (B, D)
+                traj_full = predictions.unsqueeze(1)  # unsqueeze sample dim (N=1) (T, 1, B, D)
+            else:
+                all_final = predictions
+                traj_full = None
 
         # ---- Average when generating multiple samples----
         if average_samples:
             X = all_final.mean(dim=0)  # (B, D)
             raw_samples = all_final  # (N, B, D)
         else:
-            X = all_final
+            X = all_final  # (B, D)
             raw_samples = None
-
-        # ---- Handle return of additional output ----
-        if not return_trajectory:
-            traj_full = None
 
         return X, traj_full, raw_samples
 

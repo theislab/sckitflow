@@ -24,6 +24,9 @@ from sc_flow.data.schemas import (
     ResponseDataSchema,
     StateDataSchema,
 )
+from sc_flow.external._context import ExternalModelContext
+from sc_flow.preprocessing._preproc import DataPreprocessor
+from sc_flow.preprocessing.transforms._base import BaseTransform
 
 __all__ = ["DataManager"]
 
@@ -49,6 +52,13 @@ class DataManager:
         source_rep: str | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
         allow_paired_settings_on_condition_view: bool = False,
+        state_transform: BaseTransform | None = None,
+        state_encoder_context: ExternalModelContext | None = None,
+        state_decoder_context: ExternalModelContext | None = None,
+        state_preproc_repr_name: str | None = None,
+        condition_covariates_transform_dict: dict[str, BaseTransform] | None = None,
+        condition_covariates_encoder_context_dict: dict[str, ExternalModelContext] | None = None,
+        condition_covariates_decoder_context_dict: dict[str, ExternalModelContext] | None = None,
     ) -> None:
         """Initializes the object.
 
@@ -116,94 +126,73 @@ class DataManager:
             set for the state space view
             (namely :param: `control_values_dict` and :param: `matched_keys`).
         :type allow_paired_settings_on_condition_view: class: `bool`
+
+        :param state_transform: The transformation to be applied to the state data.
+            Defaults to `None`.
+        :type state_transform: class: `BaseTransform | None`
+
+        :param state_encoder_context: The context for optional encoder models of state data.
+            Defaults to `None`.
+        :type state_encoder_context: class: `ExternalModelContext | None`
+
+        :param state_decoder_context: The context for optional decoder models of state data.
+            Defaults to `None`.
+        :type state_decoder_context: class: `ExternalModelContext | None`
+
+        :param state_preproc_repr_name: Identifier for the variable names after preprocessing.
+            Defaults to `None`.
+        :type state_preproc_repr_name: class: `str | None`
+
+        :param condition_covariates_transform_dict: Optional dictionary mapping each continuous
+            covariates to their respective transformation object. Defaults to `None`.
+        :type condition_covariates_transform_dict: class: `dict[str, BaseTransform] | None`
+
+        :param condition_covariates_encoder_context_dict: Optional dictionary mapping each continuous
+            covariates to their respective encoder context. Defaults to `None`.
+        :type condition_covariates_encoder_context_dict: class `dict[str, ExternalModelContext] | None`
+
+        :param condition_covariates_decoder_context_dict: Optional dictionary mapping each continuous
+            covariates to their respective decoder context. Defaults to `None`.
+        :type condition_covariates_decoder_context_dict: class `dict[str, ExternalModelContext] | None`
         """
         self._control_values_dict = control_values_dict
         self._matched_keys = matched_keys
         self._allow_paired_settings_on_condition_view = allow_paired_settings_on_condition_view
 
-        self._state_data_schema: StateDataSchema = self._init_state_data_schema(sample_rep=sample_rep)
-        self._condition_data_schema: ConditionDataSchema = self._init_condition_data_schema(
+        self._state_data_schema = StateDataSchema(sample_rep=sample_rep)
+        self._condition_data_schema = ConditionDataSchema(
             conditions=conditions,
             conditions_reps=conditions_reps,
             conditions_covariates=conditions_covariates,
         )
-        self._coupling_data_schema: CouplingDataSchema = self._init_coupling_data_schema(
+        self._coupling_data_schema = CouplingDataSchema(
             source_rep=source_rep, target_rep=sample_rep, n_shared_dims=n_shared_dims
         )
-        self._target_data_schema: ResponseDataSchema = self._init_target_data_schema(
+        self._target_data_schema = ResponseDataSchema(
             categorical_covs_dict=target_categorical_covs_dict,
             continuous_covs=target_continuous_covs,
         )
-        self._groups_data_schema: GroupsDataSchema = self._init_groups_data_schema(
+        self._groups_data_schema = GroupsDataSchema(
             groups=groups,
             groups_reps=groups_reps,
             groups_encoding=groups_encoding,
             groups_encoding_transform_fn=groups_encoding_transform_fn,
             groups_encoding_inverse_transform_fn=groups_encoding_inverse_transform_fn,
         )
-        self._indexer: HierarchicalIndexer = self._init_indexer(
+        self._indexer = HierarchicalIndexer(
             groups_cols=self._groups_data_schema.groups,
             conditions_cols=self._condition_data_schema.all_condition_cols,
         )
         self._selector = IndexSelector.init_from_indexer(self._indexer)
-
-    def _init_state_data_schema(
-        self,
-        sample_rep: str | None = None,
-    ) -> StateDataSchema:
-        return StateDataSchema(sample_rep=sample_rep)
-
-    def _init_condition_data_schema(
-        self,
-        conditions: dict[str, Collection[str]] | None = None,
-        conditions_reps: dict[str, str] | None = None,
-        conditions_covariates: Collection[str] | None = None,
-    ) -> ConditionDataSchema:
-        return ConditionDataSchema(
-            conditions=conditions,
-            conditions_reps=conditions_reps,
+        self._preproc = DataPreprocessor(
             conditions_covariates=conditions_covariates,
-        )
-
-    def _init_coupling_data_schema(
-        self, source_rep: str | None = None, target_rep: str | None = None, n_shared_dims: int | None = None
-    ) -> CouplingDataSchema:
-        return CouplingDataSchema(source_rep=source_rep, target_rep=target_rep, n_shared_dims=n_shared_dims)
-
-    def _init_target_data_schema(
-        self,
-        categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
-        continuous_covs: Collection[str] | None = None,
-    ) -> ResponseDataSchema:
-        return ResponseDataSchema(
-            categorical_covs_dict=categorical_covs_dict,
-            continuous_covs=continuous_covs,
-        )
-
-    def _init_groups_data_schema(
-        self,
-        groups: Collection[str] | None = None,
-        groups_reps: dict[str, str] | None = None,
-        groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
-        groups_encoding_transform_fn: dict[str, Callable] | None = None,
-        groups_encoding_inverse_transform_fn: dict[str, Callable] | None = None,
-    ) -> GroupsDataSchema:
-        return GroupsDataSchema(
-            groups=groups,
-            groups_reps=groups_reps,
-            groups_encoding=groups_encoding,
-            groups_encoding_transform_fn=groups_encoding_transform_fn,
-            groups_encoding_inverse_transform_fn=groups_encoding_inverse_transform_fn,
-        )
-
-    def _init_indexer(
-        self,
-        groups_cols: Collection[str] | None = None,
-        conditions_cols: Collection[str] | None = None,
-    ) -> HierarchicalIndexer:
-        return HierarchicalIndexer(
-            groups_cols=groups_cols,
-            conditions_cols=conditions_cols,
+            state_transform=state_transform,
+            state_encoder_context=state_encoder_context,
+            state_decoder_context=state_decoder_context,
+            state_preproc_repr_name=state_preproc_repr_name,
+            condition_covariates_transform_dict=condition_covariates_transform_dict,
+            condition_covariates_encoder_context_dict=condition_covariates_encoder_context_dict,
+            condition_covariates_decoder_context_dict=condition_covariates_decoder_context_dict,
         )
 
     def _get_source_key(
@@ -220,25 +209,33 @@ class DataManager:
         return self._selector.query_factory.query_dict_to_tuple(control_query_dict)
 
     def _get_feature_names(
-        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
+        self,
+        adata: AnnData,
+        n_features: int,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
     ) -> pd.Index:
         """Determines feature names based on the state representation used."""
-        # use it as sample rep as it should come from obsm
         if view_on_condition_space:
             if condition_state_key is None:
-                raise ValueError("When modeling on the condition space, the state key should be provided")
+                raise ValueError("condition_state_key required when view_on_condition_space=True")
             sample_rep = condition_state_key
         else:
             sample_rep = self._state_data_schema.sample_rep
+            if sample_rep is None and self._preproc.state_preproc is not None:
+                sample_rep = self._preproc.state_preproc.repr_name
 
-        if sample_rep is None:
+        # If we have a valid base name, build feature names as "base_0", "base_1", ...
+        if sample_rep is not None:
+            return pd.Index([f"{sample_rep}_{i}" for i in range(n_features)])
+
+        # Fallback: use original var_names only if the number of features matches.
+        # This typically happens when no preprocessing is applied.
+        if n_features == adata.shape[-1]:
             return adata.var_names
 
-        # Case: Latent representation in .obsm (e.g., 'X_pca')
-        rep_data = adata.obsm[sample_rep]
-        n_features = rep_data.shape[1]
-
-        return pd.Index([f"{sample_rep}_{i}" for i in range(n_features)])
+        # Last resort: generic feature names.
+        return pd.Index([f"feature_{i}" for i in range(n_features)])
 
     def _get_state_data(
         self,
@@ -268,7 +265,12 @@ class DataManager:
         return self._target_data_schema.get_data(adata)
 
     def _get_distribution_data(
-        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
+        self,
+        adata: AnnData,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
+        fit_preproc: bool = False,
+        apply_transformations: bool = False,
     ) -> DistributionData:
         if view_on_condition_space and condition_state_key is None:
             raise ValueError("When modeling on the condition space, the state key should be provided")
@@ -287,6 +289,12 @@ class DataManager:
             source_coupling_data=source_coupling_data,
             target_coupling_data=target_coupling_data,
         )
+
+        # preprocessing
+        if fit_preproc:
+            self._preproc.fit(distribution_data)
+        if apply_transformations:
+            distribution_data = self._preproc.transform(distribution_data)
 
         if view_on_condition_space:
             return distribution_data.view_on_condition_space(condition_state_key)
@@ -384,7 +392,12 @@ class DataManager:
         )
 
     def get_distribution_data(
-        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
+        self,
+        adata: AnnData,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
+        fit_preproc: bool = False,
+        apply_transformations: bool = False,
     ) -> DistributionData:
         """Compiles an annotated data object into a distribution data container.
 
@@ -399,9 +412,20 @@ class DataManager:
             when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
             Defaults to `None`.
         :type condition_state_key: `str | None`
+
+        :param fit_preproc: Whether to fit the preprocessing module on the compiled data. Defaults to `False`.
+        :type fit_preproc: class: `bool`
+
+        :param apply_transformations: Whether to apply the preprocessing transformation on the compiled data.
+            Defaults to `False`
+        :type apply_transformations: class: `bool`
         """
         return self._get_distribution_data(
-            adata, view_on_condition_space=view_on_condition_space, condition_state_key=condition_state_key
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+            fit_preproc=fit_preproc,
+            apply_transformations=apply_transformations,
         )
 
     def sort_adata(self, adata: AnnData) -> AnnData:
@@ -440,6 +464,8 @@ class DataManager:
         sort: bool = False,
         view_on_condition_space: bool = False,
         condition_state_key: str | None = None,
+        fit_preproc: bool = False,
+        apply_transformations: bool = False,
         control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> NestedData:
@@ -464,6 +490,12 @@ class DataManager:
             Defaults to `None`.
         :type condition_state_key: `str | None`
 
+        :param fit_preproc: Whether to fit the preprocessing module on the compiled data. Defaults to `False`.
+        :type fit_preproc: class: `bool`
+
+        :param apply_transformations: Whether to apply the preprocessing transformation on the compiled data.
+            Defaults to `False`
+        :type apply_transformations: class: `bool`
         :param control_values_dict: Optional dictionary mapping each condition
             level to the corresponding value used to indicate control observations.
             This overrides the homonimous attribute and is needed to allow
@@ -488,6 +520,8 @@ class DataManager:
             adata,
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
+            fit_preproc=fit_preproc,
+            apply_transformations=apply_transformations,
         )
         return self._get_matched_distributions(
             data,
@@ -497,7 +531,12 @@ class DataManager:
         )
 
     def get_data_dimensionalities(
-        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
+        self,
+        adata: AnnData,
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
+        fit_preproc: bool = False,
+        apply_transformations: bool = False,
     ) -> DataDimensionalitiesRegistry:
         """Registers the data dimensionalities from the input data according to the current schema.
 
@@ -512,14 +551,25 @@ class DataManager:
             when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
             Defaults to `None`.
         :type condition_state_key: `str | None`
+
+        :param fit_preproc: Whether to fit the preprocessing module on the compiled data. Defaults to `False`.
+        :type fit_preproc: class: `bool`
+
+        :param apply_transformations: Whether to apply the preprocessing transformation on the compiled data.
+            Defaults to `False`
+        :type apply_transformations: class: `bool`
         """
         data: DistributionData = self._get_distribution_data(
             adata,
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
+            fit_preproc=fit_preproc,
+            apply_transformations=apply_transformations,
         )
+        n_features = data.state_data.X.shape[1]
         feature_names = self._get_feature_names(
             adata,
+            n_features,
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
         )
@@ -542,11 +592,12 @@ class DataManager:
             Defaults to `None`.
         :type condition_state_key: `str | None`
         """
-        return self._get_feature_names(
-            adata,
-            view_on_condition_space=view_on_condition_space,
-            condition_state_key=condition_state_key,
-        )
+        n_features = self._get_state_data(adata).X.shape[1]
+        return self._get_feature_names(adata, n_features, view_on_condition_space, condition_state_key)
+
+    def unload_preproc(self) -> None:
+        """Unload any external models used in preprocessing."""
+        self._preproc.unload()
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:
@@ -597,3 +648,8 @@ class DataManager:
     def source_key(self) -> tuple[Any] | None:
         """Returns the key used to define the source subpopulations."""
         return self._get_source_key(self._control_values_dict)
+
+    @property
+    def preproc(self) -> DataPreprocessor:
+        """Returns the underlying data preprocessing module."""
+        return self._preproc

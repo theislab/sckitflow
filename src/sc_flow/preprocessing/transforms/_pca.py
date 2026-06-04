@@ -3,7 +3,9 @@ from dataclasses import dataclass
 import numpy as np
 import scanpy as sc
 
-from sc_flow.data.preprocessing._base import BaseTranform, TransformParams
+from sc_flow.preprocessing.transforms._base import BaseTransform, TransformParams
+
+__all__ = ["PCAParams", "PCATransform"]
 
 
 @dataclass
@@ -33,7 +35,7 @@ class PCAParams(TransformParams):
     n_components: int | None = None
 
 
-class PCATransform(BaseTranform):
+class PCATransform(BaseTransform):
     """Principal Component Analysis for dimensionality reduction."""
 
     def __init__(self, n_components: int | None = None) -> None:

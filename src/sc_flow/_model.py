@@ -65,6 +65,8 @@ class SCFlow:
             adata,
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
+            fit_preproc=True,
+            apply_transformations=True,
         )
         cls._is_paired_setting_cls = cls._dm_cls.control_values_dict is not None or cls._dm_cls.matched_keys is not None
         cls._view_on_condition_space_cls = view_on_condition_space
@@ -450,6 +452,7 @@ class SCFlow:
             sort=sort,
             view_on_condition_space=self._view_on_condition_space,
             condition_state_key=self._condition_state_key,
+            apply_transformations=True,
         )
         if val_adatas_dict is not None:
             val_trees_dict = {
@@ -458,6 +461,7 @@ class SCFlow:
                     sort=sort,
                     view_on_condition_space=self._view_on_condition_space,
                     condition_state_key=self._condition_state_key,
+                    apply_transformations=True,
                 )
                 for val_id, val_adata in val_adatas_dict.items()
             }
@@ -568,6 +572,7 @@ class SCFlow:
             condition_state_key=self._condition_state_key,
             control_values_dict=control_values_dict,
             matched_keys=matched_keys,
+            apply_transformations=True,
         )
         tree_flat: tuple[MatchedData] = tree.flatten()
 
@@ -625,6 +630,9 @@ class SCFlow:
                     for k, v in state.items():
                         if isinstance(v, torch.Tensor):
                             state[k] = v.cpu()
+
+        # unload preprocessing context
+        self.dm.unload_preproc()
 
         # Save self as a tarball containing a single pickle file
         with tarfile.open(filepath, "w:gz") as tar:

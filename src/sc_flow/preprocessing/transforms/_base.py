@@ -1,9 +1,10 @@
 import abc
+from collections.abc import Collection
 from dataclasses import dataclass
 
 import numpy as np
 
-__all__ = ["BaseTranform", "TransformParams"]
+__all__ = ["BaseTransform", "TransformParams"]
 
 
 @dataclass
@@ -51,7 +52,7 @@ class TransformParams:
             )
 
 
-class BaseTranform(abc.ABC):
+class BaseTransform(abc.ABC):
     """Abstract base class for all preprocessors.
 
     Preprocessors work with class:'numpy' objects of shape (n_samples, n_features).
@@ -69,10 +70,10 @@ class BaseTranform(abc.ABC):
         The params attribute will store fitted parameters.
         It should be set to a specific TransformParams subclass in subclasses.
         """
-        self._params: TransformParams | None = None
+        self._params: TransformParams | Collection[TransformParams] | None = None
 
     @property
-    def params(self) -> TransformParams:
+    def params(self) -> TransformParams | Collection[TransformParams]:
         """Get the fitted parameters.
 
         Returns
@@ -137,7 +138,7 @@ class BaseTranform(abc.ABC):
             raise ValueError(f"{name} must have at least one feature")
 
     @abc.abstractmethod
-    def fit(self, X: np.ndarray) -> "BaseTranform":
+    def fit(self, X: np.ndarray) -> "BaseTransform":
         """Fit the preprocessor to the data.
 
         This method learns parameters from the input data and stores them

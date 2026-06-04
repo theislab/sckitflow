@@ -47,9 +47,13 @@ class ExternalModelContext:
         allow_missing_forward_method: bool = True,
         runtime_args_first: bool = True,
     ) -> None:
+        # ---- Validate arguments ----
         if model is None and model_path is None:
             raise ValueError("At least one of model or model_path should be passed")
+        if model is not None and model_path is not None:
+            raise ValueError("Only one of 'model' or 'model_path' can be provided.")
 
+        # ---- Set arguments ----
         self._model: Any = model
         self._model_path = model_path
         self._model_load_args = model_load_args
@@ -149,3 +153,13 @@ class ExternalModelContext:
     def __repr__(self) -> str:
         status = "loaded" if self.is_loaded() else "not loaded"
         return f"{self.__class__.__name__}(path={self._model_path!r}, status={status})"
+
+    @property
+    def model(self) -> Any | None:
+        """Returns the underlying model."""
+        return self._model
+
+    @model.setter
+    def model(self, model: Any) -> None:
+        """Sets the underlying model."""
+        self._model = model

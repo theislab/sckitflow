@@ -99,7 +99,7 @@ class PredictionData(PredictionData):
     """Stores prediction data for Flow Models
 
     * X (B, D)
-    * samples (N, B, D) or None
+    * raw_samples (N, B, D) or None
     * traj (T, 1, B, D) or (T, N, B, D) or None. The second case only when samples is not None.
     """
 

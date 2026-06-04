@@ -33,6 +33,10 @@ TensorLike = Any  # TODO
 
 
 class PredictionData:
+    X: Any
+    raw_samples: Any | None = None
+    traj: Any | None = None
+
     @classmethod
     @abc.abstractmethod
     def concatenate(cls, preds: Collection["PredictionData"]) -> "PredictionData": ...

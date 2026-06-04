@@ -262,7 +262,7 @@ class SCFlow:
             raise ValueError("Prediction object should have the .X attribute.")
         n_obs = X.shape[0]
 
-        # ---- Convert trajectory to numpy and handle shape ----
+        # ---- Convert raw samples to numpy and handle shape ----
 
         samples_np = self._to_numpy(raw_samples)
         if samples_np.ndim == 2 and samples_np.shape[0] == n_obs:

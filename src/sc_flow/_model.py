@@ -17,7 +17,7 @@ from sc_flow._types import PredictionData
 from sc_flow.data._composite import MatchedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
-from sc_flow.data.samplers._train import FTrainSampler
+from sc_flow.data.samplers._train import FTrainSampler, TrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
 from sc_flow.methods._opt import OptimConfig
@@ -355,6 +355,7 @@ class SCFlow:
         valid_freq: int = 1_000,
         train_batch_size: int = 128,
         val_max_n_obs: int = 10_000,
+        train_sampler: type[TrainSampler] = FTrainSampler,
         train_sampler_kwargs: dict[str, Any] | None = None,
         val_sampler_kwargs: dict[str, Any] | None = None,
         train_kwargs: dict[str, Any] | None = None,
@@ -434,7 +435,7 @@ class SCFlow:
         # create train sampler
         if train_sampler_kwargs is None:
             train_sampler_kwargs = {}
-        train_sampler = FTrainSampler(
+        train_sampler = train_sampler(
             train_tree,
             batch_size=train_batch_size,
             **train_sampler_kwargs,

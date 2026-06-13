@@ -4,7 +4,7 @@ from typing import Any
 import pandas as pd
 from tqdm import tqdm
 
-from sc_flow.data.samplers._train import FTrainSampler
+from sc_flow.data.samplers._train import FTrainSampler, MultiTransitionSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
 from sc_flow.methods._opt import BaseOptManager
@@ -126,13 +126,25 @@ class Trainer:
         pbar = tqdm(range(1, n_train_steps + 1))
         for self._current_step in pbar:
             # Sample nodes and perform training steps
+            # TODO: Sampler is random but for proper time point transitions,
+            # REVIEW: MultiTransitionSampler will work here
             nodes = train_sampler.sample()
             step_dict = {}
-            for node in nodes:
-                opt_data, step_dict = self._method.train_step(node, *args, **kwargs)
+            # TODO: Here, we train for each transition (node) seperately, but for contextflow
+            # we specify time(0->1,1->2etc.) for the different nodes, concat and train on that.
+            # REVIEW: All nodes are sampled at once. The for loop goes inside train_step
+            if isinstance(train_sampler, MultiTransitionSampler):
+                # pass the full tuple at once
+                opt_data, step_dict = self._method.train_step(nodes, *args, transitions=True, **kwargs)
                 step_dict.update({"step": self._current_step})
                 self._opt_manager.step(opt_data)
                 self._append_train_log(step_dict)
+            else:
+                for node in nodes:
+                    opt_data, step_dict = self._method.train_step(node, *args, **kwargs)
+                    step_dict.update({"step": self._current_step})
+                    self._opt_manager.step(opt_data)
+                    self._append_train_log(step_dict)
 
             # Call on_train_step with the step_dict from the last node
             self._callbacks.on_train_step(self, self._current_step, step_dict, **cb_kwargs)

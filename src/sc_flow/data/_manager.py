@@ -271,15 +271,21 @@ class DataManager:
         condition_state_key: str | None = None,
         fit_preproc: bool = False,
         apply_transformations: bool = False,
+        require_target_state: bool = True,
     ) -> DistributionData:
         if view_on_condition_space and condition_state_key is None:
             raise ValueError("When modeling on the condition space, the state key should be provided")
 
-        state_data: StateData = self._get_state_data(adata)
+        state_data: StateData | None = self._get_state_data(adata) if require_target_state else None
         condition_data: MixedTypeData = self._get_condition_data(adata)
         response_data: MixedTypeData = self._get_target_data(adata)
         groups_data: CategoricalData = self._get_groups_data(adata)
-        source_coupling_data, target_coupling_data = self._get_coupling_data(adata)
+        if require_target_state:
+            source_coupling_data, target_coupling_data = self._get_coupling_data(adata)
+        else:
+            # coupling reps default to the state representation (`.X`) unless explicitly
+            # configured otherwise, so they are unavailable in the same cases as state_data.
+            source_coupling_data, target_coupling_data = None, None
 
         distribution_data = DistributionData(
             state_data,
@@ -398,6 +404,7 @@ class DataManager:
         condition_state_key: str | None = None,
         fit_preproc: bool = False,
         apply_transformations: bool = False,
+        require_target_state: bool = True,
     ) -> DistributionData:
         """Compiles an annotated data object into a distribution data container.
 
@@ -419,6 +426,12 @@ class DataManager:
         :param apply_transformations: Whether to apply the preprocessing transformation on the compiled data.
             Defaults to `False`
         :type apply_transformations: class: `bool`
+
+        :param require_target_state: Whether the state representation (`.X` or the configured
+            `obsm` sample representation) is required from `adata`. Set to `False` to compile
+            only the distribution metadata (condition/group covariates) when no target state
+            data is available, e.g. for prediction without target states. Defaults to `True`.
+        :type require_target_state: class: `bool`
         """
         return self._get_distribution_data(
             adata,
@@ -426,6 +439,7 @@ class DataManager:
             condition_state_key=condition_state_key,
             fit_preproc=fit_preproc,
             apply_transformations=apply_transformations,
+            require_target_state=require_target_state,
         )
 
     def sort_adata(self, adata: AnnData) -> AnnData:
@@ -468,6 +482,7 @@ class DataManager:
         apply_transformations: bool = False,
         control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
+        require_target_state: bool = True,
     ) -> NestedData:
         """Compile an annotated data object into split and matched subpopulations.
 
@@ -513,6 +528,12 @@ class DataManager:
             and target groups defined for training. Defaults to `None`,
             in which case the instance attribute will be used.
         :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
+
+        :param require_target_state: Whether the state representation (`.X` or the configured
+            `obsm` sample representation) is required from `adata`. Set to `False` to compile
+            only the distribution metadata (condition/group covariates) when no target state
+            data is available, e.g. for prediction without target states. Defaults to `True`.
+        :type require_target_state: class: `bool`
         """
         if sort:
             adata = self.sort_adata(adata)
@@ -522,6 +543,7 @@ class DataManager:
             condition_state_key=condition_state_key,
             fit_preproc=fit_preproc,
             apply_transformations=apply_transformations,
+            require_target_state=require_target_state,
         )
         return self._get_matched_distributions(
             data,

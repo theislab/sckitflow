@@ -110,6 +110,25 @@ class TestCFM:
         assert latent is source
         assert latent.shape == (4, 2)  # unchanged
 
+    def test_prepare_latent_inference_source_no_generation_no_target_state(self, cfm_instance):
+        """Predicting from a source/control state never needs the target state at all."""
+        cfm_instance._generate_from_noise = False
+        source = torch.randn(4, 2)
+        latent = cfm_instance._prepare_latent_inference(source, None, n_samples=None, n_obs=4)
+        assert latent is source
+
+    def test_prepare_latent_inference_no_target_state_uses_n_obs(self, cfm_instance):
+        """Without a target state, the shape is built from n_obs and the module's state dim."""
+        cfm_instance._generate_from_noise = True
+        cfm_instance._module._state_dim = 2
+        latent = cfm_instance._prepare_latent_inference(None, None, n_samples=None, n_obs=4)
+        assert latent.shape == (4, 2)
+
+    def test_prepare_latent_inference_no_target_state_no_n_obs_raises(self, cfm_instance):
+        cfm_instance._generate_from_noise = True
+        with pytest.raises(ValueError, match="no target state and no `n_obs`"):
+            cfm_instance._prepare_latent_inference(None, None, n_samples=None, n_obs=None)
+
     # -------------------------------------------------------------------------
     # Training step (_step_fn)
     # -------------------------------------------------------------------------
@@ -217,6 +236,25 @@ class TestCFM:
         # raw_samples should be (n_samples, batch, dim)
         assert pred.raw_samples is not None
         assert pred.raw_samples.shape == (n_samples, batch, dim)
+
+    def test_predict_no_target_state_generates_from_noise(self, cfm_instance):
+        """No target state and no source: shape comes from target_n_obs + module's state dim."""
+        cfm_instance._generate_from_noise = True
+        cfm_instance._module._state_dim = 2
+        step_data = Mock()
+        step_data.target_state = None
+        step_data.source_state = None
+        step_data.target_n_obs = 4
+        step_data.target_condition_data = mock_condition_data()
+        step_data.target_group_data = mock_condition_data()
+        mock_solver = Mock()
+        mock_solver.solve.return_value = torch.randn(4, 2)
+        cfm_instance._default_solver_cls = Mock(return_value=mock_solver)
+
+        pred = cfm_instance._predict(step_data, return_trajectory=False, num_steps=10)
+
+        assert isinstance(pred, PredictionData)
+        assert pred.X.shape == (4, 2)
 
     def test_predict_custom_solver(self, cfm_instance):
         step_data = Mock()

@@ -25,7 +25,7 @@ class CouplingData(BaseData):
     state_quad: StateData | None = None
 
     def __post_init__(self):
-        if self.state_quad is not None:
+        if self.state_lin is not None and self.state_quad is not None:
             self.state_lin.assert_same_len(self.state_quad)
 
     def __repr__(self) -> str:
@@ -113,6 +113,9 @@ class CouplingData(BaseData):
         collection: "Collection[CouplingData]",
     ) -> "CouplingData":
         """Concatenates a collection of instances into a single object."""
+        if len(collection) == 0:
+            raise ValueError("Need at least one element to concatenate.")
+
         # initialize stores
         state_lin_list = []
         state_quad_list = []

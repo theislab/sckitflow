@@ -182,7 +182,8 @@ class TestCategoricalData:
 
         # Both representation sources should be merged
         assert "cell_type" in concatenated.repr_dict
-        assert concatenated.repr_dict["cell_type"] == {"A": np.array([1, 0])}
+        assert concatenated.repr_dict["cell_type"].keys() == {"A"}
+        np.testing.assert_array_equal(concatenated.repr_dict["cell_type"]["A"], np.array([1, 0]))
         assert "cell_type" in concatenated.categorical_encoders
         assert concatenated.categorical_encoders["cell_type"] is encoders["cell_type"]
         assert "batch" in concatenated.categorical_encoders

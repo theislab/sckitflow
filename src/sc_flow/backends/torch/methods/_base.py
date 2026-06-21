@@ -117,12 +117,14 @@ class TorchBaseMethod(BaseMethod):
             (target_coupling_lin, target_coupling_quad, target_state_data, target_condition_data, target_group_data) = (
                 self._extract_distribution_data(target_data_dict, "target")
             )
+            target_n_obs = len(target_data_dict)
         else:
             target_coupling_lin = None
             target_coupling_quad = None
             target_state_data = None
             target_condition_data = None
             target_group_data = None
+            target_n_obs = 0
 
         # optionally parse target data dictionary
         if source_data_dict is not None:
@@ -148,6 +150,7 @@ class TorchBaseMethod(BaseMethod):
             source_coupling_quad,
             source_condition_data,
             source_group_data,
+            target_n_obs,
         )
 
 

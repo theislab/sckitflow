@@ -19,8 +19,11 @@ __all__ = ["DistributionData"]
 class DistributionData(BaseData):
     """Container class for distribution data.
 
-    :param state_data: Container storing the state data.
-    :type state_data: class: `StateData`
+    :param state_data: Container storing the state data. Can be `None`
+        when only the distribution metadata (condition/group covariates)
+        is available, e.g. when predicting without target states.
+        Defaults to `None`.
+    :type state_data: class: `StateData | None`
 
     :param response_data: Container storing the target data.
         Defaults to `None`.
@@ -45,7 +48,7 @@ class DistributionData(BaseData):
     :type target_coupling_data: class: CouplingData | Non
     """
 
-    state_data: StateData
+    state_data: StateData | None = None
     response_data: MixedTypeData | None = None
     condition_data: MixedTypeData | None = None
     groups_data: CategoricalData | None = None
@@ -53,6 +56,8 @@ class DistributionData(BaseData):
     target_coupling_data: CouplingData | None = None
 
     def __post_init__(self) -> None:
+        if self.state_data is None:
+            return
         if self.response_data is not None:
             self.state_data.assert_same_len(self.response_data)
         if self.condition_data is not None:
@@ -82,13 +87,23 @@ class DistributionData(BaseData):
         return f"{self.__class__.__name__}:" + "\n ".join(parts)
 
     def __len__(self) -> int:
-        return len(self.state_data)
+        for data in (
+            self.state_data,
+            self.condition_data,
+            self.groups_data,
+            self.response_data,
+            self.source_coupling_data,
+            self.target_coupling_data,
+        ):
+            if data is not None:
+                return len(data)
+        raise ValueError("Cannot determine length: all fields of DistributionData are None.")
 
     def __getitem__(
         self,
         idxs: np.ndarray | slice,
     ) -> "DistributionData":
-        state_data = self.state_data[idxs]
+        state_data = None if self.state_data is None else self.state_data[idxs]
         response_data = None if self.response_data is None else self.response_data[idxs]
         condition_data = None if self.condition_data is None else self.condition_data[idxs]
         groups_data = None if self.groups_data is None else self.groups_data[idxs]
@@ -211,6 +226,9 @@ class DistributionData(BaseData):
         collection: "Collection[DistributionData]",
     ) -> "DistributionData":
         """Concatenates a collection of instances into a single object."""
+        if len(collection) == 0:
+            raise ValueError("Need at least one element to concatenate.")
+
         # define store for data
         state_data_list = []
         response_data_list = []
@@ -220,6 +238,7 @@ class DistributionData(BaseData):
         target_coupling_data_list = []
 
         # define base settings
+        has_state_data = False
         has_response_data = False
         has_condition_data = False
         has_groups_data = False
@@ -230,6 +249,7 @@ class DistributionData(BaseData):
         for idx, element in enumerate(collection):
             # get reference settings from first element
             if idx == 0:
+                has_state_data = element.state_data is not None
                 has_response_data = element.response_data is not None
                 has_condition_data = element.condition_data is not None
                 has_groups_data = element.groups_data is not None
@@ -237,7 +257,12 @@ class DistributionData(BaseData):
                 has_target_coupling_data = element.target_coupling_data is not None
 
             # --- State data ---
-            state_data_list.append(element.state_data)
+            if has_state_data:
+                if element.state_data is None:
+                    raise ValueError("Trying to concatenate incompatible objects.")
+                state_data_list.append(element.state_data)
+            elif element.state_data is not None:
+                raise ValueError("Trying to concatenate incompatible objects.")
 
             # --- Response data ---
             if has_response_data:
@@ -281,7 +306,10 @@ class DistributionData(BaseData):
 
         # ---- Concatenate ----
         # state data
-        state_data = StateData.concat_collection(state_data_list)
+        if len(state_data_list) > 0:
+            state_data = StateData.concat_collection(state_data_list)
+        else:
+            state_data = None
 
         # response data
         if len(response_data_list) > 0:

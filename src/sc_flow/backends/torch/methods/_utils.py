@@ -8,7 +8,7 @@ __all__ = ["StepData"]
 
 @dataclass
 class StepData:
-    target_state: torch.Tensor
+    target_state: torch.Tensor | None
     target_coupling_lin: torch.Tensor | None
     target_coupling_quad: torch.Tensor | None
     target_condition_data: Any | None
@@ -18,3 +18,4 @@ class StepData:
     source_coupling_quad: torch.Tensor | None
     source_condition_data: Any | None
     source_group_data: Any | None
+    target_n_obs: int = 0

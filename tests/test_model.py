@@ -51,16 +51,16 @@ def _add_continuous_covariate(adata: AnnData, key: str = "X_repr", n_dim: int = 
 # Dummy PredictionData and Method for testing – no backend dependencies
 # -----------------------------------------------------------------------------
 class DummyPredictionData:
-    def __init__(self, samples, traj=None):
-        self.samples = samples
+    def __init__(self, X, traj=None):
+        self.X = X
         self.traj = traj
 
     @classmethod
     def concatenate(cls, preds):
-        samples = np.concatenate([p.samples for p in preds], axis=0)
+        X = np.concatenate([p.X for p in preds], axis=0)
         trajs = [p.traj for p in preds if p.traj is not None]
         traj = np.concatenate(trajs, axis=1) if trajs else None
-        return cls(samples, traj)
+        return cls(X, traj)
 
 
 class DummyMethod(BaseMethod):
@@ -237,6 +237,20 @@ class TestSCFlow:
         assert pred_adata.n_obs == adata.n_obs
         assert pred_adata.n_vars == adata.n_vars
         pd.testing.assert_index_equal(pred_adata.obs.index, adata.obs.index)
+
+    def test_predict_without_target_state(self, adata: AnnData):
+        """predict(require_target_state=False) works on an AnnData with no `.X`."""
+        SCFlow.register_adata(adata)
+        model = SCFlow(method_cls=DummyMethod)
+
+        # only `.obs` is needed - no expression data, no obsm sample representation
+        no_state_adata = AnnData(obs=pd.DataFrame(index=adata.obs_names[:5]))
+
+        pred_adata = model.predict(no_state_adata, sort=True, require_target_state=False)
+
+        assert isinstance(pred_adata, AnnData)
+        assert pred_adata.n_obs == 5
+        assert pred_adata.n_vars == adata.n_vars
 
     def test_predict_with_return_tensors(self, adata: AnnData):
         SCFlow.register_adata(adata)
@@ -1152,7 +1166,7 @@ class TestSCFlowPreprocessingIntegration:
 
         with (
             patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
-            patch.object(model._dm._state_preproc, "fit") as fit_spy,
+            patch.object(model._dm._preproc._state_preproc, "fit") as fit_spy,
         ):
             with patch("sc_flow._model.Trainer"):
                 model.train(adata, n_train_steps=5, sort=True)
@@ -1171,7 +1185,7 @@ class TestSCFlowPreprocessingIntegration:
 
         with (
             patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
-            patch.object(model._dm._state_preproc, "fit") as fit_spy,
+            patch.object(model._dm._preproc._state_preproc, "fit") as fit_spy,
         ):
             model.predict(adata, sort=True)
 

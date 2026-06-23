@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
-from sc_flow.data.containers._state import StateData
 
 if TYPE_CHECKING:
     # jax backend
@@ -36,6 +35,7 @@ class BaseMethod(abc.ABC):
         dm: DataManager,
         is_paired_setting: bool,
         *args,
+        generate_from_noise: bool = False,
         **kwargs,
     ) -> None:
         # initialize attributes
@@ -43,23 +43,24 @@ class BaseMethod(abc.ABC):
         self._dm = dm
         self._is_paired_setting = is_paired_setting
 
+        # automatically fall back to noise generation when
+        # no control values are provided
+        if not self._is_paired_setting:
+            generate_from_noise = True
+        self._generate_from_noise = generate_from_noise
+
         # check module is passed
         if self._module_cls is None:
             raise NotImplementedError(f"{self.__class__.__name__} must define a `_module_cls` class attribute.")
 
         # initialize module with dimensionality registry
-        self._module = self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
+        self._module = self._module_cls.init_from_dims_registry(
+            self._dims_registry, self._is_paired_setting, *args, generate_from_noise=self._generate_from_noise, **kwargs
+        )
 
     @abc.abstractmethod
     def set_train_mode(self, mode: bool) -> None:
         """Set the underlying module to training (True) or evaluation (False) mode."""
-        pass
-
-    @abc.abstractmethod
-    def extract_state_data(
-        self,
-        state_data: StateData | None,
-    ) -> Any | None:
         pass
 
     @abc.abstractmethod
@@ -86,6 +87,10 @@ class BaseMethod(abc.ABC):
     def is_paired_setting(self) -> bool:
         return self._is_paired_setting
 
+    @property
+    def generate_from_noise(self) -> bool:
+        return self._generate_from_noise
+
 
 class BaseGenerativeFlow(BaseMethod):
     _default_solver_cls: type[JaxSolver | TorchSolver] | None = None
@@ -96,27 +101,21 @@ class BaseGenerativeFlow(BaseMethod):
         dm: DataManager,
         is_paired_setting: bool,
         *args,
+        generate_from_noise: bool = False,
         probability_path: JaxProbabilityPath | TorchProbabilityPath | None = None,
         match_fn: JaxMatchFn | TorchMatchFn | None = None,
         noise_sampler: JaxNoiseSampler | TorchNoiseSampler | None = None,
         time_sampler: JaxTimeSampler | TorchTimeSampler | None = None,
-        generate_from_noise: bool = False,
         **kwargs,
     ) -> None:
         # initialize parent class
-        super().__init__(dims_registry, dm, is_paired_setting, *args, **kwargs)
+        super().__init__(dims_registry, dm, is_paired_setting, *args, generate_from_noise=generate_from_noise, **kwargs)
 
         # set attributes
         self._probability_path = probability_path
         self._match_fn = match_fn
         self._noise_sampler = noise_sampler
         self._time_sampler = time_sampler
-
-        # automatically fall back to noise generation when
-        # no control values are provided
-        if not self._is_paired_setting:
-            generate_from_noise = True
-        self._generate_from_noise = generate_from_noise
 
     @property
     def generate_from_noise(self) -> bool:

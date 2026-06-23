@@ -553,9 +553,28 @@ class MLPVelocity(BaseVelocityField):
         return self._condition_encoder_input_layers is not None
 
     @classmethod
+    def _use_source_encoder(cls, is_paired_setting: bool, generate_from_noise: bool) -> bool:
+        """Returns a boolean flag indicating whether to initialize the source encore module.
+
+        The source encoder module will be initialized only in the paired settings when generating from noise.
+
+        :param is_paired_setting: Boolean flag indicating whether the data is configured in the paired setting.
+        :type is_paired_setting: class: `bool`
+
+        :param generate_from_noise: Boolean flag indicating whether the interpolation is made between tractable
+            noise distribution and data.
+        :type generate_from_noise: class: `bool`
+        """
+        if is_paired_setting and generate_from_noise:
+            return True
+        return False
+
+    @classmethod
     def init_from_dims_registry(
         cls,
         dims_registry: DataDimensionalitiesRegistry,
+        is_paired_setting: bool,
+        generate_from_noise: bool = False,
         condition_encoder_input_layers: NestedLayersDict | None = None,
         source_encoder_mlp_kwargs: LayersDict | None = None,
         **kwargs,
@@ -590,16 +609,10 @@ class MLPVelocity(BaseVelocityField):
                     condition_encoder_covariates_not_pooled.append(cov)
 
         # register source state dimensionality when provided
-        if source_encoder_mlp_kwargs is not None:
-            # get source dimension
-            if dims_registry.source_lin_dim is not None and dims_registry.source_quad_dim is not None:
-                source_dim = dims_registry.source_lin_dim + dims_registry.source_quad_dim
-            elif dims_registry.source_lin_dim is not None:
-                source_dim = dims_registry.source_lin_dim
-            elif dims_registry.source_quad_dim is not None:
-                source_dim = dims_registry.source_quad_dim
-            else:
-                source_dim = None
+        if cls._use_source_encoder(is_paired_setting, generate_from_noise):
+            if source_encoder_mlp_kwargs is None:
+                source_encoder_mlp_kwargs = {}
+            source_dim = dims_registry.source_dim
             source_encoder_mlp_kwargs["input_dim"] = source_dim
 
         # promote arguments passed from kwargs

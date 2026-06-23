@@ -26,6 +26,11 @@ class DataDimensionalitiesRegistry:
     target_lin_dim: int | None
     target_quad_dim: int | None
 
+    @property
+    def source_dim(self) -> int:
+        to_concat = [self.source_lin_dim, self.source_quad_dim]
+        return sum([e for e in to_concat if e is not None])
+
     @classmethod
     def _get_dims_from_continuous_data(cls, data: BatchMixin) -> dict[str, int]:
         return {cov_name: cov_data.shape[-1] for cov_name, cov_data in data.mapping.items()}

@@ -60,7 +60,7 @@ def mock_data_manager():
 
 
 # -----------------------------------------------------------------------------
-# Test suite for BaseMethod
+# Test suite for BaseMethod (updated with generate_from_noise logic)
 # -----------------------------------------------------------------------------
 class TestBaseMethod:
     """Tests for the abstract BaseMethod class."""
@@ -92,9 +92,49 @@ class TestBaseMethod:
         method.set_train_mode(False)
         assert method._train_mode is False
 
+    # ----- New tests for generate_from_noise behavior -----
+    def test_generate_from_noise_default(self, mock_dims_registry, mock_data_manager):
+        """Default generate_from_noise should be False."""
+        method = ConcreteMethod(mock_dims_registry, mock_data_manager, True)
+        assert method.generate_from_noise is False
+
+    def test_generate_from_noise_forced_when_unpaired(self, mock_dims_registry, mock_data_manager):
+        """When is_paired_setting=False, generate_from_noise must be True regardless of input."""
+        method = ConcreteMethod(mock_dims_registry, mock_data_manager, False, generate_from_noise=False)
+        assert method.generate_from_noise is True
+
+    def test_generate_from_noise_respected_when_paired(self, mock_dims_registry, mock_data_manager):
+        """When paired, the passed value of generate_from_noise is kept."""
+        method = ConcreteMethod(mock_dims_registry, mock_data_manager, True, generate_from_noise=True)
+        assert method.generate_from_noise is True
+        method2 = ConcreteMethod(mock_dims_registry, mock_data_manager, True, generate_from_noise=False)
+        assert method2.generate_from_noise is False
+
+    def test_module_init_receives_generate_from_noise_flag(self, mock_dims_registry, mock_data_manager):
+        """Ensure _module_cls.init_from_dims_registry is called with the correct flags."""
+        # Reset mock to capture calls
+        ConcreteMethod._module_cls.reset_mock()
+        ConcreteMethod._module_cls.init_from_dims_registry.return_value = Mock()
+
+        ConcreteMethod._module_cls.init_from_dims_registry.assert_called_once_with(
+            mock_dims_registry,
+            False,  # is_paired_setting
+            generate_from_noise=True,  # forced True because unpaired, but original is True anyway
+            extra_arg=42,  # any extra kwargs are forwarded
+        )
+
+        # Test paired with explicit False
+        ConcreteMethod._module_cls.reset_mock()
+        ConcreteMethod._module_cls.init_from_dims_registry.return_value = Mock()
+        ConcreteMethod._module_cls.init_from_dims_registry.assert_called_once_with(
+            mock_dims_registry,
+            True,
+            generate_from_noise=False,
+        )
+
 
 # -----------------------------------------------------------------------------
-# Test suite for BaseGenerativeFlow
+# Test suite for BaseGenerativeFlow (adjusted)
 # -----------------------------------------------------------------------------
 class TestBaseGenerativeFlow:
     """Tests for the abstract BaseGenerativeFlow class."""
@@ -106,21 +146,16 @@ class TestBaseGenerativeFlow:
         assert flow._match_fn is None
         assert flow._noise_sampler is None
         assert flow._time_sampler is None
+        # generate_from_noise is now forced to True because unpaired (inherited logic)
         assert flow.generate_from_noise is True
 
     def test_generate_from_noise_forced_when_unpaired(self, mock_dims_registry, mock_data_manager):
-        """When is_paired_setting=False, generate_from_noise should be forced to True."""
-        flow = ConcreteGenerativeFlow(
-            mock_dims_registry,
-            mock_data_manager,
-            False,
-            generate_from_noise=False,  # user tries to set False
-        )
-        # In BaseGenerativeFlow.__init__, if not paired, generate_from_noise becomes True
+        """This behaviour is already tested in TestBaseMethod, keep as integration check."""
+        flow = ConcreteGenerativeFlow(mock_dims_registry, mock_data_manager, False, generate_from_noise=False)
         assert flow.generate_from_noise is True
 
     def test_generate_from_noise_respected_when_paired(self, mock_dims_registry, mock_data_manager):
-        """When paired, generate_from_noise can be set to False."""
+        """When paired, the value is respected (inherited logic)."""
         flow = ConcreteGenerativeFlow(mock_dims_registry, mock_data_manager, True, generate_from_noise=False)
         assert flow.generate_from_noise is False
 

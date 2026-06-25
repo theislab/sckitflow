@@ -5,6 +5,7 @@ import numpy as np
 
 if TYPE_CHECKING:
     from sc_flow.trainer._trainer import Trainer
+from sc_flow._types import PredictionData
 
 __all__ = [
     "BaseCallback",
@@ -104,6 +105,8 @@ class MetricsCallback(ComputationalCallback):
 
     def _to_tensor(self, data: Any) -> Any:
         """Convert various array types to backend tensor."""
+        if isinstance(data, PredictionData):
+            data = data.X
         if self._backend == "torch":
             torch = self._get_torch()
             if isinstance(data, torch.Tensor):

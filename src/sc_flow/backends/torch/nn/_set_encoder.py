@@ -65,10 +65,10 @@ class SetEncoder(BaseModule):
         self._output_dim = output_dim
         self._pooling_mode = pooling_mode
         self._pooling_kwargs = {} if pooling_kwargs is None else pooling_kwargs
-        self._pooling_proj_dim = pooling_proj_dim if pooling_proj_dim else self._min_pooled_dims
         self._pooling_proj_bias = pooling_proj_bias
         self._covariates_not_pooled = [] if covariates_not_pooled is None else covariates_not_pooled
         self._output_layers_kwargs = {} if output_layers_kwargs is None else output_layers_kwargs
+        self._pooling_proj_dim = pooling_proj_dim if pooling_proj_dim else self._min_pooled_dims
 
         self._condition_encoder = self._make_modules()
 
@@ -176,7 +176,7 @@ class SetEncoder(BaseModule):
         # iterating over perturbation covariates
         for covariate_id, covariate_data in condition_dict.items():
             # check that the covariate is present in the data
-            if covariate_id not in self._condition_encoder.keys():
+            if covariate_id not in self._condition_encoder["input_layers"].keys():
                 msg = f"Input encoder not found for covariate {covariate_id}"
                 raise KeyError(msg)
 

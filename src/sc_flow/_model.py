@@ -510,7 +510,7 @@ class SCFlow:
 
         # train model
         self._trainer.train(
-            train_sampler, val_samplers_dict, *args, n_train_steps=n_train_steps, valid_freq=valid_freq, **kwargs
+            train_sampler, *args, val_samplers_dict=val_samplers_dict, n_train_steps=n_train_steps, valid_freq=valid_freq, **kwargs
         )
 
     def predict(

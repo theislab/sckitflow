@@ -2,7 +2,14 @@ from __future__ import annotations
 
 from importlib import import_module
 
-__all__ = ["methods", "nn"]
+__all__ = [
+    "coupling",
+    "metrics",
+    "methods",
+    "nn",
+    "probability_paths",
+    "solvers"
+]
 
 
 def __getattr__(name: str):

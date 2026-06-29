@@ -3,7 +3,7 @@ from typing import Any
 import torch
 
 from sc_flow.backends.torch._types import PredictionData
-from sc_flow.backends.torch.coupling._coupling import independent_coupling
+from sc_flow.backends.torch.coupling._coupling import _save_prob_path_debug, _set_ot_debug_context, independent_coupling
 from sc_flow.backends.torch.methods._base import TorchGenerativeFlow
 from sc_flow.backends.torch.methods._utils import StepData
 from sc_flow.backends.torch.nn._vf import BaseVelocityField, MLPVelocity
@@ -29,6 +29,8 @@ class CFM(TorchGenerativeFlow):
             self._time_sampler = torch.rand
         if self._probability_path is None:
             self._probability_path = LinearDiracProbabilityPath()
+
+        self._ot_debug_step = 0
 
     def _prepare_latent_state(
         self,
@@ -69,9 +71,14 @@ class CFM(TorchGenerativeFlow):
 
     # multi-transition logic
     def _train_step_multi(self, nodes, *args, timepoints, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
+        self._ot_debug_step += 1
+        prng = getattr(self._probability_path, "_prng", None)
+        if prng is not None:
+            pass  # prng.manual_seed(44)
         all_t, all_xt, all_ut, all_cond, all_latent = [], [], [], [], []
 
         for i, node in enumerate(nodes):
+            _set_ot_debug_context(step=self._ot_debug_step, transition=i)
             step_data = self._extract_step_data(node)
             step_data = self._extract_matched_observations(step_data)  # OT per transition
 
@@ -86,11 +93,11 @@ class CFM(TorchGenerativeFlow):
             t_start = timepoints[i]
             t_end = timepoints[i + 1]
             delta_t = t_end - t_start
-            t_local = self._time_sampler((batch_size,), device=latent.device, dtype=latent.dtype) * delta_t
-            t_global = t_local + t_start
+            t_local = self._time_sampler((batch_size,), device=latent.device, dtype=latent.dtype)
+            t_global = t_local * delta_t + t_start
 
             xt = self._probability_path.compute_xt(t_local, latent, target)
-            ut = self._probability_path.compute_ut(t_local, xt, latent, target)
+            ut = self._probability_path.compute_ut(t_local, xt, latent, target) / delta_t
 
             cond = {
                 **condition_data,
@@ -98,6 +105,7 @@ class CFM(TorchGenerativeFlow):
             }
 
             all_t.append(t_global)
+
             all_xt.append(xt)
             all_ut.append(ut)
             all_cond.append(cond)
@@ -112,6 +120,20 @@ class CFM(TorchGenerativeFlow):
 
         vt_all = self._module(t_all, xt_all, condition_dict=cond_all, source=latent_all)
         loss = torch.nn.functional.mse_loss(vt_all, ut_all)
+
+        sizes = [l.shape[0] for l in all_latent]
+        vt_splits = torch.split(vt_all, sizes)
+        for i in range(len(all_t)):
+            _save_prob_path_debug(
+                step=self._ot_debug_step,
+                transition=i,
+                t=all_t[i],
+                xt=all_xt[i],
+                ut=all_ut[i],
+                latent=all_latent[i],
+                cond=all_cond[i],
+                vt=vt_splits[i],
+            )
 
         return loss, {"loss": loss.item()}
 

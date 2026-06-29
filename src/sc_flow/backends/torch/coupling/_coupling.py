@@ -1,4 +1,6 @@
+import json
 import logging
+import os
 from functools import partial
 from typing import Literal, overload
 
@@ -17,6 +19,93 @@ from sc_flow.backends.torch._types import (
 from sc_flow.backends.torch._utils import to_torch_tensor
 
 logger = logging.getLogger(__name__)
+
+_OT_DEBUG: dict = {
+    "enabled": False,
+    "output_dir": "debug_ot",
+    "max_steps": 10,
+    "_step": 0,
+    "_transition": 0,
+}
+
+
+def configure_ot_debug(output_dir: str = "debug_ot", max_steps: int = 10) -> None:
+    """Enable OT coupling debug storage. Call before trainer.fit().
+
+    Each 'step' = one call to _train_step_multi (one training iteration).
+    Saves per-step, per-transition: inputs, distance matrices (pre/post normalization),
+    coupling matrix, and sampled source/target indices.
+    """
+    _OT_DEBUG["enabled"] = True
+    _OT_DEBUG["output_dir"] = output_dir
+    _OT_DEBUG["max_steps"] = max_steps
+    os.makedirs(output_dir, exist_ok=True)
+
+
+def _set_ot_debug_context(step: int, transition: int) -> None:
+    _OT_DEBUG["_step"] = step
+    _OT_DEBUG["_transition"] = transition
+    # np.random.seed(44 + transition)
+
+
+def _save_ot_debug(
+    source_lin: torch.Tensor,
+    target_lin: torch.Tensor,
+    dist_pre: torch.Tensor,
+    dist_post: torch.Tensor,
+    coupling_matrix: NumpyArray,
+    source_idxs: NumpyArray,
+    target_idxs: NumpyArray,
+    params: dict,
+) -> None:
+    step = _OT_DEBUG["_step"]
+    t = _OT_DEBUG["_transition"]
+    step_dir = os.path.join(_OT_DEBUG["output_dir"], f"step_{step:04d}")
+    os.makedirs(step_dir, exist_ok=True)
+
+    np.savez_compressed(
+        os.path.join(step_dir, f"transition_{t}.npz"),
+        source_lin=source_lin.detach().cpu().numpy(),
+        target_lin=target_lin.detach().cpu().numpy(),
+        dist_pre=dist_pre.detach().cpu().numpy(),
+        dist_post=dist_post.detach().cpu().numpy(),
+        coupling_matrix=coupling_matrix,
+        source_idxs=source_idxs,
+        target_idxs=target_idxs,
+    )
+    with open(os.path.join(step_dir, f"transition_{t}_params.json"), "w") as f:
+        json.dump(params, f, indent=2)
+
+
+def _save_prob_path_debug(
+    step: int,
+    transition: int,
+    t: "torch.Tensor",
+    xt: "torch.Tensor",
+    ut: "torch.Tensor",
+    latent: "torch.Tensor",
+    cond: dict,
+    vt: "torch.Tensor",
+) -> None:
+    if not (_OT_DEBUG["enabled"] and step <= _OT_DEBUG["max_steps"]):
+        return
+    step_dir = os.path.join(_OT_DEBUG["output_dir"], f"step_{step:04d}")
+    os.makedirs(step_dir, exist_ok=True)
+
+    arrays = {
+        "t": t.detach().cpu().numpy(),
+        "xt": xt.detach().cpu().numpy(),
+        "ut": ut.detach().cpu().numpy(),
+        "latent": latent.detach().cpu().numpy(),
+        "vt": vt.detach().cpu().numpy(),
+    }
+    for k, v in cond.items():
+        arrays[f"cond_{k}"] = v.detach().cpu().numpy()
+
+    np.savez_compressed(
+        os.path.join(step_dir, f"transition_{transition}_prob_path.npz"),
+        **arrays,
+    )
 
 
 def _sanitize_coupling_matrix(
@@ -302,6 +391,19 @@ def ot_linear_coupling(
     # computing coupling matrix
     coupling_matrix = ot_fn(src_weights, tgt_weights, distance_matrix.detach().cpu().numpy())
     source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source_lin.shape[0])
+
+    if _OT_DEBUG["enabled"] and _OT_DEBUG["_step"] <= _OT_DEBUG["max_steps"]:
+        _save_ot_debug(
+            source_lin,
+            target_lin,
+            distance_matrix,
+            distance_matrix,
+            coupling_matrix,
+            source_idxs,
+            target_idxs,
+            params={"method": method, "reg": reg, "reg_m": reg_m, "scale_cost": str(scale_cost)},
+        )
+
     if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs

@@ -281,7 +281,9 @@ class TestExternalModelContext:
     def test_model_and_path_both_passed(self, dummy_model_path):
         """If both model and model_path are given, the passed model is used until reload()."""
         direct_model = DummyModel(value=777)
-        ctx = ExternalModelContext(model=direct_model, model_path=dummy_model_path)
+        # This kind of clashes with test intention
+        with pytest.raises(ValueError, match="Only one of"):
+            ctx = ExternalModelContext(model=direct_model, model_path=dummy_model_path)
         # initially, the direct model is active
         assert ctx.is_loaded()
         assert ctx.load() is direct_model

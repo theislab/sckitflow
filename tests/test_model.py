@@ -51,13 +51,13 @@ def _add_continuous_covariate(adata: AnnData, key: str = "X_repr", n_dim: int = 
 # Dummy PredictionData and Method for testing – no backend dependencies
 # -----------------------------------------------------------------------------
 class DummyPredictionData:
-    def __init__(self, samples, traj=None):
-        self.samples = samples
+    def __init__(self, X, traj=None):
+        self.X = X
         self.traj = traj
 
     @classmethod
     def concatenate(cls, preds):
-        samples = np.concatenate([p.samples for p in preds], axis=0)
+        samples = np.concatenate([p.X for p in preds], axis=0)
         trajs = [p.traj for p in preds if p.traj is not None]
         traj = np.concatenate(trajs, axis=1) if trajs else None
         return cls(samples, traj)
@@ -220,9 +220,9 @@ class TestSCFlow:
             val_adatas = {"val1": adata, "val2": adata}
             model.train(adata, val_adatas_dict=val_adatas, n_train_steps=5, sort=True)
 
-            args, _ = mock_trainer.train.call_args
-            assert len(args) >= 2
-            val_samplers = args[1]
+            args, kwargs = mock_trainer.train.call_args
+            assert len(args) >= 1
+            val_samplers = kwargs["val_samplers_dict"]
             assert isinstance(val_samplers, dict)
             assert set(val_samplers.keys()) == {"val1", "val2"}
 
@@ -1152,7 +1152,7 @@ class TestSCFlowPreprocessingIntegration:
 
         with (
             patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
-            patch.object(model._dm._state_preproc, "fit") as fit_spy,
+            patch.object(model._dm._preproc._state_preproc, "fit") as fit_spy,
         ):
             with patch("sc_flow._model.Trainer"):
                 model.train(adata, n_train_steps=5, sort=True)
@@ -1171,7 +1171,7 @@ class TestSCFlowPreprocessingIntegration:
 
         with (
             patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
-            patch.object(model._dm._state_preproc, "fit") as fit_spy,
+            patch.object(model._dm._preproc._state_preproc, "fit") as fit_spy,
         ):
             model.predict(adata, sort=True)
 

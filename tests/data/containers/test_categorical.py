@@ -182,7 +182,9 @@ class TestCategoricalData:
 
         # Both representation sources should be merged
         assert "cell_type" in concatenated.repr_dict
-        assert concatenated.repr_dict["cell_type"] == {"A": np.array([1, 0])}
+        # assert concatenated.repr_dict["cell_type"] == {"A": np.array([1, 0])}
+        assert "A" in concatenated.repr_dict["cell_type"]
+        np.testing.assert_array_equal(concatenated.repr_dict["cell_type"]["A"], np.array([1, 0]))
         assert "cell_type" in concatenated.categorical_encoders
         assert concatenated.categorical_encoders["cell_type"] is encoders["cell_type"]
         assert "batch" in concatenated.categorical_encoders
@@ -208,7 +210,7 @@ class TestCategoricalData:
 
     def test_concat_collection_empty_collection_raises(self) -> None:
         """Concatenating an empty list should raise an appropriate error."""
-        with pytest.raises(ValueError, match="at least one"):
+        with pytest.raises(ValueError, match="No objects to concatenate"):
             CategoricalData.concat_collection([])
 
     def test_concat_collection_single_object_returns_copy(self) -> None:

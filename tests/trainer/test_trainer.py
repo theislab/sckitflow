@@ -28,6 +28,9 @@ class DummyMethod(BaseMethod):
     def predict(self, node):
         return np.random.randn(10, 5)
 
+    def extract_state_data(self, state_data):
+        return None
+
 
 class DummyOptManager(BaseOptManager):
     def step(self, loss):

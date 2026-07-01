@@ -122,6 +122,8 @@ class CouplingData(BaseData):
         is_lin_modeled = False
         is_quad_modeled = False
 
+        if not collection:
+            raise ValueError("Need at least one element to concatenate.")
         # iterate over each element
         for idx, element in enumerate(collection):
             # set standard for concatenation

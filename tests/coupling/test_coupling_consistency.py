@@ -72,7 +72,9 @@ def test_quadratic_coupling_consistency():
     src_xx_jax = jnp.asarray(src_xx)
     tgt_yy_jax = jnp.asarray(tgt_yy)
 
-    _, _, coupling_matrix_torch = coupling_torch.ot_quadratic_coupling(src_xx_torch, tgt_yy_torch, return_matrix=True)
+    _, _, coupling_matrix_torch = coupling_torch.ot_quadratic_coupling(
+        source_quad=src_xx_torch, target_quad=tgt_yy_torch, return_matrix=True
+    )
 
     _, _, coupling_matrix_jax = coupling_jax.ot_quadratic_coupling(src_xx_jax, tgt_yy_jax, return_matrix=True)
 
@@ -99,10 +101,10 @@ def test_quadratic_fused_coupling_consistency():
     tgt_xy_jax = jnp.asarray(tgt_xy)
 
     _, _, coupling_matrix_torch = coupling_torch.ot_quadratic_coupling(
-        src_xx_torch,
-        tgt_yy_torch,
-        src_xy_torch,
-        tgt_xy_torch,
+        source_quad=src_xx_torch,
+        target_quad=tgt_yy_torch,
+        source_lin=src_xy_torch,
+        target_lin=tgt_xy_torch,
         method="entropic_fused_gromov_wasserstein",
         return_matrix=True,
     )

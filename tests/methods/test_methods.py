@@ -24,6 +24,9 @@ class ConcreteMethod(BaseMethod):
     def predict(self, *args, **kwargs):
         return None
 
+    def extract_state_data(self, state_data):
+        return None
+
 
 class ConcreteGenerativeFlow(BaseGenerativeFlow):
     """Concrete implementation of BaseGenerativeFlow for testing."""
@@ -38,6 +41,9 @@ class ConcreteGenerativeFlow(BaseGenerativeFlow):
         return 0, {}
 
     def predict(self, *args, **kwargs):
+        return None
+
+    def extract_state_data(self, state_data):
         return None
 
 

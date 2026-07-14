@@ -1,6 +1,7 @@
 import abc
 from typing import Any, Literal, TypeVar
 
+import numpy as np
 import torch
 
 from sc_flow.backends.torch._types import PredictionData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
@@ -53,8 +54,15 @@ class TorchBaseMethod(BaseMethod):
             return data
         return data[idx]
 
+    def _safe_to_torch(self, data: np.ndarray | torch.Tensor):
+        if isinstance(data, np.ndarray):
+            return torch.from_numpy(data).to(self._dtype).to(self._device_id)
+        if not isinstance(data, torch.Tensor):
+            raise ValueError(f"Data is of the wrong type: found {type(data)} but expected torch.Tensor")
+        return data.to(self._dtype).to(self._device_id)
+
     def _batchmixin_to_torch(self, batch_mixin: BatchMixin) -> dict[str, torch.Tensor]:
-        return {k: torch.from_numpy(v).to(self._dtype).to(self._device_id) for k, v in batch_mixin.mapping.items()}
+        return {k: self._safe_to_torch(v) for k, v in batch_mixin.mapping.items()}
 
     def set_train_mode(self, mode: bool) -> None:
         if mode:
@@ -69,7 +77,7 @@ class TorchBaseMethod(BaseMethod):
         if state_data is None:
             return None
         X_state = state_data.X
-        X_state = torch.from_numpy(X_state).to(self._dtype).to(self._device_id)
+        X_state = self._safe_to_torch(X_state)
         return X_state
 
     def _extract_coupling_data(

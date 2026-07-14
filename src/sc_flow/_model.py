@@ -510,7 +510,12 @@ class SCFlow:
 
         # train model
         self._trainer.train(
-            train_sampler, *args, val_samplers_dict=val_samplers_dict, n_train_steps=n_train_steps, valid_freq=valid_freq, **kwargs
+            train_sampler,
+            *args,
+            val_samplers_dict=val_samplers_dict,
+            n_train_steps=n_train_steps,
+            valid_freq=valid_freq,
+            **kwargs,
         )
 
     def predict(
@@ -703,6 +708,11 @@ class SCFlow:
     def backend(self) -> str:
         """Returns the backend the model was initialized on."""
         return self._backend
+
+    @property
+    def dims_registry(self) -> DataDimensionalitiesRegistry:
+        """Returns the data dimensionality registry associated to the current instance."""
+        return self._dims_registry
 
     @property
     def dm(self) -> DataManager:

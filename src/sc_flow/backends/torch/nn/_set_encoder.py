@@ -65,6 +65,7 @@ class SetEncoder(BaseModule):
         self._output_dim = output_dim
         self._pooling_mode = pooling_mode
         self._pooling_kwargs = {} if pooling_kwargs is None else pooling_kwargs
+        self._pooling_proj_dim = pooling_proj_dim
         self._pooling_proj_bias = pooling_proj_bias
         self._covariates_not_pooled = [] if covariates_not_pooled is None else covariates_not_pooled
         self._output_layers_kwargs = {} if output_layers_kwargs is None else output_layers_kwargs
@@ -78,6 +79,9 @@ class SetEncoder(BaseModule):
             return None
         dims = [self._input_layers[cov]["output_dim"] for cov in self.covariates_pooled]
         return min(dims)
+
+    def _proj_dim(self) -> int:
+        return self._pooling_proj_dim if self._pooling_proj_dim else self._min_pooled_dims
 
     def _make_input_layers(
         self,
@@ -97,7 +101,7 @@ class SetEncoder(BaseModule):
                 cov_out_dim = covariate_layers_dict["output_dim"]
                 cov_proj = torch.nn.Linear(
                     cov_out_dim,
-                    self._pooling_proj_dim,
+                    self._proj_dim,
                     bias=self._pooling_proj_bias,
                 )
 
@@ -239,7 +243,7 @@ class SetEncoder(BaseModule):
 
         # get pooling projection dim if pooled covariates are present
         if len(self.covariates_pooled) > 0:
-            pooling_proj_dim = self._pooling_proj_dim
+            pooling_proj_dim = self._proj_dim
         else:
             pooling_proj_dim = 0
 

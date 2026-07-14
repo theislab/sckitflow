@@ -1,18 +1,3 @@
-from __future__ import annotations
+from sc_flow.backends.torch import coupling, inverse, methods, metrics, nn, probability_paths, solvers, surrogate
 
-from importlib import import_module
-
-__all__ = [
-    "coupling",
-    "metrics",
-    "methods",
-    "nn",
-    "probability_paths",
-    "solvers"
-]
-
-
-def __getattr__(name: str):
-    if name in __all__:
-        return import_module(f"{__name__}.{name}")
-    raise AttributeError(name)
+__all__ = ["coupling", "inverse", "methods", "metrics", "nn", "probability_paths", "solvers", "surrogate"]

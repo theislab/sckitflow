@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import abc
-from collections.abc import Iterable
+from collections.abc import Hashable, Iterable
 from typing import Generic, TypeVar
 
 __all__ = [
@@ -16,6 +16,7 @@ __all__ = [
 
 
 DataT = TypeVar("DataT")
+KeyT = TypeVar("KeyT", bound=Hashable)
 DistributionT = TypeVar("DistributionDType", bound="Distribution")
 MatchedDistributionsT = TypeVar("MatchedDistributionsT", bound="MatchedDistributions")
 DataTreeT = TypeVar("DataTreeT", bound="DataTree")

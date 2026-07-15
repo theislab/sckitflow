@@ -80,6 +80,7 @@ class SetEncoder(BaseModule):
         dims = [self._input_layers[cov]["output_dim"] for cov in self.covariates_pooled]
         return min(dims)
 
+    @property
     def _proj_dim(self) -> int:
         return self._pooling_proj_dim if self._pooling_proj_dim else self._min_pooled_dims
 
@@ -99,6 +100,7 @@ class SetEncoder(BaseModule):
             if covariate_id not in self._covariates_not_pooled:
                 # and initialize projection
                 cov_out_dim = covariate_layers_dict["output_dim"]
+                print(f"{cov_out_dim=}, {self._proj_dim=}")
                 cov_proj = torch.nn.Linear(
                     cov_out_dim,
                     self._proj_dim,
@@ -155,24 +157,9 @@ class SetEncoder(BaseModule):
         }
         return torch.nn.ModuleDict(layers)
 
-    def forward(
-        self,
-        condition_dict: MappedTensor,
-    ) -> torch.Tensor:
-        """Forward computation pass on the set encoder.
-
-        :param condition_dict: The input dictionary containing the data for
-            each perturbation covariate.
-        :type condition_dict: class: `MappedTensor`
-        """
-        # check that the right keys are present
-        check_sequence_query_against_reference(
-            condition_dict.keys(),
-            self._condition_encoder["input_layers"].keys(),
-            allow_missing_from_reference=False,
-            allow_missing_from_query=False,
-        )
-
+    def _encode_input_covariates(
+        self, condition_dict: MappedTensor
+    ) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor]]:
         # prepare dictionary to store encoded covariates
         encoded_covariates_to_pool = {}
         encoded_covariates_not_pooled = {}
@@ -200,23 +187,75 @@ class SetEncoder(BaseModule):
                 z_cov = cov_proj(z_cov)
                 encoded_covariates_to_pool[covariate_id] = z_cov
 
+        return encoded_covariates_to_pool, encoded_covariates_not_pooled
+
+    def forward(
+        self,
+        condition_dict: MappedTensor,
+    ) -> torch.Tensor:
+        """Forward computation pass on the set encoder.
+
+        :param condition_dict: The input dictionary containing the data for
+            each perturbation covariate.
+        :type condition_dict: class: `MappedTensor`
+        """
+        # check that the right keys are present
+        check_sequence_query_against_reference(
+            condition_dict.keys(),
+            self._condition_encoder["input_layers"].keys(),
+            allow_missing_from_reference=False,
+            allow_missing_from_query=False,
+        )
+
+        # prepare dictionary to store encoded covariates
+        encoded_covariates_to_pool, encoded_covariates_not_pooled = self._encode_input_covariates(condition_dict)
+
         # pooled covariates
         if len(encoded_covariates_to_pool) > 0:
+            # pool
             pooled_covariates = torch.concatenate(tuple(encoded_covariates_to_pool.values()), dim=-2)
+            # print(f"Before pooling {pooled_covariates.shape=}")
             pooled_covariates = self._condition_encoder["pooling_layer"](pooled_covariates)
+            # print(f"After pooling {pooled_covariates.shape=}")
+
+            # parse shape
+            if len(pooled_covariates.shape) == 3:
+                n_samples_pooled, comb_len, d_pooled = pooled_covariates.shape
+            else:
+                raise ValueError(
+                    f"Pooled covariates should have 3 dimension, but {len(pooled_covariates.shape)} found."
+                )
         else:
             pooled_covariates = None
 
         # not pooled covariates
         if len(encoded_covariates_not_pooled) > 0:
+            # concatenate
             covariates_not_pooled = torch.concatenate(tuple(encoded_covariates_not_pooled.values()), dim=-1)
+
+            # parse shape
+            if len(covariates_not_pooled.shape) == 2:
+                batch_size, d_not_pooled = covariates_not_pooled.shape
+                n_samples_not_pooled = None
+            elif len(covariates_not_pooled.shape) == 3:
+                n_samples_not_pooled, batch_size, d_not_pooled = covariates_not_pooled.shape
+
+            else:
+                raise ValueError(
+                    f"Not pooled covariates should have either 2 or 3 dimension, but {len(pooled_covariates.shape)} found."
+                )
         else:
+            n_samples_not_pooled = None
             covariates_not_pooled = None
 
         # get joint representation
         to_concat = []
         if pooled_covariates is not None:
+            # handle shape for pooled covariates
+            if n_samples_not_pooled is not None:
+                pooled_covariates = pooled_covariates.repeat(1, batch_size, 1)
             to_concat.append(pooled_covariates)
+
         if covariates_not_pooled is not None:
             to_concat.append(covariates_not_pooled)
         if len(to_concat) == 0:

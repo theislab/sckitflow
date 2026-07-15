@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import torch
 
-from sc_flow.backends.torch._types import NumpyArray, ShapeLike, TensorLike, TDevice
+from sc_flow.backends.torch._types import ShapeLike, TDevice
 
 __all__ = [
     "broadcast_to_target_shape",
@@ -14,14 +14,18 @@ __all__ = [
 ]
 
 
-def to_torch_tensor(x: TensorLike | NumpyArray) -> torch.Tensor:
-    """Convert a NumPy array to a JAX array if needed."""
-    if isinstance(x, np.ndarray):
-        return torch.from_numpy(x)
-    if x is not None and not isinstance(x, TensorLike):
-        msg = f"Invalid type found {type(x)}"
-        raise TypeError(msg)
-    return x
+def to_torch_tensor(
+    data: np.ndarray | torch.Tensor, dtype: torch.dtype | None = None, device: torch.device | None = None
+):
+    if isinstance(data, np.ndarray):
+        data = torch.from_numpy(data)
+    if not isinstance(data, torch.Tensor):
+        raise ValueError(f"Data is of the wrong type: found {type(data)} but expected torch.Tensor")
+    if dtype is not None:
+        data = data.to(dtype)
+    if device is not None:
+        data = data.to(dtype)
+    return data
 
 
 def broadcast_to_target_shape(

@@ -5,6 +5,7 @@ import numpy as np
 import torch
 
 from sc_flow.backends.torch._types import PredictionData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
+from sc_flow.backends.torch._utils import to_torch_tensor
 from sc_flow.backends.torch.methods._utils import StepData
 from sc_flow.backends.torch.nn._modules import BaseModule
 from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
@@ -55,11 +56,7 @@ class TorchBaseMethod(BaseMethod):
         return data[idx]
 
     def _safe_to_torch(self, data: np.ndarray | torch.Tensor):
-        if isinstance(data, np.ndarray):
-            return torch.from_numpy(data).to(self._dtype).to(self._device_id)
-        if not isinstance(data, torch.Tensor):
-            raise ValueError(f"Data is of the wrong type: found {type(data)} but expected torch.Tensor")
-        return data.to(self._dtype).to(self._device_id)
+        return to_torch_tensor(data, dtype=self._dtype, device=self._device_id)
 
     def _batchmixin_to_torch(self, batch_mixin: BatchMixin) -> dict[str, torch.Tensor]:
         return {k: self._safe_to_torch(v) for k, v in batch_mixin.mapping.items()}

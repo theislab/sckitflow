@@ -126,6 +126,27 @@ jobs:
         with:
           flags: jax
 
+  # Test the Lightning integration (torch + lightning)
+  test-lightning:
+    name: Lightning integration (Python 3.11)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.11"
+      - name: Install package with lightning test extra
+        run: uv pip install -e .[test-lightning]
+      - name: Run lightning integration tests
+        env:
+          MPLBACKEND: agg
+        run: uv run pytest tests/lightning --cov=sc_flow --cov-report=xml
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
+        with:
+          flags: lightning
+
   # Check that all tests defined above pass. This makes it easy to set a single "required" test in branch
   # protection instead of having to update it frequently. See https://github.com/re-actors/alls-green#why.
   check:
@@ -136,6 +157,7 @@ jobs:
       - test
       - test-torch
       - test-jax
+      - test-lightning
     runs-on: ubuntu-latest
     steps:
       - uses: re-actors/alls-green@release/v1

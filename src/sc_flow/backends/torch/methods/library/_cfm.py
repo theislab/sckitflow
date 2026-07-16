@@ -1,3 +1,4 @@
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
@@ -9,13 +10,73 @@ from sc_flow.backends.torch.methods._utils import StepData
 from sc_flow.backends.torch.nn._vf import BaseVelocityField, MLPVelocity
 from sc_flow.backends.torch.probability_paths._probability_paths import LinearDiracProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver, ODESolver
+from sc_flow.config._capabilities import MethodCapabilities
 
-__all__ = ["CFM"]
+__all__ = ["CFM", "CFMConfig", "VFConfig"]
+
+_TORCH_DTYPES = {
+    "float16": torch.float16,
+    "float32": torch.float32,
+    "float64": torch.float64,
+    "bfloat16": torch.bfloat16,
+}
+
+
+@dataclass
+class VFConfig:
+    """Velocity-field (module) construction settings for CFM."""
+
+    vf_decoder_mlp_kwargs: dict[str, Any] = field(default_factory=dict)
+    time_features_id: str | None = None
+    conditioning_id: str | None = None
+
+
+@dataclass
+class CFMConfig:
+    """Typed config for the torch CFM method (the ``method.config`` block).
+
+    This is the ``config_cls`` referenced by :meth:`CFM.capabilities`; it owns the
+    translation from serialisable settings into constructor keyword arguments,
+    keeping ``SCFlow.from_config`` free of any flow-matching knowledge.
+    """
+
+    velocity_field: VFConfig = field(default_factory=VFConfig)
+    probability_path: dict[str, Any] = field(default_factory=lambda: {"kind": "linear-dirac"})
+    flow_solver: dict[str, Any] = field(
+        default_factory=lambda: {"kind": "ode", "scheme": "euler", "num_steps": 100}
+    )
+    generate_from_noise: bool = False
+    dtype: str = "float32"
+
+    def build_construction_kwargs(self, *, device_id: str, backend: str) -> dict[str, Any]:
+        """Translate this config into ``SCFlow``/method constructor kwargs."""
+        from sc_flow.config._resolve import resolve_probability_path
+
+        if self.dtype not in _TORCH_DTYPES:
+            raise ValueError(f"Unknown dtype {self.dtype!r}. Available: {sorted(_TORCH_DTYPES)}.")
+
+        return {
+            "vf_decoder_mlp_kwargs": dict(self.velocity_field.vf_decoder_mlp_kwargs),
+            "time_features_id": self.velocity_field.time_features_id,
+            "conditioning_id": self.velocity_field.conditioning_id,
+            "probability_path": resolve_probability_path(self.probability_path, backend),
+            "generate_from_noise": self.generate_from_noise,
+            "device_id": device_id,
+            "dtype": _TORCH_DTYPES[self.dtype],
+        }
 
 
 class CFM(TorchGenerativeFlow):
     _module_cls: type[BaseVelocityField] = MLPVelocity
     _default_solver_cls: type[BaseSolver] = ODESolver
+    _capabilities = MethodCapabilities(
+        category="flow",
+        backends=frozenset({"torch"}),
+        supported_devices=frozenset({"cpu", "cuda", "mps"}),
+        config_cls=CFMConfig,
+        requires_flow_solver=True,
+        flow_solver_differentiable=False,
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

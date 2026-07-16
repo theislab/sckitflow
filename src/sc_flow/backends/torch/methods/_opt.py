@@ -6,6 +6,18 @@ from sc_flow.methods._opt import BaseOptManager, OptimConfig
 __all__ = ["TorchOptimizationManager"]
 
 
+def _resolve_from_module(module, name: str, what: str, module_name: str):
+    """Resolve a class by name from a module, case-insensitively (e.g. "adam" -> Adam)."""
+    resolved = getattr(module, name, None)
+    if resolved is None:
+        by_lower = {n.lower(): n for n in dir(module) if not n.startswith("_")}
+        actual = by_lower.get(name.lower())
+        if actual is None:
+            raise ValueError(f"{what} '{name}' not found in {module_name}")
+        resolved = getattr(module, actual)
+    return resolved
+
+
 class TorchOptimizationManager(BaseOptManager):
     def __init__(
         self,
@@ -34,10 +46,8 @@ class TorchOptimizationManager(BaseOptManager):
             if opt_cls is None:
                 opt_cls = "Adam"
             if isinstance(opt_cls, str):
-                # Resolve string to torch.optim class
-                if not hasattr(torch.optim, opt_cls):
-                    raise ValueError(f"Optimizer '{opt_cls}' not found in torch.optim")
-                opt_cls = getattr(torch.optim, opt_cls)
+                # Resolve string to torch.optim class (case-insensitive: "adam" -> Adam)
+                opt_cls = _resolve_from_module(torch.optim, opt_cls, "Optimizer", "torch.optim")
             elif not callable(opt_cls):
                 raise TypeError(f"optimizer_cls must be a string or callable, got {type(opt_cls)}")
             optimizer = opt_cls(module.parameters(), lr=config.lr, **config.optimizer_kwargs)
@@ -47,9 +57,9 @@ class TorchOptimizationManager(BaseOptManager):
         if scheduler is None and config.lr_scheduler_cls is not None:
             sched_cls = config.lr_scheduler_cls
             if isinstance(sched_cls, str):
-                if not hasattr(torch.optim.lr_scheduler, sched_cls):
-                    raise ValueError(f"Scheduler '{sched_cls}' not found in torch.optim.lr_scheduler")
-                sched_cls = getattr(torch.optim.lr_scheduler, sched_cls)
+                sched_cls = _resolve_from_module(
+                    torch.optim.lr_scheduler, sched_cls, "Scheduler", "torch.optim.lr_scheduler"
+                )
             elif not callable(sched_cls):
                 raise TypeError(f"lr_scheduler_cls must be a string or callable, got {type(sched_cls)}")
             scheduler = sched_cls(optimizer, **config.lr_scheduler_kwargs)

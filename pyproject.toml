@@ -60,6 +60,9 @@ optional-dependencies.jax = [
   "jax",
   "ott-jax",
 ]
+optional-dependencies.lightning = [
+  "lightning",
+]
 optional-dependencies.test = [
   "coverage",
   "pytest",
@@ -71,6 +74,9 @@ optional-dependencies.test-all = [
 ]
 optional-dependencies.test-jax = [
   "sc-flow-tools[jax,test]",
+]
+optional-dependencies.test-lightning = [
+  "sc-flow-tools[lightning,test,torch]",
 ]
 optional-dependencies.test-torch = [
   "sc-flow-tools[test,torch]",

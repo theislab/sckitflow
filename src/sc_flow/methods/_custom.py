@@ -1,5 +1,8 @@
 from collections.abc import Callable
-from typing import Literal, TypeVar
+from typing import TYPE_CHECKING, Literal, TypeVar
+
+if TYPE_CHECKING:
+    from sc_flow.config._capabilities import MethodCapabilities
 
 T = TypeVar("T", bound=type)
 
@@ -11,6 +14,7 @@ def register_method(
     backend: Literal["torch", "jax"] = "torch",
     *,
     category: Literal["flow", "general"] = "flow",
+    capabilities: "MethodCapabilities | None" = None,
 ) -> Callable[[T], T]:
     # Backend‑specific imports
     if backend == "torch":
@@ -44,6 +48,8 @@ def register_method(
         # Build the class dictionary for the dynamically created class
         class_dict = {
             "_module_cls": user_cls.module_cls,
+            # Prefer an explicit capabilities arg, else one declared on the user class.
+            "_capabilities": capabilities if capabilities is not None else getattr(user_cls, "_capabilities", None),
         }
 
         if category == "flow":

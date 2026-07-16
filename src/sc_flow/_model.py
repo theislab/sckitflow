@@ -1,6 +1,7 @@
 import logging
 import tarfile
 import tempfile
+import warnings
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
@@ -10,10 +11,12 @@ import cloudpickle
 import numpy as np
 import pandas as pd
 from anndata import AnnData
+from omegaconf import OmegaConf
 from tqdm import tqdm
 
 from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
 from sc_flow._types import PredictionData
+from sc_flow.config._run import RunConfig
 from sc_flow.data._composite import MatchedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
@@ -27,72 +30,224 @@ from sc_flow.trainer._trainer import Trainer
 __all__ = ["SCFlow"]
 
 
-class SCFlow:
-    _dm_cls: DataManager | None = None
-    _dims_registry: DataDimensionalitiesRegistry | None = None
-    _is_paired_setting_cls: bool = False
-    _view_on_condition_space_cls: bool = False
-    _condition_state_key_cls: str | None = None
+def _get_methods_registry(backend: str) -> dict[str, type]:
+    """Return the method registry for a backend."""
+    if backend == "torch":
+        from sc_flow.backends.torch.methods import METHODS_REGISTRY
+    elif backend == "jax":
+        from sc_flow.backends.jax.methods import METHODS_REGISTRY
+    else:
+        raise_runtime_error_on_backend_not_supported(backend)
+    return METHODS_REGISTRY
 
-    @classmethod
-    def register_adata(
-        cls,
+
+def _resolve_method_cls(method_cfg) -> type:
+    """Resolve a method class from a :class:`MethodConfig`."""
+    if method_cfg.method_target is not None:
+        module_path, _, cls_name = method_cfg.method_target.partition(":")
+        import importlib
+
+        return getattr(importlib.import_module(module_path), cls_name)
+    if method_cfg.method_id is None:
+        raise ValueError("MethodConfig requires either 'method_id' or 'method_target'.")
+    registry = _get_methods_registry(method_cfg.backend)
+    if method_cfg.method_id not in registry:
+        raise KeyError(
+            f"Method {method_cfg.method_id!r} not found for backend {method_cfg.backend!r}. "
+            f"Available: {sorted(registry)}."
+        )
+    return registry[method_cfg.method_id]
+
+
+def _resolve_run_config(cfg) -> tuple[RunConfig, type, Any]:
+    """Coerce ``cfg`` into a validated ``RunConfig`` and resolve the method.
+
+    Returns ``(run_config, method_cls, method_config_obj)`` where
+    ``method_config_obj`` is a typed instance of the method's ``config_cls``
+    (or a plain dict if the method declares none). All generic cross-slot
+    validation (device / backend / required flow solver) happens here.
+    """
+    # Coerce to a structured RunConfig (validates keys, fills defaults).
+    node = OmegaConf.structured(cfg) if isinstance(cfg, RunConfig) else OmegaConf.create(cfg)
+    merged = OmegaConf.merge(OmegaConf.structured(RunConfig), node)
+    run: RunConfig = OmegaConf.to_object(merged)
+
+    method_cls = _resolve_method_cls(run.method)
+    caps = method_cls.capabilities()
+
+    # Generic validation — no method-specific knowledge here.
+    if run.method.backend not in caps.backends:
+        raise ValueError(
+            f"Method {run.method.method_id or run.method.method_target!r} does not support backend "
+            f"{run.method.backend!r}. Supported: {sorted(caps.backends)}."
+        )
+    if run.trainer.device not in caps.supported_devices:
+        raise ValueError(
+            f"Device {run.trainer.device!r} is not supported by method "
+            f"{run.method.method_id or run.method.method_target!r}. "
+            f"Supported: {sorted(caps.supported_devices)}."
+        )
+
+    # Validate & type the opaque method config against the method's own schema.
+    if caps.config_cls is not None:
+        merged_mc = OmegaConf.merge(OmegaConf.structured(caps.config_cls), OmegaConf.create(run.method.config))
+        method_config_obj = OmegaConf.to_object(merged_mc)
+    else:
+        method_config_obj = dict(run.method.config)
+
+    flow_solver = run.method.config.get("flow_solver") if isinstance(run.method.config, dict) else None
+    if caps.requires_flow_solver and getattr(method_config_obj, "flow_solver", flow_solver) is None:
+        raise ValueError(
+            f"Method {run.method.method_id or run.method.method_target!r} requires a 'flow_solver' "
+            "in its config, but none was provided."
+        )
+    if flow_solver and flow_solver.get("differentiable") and not caps.flow_solver_differentiable:
+        raise ValueError(
+            f"Method {run.method.method_id or run.method.method_target!r} does not support a "
+            "differentiable flow solver (differentiable=True)."
+        )
+
+    return run, method_cls, method_config_obj
+
+
+class SCFlow:
+    @staticmethod
+    def _setup_data(
         adata: AnnData,
+        *,
         view_on_condition_space: bool = False,
         condition_state_key: str | None = None,
-        **kwargs,
-    ) -> None:
-        """Registers the input adata as a class attribute using the provided schema settings.
+        datamanager_kwargs: dict[str, Any] | None = None,
+    ) -> tuple[DataManager, DataDimensionalitiesRegistry, bool]:
+        """Build the per-instance data context from an ``AnnData``.
 
-        :param adata: The input adata to register.
-        :type adata: class: `AnnData`
+        Returns ``(data_manager, dims_registry, is_paired_setting)``. This holds
+        no global/class state — each :class:`SCFlow` owns its own data manager.
 
-        :param view_on_condition_space: Whether to model condiion as states.
-            Defaults to `False`.
-        :type view_on_condition_space: class: `bool`
-
-        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
-            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
-            Defaults to `None`.
-        :type condition_state_key: `str | None`
-
-        :param **kwargs: Other key-word arguments used to initialize the `DataManager`.
-        :type **kwargs: class: `dict[str, Any]`
+        :param adata: Input data whose schema/dimensionalities are read.
+        :param view_on_condition_space: Whether to model conditions as states.
+        :param condition_state_key: Key for continuous condition covariates viewed
+            as state (only when ``view_on_condition_space`` is ``True``).
+        :param datamanager_kwargs: Keyword arguments for :class:`DataManager`.
         """
-        # initialize data manager
-        cls._dm_cls = DataManager(**kwargs)
-        cls._dims_registry = cls._dm_cls.get_data_dimensionalities(
+        datamanager_kwargs = datamanager_kwargs or {}
+        dm = DataManager(**datamanager_kwargs)
+        dims_registry = dm.get_data_dimensionalities(
             adata,
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
             fit_preproc=True,
             apply_transformations=True,
         )
-        cls._is_paired_setting_cls = cls._dm_cls.control_values_dict is not None or cls._dm_cls.matched_keys is not None
-        cls._view_on_condition_space_cls = view_on_condition_space
-        cls._condition_state_key_cls = condition_state_key
+        is_paired = dm.control_values_dict is not None or dm.matched_keys is not None
+        return dm, dims_registry, is_paired
+
+    @classmethod
+    def from_config(cls, cfg: "RunConfig | dict | Any", adata: AnnData) -> "SCFlow":
+        """Build an :class:`SCFlow` from a (validated) :class:`RunConfig`.
+
+        ``cfg`` may be a :class:`RunConfig`, a plain dict, or an OmegaConf node.
+        The ``AnnData`` is used to set up the (instance-level) data context;
+        training is done separately via :meth:`fit` (or :meth:`train`).
+        """
+        run, method_cls, method_config_obj = _resolve_run_config(cfg)
+
+        # Method-owned translation into constructor kwargs (framework stays generic).
+        if hasattr(method_config_obj, "build_construction_kwargs"):
+            ctor_kwargs = method_config_obj.build_construction_kwargs(
+                device_id=run.trainer.device,
+                backend=run.method.backend,
+            )
+        else:
+            ctor_kwargs = dict(method_config_obj)
+
+        model = cls(
+            adata,
+            method_cls=method_cls,
+            backend=run.method.backend,
+            view_on_condition_space=run.data.view_on_condition_space,
+            condition_state_key=run.data.condition_state_key,
+            datamanager_kwargs=dict(run.data.datamanager),
+            **ctor_kwargs,
+        )
+        model._run_config = run
+        return model
+
+    @classmethod
+    def from_yaml(cls, path: str, adata: AnnData) -> "SCFlow":
+        """Build an :class:`SCFlow` from a YAML run-config file."""
+        return cls.from_config(OmegaConf.load(path), adata)
+
+    def fit(
+        self,
+        adata: AnnData,
+        *,
+        val_adatas_dict: dict[str, AnnData] | None = None,
+        callbacks: "TrainingCallbacks | Sequence[BaseCallback] | None" = None,
+    ) -> "SCFlow":
+        """Train using the trainer/optim settings from the stored run-config."""
+        if self._run_config is None:
+            raise RuntimeError("fit() requires a model built via from_config/from_yaml.")
+        tr = self._run_config.trainer
+
+        # Resolve callback/metric specs from the config (native loop only) and
+        # merge with any explicitly-passed callbacks.
+        from sc_flow.config._resolve import resolve_callbacks
+
+        if tr.framework == "native":
+            cfg_callbacks = resolve_callbacks(tr, self._backend)
+        else:
+            cfg_callbacks = []
+            if tr.metrics or tr.callbacks:
+                warnings.warn(
+                    "trainer.callbacks/metrics are native-loop callbacks and are not applied "
+                    "by the lightning backend; use trainer_kwargs for lightning callbacks.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+        merged_callbacks: list[Any] = list(cfg_callbacks)
+        if callbacks is not None:
+            if isinstance(callbacks, Sequence):
+                merged_callbacks.extend(callbacks)
+            else:
+                merged_callbacks.append(callbacks)
+
+        self.train(
+            adata,
+            val_adatas_dict=val_adatas_dict,
+            callbacks=merged_callbacks or None,
+            n_train_steps=tr.n_train_steps,
+            valid_freq=tr.valid_freq,
+            train_batch_size=tr.train_batch_size,
+            val_max_n_obs=tr.val_max_n_obs,
+            train_sampler_kwargs=dict(tr.train_sampler_kwargs),
+            val_sampler_kwargs=dict(tr.val_sampler_kwargs),
+            optim_kwargs=dict(self._run_config.optim),
+            framework=tr.framework,
+        )
+        return self
 
     def __init__(
         self,
+        adata: AnnData,
         *args,
         method_cls: type[BaseMethod] | None = None,
         method_id: str | None = None,
         backend: Literal["jax", "torch"] = "torch",
+        view_on_condition_space: bool = False,
+        condition_state_key: str | None = None,
+        datamanager_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
-        # check that data was prepared
-        if self.__class__._dm_cls is None:
-            raise RuntimeError(
-                f"Data has not been registered with {self.__class__.__name__}. "
-                "Please call .register_adata(adata, ...) before initializing the model."
-            )
-
-        # register class attributes to instance
-        self._dm = self.__class__._dm_cls
-        self._dims_registry = self.__class__._dims_registry
-        self._is_paired_setting = self.__class__._is_paired_setting_cls
-        self._view_on_condition_space = self.__class__._view_on_condition_space_cls
-        self._condition_state_key = self.__class__._condition_state_key_cls
+        # set up the per-instance data context (no class/global state)
+        self._dm, self._dims_registry, self._is_paired_setting = self._setup_data(
+            adata,
+            view_on_condition_space=view_on_condition_space,
+            condition_state_key=condition_state_key,
+            datamanager_kwargs=datamanager_kwargs,
+        )
+        self._view_on_condition_space = view_on_condition_space
+        self._condition_state_key = condition_state_key
 
         # register backend
         self._backend = backend
@@ -131,6 +286,8 @@ class SCFlow:
 
         # prepare attributes
         self._trainer: Trainer | None = None
+        self._run_config: RunConfig | None = None
+        self._lightning_trainer: Any = None
 
     @overload
     def _predict_empty(
@@ -395,6 +552,7 @@ class SCFlow:
         train_kwargs: dict[str, Any] | None = None,
         optim_kwargs: dict[str, Any] | None = None,
         sort: bool = False,
+        framework: str = "native",
         **kwargs,
     ) -> None:
         """Trains the model on the input adata.
@@ -489,6 +647,25 @@ class SCFlow:
         if optim_kwargs is None:
             optim_kwargs = {}
         optim_config = OptimConfig(**optim_kwargs)
+
+        # Optional Lightning backend: delegate the loop to lightning.Trainer.
+        if framework == "lightning":
+            from sc_flow.config._run import TrainerConfig
+            from sc_flow.trainer._lightning import fit_with_lightning
+
+            if self._run_config is not None:
+                trainer_cfg = self._run_config.trainer
+            else:
+                trainer_cfg = TrainerConfig(
+                    device=getattr(self._method, "_device_id", "cpu"),
+                    n_train_steps=n_train_steps,
+                    valid_freq=valid_freq,
+                )
+            self._method.set_train_mode(True)
+            self._lightning_trainer = fit_with_lightning(
+                self._method, optim_config, trainer_cfg, train_sampler, val_samplers_dict
+            )
+            return
 
         # create optimization manager
         if self._backend == "torch":
@@ -658,7 +835,8 @@ class SCFlow:
         :param filepath: Path to the saved tarball.
         :param adata: Optional AnnData to re‑register if the saved model does not contain data.
         :param map_location: For PyTorch models, map to a device (e.g., 'cuda:0').
-        :param register_kwargs: Additional arguments for register_adata if adata is provided.
+        :param register_kwargs: Data-setup arguments (``view_on_condition_space``,
+            ``condition_state_key``, and ``DataManager`` kwargs) used when ``adata`` is provided.
         :return: Loaded SCFlow instance.
         """
         path = Path(filepath)
@@ -685,13 +863,18 @@ class SCFlow:
             with open(Path(tmpdir) / "model.pkl", "rb") as f:
                 model = cloudpickle.load(f)
 
-        # If an AnnData is provided, re‑register it (overwrites the saved data manager if any)
+        # If an AnnData is provided, re-set up the data context (overwrites the saved one, if any)
         if adata is not None:
-            cls.register_adata(adata, **register_kwargs)
-            # Replace the instance's data manager with the newly registered one
-            model._dm = cls._dm_cls
-            model._dims_registry = cls._dims_registry
-            model._is_paired_setting = cls._is_paired_setting_cls
+            view_on_condition_space = register_kwargs.pop("view_on_condition_space", model._view_on_condition_space)
+            condition_state_key = register_kwargs.pop("condition_state_key", model._condition_state_key)
+            model._dm, model._dims_registry, model._is_paired_setting = cls._setup_data(
+                adata,
+                view_on_condition_space=view_on_condition_space,
+                condition_state_key=condition_state_key,
+                datamanager_kwargs=register_kwargs,
+            )
+            model._view_on_condition_space = view_on_condition_space
+            model._condition_state_key = condition_state_key
 
         # Move to desired device if using PyTorch
         if model._backend == "torch" and map_location is not None:

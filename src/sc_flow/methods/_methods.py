@@ -3,6 +3,7 @@ from __future__ import annotations
 import abc
 from typing import TYPE_CHECKING, Any
 
+from sc_flow.config._capabilities import MethodCapabilities
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
 from sc_flow.data.containers._state import StateData
@@ -29,6 +30,15 @@ __all__ = ["BaseMethod", "BaseGenerativeFlow"]
 
 class BaseMethod(abc.ABC):
     _module_cls: type[JaxModule | TorchModule] | None = None
+    #: Method capabilities used by the config/builder layer for generic
+    #: validation. Subclasses (or ``register_method``) may override; the default
+    #: is a permissive "general" descriptor.
+    _capabilities: MethodCapabilities | None = None
+
+    @classmethod
+    def capabilities(cls) -> MethodCapabilities:
+        """Return this method's :class:`MethodCapabilities` descriptor."""
+        return cls._capabilities if cls._capabilities is not None else MethodCapabilities()
 
     def __init__(
         self,

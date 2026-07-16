@@ -43,14 +43,35 @@ Because the value *and* the gradient are exactly what JAX produced, a torch
 bridge adds only DLPack views and a flatten/unflatten). This is verified in
 `tests/backends/torch/jaxbridge/test_jax_bridge.py`.
 
+## Scope: this mirrors the *loss + gradient*, not all of `step_fn`
+
+`make_fm_value_and_grad` reproduces the inner `loss_fn` of CellFlow's
+`OTFlowMatching` **verbatim**, so for identical inputs the loss and gradient are
+bit-exact. It does **not** include the parts of `OTFlowMatching.step_fn` that live
+*outside* the loss: OT `match_fn` resampling of the source/target pairs, and the
+per-step sampling of `time` and `encoder_noise`. Those are the dataloader's job
+here — a batch already carries `time`, `source`, `target`, `encoder_noise`, and
+`conditions`. So "equivalent to CellFlow training" holds only if the caller
+reproduces matching + sampling upstream; the narrow, tested claim is *same
+loss+grad for identical inputs*.
+
 ## Device & dtype
 
 DLPack only shares a buffer when **both frameworks address the same physical
-device** (e.g. both on `cuda:0`); `assert_same_device` guards against a silent
-host copy. A grad-requiring torch tensor cannot be DLPack-exported, so
-`torch_to_jax` detaches first — safe, because the gradient path runs through
-`JaxLossFunction`, not through the buffer view. Only `float32` on a single device
-is exercised; keep JAX and torch dtypes aligned.
+device** (e.g. both on `cuda:0`); `assert_same_device` guards that the torch
+parameters share one device (it does not, and cannot portably, assert JAX's
+default device — keep JAX and the batch on that same device). A grad-requiring
+torch tensor cannot be DLPack-exported, so `torch_to_jax` detaches first — safe,
+because the gradient path runs through `JaxLossFunction`, not through the buffer
+view. The parameter dtype is **preserved** from the flax pytree (not forced to
+`float32`), so the bit-exact claim also holds at float64 under
+`jax.config.update("jax_enable_x64", True)`; non-floating leaves are rejected.
+
+**GPU is untested here.** The dev machine is CPU-only. On CUDA, torch and JAX use
+separate streams, so the zero-copy hand-off needs the producer kernel to finish
+before the consumer reads (see the `.. warning::` in `_bridge.py`). Validate on a
+real GPU and add an explicit device sync around the DLPack transfer if a race
+appears — it will not surface on CPU.
 
 > Note: JAX's older `jax.dlpack.to_dlpack` was removed in jax ≥ 0.11. This code
 > uses the current protocol: `jax.dlpack.from_dlpack(torch_tensor)` and

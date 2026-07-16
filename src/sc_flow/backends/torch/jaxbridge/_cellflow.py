@@ -121,11 +121,17 @@ class CellFlowJaxModule(pl.LightningModule):
 
         leaves, self._treedef = jax.tree_util.tree_flatten(params)
         # torch owns the params: clone the mirrored view into an independent leaf.
+        # Preserve the flax dtype (do NOT force float32) so the loss stays bit-exact
+        # against a pure-JAX reference at the same precision -- e.g. float64 under
+        # ``jax.config.update("jax_enable_x64", True)``. A silent downcast here would
+        # make the torch loss diverge from a float64 JAX reference.
         from sc_flow.backends.torch.jaxbridge._bridge import jax_to_torch
 
-        self._params = torch.nn.ParameterList(
-            [torch.nn.Parameter(jax_to_torch(leaf).clone().to(torch.float32)) for leaf in leaves]
-        )
+        torch_leaves = [jax_to_torch(leaf).clone() for leaf in leaves]
+        for lf in torch_leaves:
+            if not lf.is_floating_point():
+                raise TypeError(f"Parameter leaves must be floating-point for gradient descent; got {lf.dtype}.")
+        self._params = torch.nn.ParameterList([torch.nn.Parameter(lf) for lf in torch_leaves])
 
         self._value_and_grad = make_fm_value_and_grad(
             vf, probability_path, vf.condition_mode, vf.regularization

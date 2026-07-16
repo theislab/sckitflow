@@ -26,6 +26,18 @@ guards this. torch tensors that ``requires_grad`` cannot be exported through
 DLPack, so ``torch_to_jax`` detaches first -- correctness is preserved because
 the gradient path goes through :class:`JaxLossFunction`, not through the buffer
 view.
+
+.. warning::
+
+   **CUDA cross-stream hazard (validate before trusting on GPU).** torch and JAX
+   run kernels on *separate* CUDA streams. A zero-copy hand-off is only safe once
+   the producer's kernel has finished writing the buffer the consumer is about to
+   read (torch writes params in ``optimizer.step``, JAX reads them next step; JAX
+   writes grads, torch reads them in ``backward``). The plain ``from_dlpack`` calls
+   here do not perform an explicit stream handshake, so on a real GPU this must be
+   validated -- and if needed, guarded with an explicit device sync around the
+   transfer. This is exercised only on CPU here, where there is a single stream and
+   no such hazard exists.
 """
 
 from __future__ import annotations

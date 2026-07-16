@@ -14,10 +14,9 @@ maintainers = [
 authors = [
   { name = "Lorenzo Consoli" },
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
   "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
@@ -32,11 +31,7 @@ dependencies = [
   "wandb",
 ]
 optional-dependencies.all = [
-  "diffrax",
-  "flax",
-  "jax",
-  "ott-jax",
-  "torch",
+  "sc-flow-tools[jax,torch]",
 ]
 
 optional-dependencies.dev = [
@@ -67,16 +62,18 @@ optional-dependencies.jax = [
 ]
 optional-dependencies.test = [
   "coverage",
-  "diffrax",
-  "jax",
-  "ott-jax",
-  "pot",
   "pytest",
   "pytest-cov",
   "scanpy",
-  "torch",
-  "torchdiffeq",
-  "torchsde",
+]
+optional-dependencies.test-all = [
+  "sc-flow-tools[jax,test,torch]",
+]
+optional-dependencies.test-jax = [
+  "sc-flow-tools[jax,test]",
+]
+optional-dependencies.test-torch = [
+  "sc-flow-tools[test,torch]",
 ]
 optional-dependencies.torch = [
   "pot",         # noqa
@@ -105,7 +102,7 @@ scripts.clean = "git clean -fdX -- {args:docs}"
 # Test the lowest and highest supported Python versions with normal deps
 [[tool.hatch.envs.hatch-test.matrix]]
 deps = [ "stable" ]
-python = [ "3.10", "3.13" ]
+python = [ "3.11", "3.13" ]
 
 # Test the newest supported Python version also with pre-release deps
 [[tool.hatch.envs.hatch-test.matrix]]
@@ -113,7 +110,7 @@ deps = [ "pre" ]
 python = [ "3.13" ]
 
 [tool.hatch.envs.hatch-test]
-features = [ "test" ]
+features = [ "test-all" ]
 
 [tool.hatch.envs.hatch-test.overrides]
 # If the matrix variable `deps` is set to "pre",

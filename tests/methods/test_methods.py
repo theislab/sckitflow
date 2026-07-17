@@ -13,7 +13,8 @@ from sc_flow.methods._methods import BaseGenerativeFlow, BaseMethod
 class ConcreteMethod(BaseMethod):
     """Concrete implementation of BaseMethod for testing."""
 
-    _module_cls = Mock()
+    def build_module(self, *args, **kwargs):
+        return Mock()
 
     def set_train_mode(self, mode: bool) -> None:
         self._train_mode = mode
@@ -28,8 +29,10 @@ class ConcreteMethod(BaseMethod):
 class ConcreteGenerativeFlow(BaseGenerativeFlow):
     """Concrete implementation of BaseGenerativeFlow for testing."""
 
-    _module_cls = Mock()
     _default_solver_cls = Mock()
+
+    def build_module(self, *args, **kwargs):
+        return Mock()
 
     def set_train_mode(self, mode: bool) -> None:
         pass
@@ -76,7 +79,7 @@ class TestBaseMethod:
         assert method._dims_registry is mock_dims_registry
         assert method._dm is mock_data_manager
         assert method._is_paired_setting is False
-        assert method._module is not None  # from _module_cls.init_from_dims_registry
+        assert method._module is not None  # built by build_module
 
     def test_properties_return_correct_values(self, mock_dims_registry, mock_data_manager):
         method = ConcreteMethod(mock_dims_registry, mock_data_manager, True)

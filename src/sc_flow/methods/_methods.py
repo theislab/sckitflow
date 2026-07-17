@@ -29,7 +29,6 @@ __all__ = ["BaseMethod", "BaseGenerativeFlow"]
 
 
 class BaseMethod(abc.ABC):
-    _module_cls: type[JaxModule | TorchModule] | None = None
     #: Method capabilities used by the config/builder layer for generic
     #: validation. Subclasses (or ``register_method``) may override; the default
     #: is a permissive "general" descriptor.
@@ -53,12 +52,20 @@ class BaseMethod(abc.ABC):
         self._dm = dm
         self._is_paired_setting = is_paired_setting
 
-        # check module is passed
-        if self._module_cls is None:
-            raise NotImplementedError(f"{self.__class__.__name__} must define a `_module_cls` class attribute.")
+        # build the method's module through the overridable construction seam
+        self._module = self.build_module(*args, **kwargs)
 
-        # initialize module with dimensionality registry
-        self._module = self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
+    def build_module(self, *args: Any, **kwargs: Any) -> "JaxModule | TorchModule":
+        """Construct this method's neural module from the dimensionality registry.
+
+        The construction seam every method must provide — either a concrete method
+        (e.g. :class:`~sc_flow.backends.torch.methods.library._cfm.CFM`) or one built
+        by :func:`~sc_flow.methods._custom.register_method` from a user class's
+        ``module_cls``. Kept a method (not a class attribute) so construction is
+        polymorphic and test doubles override it per subclass rather than mutating a
+        shared class global.
+        """
+        raise NotImplementedError(f"{type(self).__name__} must override `build_module`.")
 
     @abc.abstractmethod
     def set_train_mode(self, mode: bool) -> None:

@@ -3,10 +3,9 @@ from typing import Any
 
 import torch
 
-from sc_flow.backends.torch._types import PredictionData
+from sc_flow.backends.torch._types import PredictionData, StepData
 from sc_flow.backends.torch.coupling._coupling import independent_coupling
 from sc_flow.backends.torch.methods._base import TorchGenerativeFlow
-from sc_flow.backends.torch.methods._utils import StepData
 from sc_flow.backends.torch.nn._vf import BaseVelocityField, MLPVelocity
 from sc_flow.backends.torch.probability_paths._probability_paths import LinearDiracProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver, ODESolver
@@ -67,16 +66,17 @@ class CFMConfig:
 
 
 class CFM(TorchGenerativeFlow):
-    _module_cls: type[BaseVelocityField] = MLPVelocity
     _default_solver_cls: type[BaseSolver] = ODESolver
     _capabilities = MethodCapabilities(
         category="flow",
         backends=frozenset({"torch"}),
         supported_devices=frozenset({"cpu", "cuda", "mps"}),
         config_cls=CFMConfig,
-        requires_flow_solver=True,
-        flow_solver_differentiable=False,
     )
+
+    def build_module(self, *args, **kwargs) -> BaseVelocityField:
+        """Build the conditional velocity field from the dimensionality registry."""
+        return MLPVelocity.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

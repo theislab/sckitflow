@@ -95,18 +95,6 @@ def _resolve_run_config(cfg) -> tuple[RunConfig, type, Any]:
     else:
         method_config_obj = dict(run.method.config)
 
-    flow_solver = run.method.config.get("flow_solver") if isinstance(run.method.config, dict) else None
-    if caps.requires_flow_solver and getattr(method_config_obj, "flow_solver", flow_solver) is None:
-        raise ValueError(
-            f"Method {run.method.method_id or run.method.method_target!r} requires a 'flow_solver' "
-            "in its config, but none was provided."
-        )
-    if flow_solver and flow_solver.get("differentiable") and not caps.flow_solver_differentiable:
-        raise ValueError(
-            f"Method {run.method.method_id or run.method.method_target!r} does not support a "
-            "differentiable flow solver (differentiable=True)."
-        )
-
     return run, method_cls, method_config_obj
 
 

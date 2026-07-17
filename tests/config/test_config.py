@@ -67,12 +67,6 @@ class TestValidation:
         with pytest.raises(KeyError, match=r"not found for backend"):
             SCFlow.from_config(cfg, adata)
 
-    def test_differentiable_flow_solver_rejected(self, adata):
-        cfg = _cfg()
-        cfg["method"]["config"]["flow_solver"]["differentiable"] = True
-        with pytest.raises(ValueError, match=r"differentiable flow solver"):
-            SCFlow.from_config(cfg, adata)
-
 
 class TestCallbacksMetrics:
     def test_resolve_metrics(self):
@@ -104,7 +98,6 @@ class TestCapabilities:
     def test_cfm_capabilities(self):
         caps = CFM.capabilities()
         assert caps.category == "flow"
-        assert caps.requires_flow_solver is True
         assert "torch" in caps.backends
         assert "mps" in caps.supported_devices
         assert caps.config_cls is not None

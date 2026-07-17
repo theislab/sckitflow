@@ -45,9 +45,15 @@ def register_method(
             if not hasattr(user_cls, meth):
                 raise TypeError(f"{user_cls.__name__} must define a '{meth}' method.")
 
+        # Construction seam: build the user's `module_cls` from the dims registry.
+        # Injected as a method (not a `_module_cls` class global) so it matches how
+        # concrete methods provide `build_module`.
+        def build_module(self, *args, **kwargs):
+            return user_cls.module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
+
         # Build the class dictionary for the dynamically created class
         class_dict = {
-            "_module_cls": user_cls.module_cls,
+            "build_module": build_module,
             # Prefer an explicit capabilities arg, else one declared on the user class.
             "_capabilities": capabilities if capabilities is not None else getattr(user_cls, "_capabilities", None),
         }

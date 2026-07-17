@@ -24,6 +24,28 @@ TensorLike = torch.Tensor | np.ndarray
 
 MappedTensor = dict[str, torch.Tensor]
 
+
+@dataclass
+class StepData:
+    """Batch payload a train/predict step consumes: matched source/target tensors.
+
+    Canonical home for the step input contract. It is shared by the training
+    methods and by consumers that call a trained model directly (e.g. the
+    inverse-problem surrogate wrappers), so it lives in ``_types`` rather than
+    inside ``methods/``.
+    """
+
+    target_state: torch.Tensor
+    target_coupling_lin: torch.Tensor | None
+    target_coupling_quad: torch.Tensor | None
+    target_condition_data: Any | None
+    target_group_data: Any | None
+    source_state: torch.Tensor | None
+    source_coupling_lin: torch.Tensor | None
+    source_coupling_quad: torch.Tensor | None
+    source_condition_data: Any | None
+    source_group_data: Any | None
+
 TVfFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 TTimeFeaturesFn = Callable[[torch.Tensor, int], torch.Tensor]

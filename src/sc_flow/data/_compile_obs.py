@@ -58,7 +58,6 @@ class CompiledData:
     scheme: Any  # binded.Scheme
     condition_fn: ConditionFn
     cols: tuple[str, ...]
-    data_dim: int | None = None
     coupling: dict[str, str] | None = None  # coupling role -> streamed rep loc-string (see compile_obs)
 
 
@@ -72,9 +71,9 @@ def compile_obs(
     *,
     state: StateDataSchema,
     condition: ConditionDataSchema,
+    control_key: str,
     covariates: CovariatesDataSchema | None = None,
     coupling: CouplingDataSchema | None = None,
-    control_key: str,
     match_context: Sequence[str] = (),
     rep_tables: Mapping[str, Mapping] | None = None,
     control_in_memory: bool = False,

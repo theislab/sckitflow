@@ -31,17 +31,17 @@ class FlowSpec:
 
     :param state: The streamed cell representation (:class:`StateDataSchema`).
     :param condition: Leaf-level condition covariates (:class:`ConditionDataSchema`).
+    :param control_key: Boolean/0-1 obs column marking control observations (required, no default).
     :param covariates: Embedded per-sample covariates (:class:`CovariatesDataSchema`); ``None`` = none.
     :param coupling: OT coupling references (:class:`CouplingDataSchema`); ``None`` = reuse state rep.
-    :param control_key: Boolean/0-1 obs column marking control observations.
     :param match_context: Columns that define the matching context (source↔target pairing).
     """
 
     state: StateDataSchema
     condition: ConditionDataSchema
+    control_key: str
     covariates: CovariatesDataSchema | None = None
     coupling: CouplingDataSchema | None = None
-    control_key: str = "control"
     match_context: Sequence[str] = field(default_factory=tuple)
 
     def compile(

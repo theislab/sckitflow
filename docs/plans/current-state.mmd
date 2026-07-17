@@ -1,0 +1,129 @@
+classDiagram
+    direction TB
+
+    %% ================================================================
+    %% AS-BUILT after commit b75bf80 (strip in-memory aggregate/matching
+    %% stack). This is what actually imports today: schemas + rep
+    %% containers + compile_obs -> CompiledData -> dagloader.Scheme.
+    %% ================================================================
+
+    %% ========= A. SPEC — the schemas (schemas/) =========
+    class StrictDataSchema {
+        <<abstract>>
+        +get_data(adata) container
+        #_verify_args()
+        #_verify_schema(adata)
+    }
+    class StateDataSchema {
+        +sample_rep
+    }
+    class ConditionDataSchema {
+        +conditions
+        +conditions_reps
+        +conditions_encoding
+        +conditions_covariates
+        +all_condition_cols
+        +categorical_reps_map
+    }
+    class GroupsDataSchema {
+        +groups
+        +groups_reps
+        +groups_encoding
+    }
+    class ResponseDataSchema {
+        +categorical_covs_dict
+        +continuous_covs
+    }
+    StrictDataSchema <|-- StateDataSchema
+    StrictDataSchema <|-- ConditionDataSchema
+    StrictDataSchema <|-- GroupsDataSchema
+    StrictDataSchema <|-- ResponseDataSchema
+
+    %% ========= B. REP CONTAINERS (containers/) =========
+    class BaseData {
+        <<abstract>>
+    }
+    class StateData {
+        +X
+    }
+    class CategoricalData {
+        +ann_df
+        +repr_dict
+        +categorical_encoders
+        +from_pandas()
+        +extract_reps()
+    }
+    class MixedTypeData {
+        +categorical_covariates
+        +continuous_covariates
+    }
+    BaseData <|-- StateData
+    BaseData <|-- CategoricalData
+    BaseData <|-- MixedTypeData
+    MixedTypeData *-- CategoricalData
+
+    StateDataSchema ..> StateData : get_data
+    GroupsDataSchema ..> CategoricalData : get_data
+    ConditionDataSchema ..> MixedTypeData : get_data
+    ResponseDataSchema ..> MixedTypeData : get_data
+
+    %% ========= C. BRIDGE — _compile_obs.py (obs only) =========
+    class compile_obs {
+        <<function>>
+        +state
+        +condition
+        +groups
+        +control_key
+        +split_covariates
+    }
+    class CompiledData {
+        +scheme
+        +condition_fn
+        +cols
+        +data_dim
+    }
+    class get_covariate_encoder {
+        <<_utils>>
+        +one-hot / label / functional
+    }
+
+    compile_obs ..> StateDataSchema : reads
+    compile_obs ..> ConditionDataSchema : reads
+    compile_obs ..> GroupsDataSchema : reads
+    compile_obs ..> get_covariate_encoder : fit per level
+    compile_obs ..> CategoricalData : condition_fn builds per leaf
+    compile_obs --> CompiledData : returns
+
+    %% ========= D. dagloader (external) — the loader vocab =========
+    class Scheme {
+        <<dagloader>>
+        +sources
+        +nodes
+        +root
+        +binds
+    }
+    class Node {
+        <<dagloader>>
+        +source
+        +cols
+        +key
+        +weights
+    }
+    class Bind {
+        <<dagloader>>
+        +src
+        +tgt
+        +common
+    }
+    class DAGLoader {
+        <<dagloader>>
+        +__iter__() batch
+    }
+    Scheme *-- Node
+    Scheme *-- Bind
+    CompiledData *-- Scheme : scheme
+    DAGLoader *-- Scheme
+    DAGLoader ..> CompiledData : condition_fn fills condition
+
+    note for compile_obs "cols = split_covariates + condition cols + group cols (deduped).\nNodes 'pert'/'ctrl' split by control_key; Bind.common = split_covariates.\nStill cellflow-ish param names (control_key/split_covariates) —\nthe match_context/Encoder/coupling-ref renames are NOT applied yet."
+    note for CompiledData "condition_fn(leaf) -> reps dict, built lazily from labels via\nCategoricalData; sample covariates tiled across max_comb slots.\nNo whole-dataset arrays anywhere — cells stream via dagloader."

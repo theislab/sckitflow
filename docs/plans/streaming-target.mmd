@@ -1,0 +1,134 @@
+classDiagram
+    direction TB
+
+    %% ================================================================
+    %% STREAMING TARGET — the "data" containers are REMOVED.
+    %% What was array-storage becomes Batch keys; what was label-
+    %% structure becomes the binded Scheme. Spec is unchanged.
+    %% ================================================================
+
+    %% ========= A. SPEC — the schemas you author (unchanged) =========
+    class StrictDataSchema {
+        <<abstract>>
+        +declare()
+    }
+    class StateDataSchema {
+        +sample_rep
+    }
+    class ConditionDataSchema {
+        +conditions
+        +condition_encoders
+        +conditions_covariates
+        +all_condition_cols
+    }
+    class CovariatesDataSchema {
+        +covariate_encoders
+    }
+    class ResponseDataSchema {
+        +response_encoders
+        +continuous_covs
+    }
+    class CouplingRefs {
+        +src_lin
+        +src_quad
+        +tgt_lin
+        +tgt_quad
+    }
+    StrictDataSchema <|-- StateDataSchema
+    StrictDataSchema <|-- ConditionDataSchema
+    StrictDataSchema <|-- CovariatesDataSchema
+    StrictDataSchema <|-- ResponseDataSchema
+
+    class Encoder {
+        <<abstract>>
+        +transform(x)
+        +inverse_transform(x)
+    }
+    class OneHot
+    class Label
+    class Lookup
+    class Functional
+    Encoder <|-- OneHot
+    Encoder <|-- Label
+    Encoder <|-- Lookup
+    Encoder <|-- Functional
+    ConditionDataSchema o-- Encoder : condition_encoders
+    CovariatesDataSchema o-- Encoder : covariate_encoders
+    ResponseDataSchema o-- Encoder : response_encoders
+
+    class AdRef {
+        <<anndata.acc>>
+    }
+    StateDataSchema ..> AdRef : sample_rep
+    CouplingRefs ..> AdRef : src/tgt _lin/_quad
+
+    %% ========= B. BUILD — spec compiles to a binded Scheme =========
+    class FlowProblemSpec {
+        +match_context
+        +control_values_dict
+        +matched_keys
+        +weights
+        +build_loader(adata) DAGLoader
+    }
+    FlowProblemSpec *-- StateDataSchema
+    FlowProblemSpec *-- ConditionDataSchema
+    FlowProblemSpec *-- CovariatesDataSchema
+    FlowProblemSpec *-- ResponseDataSchema
+    FlowProblemSpec *-- CouplingRefs
+
+    %% ========= C. BINDED — Scheme replaces the label containers =====
+    class Scheme {
+        +nodes
+        +bind
+        +weights
+    }
+    class Node {
+        <<was MappedLevelIndex + NestedData keys>>
+        +membership by match_context + conditions
+    }
+    class Bind {
+        <<was MatchedData pairing>>
+        +source to target by shared context
+    }
+    class Weights
+    class SamplerConfig {
+        +batch_size
+        +to
+    }
+    class DAGLoader {
+        +__iter__() Batch
+    }
+    Scheme *-- Node
+    Scheme *-- Bind
+    Scheme *-- Weights
+    DAGLoader *-- Scheme
+    DAGLoader *-- SamplerConfig
+
+    FlowProblemSpec ..> Scheme : compiles
+    FlowProblemSpec ..> DAGLoader : build_loader
+    StateDataSchema --> Node : match_context defines cell membership
+    ConditionDataSchema --> Node : conditions level
+    FlowProblemSpec --> Bind : control_values_dict / matched_keys
+
+    %% ========= D. BATCH — the only "data" left, as keys ===========
+    class Batch {
+        <<dict, per minibatch>>
+        +src_cell_data
+        +tgt_cell_data
+        +condition
+        +src_lin
+        +src_quad
+        +tgt_lin
+        +tgt_quad
+        +response
+    }
+    DAGLoader ..> Batch : streams
+
+    %% schema role -> batch key (arrays reappear ONLY here)
+    StateDataSchema ..> Batch : sample_rep to src/tgt_cell_data
+    ConditionDataSchema ..> Batch : encoders to condition
+    CovariatesDataSchema ..> Batch : encoders to condition
+    ResponseDataSchema ..> Batch : encoders to response
+    CouplingRefs ..> Batch : refs to src/tgt _lin/_quad
+
+    note for Batch "REMOVED containers: StateData, CategoricalData, MixedTypeData,\nCouplingData, DistributionData, NestedData, MatchedData,\nMappedLevelIndex, DataDimensionalitiesRegistry.\nArrays no longer live in objects - they are streamed Batch keys.\nDims are read off the Batch on demand, not stored."

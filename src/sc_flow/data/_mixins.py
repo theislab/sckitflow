@@ -7,7 +7,7 @@ import numpy as np
 
 from sc_flow.data._abc import DataT, DataTree, DataTreeT
 
-__all__ = ["MappedTree", "MappedLevelIndex", "MappedArray", "BatchMixin"]
+__all__ = ["MappedTree", "MappedArray", "BatchMixin"]
 
 
 @dataclass(frozen=True)
@@ -110,12 +110,6 @@ class MappedTree(DataTree):
         if not self.is_leaf:
             return tuple([v for val in self.mapping.values() for v in val.flatten()])
         return tuple(self.mapping.values())
-
-
-@dataclass(frozen=True)
-class MappedLevelIndex(MappedTree):
-    _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = tuple
-    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = slice
 
 
 @dataclass(frozen=True)

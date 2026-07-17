@@ -81,32 +81,49 @@ def compile_obs(
     cols = tuple(dict.fromkeys([*split_covariates, *cond_cols, *group_cols]))
     key = _sample_rep_to_key(state.sample_rep)
 
-    repr_dict = {level: uns[rep] for level, rep in condition.conditions_reps.items()}
-    reps_map = condition.categorical_reps_map
+    def _fit_encoders(frame_cols: list[str], repr_d: dict, reps_m: dict) -> dict[str, Any]:
+        # Fit encoders ONCE on the full (deduped) obs category space, so a per-leaf single value
+        # produces the full-width one-hot cellflow makes — not a dim-1 fit. Rep'd realms need none.
+        if not frame_cols:
+            return {}
+        tmpl = CategoricalData.from_pandas(obs[frame_cols].drop_duplicates(), repr_dict=repr_d, categorical_reps_map=reps_m)
+        return dict(tmpl.categorical_encoders)
 
-    # Fit one-hot encoders ONCE on the full category space (obs, deduped), then reuse them for
-    # every leaf. Building CategoricalData per-leaf would fit each encoder on a single value → a
-    # dim-1 one-hot; fitting on the whole (obs-only) frame gives the full-width one-hot cellflow
-    # produces. Levels with a rep use the lookup table instead and need no encoder.
-    shared_encoders: dict[str, Any] = {}
-    if cond_cols:
-        template = CategoricalData.from_pandas(
-            obs[cond_cols].drop_duplicates(), repr_dict=repr_dict, categorical_reps_map=reps_map
-        )
-        shared_encoders = dict(template.categorical_encoders)
-
+    # --- perturbation levels: a level's columns are its combination slots (stacked) ---
+    cond_repr = {level: uns[rep] for level, rep in condition.conditions_reps.items()}
+    cond_reps_map = condition.categorical_reps_map
+    cond_encoders = _fit_encoders(cond_cols, cond_repr, cond_reps_map)
     cond_idx = [cols.index(c) for c in cond_cols]
 
+    # --- sample covariates: one value per sample, tiled across the max_comb slots (cellflow's np.tile) ---
+    group_reps = groups.groups_reps if groups is not None else {}
+    samp_repr = {c: uns[group_reps[c]] for c in group_cols if c in group_reps}
+    samp_reps_map = {c: c for c in group_cols}  # each sample covariate is its own group
+    samp_encoders = _fit_encoders(group_cols, samp_repr, samp_reps_map)
+    samp_idx = [cols.index(c) for c in group_cols]
+
+    # combination length = the (shared) perturbation-level column count; sample covariates tile to it.
+    max_comb = max((len(v) for v in condition.conditions.values()), default=1)
+
     def condition_fn(leaf: Leaf) -> dict[str, np.ndarray]:
-        # A level's columns are its combination slots; extract_reps stacks them → (1, n_slots, dim).
-        # cellflow requires all perturbation levels to share one column count (= max_combination_length),
-        # so no cross-level padding is needed here. (An explicit max_combination_length *override* larger
-        # than the observed count would pad the slot axis with null — not yet supported.)
-        row = pd.DataFrame([{c: leaf[i] for c, i in zip(cond_cols, cond_idx, strict=True)}])
-        cat = CategoricalData.from_pandas(
-            row, repr_dict=repr_dict, categorical_encoders=shared_encoders, categorical_reps_map=reps_map
-        )
-        return {k: np.asarray(v, dtype=np.float32) for k, v in cat.extract_reps().mapping.items()}
+        out: dict[str, np.ndarray] = {}
+        if cond_cols:
+            row = pd.DataFrame([{c: leaf[i] for c, i in zip(cond_cols, cond_idx, strict=True)}])
+            cat = CategoricalData.from_pandas(
+                row, repr_dict=cond_repr, categorical_encoders=cond_encoders, categorical_reps_map=cond_reps_map
+            )
+            out.update({k: np.asarray(v, dtype=np.float32) for k, v in cat.extract_reps().mapping.items()})
+        if group_cols:
+            srow = pd.DataFrame([{c: leaf[i] for c, i in zip(group_cols, samp_idx, strict=True)}])
+            scat = CategoricalData.from_pandas(
+                srow, repr_dict=samp_repr, categorical_encoders=samp_encoders, categorical_reps_map=samp_reps_map
+            )
+            for group, v in scat.extract_reps().mapping.items():
+                v = np.asarray(v, dtype=np.float32)  # (1, 1, dim) — one sample value
+                if max_comb > v.shape[1]:
+                    v = np.repeat(v, max_comb, axis=1)  # tile across the max_comb combination slots
+                out[group] = v
+        return out
 
     ctrl_flag = obs[control_key].to_numpy().astype(bool)
     pert = [tuple(r) for r in obs.loc[~ctrl_flag, list(cols)].drop_duplicates().to_numpy()]

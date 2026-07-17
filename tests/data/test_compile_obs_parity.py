@@ -2,11 +2,12 @@
 
 Oracle = cellflow's streaming-prepare (itself pinned to the in-memory ``DataManager``).
 We assert our composed-schema, labels-only compile produces the same dagloader topology
-(pert/ctrl leaves + ``Bind.common``) and the same per-leaf condition embeddings.
+(pert/ctrl leaves + ``Bind.common``) and the same per-leaf condition embeddings across
+categorical single / combination / one-hot conditions and tiled sample covariates.
 
-Cases we don't yet encode (combination length >1, linked/continuous covariates, sample
-covariates, one-hot ordering) are ``xfail(strict=True)`` — they define the target for the
-condition-encoder port; they flip to pass as it lands.
+The ``builds``/``embeds`` flags gate cases not yet supported (as ``xfail``); currently all
+listed cases pass. Continuous "paired" covariates (per-cell ``obsm``) are out of scope here
+by design — they're streamed as extra Node keys, not a ``condition_fn`` lookup.
 """
 
 from __future__ import annotations
@@ -65,8 +66,7 @@ SPECS = [
     # general combination case; no cross-level padding is possible (unequal lengths are rejected).
     pytest.param({"drug": ["drug1", "drug2"]}, {"drug": "drug"}, ["cell_type"], [], {}, True, True, "", id="combo-len2"),
     pytest.param(
-        {"drug": ["drug1"]}, {"drug": "drug"}, [], ["cell_type"], {"cell_type": "cell_type"}, True, False,
-        "sample-covariate embedding (tiling) not ported yet",
+        {"drug": ["drug1"]}, {"drug": "drug"}, [], ["cell_type"], {"cell_type": "cell_type"}, True, True, "",
         id="sample-covar",
     ),
 ]

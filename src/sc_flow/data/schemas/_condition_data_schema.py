@@ -166,11 +166,16 @@ class ConditionDataSchema(StrictDataSchema):
         super().__init__()
 
     def _verify_args(self) -> None:
-        """Verifies that :attr:`self.conditions` and :attr:`self.condition_reps` share the same keys."""
+        """Reps are an optional per-level override; a level without one is one-hot encoded.
+
+        A rep is not required for every level (``allow_missing_from_query``) — a level with no rep
+        falls back to one-hot (handled by :class:`CategoricalData`). But every declared rep must map
+        to a real condition level (``allow_missing_from_reference=False``), so a stray rep key errors.
+        """
         check_sequence_query_against_reference(
             self.conditions_reps.keys(),
             self.conditions.keys(),
-            allow_missing_from_query=False,
+            allow_missing_from_query=True,
             allow_missing_from_reference=False,
         )
 
@@ -180,10 +185,12 @@ class ConditionDataSchema(StrictDataSchema):
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
-        for condition_realm, condition_rep in self._conditions_reps.items():
-            condition_cols = self._conditions[condition_realm]
+        # every condition column must exist in obs (all levels, rep'd or one-hot)...
+        for condition_cols in self._conditions.values():
             for col in condition_cols:
                 self._check_key_found_in_adata_field(adata, col, "obs")
+        # ...and every declared rep must exist in uns (rep'd levels only).
+        for condition_rep in self._conditions_reps.values():
             self._check_key_found_in_adata_field(adata, condition_rep, "uns")
 
     def _verify_continuous_covariates(self, adata: AnnData) -> None:

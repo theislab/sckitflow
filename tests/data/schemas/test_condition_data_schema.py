@@ -17,12 +17,11 @@ class TestConditionDataSchema:
         conditions: dict[str, Collection[str]],
         conditions_reps: dict[str, str],
     ) -> bool:
-        if conditions is None and conditions_reps is None:
-            return True
-        elif conditions is not None and conditions_reps is not None:
-            return set(conditions.keys()) == set(conditions_reps.keys())
-        else:
-            return False
+        # reps are an optional per-level override: every rep key must be a declared condition
+        # level, but a level may omit its rep (→ one-hot). So valid iff reps ⊆ conditions.
+        cond_keys = set() if conditions is None else set(conditions.keys())
+        rep_keys = set() if conditions_reps is None else set(conditions_reps.keys())
+        return rep_keys <= cond_keys
 
     @pytest.mark.parametrize(
         "conditions",
@@ -59,16 +58,10 @@ class TestConditionDataSchema:
         conditions_reps: dict[str, str],
         conditions_covariates: Collection[str] | None,
     ) -> None:
-        # failure at initialization
-        is_valid_args = self._is_valid_args(conditions, conditions_reps)
-        if (
-            (conditions is not None and conditions_reps is None)
-            or (conditions is None and conditions_reps is not None)
-            or not is_valid_args
-        ):
+        # failure at initialization: invalid iff a rep key is not a declared condition level
+        if not self._is_valid_args(conditions, conditions_reps):
             with pytest.raises(ValueError):
-                # with pytest.raises(ValueError, match="The following reference columns are missing"):
-                schema = ConditionDataSchema(
+                ConditionDataSchema(
                     conditions=conditions, conditions_reps=conditions_reps, conditions_covariates=conditions_covariates
                 )
             return None
@@ -156,12 +149,19 @@ class TestConditionDataSchema:
         # test condition reps
         if conditions is not None:
             expected_df_cols = [col for val in conditions.values() for col in val]
-            verify_categorical_data(
-                data.categorical_covariates,
-                expected_df_cols,
-                uns_keys_to_nunique_prefix_and_dim,
-                conditions_reps=conditions_reps,
-            )
+            reps_cover_all = conditions_reps is not None and set(conditions_reps) >= set(conditions)
+            if reps_cover_all:
+                # every level has a rep → verify the embedding lookup
+                verify_categorical_data(
+                    data.categorical_covariates,
+                    expected_df_cols,
+                    uns_keys_to_nunique_prefix_and_dim,
+                    conditions_reps=conditions_reps,
+                )
+            else:
+                # a level omits its rep → one-hot fallback; structural check only (columns present).
+                # The one-hot embedding itself is pinned in tests/data/test_compile_obs_parity.py.
+                assert set(data.categorical_covariates.ann_df.columns) == set(expected_df_cols)
         else:
             assert data.categorical_covariates is None
 

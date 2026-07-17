@@ -84,11 +84,24 @@ def compile_obs(
     repr_dict = {level: uns[rep] for level, rep in condition.conditions_reps.items()}
     reps_map = condition.categorical_reps_map
 
+    # Fit one-hot encoders ONCE on the full category space (obs, deduped), then reuse them for
+    # every leaf. Building CategoricalData per-leaf would fit each encoder on a single value → a
+    # dim-1 one-hot; fitting on the whole (obs-only) frame gives the full-width one-hot cellflow
+    # produces. Levels with a rep use the lookup table instead and need no encoder.
+    shared_encoders: dict[str, Any] = {}
+    if cond_cols:
+        template = CategoricalData.from_pandas(
+            obs[cond_cols].drop_duplicates(), repr_dict=repr_dict, categorical_reps_map=reps_map
+        )
+        shared_encoders = dict(template.categorical_encoders)
+
     cond_idx = [cols.index(c) for c in cond_cols]
 
     def condition_fn(leaf: Leaf) -> dict[str, np.ndarray]:
         row = pd.DataFrame([{c: leaf[i] for c, i in zip(cond_cols, cond_idx, strict=True)}])
-        cat = CategoricalData.from_pandas(row, repr_dict=repr_dict, categorical_reps_map=reps_map)
+        cat = CategoricalData.from_pandas(
+            row, repr_dict=repr_dict, categorical_encoders=shared_encoders, categorical_reps_map=reps_map
+        )
         return {k: np.asarray(v, dtype=np.float32) for k, v in cat.extract_reps().mapping.items()}
 
     ctrl_flag = obs[control_key].to_numpy().astype(bool)

@@ -59,15 +59,7 @@ def _make_adata(seed: int = 0) -> ad.AnnData:
 SPECS = [
     pytest.param({"drug": ["drug1"]}, {"drug": "drug"}, ["cell_type"], [], {}, True, True, "", id="single-drug-rep-split"),
     pytest.param({"drug": ["drug1"]}, {"drug": "drug"}, [], [], {}, True, True, "", id="single-drug-rep-nosplit"),
-    pytest.param(
-        {"drug": ["drug1"]}, {}, ["cell_type"], [], {}, False, False,
-        # one-hot port is 3 steps: (1) fix CategoricalData.from_pandas one-hot path — it indexes
-        # ann_df by REALM name, not the realm's columns, so it breaks for multi-column realms;
-        # (2) relax ConditionDataSchema to allow a level with no rep; (3) fit the one-hot encoder
-        # on the full category space (not per-leaf) so dims match cellflow.
-        "one-hot fallback: CategoricalData multi-col bug + rep-optional schema + full-space encoder fit",
-        id="single-drug-onehot",
-    ),
+    pytest.param({"drug": ["drug1"]}, {}, ["cell_type"], [], {}, True, True, "", id="single-drug-onehot"),
     pytest.param(
         {"drug": ["drug1", "drug2"]}, {"drug": "drug"}, ["cell_type"], [], {}, True, False,
         "combination length >1 (max_combination_length padding) not encoded yet",

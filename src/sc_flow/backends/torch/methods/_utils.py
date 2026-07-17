@@ -1,20 +1,10 @@
-from dataclasses import dataclass
-from typing import Any
+"""Back-compat re-export.
 
-import torch
+``StepData`` moved to :mod:`sc_flow.backends.torch._types` (its canonical home,
+shared with non-training consumers like the inverse-problem surrogate wrappers).
+Import it from there; this shim keeps existing ``methods._utils`` imports working.
+"""
+
+from sc_flow.backends.torch._types import StepData
 
 __all__ = ["StepData"]
-
-
-@dataclass
-class StepData:
-    target_state: torch.Tensor
-    target_coupling_lin: torch.Tensor | None
-    target_coupling_quad: torch.Tensor | None
-    target_condition_data: Any | None
-    target_group_data: Any | None
-    source_state: torch.Tensor | None
-    source_coupling_lin: torch.Tensor | None
-    source_coupling_quad: torch.Tensor | None
-    source_condition_data: Any | None
-    source_group_data: Any | None

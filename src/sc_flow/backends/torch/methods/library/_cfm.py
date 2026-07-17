@@ -3,10 +3,9 @@ from typing import Any
 
 import torch
 
-from sc_flow.backends.torch._types import PredictionData
+from sc_flow.backends.torch._types import PredictionData, StepData
 from sc_flow.backends.torch.coupling._coupling import independent_coupling
 from sc_flow.backends.torch.methods._base import TorchGenerativeFlow
-from sc_flow.backends.torch.methods._utils import StepData
 from sc_flow.backends.torch.nn._vf import BaseVelocityField, MLPVelocity
 from sc_flow.backends.torch.probability_paths._probability_paths import LinearDiracProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver, ODESolver

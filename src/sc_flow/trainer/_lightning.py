@@ -153,9 +153,16 @@ def fit_with_lightning(
     train_sampler: Any,
     val_samplers_dict: dict[str, Any] | None = None,
 ) -> pl.Trainer:
-    """Run training through a ``pl.Trainer`` and return it."""
-    lit = LitSCFlowModule(method, optim_config, grad_clip=trainer_cfg.gradient_clip_val)
-    datamodule = SCFlowDataModule(train_sampler, trainer_cfg.n_train_steps, val_samplers_dict)
+    """Run training through a ``pl.Trainer`` and return it.
+
+    The LightningModule and DataModule come from the method's harness seam
+    (:meth:`~sc_flow.methods._methods.BaseMethod.make_lightning_module` /
+    ``make_datamodule``), so a JAX-compute method returns a ``CellFlowJaxModule``
+    here exactly where a torch method returns a ``LitSCFlowModule`` — both train
+    through this one entry point.
+    """
+    lit = method.make_lightning_module(optim_config, grad_clip=trainer_cfg.gradient_clip_val)
+    datamodule = method.make_datamodule(train_sampler, trainer_cfg.n_train_steps, val_samplers_dict)
     trainer = build_lightning_trainer(trainer_cfg)
     trainer.fit(lit, datamodule=datamodule)
     return trainer

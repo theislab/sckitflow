@@ -87,6 +87,33 @@ class BaseMethod(abc.ABC):
     def predict(self, *args: Any, **kwargs: Any) -> Any:
         pass
 
+    def make_lightning_module(self, optim_config: Any, grad_clip: float | None = None) -> Any:
+        """Build the ``LightningModule`` that trains this method (the harness seam).
+
+        Default: wrap this method in :class:`~sc_flow.trainer._lightning.LitSCFlowModule`,
+        which drives training by calling :meth:`train_step` (all numerics in torch).
+        Override to train under a different ``LightningModule`` — e.g. the JAX-compute
+        bridge returns a ``CellFlowJaxModule`` (numerics in JAX, torch only optimizes).
+
+        This is the seam that lets both training paths flow through the one
+        :func:`~sc_flow.trainer._lightning.fit_with_lightning` entry point.
+        """
+        from sc_flow.trainer._lightning import LitSCFlowModule
+
+        return LitSCFlowModule(self, optim_config, grad_clip=grad_clip)
+
+    def make_datamodule(self, train_sampler: Any, n_steps: int, val_samplers_dict: dict[str, Any] | None = None) -> Any:
+        """Build the ``LightningDataModule`` feeding :meth:`make_lightning_module`.
+
+        Default: :class:`~sc_flow.trainer._lightning.SCFlowDataModule`, which yields the
+        sampler "nodes" that :class:`LitSCFlowModule` consumes. Override alongside
+        :meth:`make_lightning_module` when a training path needs a different batch shape
+        (e.g. the JAX bridge wants tensor dicts).
+        """
+        from sc_flow.trainer._lightning import SCFlowDataModule
+
+        return SCFlowDataModule(train_sampler, n_steps, val_samplers_dict)
+
     @property
     def module(self) -> JaxModule | TorchModule | None:
         return self._module

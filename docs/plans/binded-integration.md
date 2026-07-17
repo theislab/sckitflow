@@ -1,8 +1,35 @@
 # Task handoff — make sc-flow-tools' data layer use `binded`; drop array storage
 
-**For:** the next agent, cold. **Status:** ready to implement. **Branch:** `experiment/binded-vocab-strip`
-(merges to `feat/refactor` later). **Commits:** **no Claude/Co-Authored-By tag; 3–4 word messages**
-(e.g. `use binded loader`, `drop state container`).
+**For:** the next agent, cold. **Status:** ✅ DONE (commit `0ae814e` "use binded, drop arrays").
+**Branch:** `experiment/binded-vocab-strip` (merges to `feat/refactor` later). **Commits:** **no
+Claude/Co-Authored-By tag; 3–4 word messages** (e.g. `use binded loader`, `drop state container`).
+
+## What landed (`0ae814e`)
+
+- `compile_obs` now `from binded import Bind, Node, Scheme, uniform`; its `Node`/`Scheme`/`Bind`
+  calls already matched binded's signatures (`Node(source, cols, keys, weights)` —
+  `keys` is the plural/accessor-capable field flagged below).
+- Added `binded @ git+https://github.com/theislab/binded@feat/loader` to `pyproject.toml`
+  `dependencies` + `[tool.hatch.metadata] allow-direct-references = true`. **Env note:** binded needs
+  the annbatch `BoundClassSampler` fork (`feat/bound-class-wip`); stock `annbatch 0.2.0` lacks it. For
+  local dev both are installed **editable** from siblings `/Users/selman/projects/binded` and
+  `/Users/selman/projects/annbatch-bound-wip`.
+- Deleted the dataset-wide array holders `StateData` + `MixedTypeData` (containers + their tests).
+  `CategoricalData` survives, used only as the per-leaf `condition_fn` builder. The `State`/`Condition`/
+  `Response` schemas are now pure declarations — base `_get_data` is a concrete "extraction moved to
+  `compile_obs`" stub; `GroupsDataSchema` keeps its `_get_data`.
+- `src/sc_flow/__init__.py` made lazy (PEP 562 `__getattr__`): only `data` imports eagerly, so
+  `import sc_flow.data` works in isolation while the not-yet-rewired subsystems raise their real error
+  only on access.
+- End-to-end test `tests/data/test_compile_obs_binded.py` (guarded by `importorskip("binded")`):
+  `compile_obs → binded.Loader → {source, target, condition}`, plus a guard that the array holders are gone.
+
+**Still deferred (not this task):** the Change 1–3 renames (below) and rewiring the broken downstream
+(model/methods/backends/preprocessing/trainer) off the removed symbols.
+
+---
+
+_Original handoff (for reference) follows._
 
 ## One-line goal
 

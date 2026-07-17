@@ -132,7 +132,7 @@ class TestSCFlow:
 
     def test_init_copies_class_attrs_to_instance(self, adata: AnnData):
         SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         assert model._dm is SCFlow._dm_cls
         assert model._dims_registry is SCFlow._dims_registry
         assert model._is_paired_setting is SCFlow._is_paired_setting_cls
@@ -149,19 +149,12 @@ class TestSCFlow:
         mock_registry = {"cfm": DummyMethod}
         monkeypatch.setattr("sc_flow.backends.torch.methods.METHODS_REGISTRY", mock_registry)
         SCFlow.register_adata(adata)
-        model = SCFlow(method_id="cfm", backend="torch")
+        model = SCFlow(method_id="cfm")
         assert isinstance(model.method, DummyMethod)
-
-    def test_unsupported_backend_raises_error(self, adata: AnnData, monkeypatch):
-        mock_registry = {"cfm": DummyMethod}
-        monkeypatch.setattr("sc_flow.backends.torch.methods.METHODS_REGISTRY", mock_registry)
-        SCFlow.register_adata(adata)
-        with pytest.raises(RuntimeError, match="not supported"):
-            SCFlow(method_id="cfm", backend="tensorflow")
 
     def test_backend_property(self, adata: AnnData):
         SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         assert model.backend == "torch"
 
     # --------------------------------------------------------------------------
@@ -169,7 +162,7 @@ class TestSCFlow:
     # --------------------------------------------------------------------------
     def test_to_numpy_with_torch_tensor(self, adata: AnnData):
         SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         torch = pytest.importorskip("torch")
         t = torch.tensor([1.0, 2.0, 3.0])
         arr = model._to_numpy(t)
@@ -178,7 +171,7 @@ class TestSCFlow:
 
     def test_to_numpy_with_jax_array(self, adata: AnnData):
         SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="jax")
+        model = SCFlow(method_cls=DummyMethod)
         jnp = pytest.importorskip("jax.numpy")
         arr = model._to_numpy(jnp.array([1.0, 2.0]))
         assert isinstance(arr, np.ndarray)
@@ -193,7 +186,7 @@ class TestSCFlow:
     # --------------------------------------------------------------------------
     def test_train_calls_trainer_and_sets_mode(self, adata: AnnData, mock_optim_manager):
         SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         with patch("sc_flow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
             set_train_mode_spy = MagicMock(wraps=model.method.set_train_mode)
@@ -283,7 +276,7 @@ class TestSCFlow:
     # --------------------------------------------------------------------------
     def test_save_load_and_predict(self, adata):
         SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         pred1 = model.predict(adata, sort=True)
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
@@ -352,7 +345,7 @@ class TestSCFlow:
                 return DummyPredictionData(samples)
 
         SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=RealDummyMethod, backend="torch")
+        model = SCFlow(method_cls=RealDummyMethod)
         model.train(adata, n_train_steps=5, train_batch_size=4, sort=True)
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
@@ -403,7 +396,7 @@ class TestSCFlowConditionSpace:
             groups=("source_split",),
             groups_reps={"source_split": "source_split"},
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
 
         # Create a spy on compile_adata to record calls while preserving original behavior
         original_compile = model._dm.compile_adata
@@ -443,7 +436,7 @@ class TestSCFlowConditionSpace:
             groups=("source_split",),
             groups_reps={"source_split": "source_split"},
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         pred_adata = model.predict(adata, sort=True)
 
         assert isinstance(pred_adata, AnnData)
@@ -471,7 +464,7 @@ class TestSCFlowConditionSpace:
             groups=("source_split",),
             groups_reps={"source_split": "source_split"},
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         pred1 = model.predict(adata, sort=True)
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
@@ -640,7 +633,7 @@ class TestSCFlowPredictCombinations:
             control_values_dict=control_values_dict,
         )
 
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
 
         # Capture the matched distribution
         captured_matched_distr = []
@@ -747,7 +740,7 @@ class TestSCFlowPredictCombinations:
             groups_reps=groups_reps,
         )
 
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
 
         # Use DataManager.sort_adata to get the sorted version of adata
         # This matches the internal sorting when sort=True is passed to predict.
@@ -841,7 +834,7 @@ class TestSCFlowPredictMatchedKeys:
             control_values_dict={"drug": "control"},
             matched_keys=instance_keys,
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         # Override with different keys at predict time
         override_keys = {("control",): ("treatment",)}  # same for simplicity; could be different
         pred_adata = model.predict(adata, sort=True, matched_keys=override_keys)
@@ -863,7 +856,7 @@ class TestSCFlowPredictMatchedKeys:
             control_values_dict={"drug": "control"},
             matched_keys=instance_keys,
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         pred_adata = model.predict(adata, sort=True, matched_keys=None)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
@@ -881,7 +874,7 @@ class TestSCFlowPredictMatchedKeys:
             groups_reps={"source_split": "source_split"},
             matched_keys=keys,  # no control_values_dict
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         pred_adata = model.predict(adata, sort=True, matched_keys=keys)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
@@ -904,7 +897,7 @@ class TestSCFlowPredictMatchedKeys:
             matched_keys=keys,
             allow_paired_settings_on_condition_view=True,
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         pred_adata = model.predict(
             adata,
             sort=True,
@@ -933,7 +926,7 @@ class TestSCFlowPredictMatchedKeys:
             matched_keys=keys,
             allow_paired_settings_on_condition_view=False,  # disabled
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         pred_adata = model.predict(
             adata,
             sort=True,
@@ -958,7 +951,7 @@ class TestSCFlowPredictMatchedKeys:
             groups_reps={"source_split": "source_split"},
             control_values_dict={"drug": "control"},
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         with pytest.raises(KeyError, match="nonexistent"):
             model.predict(adata, sort=True, matched_keys=keys)
 
@@ -1008,7 +1001,7 @@ class TestSCFlowPredictControlValues:
             groups_reps={"source_split": "source_split"},
             control_values_dict={"drug": "control"},
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         override_dict = {"drug": "control"}  # same value; test that override is used
         pred_adata = model.predict(adata, sort=True, control_values_dict=override_dict)
         assert pred_adata.n_obs > 0
@@ -1025,7 +1018,7 @@ class TestSCFlowPredictControlValues:
             groups_reps={"source_split": "source_split"},
             control_values_dict={"drug": "control"},
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         pred_adata = model.predict(adata, sort=True, control_values_dict=None)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
@@ -1041,7 +1034,7 @@ class TestSCFlowPredictControlValues:
             groups_reps={"source_split": "source_split"},
             # no control_values_dict
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         custom_dict = {"drug": "control"}
         pred_adata = model.predict(adata, sort=True, control_values_dict=custom_dict)
         assert pred_adata.n_obs > 0
@@ -1063,7 +1056,7 @@ class TestSCFlowPredictControlValues:
             control_values_dict={"drug": "control"},
             allow_paired_settings_on_condition_view=True,
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         pred_adata = model.predict(
             adata,
             sort=True,
@@ -1090,7 +1083,7 @@ class TestSCFlowPredictControlValues:
             control_values_dict={"drug": "control"},
             allow_paired_settings_on_condition_view=False,
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         pred_adata = model.predict(
             adata,
             sort=True,
@@ -1111,7 +1104,7 @@ class TestSCFlowPredictControlValues:
             groups=("source_split",),
             groups_reps={"source_split": "source_split"},
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
         with pytest.raises(KeyError, match="nonexistent"):
             model.predict(adata, sort=True, control_values_dict={"drug": "nonexistent"})
 
@@ -1147,7 +1140,7 @@ class TestSCFlowPreprocessingIntegration:
     def test_train_applies_transformations_without_refitting(self, adata, mock_optim_manager):
         """train() calls compile_adata with apply_transformations=True and never re-fits."""
         SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
 
         with (
             patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
@@ -1198,7 +1191,7 @@ class TestSCFlowPreprocessingIntegration:
     def test_save_unloads_preprocessing_context(self, adata):
         """save() must call dm.unload_preproc() to unload external models."""
         SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = SCFlow(method_cls=DummyMethod)
 
         with patch.object(model.dm, "unload_preproc") as mock_unload, patch("cloudpickle.dump") as _:
             with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:

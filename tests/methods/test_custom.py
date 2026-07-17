@@ -60,7 +60,7 @@ def test_register_flow_method_success(mock_torch_registry, mock_torch_base_class
     """Test successful registration of a flow method."""
     mock_base, mock_flow = mock_torch_base_classes
 
-    @register_method("test_flow", backend="torch", category="flow")
+    @register_method("test_flow", category="flow")
     class UserFlow:
         module_cls = Mock()
         default_solver_cls = Mock()
@@ -91,7 +91,7 @@ def test_register_flow_missing_module_cls(mock_torch_registry, mock_torch_base_c
     """Missing module_cls raises TypeError."""
     with pytest.raises(TypeError, match="must define a 'module_cls'"):
 
-        @register_method("bad_flow", backend="torch", category="flow")
+        @register_method("bad_flow", category="flow")
         class BadFlow:
             def compute_loss(self):
                 pass
@@ -104,7 +104,7 @@ def test_register_flow_missing_compute_loss(mock_torch_registry, mock_torch_base
     """Missing compute_loss raises TypeError."""
     with pytest.raises(TypeError, match="must define a 'compute_loss' method"):
 
-        @register_method("bad_flow", backend="torch", category="flow")
+        @register_method("bad_flow", category="flow")
         class BadFlow:
             module_cls = Mock()
 
@@ -116,7 +116,7 @@ def test_register_flow_missing_predict(mock_torch_registry, mock_torch_base_clas
     """Missing predict raises TypeError."""
     with pytest.raises(TypeError, match="must define a 'predict' method"):
 
-        @register_method("bad_flow", backend="torch", category="flow")
+        @register_method("bad_flow", category="flow")
         class BadFlow:
             module_cls = Mock()
 
@@ -129,7 +129,7 @@ def test_register_flow_with_user_init(mock_torch_registry, mock_torch_base_class
     mock_base, mock_flow = mock_torch_base_classes
     init_called = False
 
-    @register_method("flow_with_init", backend="torch", category="flow")
+    @register_method("flow_with_init", category="flow")
     class UserFlow:
         module_cls = Mock()
 
@@ -155,7 +155,7 @@ def test_register_general_method_success(mock_torch_registry, mock_torch_base_cl
     """Test successful registration of a general method."""
     mock_base, mock_flow = mock_torch_base_classes
 
-    @register_method("test_general", backend="torch", category="general")
+    @register_method("test_general", category="general")
     class UserGeneral:
         module_cls = Mock()
 
@@ -178,7 +178,7 @@ def test_register_general_missing_train_step(mock_torch_registry, mock_torch_bas
     """Missing train_step raises TypeError."""
     with pytest.raises(TypeError, match="must define a 'train_step' method"):
 
-        @register_method("bad_general", backend="torch", category="general")
+        @register_method("bad_general", category="general")
         class BadGeneral:
             module_cls = Mock()
 
@@ -190,7 +190,7 @@ def test_register_general_missing_predict(mock_torch_registry, mock_torch_base_c
     """Missing predict raises TypeError."""
     with pytest.raises(TypeError, match="must define a 'predict' method"):
 
-        @register_method("bad_general", backend="torch", category="general")
+        @register_method("bad_general", category="general")
         class BadGeneral:
             module_cls = Mock()
 
@@ -202,7 +202,7 @@ def test_register_general_predict_wrapper(mock_torch_registry, mock_torch_base_c
     """For general methods, predict output is wrapped into PredictionData if not already."""
     mock_base, mock_flow = mock_torch_base_classes
 
-    @register_method("wrap_test", backend="torch", category="general")
+    @register_method("wrap_test", category="general")
     class WrapTest:
         module_cls = Mock()
 
@@ -228,7 +228,7 @@ def test_register_general_predict_wrapper(mock_torch_registry, mock_torch_base_c
 def test_duplicate_registration_error(mock_torch_registry, mock_torch_base_classes):
     """Registering same name twice raises ValueError."""
 
-    @register_method("dup", backend="torch", category="flow")
+    @register_method("dup", category="flow")
     class First:
         module_cls = Mock()
 
@@ -240,23 +240,8 @@ def test_duplicate_registration_error(mock_torch_registry, mock_torch_base_class
 
     with pytest.raises(ValueError, match="already registered"):
 
-        @register_method("dup", backend="torch", category="flow")
+        @register_method("dup", category="flow")
         class Second:
-            module_cls = Mock()
-
-            def compute_loss(self):
-                pass
-
-            def predict(self):
-                pass
-
-
-def test_unsupported_backend():
-    """Unsupported backend raises ValueError."""
-    with pytest.raises(ValueError, match="Unsupported backend"):
-
-        @register_method("bad", backend="tensorflow")
-        class Dummy:
             module_cls = Mock()
 
             def compute_loss(self):
@@ -270,7 +255,7 @@ def test_unsupported_category(mock_torch_registry):
     """Unsupported category raises ValueError."""
     with pytest.raises(ValueError, match="Unsupported category"):
 
-        @register_method("bad", backend="torch", category="diffusion")
+        @register_method("bad", category="diffusion")
         class Dummy:
             module_cls = Mock()
 
@@ -281,19 +266,6 @@ def test_unsupported_category(mock_torch_registry):
                 pass
 
 
-def test_jax_backend_not_implemented():
-    """JAX backend raises NotImplementedError."""
-    with pytest.raises(NotImplementedError, match="JAX backend not yet implemented"):
-
-        @register_method("jax_method", backend="jax")
-        class Dummy:
-            module_cls = Mock()
-
-            def compute_loss(self):
-                pass
-
-            def predict(self):
-                pass
 
 
 # -----------------------------------------------------------------------------
@@ -303,7 +275,7 @@ def test_no_user_init_does_not_call_extra_init(mock_torch_registry, mock_torch_b
     """If user class does not define __init__, only base init is called."""
     mock_base, mock_flow = mock_torch_base_classes
 
-    @register_method("no_init", backend="torch", category="flow")
+    @register_method("no_init", category="flow")
     class NoInit:
         module_cls = Mock()
 
@@ -323,7 +295,7 @@ def test_probability_path_cls_not_set(mock_torch_registry, mock_torch_base_class
     """If probability_path_cls is not set, no default is added."""
     mock_base, mock_flow = mock_torch_base_classes
 
-    @register_method("no_prob_path", backend="torch", category="flow")
+    @register_method("no_prob_path", category="flow")
     class NoProbPath:
         module_cls = Mock()
 
@@ -345,7 +317,7 @@ def test_probability_path_cls_not_set(mock_torch_registry, mock_torch_base_class
 def test_decorator_returns_original_class(mock_torch_registry, mock_torch_base_classes):
     """The decorator should return the original user class, not the registered one."""
 
-    @register_method("return_original", backend="torch", category="flow")
+    @register_method("return_original", category="flow")
     class Original:
         module_cls = Mock()
 

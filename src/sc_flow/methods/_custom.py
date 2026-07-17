@@ -11,31 +11,22 @@ __all__ = ["register_method"]
 
 def register_method(
     name: str,
-    backend: Literal["torch", "jax"] = "torch",
     *,
     category: Literal["flow", "general"] = "flow",
     capabilities: "MethodCapabilities | None" = None,
 ) -> Callable[[T], T]:
-    # Backend‑specific imports
-    if backend == "torch":
-        from sc_flow.backends.torch._types import PredictionData as TorchPredictionData
-        from sc_flow.backends.torch.methods import METHODS_REGISTRY
-        from sc_flow.backends.torch.methods._base import TorchBaseMethod, TorchGenerativeFlow
+    from sc_flow.backends.torch._types import PredictionData as PredictionDataClass
+    from sc_flow.backends.torch.methods import METHODS_REGISTRY
+    from sc_flow.backends.torch.methods._base import TorchBaseMethod, TorchGenerativeFlow
 
-        PredictionDataClass = TorchPredictionData
-
-        if category == "flow":
-            BaseClass = TorchGenerativeFlow
-            required_user_methods = ["step_fn", "predict"]
-        elif category == "general":
-            BaseClass = TorchBaseMethod
-            required_user_methods = ["train_step", "predict"]
-        else:
-            raise ValueError(f"Unsupported category: {category}")
-    elif backend == "jax":
-        raise NotImplementedError("JAX backend not yet implemented")
+    if category == "flow":
+        BaseClass = TorchGenerativeFlow
+        required_user_methods = ["step_fn", "predict"]
+    elif category == "general":
+        BaseClass = TorchBaseMethod
+        required_user_methods = ["train_step", "predict"]
     else:
-        raise ValueError(f"Unsupported backend: {backend}")
+        raise ValueError(f"Unsupported category: {category}")
 
     def decorator(user_cls: T) -> T:
         # Validate user class

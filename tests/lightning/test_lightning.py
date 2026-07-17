@@ -19,7 +19,6 @@ def _cfg(framework):
         "data": {"datamanager": {}},
         "method": {
             "method_id": "cfm",
-            "backend": "torch",
             "config": {
                 "velocity_field": {
                     "vf_decoder_mlp_kwargs": {"hidden_dims": [16, 16]},

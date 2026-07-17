@@ -20,7 +20,6 @@ def _cfg(**trainer):
         "data": {"datamanager": {}},
         "method": {
             "method_id": "cfm",
-            "backend": "torch",
             "config": {
                 "velocity_field": {
                     "vf_decoder_mlp_kwargs": {"hidden_dims": [16, 16]},
@@ -40,7 +39,6 @@ class TestFromConfig:
     def test_builds_torch_cfm(self, adata):
         model = SCFlow.from_config(_cfg(), adata)
         assert isinstance(model._method, CFM)
-        assert model.backend == "torch"
 
     def test_fit_and_predict(self, adata):
         model = SCFlow.from_config(_cfg(), adata)
@@ -64,7 +62,7 @@ class TestValidation:
     def test_unknown_method_raises(self, adata):
         cfg = _cfg()
         cfg["method"]["method_id"] = "does-not-exist"
-        with pytest.raises(KeyError, match=r"not found for backend"):
+        with pytest.raises(KeyError, match=r"not found"):
             SCFlow.from_config(cfg, adata)
 
 
@@ -98,6 +96,5 @@ class TestCapabilities:
     def test_cfm_capabilities(self):
         caps = CFM.capabilities()
         assert caps.category == "flow"
-        assert "torch" in caps.backends
         assert "mps" in caps.supported_devices
         assert caps.config_cls is not None

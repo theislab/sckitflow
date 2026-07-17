@@ -30,14 +30,10 @@ from sc_flow.trainer._trainer import Trainer
 __all__ = ["SCFlow"]
 
 
-def _get_methods_registry(backend: str) -> dict[str, type]:
-    """Return the method registry for a backend."""
-    if backend == "torch":
-        from sc_flow.backends.torch.methods import METHODS_REGISTRY
-    elif backend == "jax":
-        from sc_flow.backends.jax.methods import METHODS_REGISTRY
-    else:
-        raise_runtime_error_on_backend_not_supported(backend)
+def _methods_registry() -> dict[str, type]:
+    """Return the method registry."""
+    from sc_flow.backends.torch.methods import METHODS_REGISTRY
+
     return METHODS_REGISTRY
 
 
@@ -50,12 +46,9 @@ def _resolve_method_cls(method_cfg) -> type:
         return getattr(importlib.import_module(module_path), cls_name)
     if method_cfg.method_id is None:
         raise ValueError("MethodConfig requires either 'method_id' or 'method_target'.")
-    registry = _get_methods_registry(method_cfg.backend)
+    registry = _methods_registry()
     if method_cfg.method_id not in registry:
-        raise KeyError(
-            f"Method {method_cfg.method_id!r} not found for backend {method_cfg.backend!r}. "
-            f"Available: {sorted(registry)}."
-        )
+        raise KeyError(f"Method {method_cfg.method_id!r} not found. Available: {sorted(registry)}.")
     return registry[method_cfg.method_id]
 
 
@@ -65,7 +58,7 @@ def _resolve_run_config(cfg) -> tuple[RunConfig, type, Any]:
     Returns ``(run_config, method_cls, method_config_obj)`` where
     ``method_config_obj`` is a typed instance of the method's ``config_cls``
     (or a plain dict if the method declares none). All generic cross-slot
-    validation (device / backend / required flow solver) happens here.
+    validation (e.g. device support) happens here.
     """
     # Coerce to a structured RunConfig (validates keys, fills defaults).
     node = OmegaConf.structured(cfg) if isinstance(cfg, RunConfig) else OmegaConf.create(cfg)
@@ -76,11 +69,6 @@ def _resolve_run_config(cfg) -> tuple[RunConfig, type, Any]:
     caps = method_cls.capabilities()
 
     # Generic validation — no method-specific knowledge here.
-    if run.method.backend not in caps.backends:
-        raise ValueError(
-            f"Method {run.method.method_id or run.method.method_target!r} does not support backend "
-            f"{run.method.backend!r}. Supported: {sorted(caps.backends)}."
-        )
     if run.trainer.device not in caps.supported_devices:
         raise ValueError(
             f"Device {run.trainer.device!r} is not supported by method "
@@ -142,17 +130,13 @@ class SCFlow:
 
         # Method-owned translation into constructor kwargs (framework stays generic).
         if hasattr(method_config_obj, "build_construction_kwargs"):
-            ctor_kwargs = method_config_obj.build_construction_kwargs(
-                device_id=run.trainer.device,
-                backend=run.method.backend,
-            )
+            ctor_kwargs = method_config_obj.build_construction_kwargs(device_id=run.trainer.device)
         else:
             ctor_kwargs = dict(method_config_obj)
 
         model = cls(
             adata,
             method_cls=method_cls,
-            backend=run.method.backend,
             view_on_condition_space=run.data.view_on_condition_space,
             condition_state_key=run.data.condition_state_key,
             datamanager_kwargs=dict(run.data.datamanager),
@@ -221,7 +205,6 @@ class SCFlow:
         *args,
         method_cls: type[BaseMethod] | None = None,
         method_id: str | None = None,
-        backend: Literal["jax", "torch"] = "torch",
         view_on_condition_space: bool = False,
         condition_state_key: str | None = None,
         datamanager_kwargs: dict[str, Any] | None = None,
@@ -237,8 +220,9 @@ class SCFlow:
         self._view_on_condition_space = view_on_condition_space
         self._condition_state_key = condition_state_key
 
-        # register backend
-        self._backend = backend
+        # numerics run in torch (weights are torch tensors); kept as an internal
+        # constant now that there is no user-facing backend selection.
+        self._backend = "torch"
 
         # get method cls
         if method_cls is None and method_id is None:
@@ -247,15 +231,7 @@ class SCFlow:
 
         # use registry when method not provided
         if method_cls is None:
-            # get registry for current backend
-            if backend == "torch":
-                from sc_flow.backends.torch.methods import METHODS_REGISTRY
-            elif backend == "jax":
-                from sc_flow.backends.jax.methods import METHODS_REGISTRY
-            else:
-                from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
-
-                raise_runtime_error_on_backend_not_supported(backend)
+            from sc_flow.backends.torch.methods import METHODS_REGISTRY
 
             # get method from registry
             if method_id not in METHODS_REGISTRY:

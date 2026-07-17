@@ -42,7 +42,6 @@ class MethodConfig:
     method_id: str | None = None
     #: Fully-qualified ``"pkg.module:Class"`` path, as an alternative to ``method_id``.
     method_target: str | None = None
-    backend: str = "torch"
     #: Opaque to the framework; validated against the method's ``config_cls``.
     config: dict[str, Any] = field(default_factory=dict)
 

@@ -47,7 +47,7 @@ class CFMConfig:
     generate_from_noise: bool = False
     dtype: str = "float32"
 
-    def build_construction_kwargs(self, *, device_id: str, backend: str) -> dict[str, Any]:
+    def build_construction_kwargs(self, *, device_id: str) -> dict[str, Any]:
         """Translate this config into ``SCFlow``/method constructor kwargs."""
         from sc_flow.config._resolve import resolve_probability_path
 
@@ -58,7 +58,7 @@ class CFMConfig:
             "vf_decoder_mlp_kwargs": dict(self.velocity_field.vf_decoder_mlp_kwargs),
             "time_features_id": self.velocity_field.time_features_id,
             "conditioning_id": self.velocity_field.conditioning_id,
-            "probability_path": resolve_probability_path(self.probability_path, backend),
+            "probability_path": resolve_probability_path(self.probability_path, "torch"),
             "generate_from_noise": self.generate_from_noise,
             "device_id": device_id,
             "dtype": _TORCH_DTYPES[self.dtype],
@@ -69,7 +69,6 @@ class CFM(TorchGenerativeFlow):
     _default_solver_cls: type[BaseSolver] = ODESolver
     _capabilities = MethodCapabilities(
         category="flow",
-        backends=frozenset({"torch"}),
         supported_devices=frozenset({"cpu", "cuda", "mps"}),
         config_cls=CFMConfig,
     )

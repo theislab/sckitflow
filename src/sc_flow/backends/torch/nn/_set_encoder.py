@@ -100,7 +100,6 @@ class SetEncoder(BaseModule):
             if covariate_id not in self._covariates_not_pooled:
                 # and initialize projection
                 cov_out_dim = covariate_layers_dict["output_dim"]
-                print(f"{cov_out_dim=}, {self._proj_dim=}")
                 cov_proj = torch.nn.Linear(
                     cov_out_dim,
                     self._proj_dim,
@@ -214,9 +213,7 @@ class SetEncoder(BaseModule):
         if len(encoded_covariates_to_pool) > 0:
             # pool
             pooled_covariates = torch.concatenate(tuple(encoded_covariates_to_pool.values()), dim=-2)
-            # print(f"Before pooling {pooled_covariates.shape=}")
             pooled_covariates = self._condition_encoder["pooling_layer"](pooled_covariates)
-            # print(f"After pooling {pooled_covariates.shape=}")
 
             # parse shape
             if len(pooled_covariates.shape) == 3:

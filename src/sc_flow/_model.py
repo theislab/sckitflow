@@ -29,7 +29,7 @@ __all__ = ["SCFlow"]
 
 class SCFlow:
     _dm_cls: DataManager | None = None
-    _dims_registry: DataDimensionalitiesRegistry | None = None
+    _dims_registry_cls: DataDimensionalitiesRegistry | None = None
     _is_paired_setting_cls: bool = False
     _view_on_condition_space_cls: bool = False
     _condition_state_key_cls: str | None = None
@@ -61,7 +61,7 @@ class SCFlow:
         """
         # initialize data manager
         cls._dm_cls = DataManager(**kwargs)
-        cls._dims_registry = cls._dm_cls.get_data_dimensionalities(
+        cls._dims_registry_cls = cls._dm_cls.get_data_dimensionalities(
             adata,
             view_on_condition_space=view_on_condition_space,
             condition_state_key=condition_state_key,
@@ -89,7 +89,7 @@ class SCFlow:
 
         # register class attributes to instance
         self._dm = self.__class__._dm_cls
-        self._dims_registry = self.__class__._dims_registry
+        self._dims_registry = self.__class__._dims_registry_cls
         self._is_paired_setting = self.__class__._is_paired_setting_cls
         self._view_on_condition_space = self.__class__._view_on_condition_space_cls
         self._condition_state_key = self.__class__._condition_state_key_cls

@@ -16,7 +16,7 @@ __all__ = [
 
 def to_torch_tensor(
     data: np.ndarray | torch.Tensor, dtype: torch.dtype | None = None, device: torch.device | None = None
-):
+) -> torch.Tensor:
     if isinstance(data, np.ndarray):
         data = torch.from_numpy(data)
     if not isinstance(data, torch.Tensor):

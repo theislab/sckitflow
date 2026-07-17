@@ -51,6 +51,7 @@ class FlowSpec:
         rep_tables: Mapping[str, Mapping] | None = None,
         control_in_memory: bool = False,
         control_path: DataInput | None = None,
+        min_runs_per_leaf: int = 0,
     ) -> CompiledData:
         """Compile the spec against ``data`` into a :class:`~sc_flow.data.CompiledData` (labels only)."""
         return compile_obs(
@@ -64,6 +65,7 @@ class FlowSpec:
             rep_tables=rep_tables,
             control_in_memory=control_in_memory,
             control_path=control_path,
+            min_runs_per_leaf=min_runs_per_leaf,
         )
 
     def build_loader(
@@ -77,18 +79,23 @@ class FlowSpec:
         to: str | None = "jax",
         control_in_memory: bool = False,
         control_path: DataInput | None = None,
+        min_runs_per_leaf: int = 0,
     ) -> Any:  # binded.Loader
         """Compile against ``data`` and wrap in a :class:`binded.Loader`.
 
         ``rep_tables`` supplies the embedding tables for ``lookup`` encoders (see :func:`compile_obs`);
         it defaults to ``data.uns`` for an in-memory ``AnnData`` and is required for a collection/path.
-        ``control_path`` (optional) streams controls from a separate source. ``preload_nchunks``
-        defaults to one batch per read window (``batch_size // chunk_size``).
+        ``control_path`` (optional) streams controls from a separate source; ``min_runs_per_leaf`` drops
+        tiny target leaves. ``preload_nchunks`` defaults to one batch per read window.
         """
         from binded import Loader, SamplerConfig
 
         compiled = self.compile(
-            data, rep_tables=rep_tables, control_in_memory=control_in_memory, control_path=control_path
+            data,
+            rep_tables=rep_tables,
+            control_in_memory=control_in_memory,
+            control_path=control_path,
+            min_runs_per_leaf=min_runs_per_leaf,
         )
         if preload_nchunks is None:
             preload_nchunks = max(1, batch_size // chunk_size)

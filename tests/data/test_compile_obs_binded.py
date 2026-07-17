@@ -238,6 +238,32 @@ def test_control_path_uses_separate_source():
     assert compiled.scheme.nodes["ctrl"].cols == ("cell_type",)  # match_context only
 
 
+def test_min_runs_per_leaf_drops_small_target_leaves_only():
+    """min_runs_per_leaf zero-weights small TARGET leaves; controls are never filtered."""
+    import collections
+
+    adata = _make_adata()
+    kw = {
+        "state": StateDataSchema(sample_rep="X"),
+        "condition": ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        "control_key": "control",
+        "match_context": ["cell_type"],
+    }
+    # a threshold between the smallest and largest target-leaf count drops some (not all) target leaves
+    tgt = adata.obs.loc[~adata.obs["control"].to_numpy(), ["cell_type", "drug1"]]
+    counts = sorted(collections.Counter(map(tuple, tgt.to_numpy())).values())
+    threshold = counts[len(counts) // 2]  # median → drops the smaller half
+
+    base = compile_obs(adata, **kw)  # default 0 → keep all
+    filt = compile_obs(adata, **kw, min_runs_per_leaf=threshold)
+
+    n_all = len(base.scheme.nodes["pert"].weights)
+    n_kept = len(filt.scheme.nodes["pert"].weights)
+    assert 0 < n_kept < n_all  # partial drop
+    # controls untouched
+    assert filt.scheme.nodes["ctrl"].weights == base.scheme.nodes["ctrl"].weights
+
+
 def test_control_path_requires_match_context():
     adata = _make_adata()
     with pytest.raises(ValueError, match="match_context"):

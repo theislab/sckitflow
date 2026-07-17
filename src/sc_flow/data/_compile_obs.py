@@ -18,7 +18,9 @@ Two condition mechanisms (see the design note):
 from __future__ import annotations
 
 import copy
+import logging
 import os
+from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -42,6 +44,8 @@ if TYPE_CHECKING:
     DataInput = ad.AnnData | DatasetCollection | str | os.PathLike | Sequence[str | os.PathLike | ad.AnnData]
 
 __all__ = ["compile_obs", "CompiledData"]
+
+logger = logging.getLogger("sc_flow.data")
 
 Leaf = tuple[Any, ...]
 ConditionFn = Callable[[Leaf], dict[str, np.ndarray]]
@@ -75,6 +79,7 @@ def compile_obs(
     rep_tables: Mapping[str, Mapping] | None = None,
     control_in_memory: bool = False,
     control_path: DataInput | None = None,
+    min_runs_per_leaf: int = 0,
 ) -> CompiledData:
     """Compile the composed schemas into a binded ``Scheme`` + ``condition_fn`` from labels only.
 
@@ -100,6 +105,9 @@ def compile_obs(
         controls come from it (matched to targets purely by ``match_context``, which must be non-empty)
         and ``data`` is treated as all targets; when ``None``, controls come from ``data`` split by
         ``control_key``. Orthogonal to ``control_in_memory`` (which still chooses RAM vs streaming).
+    :param min_runs_per_leaf: Zero-weight (exclude) any **target** leaf with fewer than this many cells
+        — a scientific filter on untrainable tiny conditions. Controls are never filtered. Default ``0``
+        drops nothing (uniform weights, byte-identical to cellflow's defaults).
     """
     from binded import Bind, Node, Scheme, uniform
     from binded._io import obs_columns, open_source
@@ -181,11 +189,20 @@ def compile_obs(
     def _leaves(frame: pd.DataFrame, leaf_cols: Sequence[str]) -> list[Leaf]:
         return [tuple(r) for r in frame.loc[:, list(leaf_cols)].drop_duplicates().to_numpy()]
 
+    def _target_leaves(frame: pd.DataFrame, leaf_cols: Sequence[str]) -> list[Leaf]:
+        # perturbed-only filter: drop any target leaf with fewer than `min_runs_per_leaf` cells
+        # (first-occurrence order preserved). min_runs_per_leaf=0 keeps every leaf (uniform).
+        counts = Counter(tuple(r) for r in frame.loc[:, list(leaf_cols)].to_numpy())
+        kept = [leaf for leaf, n in counts.items() if n >= min_runs_per_leaf]
+        if (dropped := len(counts) - len(kept)) > 0:
+            logger.info("min_runs_per_leaf=%d dropped %d/%d target leaves", min_runs_per_leaf, dropped, len(counts))
+        return kept
+
     sources: dict[str, Any] = {"data": source}
     if control_path is None:
         # controls live in `data`, split by control_key; optionally materialized in RAM.
         ctrl_flag = obs[control_key].to_numpy().astype(bool)
-        pert = _leaves(obs.loc[~ctrl_flag], cols)
+        pert = _target_leaves(obs.loc[~ctrl_flag], cols)
         ctrl = _leaves(obs.loc[ctrl_flag], cols)
         ctrl_node = Node("data", cols, ctrl_keys, uniform(ctrl), in_memory=control_in_memory)
     else:
@@ -193,7 +210,7 @@ def compile_obs(
         if not match_context:
             raise ValueError("control_path requires a non-empty match_context to bind controls to targets.")
         ctrl_cols = tuple(match_context)
-        pert = _leaves(obs, cols)  # all of `data` are targets
+        pert = _target_leaves(obs, cols)  # all of `data` are targets
         control_source = open_source(control_path, keys=list(ctrl_keys), cols=list(ctrl_cols))
         ctrl = _leaves(obs_columns(control_source, list(ctrl_cols)), ctrl_cols)
         sources["control"] = control_source

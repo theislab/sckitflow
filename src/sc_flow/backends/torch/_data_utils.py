@@ -1,9 +1,9 @@
-from dataclasses import dataclass
-from typing import Any, ClassVar, Literal
+from dataclasses import asdict
+from typing import Any, Literal
 
 import torch
 
-from sc_flow.backends.torch._types import StepData
+from sc_flow.backends.torch._types import StepData, TensorMixin, TNoiseSamplerFn
 from sc_flow.backends.torch._utils import to_torch_tensor
 from sc_flow.data import mixins
 from sc_flow.data._composite import MatchedDistributions
@@ -16,7 +16,10 @@ __all__ = [
     "extract_distribution_data",
     "get_tensor_dict_from_data",
     "extract_step_data",
-    "MappedTensor",
+    "write_continuous_cond_cov_to_step_data",
+    "expand_conditioning",
+    "prepare_latent_train",
+    "prepare_latent_inference",
     "TensorMixin",
     "TorchMixedTypeData",
 ]
@@ -94,55 +97,139 @@ def extract_step_data(
 
     # parse target data dictionary
     if target_data_dict is not None:
-        (target_coupling_lin, target_coupling_quad, target_state_data, target_condition_data, target_group_data) = (
+        (target_coupling_lin, target_coupling_quad, target_state, target_condition_data, target_group_data) = (
             extract_distribution_data(target_data_dict, "target", device=device, dtype=dtype)
         )
     else:
         target_coupling_lin = None
         target_coupling_quad = None
-        target_state_data = None
+        target_state = None
         target_condition_data = None
         target_group_data = None
 
     # optionally parse target data dictionary
     if source_data_dict is not None:
-        (source_coupling_lin, source_coupling_quad, source_state_data, source_condition_data, source_group_data) = (
+        (source_coupling_lin, source_coupling_quad, source_state, source_condition_data, source_group_data) = (
             extract_distribution_data(source_data_dict, "source", device=device, dtype=dtype)
         )
     else:
         source_coupling_lin = None
         source_coupling_quad = None
-        source_state_data = None
+        source_state = None
         source_condition_data = None
         source_group_data = None
 
     # return structured output
     return StepData(
-        target_state_data,
-        target_coupling_lin,
-        target_coupling_quad,
-        target_condition_data,
-        target_group_data,
-        source_state_data,
-        source_coupling_lin,
-        source_coupling_quad,
-        source_condition_data,
-        source_group_data,
+        target_state=target_state,
+        target_coupling_lin=target_coupling_lin,
+        target_coupling_quad=target_coupling_quad,
+        target_condition_data=target_condition_data,
+        target_group_data=target_group_data,
+        source_state=source_state,
+        source_coupling_lin=source_coupling_lin,
+        source_coupling_quad=source_coupling_quad,
+        source_condition_data=source_condition_data,
+        source_group_data=source_group_data,
     )
 
 
-@dataclass(frozen=True)
-class MappedTensor(mixins.MappedTree):
-    """"""  # noqa
+def write_continuous_cond_cov_to_step_data(
+    condition_key: str,
+    x: torch.Tensor,
+    base_data: MatchedDistributions | None = None,
+    dtype: torch.dtype | None = None,
+    device: torch.device | None = None,
+) -> StepData:
+    """Overrides the base data to store the input tensor at the specified key."""
+    # ---- 1. No base data provided ----
+    if base_data is None:
+        condition_dict = {condition_key: x}
+        return StepData(target_condition_data=condition_dict)
+    else:
+        # ---- Retrieve Metadata ----
+        step_data = extract_step_data(base_data, device=device, dtype=dtype)
+        step_data_dict = asdict(step_data)
 
-    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = torch.Tensor
+        # ---- Construct updated step data ----
+        target_condition_data = step_data_dict.get("target_condition_data", {})
+        target_condition_data[condition_key] = x
+        step_data_dict["target_condition_data"] = target_condition_data
+        return StepData(**step_data_dict)
 
 
-@dataclass(frozen=True)
-class TensorMixin(mixins.BatchMixin[str, torch.Tensor]):
-    """"""  # noqa
+def expand_conditioning(
+    latent: torch.Tensor,
+    condition_dict: dict[str, torch.Tensor],
+    source: torch.Tensor | None,
+) -> tuple[dict[str, torch.Tensor], torch.Tensor | None]:
+    """
+    Replicate condition_dict and source along the leading dimensions of latent
 
-    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = torch.Tensor
+    Assumes original condition_dict values and source have shape (batch_size, ...)
+    and latent has shape (n_samples, batch_size, dim) or (batch_size, dim).
+    Returns expanded copies.
+    """
+    if latent.dim() <= 2:  # no extra sample dimension
+        return condition_dict, source
+
+    n_samples = latent.shape[0]
+    expanded_cond = {}
+    for k, v in condition_dict.items():
+        # v shape: (batch_size, ...)
+        expanded_cond[k] = v.unsqueeze(0).expand(n_samples, *v.shape)
+    expanded_source = None
+    if source is not None:
+        expanded_source = source.unsqueeze(0).expand(n_samples, *source.shape)
+    return expanded_cond, expanded_source
+
+
+def prepare_latent_train(
+    source: torch.Tensor | None,
+    target: torch.Tensor,
+    noise_sampler: TNoiseSamplerFn,
+    generate_from_noise: bool = False,
+    dtype: torch.dtype | None = None,
+    device: torch.device | None = None,
+) -> torch.Tensor:
+    """Called from _step_fn - always returns single noise per batch element."""
+    if source is None or generate_from_noise:
+        samples = noise_sampler(target.shape)
+        if dtype:
+            samples = samples.to(dtype)
+        if device:
+            samples = samples.to(device)
+        return samples
+    return source
+
+
+def prepare_latent_inference(
+    source: torch.Tensor | None,
+    target_reference: torch.Tensor,
+    noise_sampler: TNoiseSamplerFn,
+    n_samples: int | None = None,
+    generate_from_noise: bool = False,
+    dtype: torch.dtype | None = None,
+    device: torch.device | None = None,
+) -> torch.Tensor:
+    """Called from _predict.
+
+    - If source is given and we are NOT generating from noise, return source unchanged.
+    - Otherwise sample noise with shape:
+        if n_samples is None:  (batch_size, dim)
+        else:                  (n_samples, batch_size, dim)
+    """
+    if source is None or generate_from_noise:
+        shape = target_reference.shape
+        if n_samples is not None:
+            shape = (n_samples, *shape)
+        samples = noise_sampler(shape)
+        if dtype:
+            samples = samples.to(dtype)
+        if device:
+            samples = samples.to(device)
+        return samples
+    return source
 
 
 class TorchMixedTypeData(MixedTypeData):

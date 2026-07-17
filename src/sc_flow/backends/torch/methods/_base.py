@@ -47,12 +47,90 @@ class TorchBaseMethod(BaseMethod):
             return data
         return data[idx]
 
+    @abc.abstractmethod
+    def _step_fn(
+        self,
+        step_data: StepData,
+        *args,
+        **kwargs,
+    ) -> tuple[torch.Tensor, dict[str, Any]]: ...
+
+    @abc.abstractmethod
+    def _predict(
+        self,
+        step_data: StepData,
+        *args,
+        **kwargs,
+    ) -> PredictionData: ...
+
+    def _train_step_forward(
+        self,
+        step_data: StepData,
+        *args,
+        **kwargs,
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        step_data = self._match_observations(step_data)
+        return self._step_fn(
+            step_data,
+            *args,
+            **kwargs,
+        )
+
+    def _match_observations(
+        self,
+        step_data: StepData,
+    ) -> StepData:
+        return step_data
+
     def set_train_mode(self, mode: bool) -> None:
         """"""  # noqa
         if mode:
             self.module.train()
         else:
             self.module.eval()
+
+    def train_step(
+        self,
+        matched_distr: MatchedDistributions,
+        *args,
+        **kwargs,
+    ) -> dict[str, Any]:
+        """Single step function of the solver.
+
+        :param matched_distr: Input `MatchedDistributions` object.
+        :type matched_distr: dict[str, torch.Tensor]
+        """
+        step_data = extract_step_data(matched_distr, device=self._device_id, dtype=self._dtype)
+        return self._train_step_forward(step_data, *args, **kwargs)
+
+    def predict(
+        self,
+        data: MatchedDistributions | StepData,
+        *args,
+        no_grad: bool = True,
+        **kwargs,
+    ) -> PredictionData:
+        """Prediction on node."""
+        # extract step data and prepare latent state
+        if isinstance(data, MatchedDistributions):
+            data = extract_step_data(data, device=self._device_id, dtype=self._dtype)
+        if not isinstance(data, StepData):
+            raise ValueError(f"Data is of the wrong type, expected `StepData`, but {type(data)} found.")
+
+        # optionally stop gradients
+        if no_grad:
+            with torch.no_grad():
+                return self._predict(
+                    data,
+                    *args,
+                    **kwargs,
+                )
+        else:
+            return self._predict(
+                data,
+                *args,
+                **kwargs,
+            )
 
 
 class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
@@ -78,22 +156,6 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
             **kwargs,
         )
 
-    @abc.abstractmethod
-    def _step_fn(
-        self,
-        step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> tuple[torch.Tensor, dict[str, Any]]: ...
-
-    @abc.abstractmethod
-    def _predict(
-        self,
-        step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> PredictionData: ...
-
     def _call_match_fn_safe(
         self,
         source_lin: torch.Tensor | None,
@@ -116,7 +178,7 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
         )
         return src_idxs, tgt_idxs
 
-    def _extract_matched_observations(
+    def _match_observations(
         self,
         step_data: StepData,
     ) -> StepData:
@@ -160,56 +222,3 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
             source_condition_data=source_condition_data,
             source_group_data=source_group_data,
         )
-
-    def _train_step_forward(
-        self,
-        step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> tuple[torch.Tensor, dict[str, Any]]:
-        step_data = self._extract_matched_observations(step_data)
-        return self._step_fn(
-            step_data,
-            *args,
-            **kwargs,
-        )
-
-    def train_step(
-        self,
-        matched_distr: MatchedDistributions,
-        *args,
-        **kwargs,
-    ) -> dict[str, Any]:
-        """Single step function of the solver.
-
-        :param matched_distr: Input `MatchedDistributions` object.
-        :type matched_distr: dict[str, torch.Tensor]
-        """
-        step_data = extract_step_data(matched_distr, device=self._device_id, dtype=self._dtype)
-        return self._train_step_forward(step_data, *args, **kwargs)
-
-    def predict(
-        self,
-        matched_distr: MatchedDistributions,
-        *args,
-        no_grad: bool = True,
-        **kwargs,
-    ) -> PredictionData:
-        """Prediction on node."""
-        # extract step data and prepare latent state
-        step_data = extract_step_data(matched_distr, device=self._device_id, dtype=self._dtype)
-
-        # optionally stop gradients
-        if no_grad:
-            with torch.no_grad():
-                return self._predict(
-                    step_data,
-                    *args,
-                    **kwargs,
-                )
-        else:
-            return self._predict(
-                step_data,
-                *args,
-                **kwargs,
-            )

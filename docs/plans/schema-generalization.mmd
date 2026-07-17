@@ -1,0 +1,185 @@
+classDiagram
+    direction TB
+
+    %% ========= A. SPEC — the schemas you author =========
+    class StrictDataSchema {
+        <<abstract>>
+        +get_data(adata) container
+        #_verify_args()
+        #_verify_schema(adata)
+    }
+    class StateDataSchema {
+        +sample_rep
+    }
+    class ConditionDataSchema {
+        +conditions
+        +condition_encoders
+        +conditions_covariates
+        +all_condition_cols
+    }
+    class CovariatesDataSchema {
+        +covariate_encoders
+        +covariates_derived
+    }
+    class ResponseDataSchema {
+        +response_encoders
+        +continuous_covs
+    }
+    class CouplingDataSchema {
+        +src_lin
+        +src_quad
+        +tgt_lin
+        +tgt_quad
+    }
+    StrictDataSchema <|-- StateDataSchema
+    StrictDataSchema <|-- ConditionDataSchema
+    StrictDataSchema <|-- CovariatesDataSchema
+    StrictDataSchema <|-- ResponseDataSchema
+    StrictDataSchema <|-- CouplingDataSchema
+
+    %% AdRef typing (anndata.acc) conveyed via relations, not inline types
+    class AdRef {
+        <<anndata.acc>>
+    }
+    StateDataSchema ..> AdRef : sample_rep
+    CouplingDataSchema ..> AdRef : src/tgt _lin/_quad
+
+    %% ========= A2. ENCODER — one abstraction (Change 2) =========
+    class Encoder {
+        <<abstract>>
+        +fit(col, side_data)
+        +transform(x)
+        +inverse_transform(x)
+    }
+    class OneHot
+    class Label
+    class Lookup {
+        +uns_key
+    }
+    class Functional {
+        +fn
+        +inv
+    }
+    Encoder <|-- OneHot
+    Encoder <|-- Label
+    Encoder <|-- Lookup
+    Encoder <|-- Functional
+    ConditionDataSchema o-- Encoder : condition_encoders
+    CovariatesDataSchema o-- Encoder : covariate_encoders
+    ResponseDataSchema o-- Encoder : response_encoders
+
+    %% ========= B. ORCHESTRATION — DataManager wiring =========
+    class DataManager {
+        +match_context
+        +compile_adata(adata) NestedData
+        +get_distribution_data(adata) DistributionData
+        +get_data_dimensionalities(adata) DataDimensionalitiesRegistry
+        -_get_source_key(control_values_dict)
+    }
+    class HierarchicalIndexer {
+        +groups_cols
+        +conditions_cols
+        +create_index(df) MultiIndex
+    }
+    class IndexSelector {
+        +index_to_nested_dict(index) MappedLevelIndex
+    }
+    class QueryFactory
+    class DataPreprocessor {
+        +fit(dist)
+        +transform(dist) DistributionData
+    }
+
+    DataManager *-- StateDataSchema
+    DataManager *-- ConditionDataSchema
+    DataManager *-- CovariatesDataSchema
+    DataManager *-- ResponseDataSchema
+    DataManager *-- CouplingDataSchema
+    DataManager *-- HierarchicalIndexer
+    DataManager *-- IndexSelector
+    DataManager *-- DataPreprocessor
+    IndexSelector *-- QueryFactory
+    IndexSelector ..> HierarchicalIndexer : init_from_indexer
+
+    %% DECOUPLED: match_context drives the split; covariates only embed
+    DataManager --> HierarchicalIndexer : groups_cols = match_context
+    ConditionDataSchema --> HierarchicalIndexer : conditions_cols = all_condition_cols
+
+    %% ========= C. CONTAINERS — produced during compile =========
+    class StateData {
+        +X
+    }
+    class CategoricalData {
+        +ann_df
+        +repr_dict
+        +categorical_encoders
+    }
+    class MixedTypeData {
+        +categorical_covariates
+        +continuous_covariates
+    }
+    class CouplingData {
+        +state_lin
+        +state_quad
+    }
+    class DistributionData {
+        +state_data
+        +condition_data
+        +response_data
+        +covariates_data
+        +source_coupling_data
+        +target_coupling_data
+    }
+    class MappedLevelIndex
+    class MatchedData {
+        +target_distribution
+        +source_distribution
+    }
+    class NestedData
+    class DataDimensionalitiesRegistry {
+        +state_dim
+        +condition_reps_dims
+        +covariate_reps_dims
+    }
+
+    StateDataSchema ..> StateData : get_data
+    CovariatesDataSchema ..> CategoricalData : get_data
+    ConditionDataSchema ..> MixedTypeData : get_data
+    ResponseDataSchema ..> MixedTypeData : get_data
+    CouplingDataSchema ..> CouplingData : get_data
+
+    DistributionData *-- StateData : state
+    DistributionData *-- CategoricalData : covariates
+    DistributionData o-- MixedTypeData : condition
+    DistributionData o-- MixedTypeData : response
+    DistributionData o-- CouplingData : source/target
+    MixedTypeData *-- CategoricalData
+
+    DataManager ..> DistributionData : builds
+    DataManager ..> NestedData : compile_adata
+    DataManager ..> DataDimensionalitiesRegistry : dims
+    IndexSelector ..> MappedLevelIndex : produces
+
+    NestedData *-- MatchedData : leaves
+    NestedData ..> MappedLevelIndex : init_from_data
+    MatchedData o-- DistributionData : target/source slices
+
+    %% ========= D. LOADER — the sampler artifact =========
+    class Sampler {
+        <<abstract>>
+        +tree
+        +sample()
+    }
+    class TrainSampler {
+        +batch_size
+        +n_nodes
+    }
+    class ValidationSampler {
+        +max_n_obs
+        +n_nodes
+    }
+    Sampler <|-- TrainSampler
+    Sampler <|-- ValidationSampler
+    Sampler o-- NestedData : tree
+
+    note for HierarchicalIndexer "DECOUPLED (was FUSION) — groups_cols now comes\nfrom DataManager.match_context (matching only).\nCovariatesDataSchema no longer feeds the split;\nit only produces CategoricalData (embedding).\nTwo independent inputs, may overlap by column."

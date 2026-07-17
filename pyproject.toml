@@ -23,6 +23,11 @@ classifiers = [
 ]
 dependencies = [
   "anndata",
+  # the data layer compiles labels into a binded Scheme and streams cells via binded.Loader.
+  # Pinned to the git branch (not yet on PyPI); binded transitively pins the annbatch BoundClassSampler
+  # fork. Requires `allow-direct-references` (see [tool.hatch.metadata]). For local development both are
+  # installed editable from sibling checkouts (see docs/plans/binded-integration.md).
+  "binded @ git+https://github.com/theislab/binded@feat/loader",
   "cloudpickle",
   "omegaconf",
   "scikit-learn",
@@ -91,6 +96,10 @@ optional-dependencies.torch = [
 urls.Documentation = "https://sc-flow-tools.readthedocs.io/"
 urls.Homepage = "https://github.com/lorenzo-consoli/sc-flow-tools"
 urls.Source = "https://github.com/lorenzo-consoli/sc-flow-tools"
+
+[tool.hatch.metadata]
+# binded (and its transitive annbatch fork) are declared as git direct references.
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/sc_flow" ]

@@ -1,13 +1,9 @@
 from collections.abc import Collection
 
-import pandas as pd
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow._utils import check_sequence_query_against_reference
-from sc_flow.data._mixins import BatchMixin, MappedArray
-from sc_flow.data.containers._categorical import CategoricalData
-from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["ConditionDataSchema"]
@@ -210,56 +206,6 @@ class ConditionDataSchema(StrictDataSchema):
         for covariate in self._conditions_covariates:
             self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
-    def _get_covariates_df(self, adata: AnnData) -> dict[str, pd.DataFrame]:
-        """Extracts the columns for all the condition level from the `.obs` attribute of the input `AnnData`
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        return adata.obs.loc[:, self.all_condition_cols]
-
-    def _get_repr_dict(self, adata: AnnData) -> dict[str, MappedArray]:
-        """Retrieves the representations for all condition levels from the input `AnnData`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        return {
-            condition_level: adata.uns[condition_repr]
-            for condition_level, condition_repr in self._conditions_reps.items()
-        }
-
-    def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData | None:
-        """Retrieves the categorical condition covariates from the input `AnnData`.
-
-        Categorical covariates are in this case represented as a lookup table
-        using the :class:`pandas.DataFrame` initialized with `self._get_covariates_df`
-        as keys  for each observation to look up in the representatoin dictonary
-        extracted with `self._get_repr_dict`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        if not self.has_categorical_covariates:
-            return None
-        covariates_df = self._get_covariates_df(adata)
-        repr_dict = self._get_repr_dict(adata)
-        return CategoricalData.from_pandas(
-            covariates_df, repr_dict=repr_dict, categorical_reps_map=self.categorical_reps_map
-        )
-
-    def _get_continuous_covariates(self, adata: AnnData) -> BatchMixin | None:
-        """Retrieves the continuous condition covariates from the input `AnnData`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        if not self.has_continuous_covariates:
-            return None
-        return BatchMixin(
-            {covariate_name: adata.obsm[covariate_name] for covariate_name in self._conditions_covariates}
-        )
-
     def _verify_schema(self, adata: AnnData) -> None:
         """Verifies that input data satisfies the requirements defined by the schema.
 
@@ -268,18 +214,6 @@ class ConditionDataSchema(StrictDataSchema):
         """
         self._verify_categorical_covariates(adata)
         self._verify_continuous_covariates(adata)
-
-    def _get_data(self, adata: AnnData) -> MixedTypeData | None:
-        """Retrieves the schema-resolved condition information from the input data.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        categorical_covariates = self._get_categorical_covariates(adata)
-        continuous_covariates = self._get_continuous_covariates(adata)
-        if categorical_covariates is None and continuous_covariates is None:
-            return None
-        return MixedTypeData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
 
     @property
     def all_condition_cols(self) -> tuple[str]:

@@ -1,13 +1,8 @@
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Callable, Collection
 
-import pandas as pd
 from anndata import AnnData
 
-from sc_flow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
-from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._utils import get_covariates_encoders_from_dict
-from sc_flow.data.containers._categorical import CategoricalData
-from sc_flow.data.containers._mixed_type import MixedTypeData
+from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["ResponseDataSchema"]
@@ -94,67 +89,6 @@ class ResponseDataSchema(StrictDataSchema):
         """
         self._verify_schema_categorical_covariates(adata)
         self._verify_schema_continuous_covariates(adata)
-
-    def _get_covariates_df(
-        self,
-        adata: AnnData,
-    ) -> pd.DataFrame:
-        """Retrieves the categorical covariates data frame from the input data.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        return adata.obs.loc[:, self.categorical_covariates]
-
-    def _get_categorical_covariates(self, adata: AnnData) -> CategoricalData | None:
-        """Retrieves the categorical covariates from the input data.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        if not self.has_categorical_covariates:
-            return None
-        covariates_df: pd.DataFrame = self._get_covariates_df(adata)
-        encoders_dict: Mapping[str, TargetCovariatesEncoderCls] = get_covariates_encoders_from_dict(
-            self._categorical_covs_dict,
-            covariates_df,
-            fn_dict=self._encoding_transform_fn,
-            inverse_fn_dict=self._encoding_inverse_transform_fn,
-        )
-        return CategoricalData.from_pandas(
-            covariates_df, categorical_encoders=encoders_dict, categorical_reps_map=self.categorical_reps_map
-        )
-
-    def _get_continuous_covariates(
-        self,
-        adata: AnnData,
-    ) -> BatchMixin:
-        """Retrieves the continuous covariates from the input data.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        if not self.has_continuous_covariates:
-            return None
-        covariates_dict = {}
-        for covariate in self._continuous_covs:
-            covariates_dict[covariate] = adata.obsm[covariate]
-        return BatchMixin(covariates_dict)
-
-    def _get_data(
-        self,
-        adata: AnnData,
-    ) -> MixedTypeData | None:
-        """Enforces the schema on the input :class: `AnnData`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        categorical_covariates: CategoricalData = self._get_categorical_covariates(adata)
-        continuous_covariates: BatchMixin = self._get_continuous_covariates(adata)
-        if categorical_covariates is None and continuous_covariates is None:
-            return None
-        return MixedTypeData(categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates)
 
     @property
     def categorical_covariates(self) -> tuple[str]:

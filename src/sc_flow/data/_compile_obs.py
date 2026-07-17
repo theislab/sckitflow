@@ -1,9 +1,9 @@
-"""Obs-only ``compile_obs`` — labels → dagloader ``Scheme`` + ``condition_fn``.
+"""Obs-only ``compile_obs`` — labels → binded ``Scheme`` + ``condition_fn``.
 
 Replaces the flat ``prepare_data`` blob with the composed schema objects
 (:class:`StateDataSchema` / :class:`ConditionDataSchema` / :class:`GroupsDataSchema`)
 and compiles them **off ``obs`` (+ the ``uns`` embedding tables) only — cells are never
-read here; they are streamed later by dagloader. This mirrors cellflow's
+read here; they are streamed later by binded. This mirrors cellflow's
 ``build_annbatch_training`` but the condition encoder is sc_flow's own
 :class:`CategoricalData`.
 
@@ -38,16 +38,16 @@ ConditionFn = Callable[[Leaf], dict[str, np.ndarray]]
 
 @dataclass(frozen=True)
 class CompiledData:
-    """Result of :func:`compile_obs` — everything dagloader needs, built from labels."""
+    """Result of :func:`compile_obs` — everything binded needs, built from labels."""
 
-    scheme: Any  # dagloader.Scheme
+    scheme: Any  # binded.Scheme
     condition_fn: ConditionFn
     cols: tuple[str, ...]
     data_dim: int | None = None
 
 
 def _sample_rep_to_key(sample_rep: str) -> str:
-    """``sample_rep`` → dagloader rep key (``"X"`` or ``"obsm/<rep>"``)."""
+    """``sample_rep`` → binded rep key (``"X"`` or ``"obsm/<rep>"``)."""
     return "X" if sample_rep == "X" else f"obsm/{sample_rep}"
 
 
@@ -60,17 +60,17 @@ def compile_obs(
     control_key: str,
     split_covariates: Sequence[str] = (),
 ) -> CompiledData:
-    """Compile the composed schemas into a dagloader ``Scheme`` + ``condition_fn`` from obs only.
+    """Compile the composed schemas into a binded ``Scheme`` + ``condition_fn`` from obs only.
 
     :param adata: Source with ``.obs`` (labels) and ``.uns`` (embedding tables). Cells
-        (``.X`` / ``.obsm``) are NOT read here — dagloader streams them at train time.
+        (``.X`` / ``.obsm``) are NOT read here — binded streams them at train time.
     :param state: Which representation to stream (becomes the ``Node`` key).
     :param condition: The leaf-level (categorical/combinatorial) condition covariates.
     :param groups: Embedded *sample* covariates (require a rep/encoding); ``None`` = none.
     :param control_key: Boolean/0-1 obs column marking control observations.
     :param split_covariates: Matching-context columns → the ``Bind.common`` (not embedded).
     """
-    from dagloader import Bind, Node, Scheme, uniform
+    from binded import Bind, Node, Scheme, uniform
 
     obs: pd.DataFrame = adata.obs
     uns = getattr(adata, "uns", {}) or {}

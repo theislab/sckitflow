@@ -10,7 +10,7 @@ from sc_flow.data.containers._base import BaseData
 __all__ = ["DataSchema", "StrictDataSchema"]
 
 
-class DataSchema(abc.ABC):
+class DataSchema(abc.ABC):  # noqa: B024  # base for StrictDataSchema; _get_data is concrete post-binded
     """Abstract base class for enforcing data configurations on :class:`AnnData` objects.
 
     The derived classes will need to override the following abstract methods to be instantiated:
@@ -56,19 +56,25 @@ class DataSchema(abc.ABC):
             self._check_key_found_in_adata_field(adata, repr, "obsm")
         return adata.X if repr is None else adata.obsm[repr]
 
-    @abc.abstractmethod
     def _get_data(
         self,
         adata: AnnData,
     ) -> BaseData | tuple[BaseData | None, ...] | None:
-        """Enforces the schema on the input :class: `AnnData`.
+        """Enforce the schema on the input :class:`AnnData`.
 
-        Needs to be overridden by derived classes.
+        No longer the extraction path: after the ``binded`` migration cell arrays are streamed by
+        :class:`binded.Loader` and per-leaf conditions are built by
+        :func:`sc_flow.data.compile_obs` from the schemas' declared columns/reps. Schemas are now
+        pure declarations; a subclass only overrides this when it still produces a label container
+        (e.g. :class:`GroupsDataSchema`). The default raises to flag any stale array-materializing use.
 
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
-        raise NotImplementedError
+        raise NotImplementedError(
+            f"{type(self).__name__} is a declaration schema — array extraction moved to "
+            "sc_flow.data.compile_obs (binded streams cells). Read its declared properties instead."
+        )
 
     def extract_array(self, adata: AnnData, repr: str | None = None) -> np.ndarray:
         """Extracts the data array from the input :class: `AnnData`.

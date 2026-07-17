@@ -4,7 +4,7 @@ from typing import Literal
 
 import torch
 
-__all__ = ["SurrogatePotential"]
+__all__ = ["SurrogatePotential", "SquaredErrorPotential"]
 
 
 class SurrogatePotential(abc.ABC, torch.nn.Module):
@@ -309,3 +309,24 @@ class SurrogatePotential(abc.ABC, torch.nn.Module):
     def surr_model(self) -> torch.nn.Module:
         """Returns the underlying surrogate model."""
         return self._surr_model
+
+
+class SquaredErrorPotential(SurrogatePotential):
+    r"""Masked squared-error potential :math:`\psi = \lVert (y - y^\star)\odot m\rVert^2`.
+
+    A concrete :class:`SurrogatePotential` that scores a response ``y`` by its masked
+    squared distance to the target ``ystar``, summed over the feature axis. Minimizing
+    it steers the surrogate's response toward ``ystar``.
+    """
+
+    def _compute_raw_potential(self, y: torch.Tensor) -> torch.Tensor:
+        """Squared error to the (masked) target, summed over features.
+
+        :param y: Reduced response of shape ``(N, G)``.
+        :type y: class: `torch.Tensor`
+
+        :return: Per-candidate potential of shape ``(N,)``.
+        :rtype: class: `torch.Tensor`
+        """
+        diff = (y - self._ystar) * self._mask
+        return (diff**2).sum(dim=-1)

@@ -4,8 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from sc_flow.backends.torch._types import PredictionData
-from sc_flow.backends.torch.methods._utils import StepData
+from sc_flow.backends.torch._types import PredictionData, StepData
 from sc_flow.backends.torch.methods.library._cfm import CFM
 
 
@@ -73,46 +72,6 @@ class TestCFM:
 
         assert cfm_instance._match_fn == independent_coupling
 
-    # -------------------------------------------------------------------------
-    # Latent preparation tests (training vs inference)
-    # -------------------------------------------------------------------------
-    def test_prepare_latent_train_generate_from_noise(self, cfm_instance):
-        cfm_instance._generate_from_noise = True
-        target = torch.randn(4, 2)
-        latent = cfm_instance._prepare_latent_train(None, target)
-        assert latent.shape == target.shape
-        assert not torch.allclose(latent, target)
-
-    def test_prepare_latent_train_use_source(self, cfm_instance):
-        cfm_instance._generate_from_noise = False
-        source = torch.randn(4, 2)
-        target = torch.randn(4, 2)
-        latent = cfm_instance._prepare_latent_train(source, target)
-        assert latent is source
-
-    def test_prepare_latent_inference_single_sample(self, cfm_instance):
-        cfm_instance._generate_from_noise = True
-        target = torch.randn(4, 2)
-        latent = cfm_instance._prepare_latent_inference(None, target, n_samples=None)
-        assert latent.shape == (4, 2)
-
-    def test_prepare_latent_inference_multiple_samples(self, cfm_instance):
-        cfm_instance._generate_from_noise = True
-        target = torch.randn(4, 2)
-        latent = cfm_instance._prepare_latent_inference(None, target, n_samples=3)
-        assert latent.shape == (3, 4, 2)
-
-    def test_prepare_latent_inference_source_no_generation(self, cfm_instance):
-        cfm_instance._generate_from_noise = False
-        source = torch.randn(4, 2)
-        target = torch.randn(4, 2)
-        latent = cfm_instance._prepare_latent_inference(source, target, n_samples=5)
-        assert latent is source
-        assert latent.shape == (4, 2)  # unchanged
-
-    # -------------------------------------------------------------------------
-    # Training step (_step_fn)
-    # -------------------------------------------------------------------------
     def test_step_fn(self, cfm_instance):
         mock_cond = mock_condition_data()
         mock_group = mock_condition_data()

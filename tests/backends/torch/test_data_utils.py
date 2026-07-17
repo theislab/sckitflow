@@ -119,3 +119,91 @@ class TestDataUtils:
 
         step_data = data_utils.extract_step_data(matched)
         assert isinstance(step_data, StepData)
+
+    def test_write_continuous_cond_cov_no_base_data(self):
+        """When base_data is None, a fresh StepData with only the condition is returned."""
+        key = "my_cov"
+        x = torch.randn(10, 5)
+        result = data_utils.write_continuous_cond_cov_to_step_data(key, x)
+
+        assert isinstance(result, StepData)
+        assert result.target_condition_data == {key: x}
+        # All other fields should be the default None
+        assert result.target_state is None
+        assert result.source_state is None
+        assert result.target_coupling_lin is None
+        assert result.source_coupling_lin is None
+        assert result.target_group_data is None
+        assert result.source_condition_data is None
+
+    def test_write_continuous_cond_cov_with_base_data(self, monkeypatch):
+        """When base_data is provided, the existing StepData is updated with the new condition."""
+        key = "new_cov"
+        x = torch.randn(10, 5)
+
+        # Build a realistic StepData that extract_step_data would return
+        existing_step = StepData(
+            target_state=torch.randn(5, 2),
+            target_coupling_lin=torch.randn(5, 2),
+            target_coupling_quad=None,
+            target_condition_data={"old_key": torch.randn(5, 3)},
+            target_group_data=None,
+            source_state=torch.randn(5, 2),
+            source_coupling_lin=torch.randn(5, 2),
+            source_coupling_quad=None,
+            source_condition_data={"old_key": torch.randn(5, 3)},
+            source_group_data=None,
+        )
+
+        base_data = Mock(spec=MatchedDistributions)  # dummy, won't be used directly
+        # Patch extract_step_data to return our prepared StepData
+        monkeypatch.setattr(data_utils, "extract_step_data", lambda *a, **kw: existing_step)
+
+        result = data_utils.write_continuous_cond_cov_to_step_data(
+            key, x, base_data, dtype=torch.float64, device=torch.device("cpu")
+        )
+
+        # Original condition still present
+        assert torch.equal(result.target_condition_data["old_key"], existing_step.target_condition_data["old_key"])
+        # New condition inserted
+        assert torch.equal(result.target_condition_data[key], x)
+        # Other fields untouched
+        assert torch.equal(result.target_state, existing_step.target_state)
+        assert torch.equal(result.source_state, existing_step.source_state)
+        assert torch.equal(result.target_coupling_lin, existing_step.target_coupling_lin)
+        # Source condition data unchanged (the new key should not appear there)
+        assert key not in result.source_condition_data
+        assert torch.equal(result.source_condition_data["old_key"], existing_step.source_condition_data["old_key"])
+
+    def test_prepare_latent_train_generate_from_noise(self):
+        target = torch.randn(4, 2)
+        latent = data_utils.prepare_latent_train(None, target, torch.randn, generate_from_noise=True)
+        assert latent.shape == target.shape
+        assert not torch.allclose(latent, target)
+
+    def test_prepare_latent_train_use_source(self):
+        source = torch.randn(4, 2)
+        target = torch.randn(4, 2)
+        latent = data_utils.prepare_latent_train(source, target, torch.randn, generate_from_noise=False)
+        assert latent is source
+
+    def test_prepare_latent_inference_single_sample(self):
+        target = torch.randn(4, 2)
+        latent = data_utils.prepare_latent_inference(
+            None, target, torch.randn, n_samples=None, generate_from_noise=True
+        )
+        assert latent.shape == (4, 2)
+
+    def test_prepare_latent_inference_multiple_samples(self):
+        target = torch.randn(4, 2)
+        latent = data_utils.prepare_latent_inference(None, target, torch.randn, n_samples=3, generate_from_noise=True)
+        assert latent.shape == (3, 4, 2)
+
+    def test_prepare_latent_inference_source_no_generation(self):
+        source = torch.randn(4, 2)
+        target = torch.randn(4, 2)
+        latent = data_utils.prepare_latent_inference(
+            source, target, torch.randn, n_samples=5, generate_from_noise=False
+        )
+        assert latent is source
+        assert latent.shape == (4, 2)  # unchanged

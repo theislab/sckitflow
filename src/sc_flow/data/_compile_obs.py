@@ -24,6 +24,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from sc_flow.data._utils import get_covariate_encoder
 from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.schemas._condition_data_schema import ConditionDataSchema
 from sc_flow.data.schemas._groups_data_schema import GroupsDataSchema
@@ -81,25 +82,28 @@ def compile_obs(
     cols = tuple(dict.fromkeys([*split_covariates, *cond_cols, *group_cols]))
     key = _sample_rep_to_key(state.sample_rep)
 
-    def _fit_encoders(frame_cols: list[str], repr_d: dict, reps_m: dict) -> dict[str, Any]:
-        # Fit encoders ONCE on the full (deduped) obs category space, so a per-leaf single value
-        # produces the full-width one-hot cellflow makes — not a dim-1 fit. Rep'd realms need none.
-        if not frame_cols:
-            return {}
-        tmpl = CategoricalData.from_pandas(obs[frame_cols].drop_duplicates(), repr_dict=repr_d, categorical_reps_map=reps_m)
-        return dict(tmpl.categorical_encoders)
+    def _encoders(encoding: dict, level_to_cols: dict) -> dict[str, Any]:
+        # Build one encoder per level from its DECLARED encoding id (e.g. "one-hot"), fit ONCE on the
+        # union of the level's columns' values across obs — so a per-leaf single value yields the full
+        # category-space encoding, not a dim-1 fit. Rep'd levels use the lookup table and get no encoder.
+        enc: dict[str, Any] = {}
+        for level, enc_id in encoding.items():
+            union = obs[list(level_to_cols[level])].to_numpy().reshape(-1, 1)
+            enc[level] = get_covariate_encoder(enc_id, union)
+        return enc
 
     # --- perturbation levels: a level's columns are its combination slots (stacked) ---
     cond_repr = {level: uns[rep] for level, rep in condition.conditions_reps.items()}
     cond_reps_map = condition.categorical_reps_map
-    cond_encoders = _fit_encoders(cond_cols, cond_repr, cond_reps_map)
+    cond_encoders = _encoders(condition.conditions_encoding, condition.conditions)
     cond_idx = [cols.index(c) for c in cond_cols]
 
     # --- sample covariates: one value per sample, tiled across the max_comb slots (cellflow's np.tile) ---
     group_reps = groups.groups_reps if groups is not None else {}
-    samp_repr = {c: uns[group_reps[c]] for c in group_cols if c in group_reps}
+    group_encoding = groups.groups_encoding if groups is not None else {}
+    samp_repr = {c: uns[group_reps[c]] for c in group_reps}
     samp_reps_map = {c: c for c in group_cols}  # each sample covariate is its own group
-    samp_encoders = _fit_encoders(group_cols, samp_repr, samp_reps_map)
+    samp_encoders = _encoders(group_encoding, {c: [c] for c in group_cols})
     samp_idx = [cols.index(c) for c in group_cols]
 
     # combination length = the (shared) perturbation-level column count; sample covariates tile to it.

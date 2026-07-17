@@ -17,11 +17,12 @@ class TestConditionDataSchema:
         conditions: dict[str, Collection[str]],
         conditions_reps: dict[str, str],
     ) -> bool:
-        # reps are an optional per-level override: every rep key must be a declared condition
-        # level, but a level may omit its rep (→ one-hot). So valid iff reps ⊆ conditions.
-        cond_keys = set() if conditions is None else set(conditions.keys())
-        rep_keys = set() if conditions_reps is None else set(conditions_reps.keys())
-        return rep_keys <= cond_keys
+        if conditions is None and conditions_reps is None:
+            return True
+        elif conditions is not None and conditions_reps is not None:
+            return set(conditions.keys()) == set(conditions_reps.keys())
+        else:
+            return False
 
     @pytest.mark.parametrize(
         "conditions",
@@ -58,10 +59,16 @@ class TestConditionDataSchema:
         conditions_reps: dict[str, str],
         conditions_covariates: Collection[str] | None,
     ) -> None:
-        # failure at initialization: invalid iff a rep key is not a declared condition level
-        if not self._is_valid_args(conditions, conditions_reps):
+        # failure at initialization
+        is_valid_args = self._is_valid_args(conditions, conditions_reps)
+        if (
+            (conditions is not None and conditions_reps is None)
+            or (conditions is None and conditions_reps is not None)
+            or not is_valid_args
+        ):
             with pytest.raises(ValueError):
-                ConditionDataSchema(
+                # with pytest.raises(ValueError, match="The following reference columns are missing"):
+                schema = ConditionDataSchema(
                     conditions=conditions, conditions_reps=conditions_reps, conditions_covariates=conditions_covariates
                 )
             return None
@@ -149,22 +156,33 @@ class TestConditionDataSchema:
         # test condition reps
         if conditions is not None:
             expected_df_cols = [col for val in conditions.values() for col in val]
-            reps_cover_all = conditions_reps is not None and set(conditions_reps) >= set(conditions)
-            if reps_cover_all:
-                # every level has a rep → verify the embedding lookup
-                verify_categorical_data(
-                    data.categorical_covariates,
-                    expected_df_cols,
-                    uns_keys_to_nunique_prefix_and_dim,
-                    conditions_reps=conditions_reps,
-                )
-            else:
-                # a level omits its rep → one-hot fallback; structural check only (columns present).
-                # The one-hot embedding itself is pinned in tests/data/test_compile_obs_parity.py.
-                assert set(data.categorical_covariates.ann_df.columns) == set(expected_df_cols)
+            verify_categorical_data(
+                data.categorical_covariates,
+                expected_df_cols,
+                uns_keys_to_nunique_prefix_and_dim,
+                conditions_reps=conditions_reps,
+            )
         else:
             assert data.categorical_covariates is None
 
         # test condition covariates
         N = len(adata)
         verify_mixin(data.continuous_covariates, N, obsm_keys_to_dim, conditions_covariates)
+
+
+def test_conditions_encoding_explicit_one_hot() -> None:
+    """A level may declare `conditions_encoding` (e.g. one-hot) instead of a rep — explicit, not inferred."""
+    # rep + explicit one-hot level: valid
+    ConditionDataSchema(
+        conditions={"drug": ["drug1"], "ko": ["koA", "koB"]},
+        conditions_reps={"drug": "drug"},
+        conditions_encoding={"ko": "one-hot"},
+    )
+    # a level with neither a rep nor an encoding is rejected (explicit representation required)
+    with pytest.raises(ValueError):
+        ConditionDataSchema(conditions={"drug": ["drug1"]})
+    # a level cannot be both rep'd and encoded
+    with pytest.raises(ValueError):
+        ConditionDataSchema(
+            conditions={"drug": ["drug1"]}, conditions_reps={"drug": "drug"}, conditions_encoding={"drug": "one-hot"}
+        )

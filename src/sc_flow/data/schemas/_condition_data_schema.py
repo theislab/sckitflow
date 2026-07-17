@@ -3,6 +3,7 @@ from collections.abc import Collection
 import pandas as pd
 from anndata import AnnData
 
+from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data._mixins import BatchMixin, MappedArray
 from sc_flow.data.containers._categorical import CategoricalData
@@ -19,6 +20,7 @@ class ConditionDataSchema(StrictDataSchema):
         self,
         conditions: dict[str, Collection[str]] | None = None,
         conditions_reps: dict[str, str] | None = None,
+        conditions_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
         conditions_covariates: Collection[str] | None = None,
     ) -> None:
         """Initializes the condition data schema.
@@ -162,22 +164,28 @@ class ConditionDataSchema(StrictDataSchema):
         """
         self._conditions = {} if conditions is None else conditions
         self._conditions_reps = {} if conditions_reps is None else conditions_reps
+        self._conditions_encoding = {} if conditions_encoding is None else conditions_encoding
         self._conditions_covariates = () if conditions_covariates is None else conditions_covariates
         super().__init__()
 
     def _verify_args(self) -> None:
-        """Reps are an optional per-level override; a level without one is one-hot encoded.
+        """Every condition level must declare exactly one representation: a rep or an encoding.
 
-        A rep is not required for every level (``allow_missing_from_query``) — a level with no rep
-        falls back to one-hot (handled by :class:`CategoricalData`). But every declared rep must map
-        to a real condition level (``allow_missing_from_reference=False``), so a stray rep key errors.
+        Mirrors :class:`GroupsDataSchema`: each level appears in ``conditions_reps`` (embedding
+        lookup) *or* ``conditions_encoding`` (e.g. ``"one-hot"``) — encoding is explicit, not inferred
+        from a missing rep. Every rep/encoding key must be a declared level, and no level may be in
+        both.
         """
         check_sequence_query_against_reference(
-            self.conditions_reps.keys(),
-            self.conditions.keys(),
-            allow_missing_from_query=True,
+            self._conditions.keys(),
+            set(self._conditions_reps.keys()).union(set(self._conditions_encoding.keys())),
+            allow_missing_from_query=False,
             allow_missing_from_reference=False,
         )
+        shared_keys = set(self._conditions_reps.keys()).intersection(self._conditions_encoding.keys())
+        if len(shared_keys):
+            raise ValueError("Each condition level should have only one representation (rep or encoding).")
+        self._check_is_valid_encoder_id_dict(self._conditions_encoding)
 
     def _verify_categorical_covariates(self, adata: AnnData) -> None:
         """Verifies the categorical condition covariates setting on the input `AnnData`.
@@ -304,6 +312,11 @@ class ConditionDataSchema(StrictDataSchema):
     def conditions_reps(self) -> dict[str, str]:
         """Exposes to `conditions_reps` parameter set at initialization."""
         return self._conditions_reps
+
+    @property
+    def conditions_encoding(self) -> dict[str, TargetCovariatesEncodingId]:
+        """Per-level encoding ids (e.g. ``"one-hot"``) for levels without a precomputed rep."""
+        return self._conditions_encoding
 
     @property
     def conditions_covariates(self) -> Collection[str]:

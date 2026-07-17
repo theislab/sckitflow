@@ -87,10 +87,13 @@ def _build_ref(adata, pert, reps, split, samp, samp_reps):
 
 
 def _compile_ours(adata, pert, reps, split, samp, samp_reps):
+    # cellflow infers one-hot from a missing rep; our schema requires it declared — so make it
+    # explicit for every perturbation level that lacks a rep.
+    encoding = {level: "one-hot" for level in pert if level not in reps}
     return compile_obs(
         adata,
         state=StateDataSchema(sample_rep="X"),
-        condition=ConditionDataSchema(conditions=pert, conditions_reps=reps),
+        condition=ConditionDataSchema(conditions=pert, conditions_reps=reps, conditions_encoding=encoding),
         groups=GroupsDataSchema(groups=samp, groups_reps=samp_reps) if samp else None,
         control_key="control",
         split_covariates=split,

@@ -4,6 +4,15 @@ Goal: describe cellflow's model-init concerns in sc-flow-tools' *own* language. 
 diagram in [schema-generalization.md](schema-generalization.md). Native vocab only (no
 `split_covariates`/`sample_covariates`).
 
+> **Status: Changes 1–3 IMPLEMENTED** on `experiment/binded-vocab-strip`, adapted to the post-strip
+> binded world (there is no `DataManager`/`HierarchicalIndexer` anymore — the changes landed on
+> `compile_obs` + the `schemas/`). Commits: `e10ec71` (1 — `match_context`), `ec6dc39` (2 — one
+> `Encoder` map + `GroupsDataSchema`→`CovariatesDataSchema`), `956318c` (3 — `CouplingDataSchema`
+> role-refs, `anndata>=0.13` pinned for `anndata.acc`). Change 4 (container dissolution) already rode
+> the binded strip (`0ae814e`). Decisions taken: embedded axis named `covariates`; one `{col: Encoder}`
+> map (both directions bundled); coupling refs adopt `anndata.acc` accessors (str also accepted).
+> Not done: the model-side consumption of coupling role-refs (downstream is still being rewired).
+
 | # | Change | Why |
 |---|---|---|
 | 1 | **Split `match_context` from `covariates`.** `groups` no longer feeds the indexer *and* the encoder. `match_context: list[str]` drives the hierarchical split (matching only); `covariates` are embedded only. A column may be in both. No `match_context or groups` fallback. | `groups` did double duty — you couldn't "match on `cell_line` but not embed it" (or the reverse). The fallback would silently re-fuse the two axes we're separating. |
@@ -15,13 +24,14 @@ diagram in [schema-generalization.md](schema-generalization.md). Native vocab on
 
 | old | new | status |
 |---|---|---|
-| `groups` (as split) | `match_context` | locked |
-| `groups` + `groups_reps`/`groups_encoding` | `covariates` + `covariate_encoders` | open |
-| `_reps` / `_encoding` / `_fn` dicts | `Encoder` (one map, two directions) | open |
-| `source_rep`/`target_rep`/`n_shared_dims` | `src_lin`/`src_quad`/`tgt_lin`/`tgt_quad` (`AdRef`) | open |
+| `split_covariates` (compile_obs param) | `match_context` | **done** (`e10ec71`) |
+| `GroupsDataSchema` + `groups_reps`/`groups_encoding` | `CovariatesDataSchema` + `covariate_encoders` | **done** (`ec6dc39`) |
+| `_reps` / `_encoding` / `_fn` dicts | `Encoder` (one `{col: encoder}` map, two directions) | **done** (`ec6dc39`) |
+| `source_rep`/`target_rep`/`n_shared_dims` | `src_lin`/`src_quad`/`tgt_lin`/`tgt_quad` (`anndata.acc` accessor or str) | **done** (`956318c`) |
 
-## Sequencing
+## Sequencing (as executed)
 
-- Changes **1–2** need no anndata bump — land against 0.12.9 now.
-- Change **3** waits on the anndata bump (to a build shipping `anndata.acc`).
-- Change **4** rides the `binded` streaming migration ([sc-flow-refactor.md](sc-flow-refactor.md) Track A), not this pass.
+- Changes **1–2** landed with no anndata dependency.
+- Change **3** adopted `anndata.acc` — `anndata>=0.13` is now pinned in `pyproject.toml`.
+- Change **4** rode the `binded` streaming migration (`0ae814e`); `CouplingData`/`DistributionData`/etc.
+  were removed in the earlier strip (`b75bf80`).

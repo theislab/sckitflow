@@ -1,8 +1,10 @@
 # Schema generalization — decouple matching from embedding, unify encoders & coupling
 
-**Status:** plan-only. Do not write code until the **Open decisions** are answered by the maintainer
-(@selmanozleyen). Part of the [roadmap](roadmap.md); shapes the schema surface in
-`sc_flow/data/schemas/*` that seeds `binded`'s `FlowProblemSpec` (see [binded-spec.md](binded-spec.md)).
+**Status: IMPLEMENTED (Changes 1–3)** on `experiment/binded-vocab-strip` — see the status block in
+[changes.md](changes.md) for commits and the decisions taken. This document's Architecture diagram is
+the *pre-strip* target (still shows `DataManager`/`HierarchicalIndexer`/`DistributionData`); the
+changes actually landed on the post-strip `compile_obs` + `schemas/` surface. Kept for the motivation
+and the reference-system rationale. Part of the [roadmap](roadmap.md).
 
 **Audience:** the next agent picking this up cold. Goal is to describe cellflow's model-init concerns
 in sc-flow-tools' *own* language — **not** to import cellflow vocabulary (`split_covariates`,

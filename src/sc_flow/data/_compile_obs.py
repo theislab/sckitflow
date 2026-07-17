@@ -58,7 +58,7 @@ def compile_obs(
     condition: ConditionDataSchema,
     groups: GroupsDataSchema | None = None,
     control_key: str,
-    split_covariates: Sequence[str] = (),
+    match_context: Sequence[str] = (),
 ) -> CompiledData:
     """Compile the composed schemas into a binded ``Scheme`` + ``condition_fn`` from obs only.
 
@@ -68,7 +68,8 @@ def compile_obs(
     :param condition: The leaf-level (categorical/combinatorial) condition covariates.
     :param groups: Embedded *sample* covariates (require a rep/encoding); ``None`` = none.
     :param control_key: Boolean/0-1 obs column marking control observations.
-    :param split_covariates: Matching-context columns → the ``Bind.common`` (not embedded).
+    :param match_context: Matching-context columns → the ``Bind.common`` (matching only, not
+        embedded). sc-flow's native name for cellflow's ``split_covariates``.
     """
     from binded import Bind, Node, Scheme, uniform
 
@@ -77,9 +78,9 @@ def compile_obs(
 
     cond_cols = list(condition.all_condition_cols)
     group_cols = list(groups.groups) if groups is not None else []
-    # grouping columns: matching context (split) + condition + embedded sample covariates,
+    # grouping columns: matching context + condition + embedded sample covariates,
     # deduped, order-preserving (context first) — matches cellflow's `cols` ordering.
-    cols = tuple(dict.fromkeys([*split_covariates, *cond_cols, *group_cols]))
+    cols = tuple(dict.fromkeys([*match_context, *cond_cols, *group_cols]))
     key = _sample_rep_to_key(state.sample_rep)
 
     def _encoders(encoding: dict, level_to_cols: dict) -> dict[str, Any]:
@@ -140,7 +141,7 @@ def compile_obs(
             "ctrl": Node("data", cols, key, uniform(ctrl)),
         },
         root="pert",
-        binds=(Bind("pert", "ctrl", common=tuple(split_covariates)),),
+        binds=(Bind("pert", "ctrl", common=tuple(match_context)),),
         seed=0,
     )
     return CompiledData(scheme=scheme, condition_fn=condition_fn, cols=cols)

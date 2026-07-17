@@ -96,7 +96,7 @@ def _compile_ours(adata, pert, reps, split, samp, samp_reps):
         condition=ConditionDataSchema(conditions=pert, conditions_reps=reps, conditions_encoding=encoding),
         groups=GroupsDataSchema(groups=samp, groups_reps=samp_reps) if samp else None,
         control_key="control",
-        split_covariates=split,
+        match_context=split,
     )
 
 

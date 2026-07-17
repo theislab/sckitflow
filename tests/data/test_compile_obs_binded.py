@@ -50,7 +50,7 @@ def _compile(adata: ad.AnnData):
         condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, conditions_reps={"drug": "drug"}),
         groups=GroupsDataSchema(groups=["cell_type"], groups_reps={"cell_type": "cell_type"}),
         control_key="control",
-        split_covariates=["cell_type"],
+        match_context=["cell_type"],
     )
 
 

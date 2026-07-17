@@ -183,6 +183,31 @@ def test_flowspec_build_loader_from_zarr_path_with_explicit_rep_tables(tmp_path)
     assert isinstance(batch["condition"], dict) and set(batch["condition"]) == {"drug", "cell_type"}
 
 
+def test_out_of_core_scheme_matches_in_memory(tmp_path):
+    """Compiling from a zarr PATH (out-of-core) yields the same nodes + weights as in-memory."""
+    adata = _make_adata()
+    path = tmp_path / "adata.zarr"
+    adata.write_zarr(path)
+
+    def w(compiled, node):
+        return {tuple(map(str, k)): float(v) for k, v in compiled.scheme.nodes[node].weights.items()}
+
+    kw = {
+        "state": StateDataSchema(sample_rep="X"),
+        "condition": ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        "covariates": CovariatesDataSchema(covariate_encoders={"cell_type": lookup("cell_type")}),
+        "control_key": "control",
+        "match_context": ["cell_type"],
+    }
+    mem = compile_obs(adata, **kw)  # in-memory (rep_tables defaults to .uns)
+    disk = compile_obs(str(path), rep_tables=adata.uns, **kw)  # out-of-core (explicit rep_tables)
+
+    assert mem.cols == disk.cols
+    assert w(mem, "pert") == w(disk, "pert")
+    assert w(mem, "ctrl") == w(disk, "ctrl")
+    assert mem.scheme.nodes["pert"].keys == disk.scheme.nodes["pert"].keys
+
+
 def test_zarr_path_lookup_without_rep_tables_raises(tmp_path):
     """A path has no in-memory .uns, so a lookup encoder without explicit rep_tables fails loudly."""
     adata = _make_adata()

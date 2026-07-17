@@ -18,7 +18,7 @@ import pytest
 
 pytest.importorskip("cellflow")
 pytest.importorskip("annbatch")
-pytest.importorskip("dagloader")
+pytest.importorskip("binded")  # cellflow's build_annbatch_training now emits a binded Scheme (was dagloader)
 
 import anndata as ad
 from cellflow.data._annbatch import build_annbatch_training
@@ -105,18 +105,20 @@ def _compile_ours(adata, pert, reps, split, samp, samp_reps):
 @pytest.mark.parametrize(("pert", "reps", "split", "samp", "samp_reps", "builds", "embeds", "reason"), SPECS)
 class TestCompileObsParity:
     def test_topology_parity(self, pert, reps, split, samp, samp_reps, builds, embeds, reason):
-        """binded layer: pert/ctrl leaves + Bind.common match cellflow's scheme."""
+        """binded layer: pert/ctrl nodes — same leaves AND same weight values — + Bind.common."""
         if not builds:
             pytest.xfail(reason)
         adata = _make_adata()
         ref = _build_ref(adata, pert, reps, split, samp, samp_reps)
         ours = _compile_ours(adata, pert, reps, split, samp, samp_reps)
 
-        def leaves(node):
-            return {tuple(map(str, k)) for k in node.weights}
+        def weights(node):
+            # str-keyed so numpy-scalar vs python-scalar leaf keys compare; values are the weights.
+            return {tuple(map(str, k)): float(v) for k, v in node.weights.items()}
 
-        assert leaves(ours.scheme.nodes["pert"]) == leaves(ref.scheme.nodes["pert"])
-        assert leaves(ours.scheme.nodes["ctrl"]) == leaves(ref.scheme.nodes["ctrl"])
+        assert weights(ours.scheme.nodes["pert"]) == weights(ref.scheme.nodes["pert"])
+        assert weights(ours.scheme.nodes["ctrl"]) == weights(ref.scheme.nodes["ctrl"])
+        assert ours.scheme.nodes["pert"].keys == ref.scheme.nodes["pert"].keys  # streamed rep(s)
         assert ours.scheme.binds[0].common == ref.scheme.binds[0].common
 
     def test_condition_embedding_parity(self, pert, reps, split, samp, samp_reps, builds, embeds, reason):

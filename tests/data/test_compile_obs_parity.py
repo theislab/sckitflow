@@ -60,11 +60,10 @@ SPECS = [
     pytest.param({"drug": ["drug1"]}, {"drug": "drug"}, ["cell_type"], [], {}, True, True, "", id="single-drug-rep-split"),
     pytest.param({"drug": ["drug1"]}, {"drug": "drug"}, [], [], {}, True, True, "", id="single-drug-rep-nosplit"),
     pytest.param({"drug": ["drug1"]}, {}, ["cell_type"], [], {}, True, True, "", id="single-drug-onehot"),
-    pytest.param(
-        {"drug": ["drug1", "drug2"]}, {"drug": "drug"}, ["cell_type"], [], {}, True, False,
-        "combination length >1 (max_combination_length padding) not encoded yet",
-        id="combo-len2",
-    ),
+    # single multi-column level (a drug combination) — extract_reps stacks the slots.
+    # cellflow requires all perturbation levels to share one column count, so this is the
+    # general combination case; no cross-level padding is possible (unequal lengths are rejected).
+    pytest.param({"drug": ["drug1", "drug2"]}, {"drug": "drug"}, ["cell_type"], [], {}, True, True, "", id="combo-len2"),
     pytest.param(
         {"drug": ["drug1"]}, {"drug": "drug"}, [], ["cell_type"], {"cell_type": "cell_type"}, True, False,
         "sample-covariate embedding (tiling) not ported yet",

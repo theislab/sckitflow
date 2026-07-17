@@ -98,6 +98,10 @@ def compile_obs(
     cond_idx = [cols.index(c) for c in cond_cols]
 
     def condition_fn(leaf: Leaf) -> dict[str, np.ndarray]:
+        # A level's columns are its combination slots; extract_reps stacks them → (1, n_slots, dim).
+        # cellflow requires all perturbation levels to share one column count (= max_combination_length),
+        # so no cross-level padding is needed here. (An explicit max_combination_length *override* larger
+        # than the observed count would pad the slot axis with null — not yet supported.)
         row = pd.DataFrame([{c: leaf[i] for c, i in zip(cond_cols, cond_idx, strict=True)}])
         cat = CategoricalData.from_pandas(
             row, repr_dict=repr_dict, categorical_encoders=shared_encoders, categorical_reps_map=reps_map

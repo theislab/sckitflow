@@ -75,7 +75,7 @@ def test_jax_objective_trains_through_same_harness():
     from cellflow._compat import ConstantNoiseFlow
     from cellflow.networks._velocity_field import ConditionalVelocityField
 
-    from sc_flow.backends.torch.jaxbridge._objective import JaxFMObjective, JaxParamModule
+    from sc_flow.backends.torch.jaxbridge._objective import CellFlowFMObjective, JaxParamModule
 
     emb, max_comb, cond_dim, n = 6, 2, 4, 16
     vf = ConditionalVelocityField(
@@ -100,7 +100,7 @@ def test_jax_objective_trains_through_same_harness():
     )["params"]
 
     model = JaxParamModule(params)
-    objective = JaxFMObjective(vf, pp, seed=0)
+    objective = CellFlowFMObjective(vf, pp, seed=0)
 
     # weights are torch nn.Parameters — the optimizer's single source of truth
     assert len(model.param_tensors) > 0

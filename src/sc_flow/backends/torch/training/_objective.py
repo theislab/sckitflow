@@ -69,7 +69,7 @@ def register_architecture(name: str) -> Callable[[Callable[..., torch.nn.Module]
 
 
 def register_objective(name: str) -> Callable[[Callable[..., Objective]], Callable[..., Objective]]:
-    """Register an :class:`Objective` builder under ``name`` (e.g. ``"fm-torch"``, ``"fm-jax"``)."""
+    """Register an :class:`Objective` builder under ``name`` (e.g. ``"fm-linear"``, ``"cellflow"``)."""
 
     def deco(builder: Callable[..., Objective]) -> Callable[..., Objective]:
         if name in OBJECTIVE_REGISTRY:
@@ -94,7 +94,7 @@ def build_objective(name: str, *args: Any, **kwargs: Any) -> Objective:
     return OBJECTIVE_REGISTRY[name](*args, **kwargs)
 
 
-@register_objective("fm-linear-torch")
+@register_objective("fm-linear")
 class TorchLinearFMObjective(Objective):
     """Conditional flow-matching loss computed natively in torch.
 

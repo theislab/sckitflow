@@ -19,7 +19,7 @@ from sc_flow.backends.torch.jaxbridge._bridge import JaxLossFunction, jax_to_tor
 from sc_flow.backends.torch.jaxbridge._cellflow import make_fm_value_and_grad
 from sc_flow.backends.torch.training._objective import Objective, register_objective
 
-__all__ = ["JaxParamModule", "JaxFMObjective"]
+__all__ = ["JaxParamModule", "CellFlowFMObjective"]
 
 
 class JaxParamModule(torch.nn.Module):
@@ -43,8 +43,8 @@ class JaxParamModule(torch.nn.Module):
         return list(self._leaves)
 
 
-@register_objective("fm-jax")
-class JaxFMObjective(Objective):
+@register_objective("cellflow")
+class CellFlowFMObjective(Objective):
     """CellFlow OT-FM loss computed in JAX, bridged into torch autograd.
 
     Built from a CellFlow velocity field + probability path (its numerics), it consumes

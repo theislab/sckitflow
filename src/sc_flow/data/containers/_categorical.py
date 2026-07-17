@@ -1,16 +1,15 @@
 from collections import defaultdict
-from collections.abc import Collection, Hashable, Mapping
+from collections.abc import Collection, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 
 import numpy as np
 import pandas as pd
-from scipy.sparse import csr_matrix
 
-from sc_flow._types import TargetCovariatesEncoderCls
 from sc_flow._utils import check_sequence_query_against_reference
-from sc_flow.data._mixins import BatchMixin, MappedArray
-from sc_flow.data._utils import convert_to_categorical_in_place, get_one_hot_encoder
+from sc_flow.data._encoders import Encoder, one_hot
+from sc_flow.data._mixins import BatchMixin
+from sc_flow.data._utils import convert_to_categorical_in_place
 from sc_flow.data.containers._base import BaseData
 
 __all__ = ["CategoricalData"]
@@ -18,55 +17,40 @@ __all__ = ["CategoricalData"]
 
 @dataclass(frozen=True)
 class CategoricalData(BaseData):
-    """Container class for categorical data.
+    """Container for categorical data — columns plus one :class:`~sc_flow.data._encoders.Encoder` per realm.
 
-    Any categorical data is defined over a set of column, stored in a :class: `pandas.DataFrame`.
-    There are two possible ways to represent categorical variables using this container.
-    The first one is to pass pre-computed representations, with the :param repr_dict: argument.
-    Otherwise it is possible to specify some pre-defined encoders to transform the categorical
-    values stored in the data frame into suitable representations.
+    Categorical data is a set of columns (a :class:`pandas.DataFrame`) together with, for each *realm*
+    (a group of columns sharing a representation, e.g. the combination slots ``drug1``/``drug2``), a
+    single fitted encoder. After schema-generalization Change 2 there is no ``reps`` vs ``encoding``
+    split: a ``.uns`` lookup is just a :class:`~sc_flow.data._encoders.Lookup` encoder, so every realm
+    has exactly one encoder regardless of whether its parameters came from ``.uns`` or from the data.
 
-    :param ann_df: The data frame storing the original values.
-    :type ann_df: class: `pandas.DataFrame`
-
-    :param repr_dict: Dictionary storing the pre-computed representations.
-    :type repr_dict: class: `dict[str, MappedArray]`
-
-    :param categorical_encoders: Mapping storing the covariate encoders class.
-    :type categorical_encoders: Mapping[str, TargetCovariatesEncoderCls]
+    :param ann_df: The data frame storing the original categorical values.
+    :param encoders: Mapping ``{realm: Encoder}`` — one fitted encoder per realm.
+    :param categorical_reps_map: Mapping ``{column: realm}``.
     """
 
     ann_df: pd.DataFrame
-    repr_dict: Mapping[str, MappedArray] = dc_field(default_factory=dict)
-    categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] = dc_field(default_factory=dict)
+    encoders: Mapping[str, Encoder] = dc_field(default_factory=dict)
     categorical_reps_map: Mapping[str, str] = dc_field(default_factory=dict)
 
     def __post_init__(self):
-        # check that the representations are provided
         for col in self.ann_df.columns:
-            # each column needs to appear in the categorical reps map
             if col not in self.categorical_reps_map:
                 raise KeyError(f"Column {col} is not mapped to any realm.")
             col_realm = self.categorical_reps_map[col]
-
-            # we need an associated representation for the corresponding realms
-            if col_realm not in self.repr_dict and col_realm not in self.categorical_encoders:
-                raise KeyError(f"No representation found for column {col} associated to realm {col_realm}.")
+            if col_realm not in self.encoders:
+                raise KeyError(f"No encoder found for column {col} associated to realm {col_realm}.")
 
     def __repr__(self) -> str:
         n_obs, n_vars = self.ann_df.shape
         cols = list(self.ann_df.columns)
-
-        repr_keys = list(self.repr_dict.keys())
-        encoder_keys = list(self.categorical_encoders.keys())
-
         return (
             f"{self.__class__.__name__}("
             f"n_obs={n_obs}, "
             f"n_vars={n_vars}, "
             f"columns={cols}, "
-            f"repr_dict_keys={repr_keys}, "
-            f"categorical_encoders_keys={encoder_keys})"
+            f"encoder_realms={list(self.encoders)})"
         )
 
     def __getitem__(
@@ -76,62 +60,20 @@ class CategoricalData(BaseData):
         ann_df = self.ann_df.iloc[idxs]
         return self.__class__(
             ann_df,
-            repr_dict=self.repr_dict,
-            categorical_encoders=self.categorical_encoders,
+            encoders=self.encoders,
             categorical_reps_map=self.categorical_reps_map,
         )
 
     def __len__(self) -> int:
         return self.ann_df.shape[0]
 
-    def _extract_col_repr(
-        self,
-        col: str,
-        realm_repr_dict: dict[Hashable, np.ndarray],
-    ) -> np.ndarray:
-        # Get the representation for each unique value (assuming all have same dimension)
-        col_values = self.ann_df[col].drop_duplicates().values
-
-        # raise error when more than one unique value is found
-        if col_values.shape[0] != 1:
-            raise ValueError(
-                "The node contains more than one unique value for the "
-                "categorical covariates. Ensure you extract the representation "
-                "from a leaf after having properly built the data tree."
-            )
-
-        reprs = [realm_repr_dict[val].reshape(1, -1) for val in col_values]
-        # Stack vertically -> shape (n_unique_values, dim)
-        return np.vstack(reprs)
-
-    def _encode_col(
-        self,
-        col: str,
-        encoder: TargetCovariatesEncoderCls,
-    ) -> np.ndarray:
-        col_values = self.ann_df[col].values.reshape(-1, 1)
-        tranformed_values = encoder.transform(col_values)
-        if isinstance(tranformed_values, csr_matrix):
-            return tranformed_values.toarray()
-        return tranformed_values
-
     def extract_reps(self) -> BatchMixin:
-        """Extracts the representations for the underlying data."""
-        # dictionary to store the data
+        """Encode each column via its realm's encoder and stack per realm → ``{realm: (n, slots, dim)}``."""
         data_dict = defaultdict(list)
-
-        # iterate over annotation df columns
         for col in self.ann_df.columns:
             realm = self.categorical_reps_map[col]
-            if realm in self.repr_dict:
-                realm_repr_dict = self.repr_dict[realm]
-                col_repr = self._extract_col_repr(col, realm_repr_dict)
-            elif realm in self.categorical_encoders:
-                realm_encoder = self.categorical_encoders[realm]
-                col_repr = self._encode_col(col, realm_encoder)
+            col_repr = np.asarray(self.encoders[realm].transform(self.ann_df[col].to_numpy()))
             data_dict[realm].append(col_repr)
-
-        # stack arrays
         data_dict = {k: np.stack(v, axis=-2) for k, v in data_dict.items()}
         return BatchMixin(mapping=data_dict)
 
@@ -139,44 +81,34 @@ class CategoricalData(BaseData):
     def from_pandas(
         cls,
         ann_df: pd.DataFrame,
-        repr_dict: Mapping[str, MappedArray] | None = None,
-        categorical_encoders: Mapping[str, TargetCovariatesEncoderCls] | None = None,
+        encoders: Mapping[str, Encoder] | None = None,
         inplace: bool = False,
         categorical_reps_map: Mapping[str, str] | None = None,
     ) -> "CategoricalData":
-        """Create a CategoricalData object from a pandas DataFrame.
+        """Create a CategoricalData from a DataFrame, defaulting any un-encoded realm to a fitted one-hot.
 
-        TODO: document properly but most importantly note that for better performance it is recommended to pass the data in place.
+        For better performance pass the data in place. Realms without an entry in ``encoders`` get a
+        :func:`~sc_flow.data._encoders.one_hot` fit on the union of that realm's columns' values.
         """
         if not inplace:
             ann_df = ann_df.copy()
         convert_to_categorical_in_place(ann_df, ann_df.columns)
 
-        # prepare defaults containers
         categorical_reps_map = (
             {col: col for col in ann_df.columns} if categorical_reps_map is None else categorical_reps_map
         )
-        repr_dict = {} if repr_dict is None else repr_dict
-        categorical_encoders = {} if categorical_encoders is None else categorical_encoders
+        encoders = dict(encoders) if encoders is not None else {}
 
-        # set default encoders: for a realm with no rep, fit a one-hot encoder on the union of
-        # its COLUMNS' values (a realm may group several columns, e.g. drug1/drug2 — the combination
-        # slots). Indexing ann_df by the realm name is wrong: the columns are the realm's members,
-        # not the realm itself. Flatten to one feature so the encoder learns all categories across
-        # slots; `_encode_col` then applies it per column.
-        for cov_realm in set(categorical_reps_map.values()):
-            if cov_realm not in categorical_encoders and cov_realm not in repr_dict:
-                realm_cols = [col for col, realm in categorical_reps_map.items() if realm == cov_realm]
-                cov_data = ann_df.loc[:, realm_cols].to_numpy().reshape(-1, 1)
-                ohe = get_one_hot_encoder(cov_data)
-                categorical_encoders[cov_realm] = ohe
+        # default encoder: for a realm with none, fit a one-hot on the union of its COLUMNS' values (a
+        # realm may group several columns, e.g. drug1/drug2 — the combination slots), so the encoder
+        # learns all categories across slots; `extract_reps` then applies it per column.
+        for realm in set(categorical_reps_map.values()):
+            if realm not in encoders:
+                realm_cols = [col for col, r in categorical_reps_map.items() if r == realm]
+                union = ann_df.loc[:, realm_cols].to_numpy().reshape(-1)
+                encoders[realm] = one_hot().fit(union)
 
-        return cls(
-            ann_df,
-            repr_dict={} if repr_dict is None else repr_dict,
-            categorical_encoders={} if categorical_encoders is None else categorical_encoders,
-            categorical_reps_map=categorical_reps_map,
-        )
+        return cls(ann_df, encoders=encoders, categorical_reps_map=categorical_reps_map)
 
     @property
     def category_realms(self) -> list[str]:
@@ -189,40 +121,22 @@ class CategoricalData(BaseData):
         collection: "Collection[CategoricalData]",
     ) -> "CategoricalData":
         """Concatenates a collection of instances into a single object."""
-        # store for data
         ann_dfs_list = []
-        repr_dict = {}
-        categorical_encoders = {}
+        encoders = {}
         categorical_reps_map = {}
-
-        # prepare columns
         ref_cols = None
-
-        # iterate over element of collection
         for idx, element in enumerate(collection):
-            # get reference columns from first element
             if idx == 0:
                 ref_cols = element.ann_df.columns
-
-            # check that columns are matching
             check_sequence_query_against_reference(
                 element.ann_df.columns,
                 ref_cols,
                 allow_missing_from_reference=False,
                 allow_missing_from_query=False,
             )
-
-            # update
             ann_dfs_list.append(element.ann_df)
-            repr_dict.update(element.repr_dict)
-            categorical_encoders.update(element.categorical_encoders)
+            encoders.update(element.encoders)
             categorical_reps_map.update(element.categorical_reps_map)
 
-        # concatenate df
         ann_df = pd.concat(ann_dfs_list, axis=0)
-        return cls(
-            ann_df,
-            repr_dict=repr_dict,
-            categorical_encoders=categorical_encoders,
-            categorical_reps_map=categorical_reps_map,
-        )
+        return cls(ann_df, encoders=encoders, categorical_reps_map=categorical_reps_map)

@@ -24,8 +24,9 @@ import anndata as ad
 from cellflow.data._annbatch import build_annbatch_training
 
 from sc_flow.data._compile_obs import compile_obs
+from sc_flow.data._encoders import lookup, one_hot
 from sc_flow.data.schemas._condition_data_schema import ConditionDataSchema
-from sc_flow.data.schemas._groups_data_schema import GroupsDataSchema
+from sc_flow.data.schemas._covariates_data_schema import CovariatesDataSchema
 from sc_flow.data.schemas._state_data_schema import StateDataSchema
 
 
@@ -87,14 +88,15 @@ def _build_ref(adata, pert, reps, split, samp, samp_reps):
 
 
 def _compile_ours(adata, pert, reps, split, samp, samp_reps):
-    # cellflow infers one-hot from a missing rep; our schema requires it declared — so make it
-    # explicit for every perturbation level that lacks a rep.
-    encoding = {level: "one-hot" for level in pert if level not in reps}
+    # cellflow infers one-hot from a missing rep; our schema requires an explicit encoder per level —
+    # a `.uns` lookup where a rep is given, else a fit-from-data one-hot.
+    condition_encoders = {level: (lookup(reps[level]) if level in reps else one_hot()) for level in pert}
+    covariate_encoders = {c: lookup(samp_reps[c]) for c in samp}
     return compile_obs(
         adata,
         state=StateDataSchema(sample_rep="X"),
-        condition=ConditionDataSchema(conditions=pert, conditions_reps=reps, conditions_encoding=encoding),
-        groups=GroupsDataSchema(groups=samp, groups_reps=samp_reps) if samp else None,
+        condition=ConditionDataSchema(conditions=pert, condition_encoders=condition_encoders),
+        covariates=CovariatesDataSchema(covariate_encoders=covariate_encoders) if samp else None,
         control_key="control",
         match_context=split,
     )

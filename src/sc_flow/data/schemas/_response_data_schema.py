@@ -1,104 +1,53 @@
-from collections.abc import Callable, Collection
+from collections.abc import Collection, Mapping
 
 from anndata import AnnData
 
-from sc_flow._types import TargetCovariatesEncodingId
+from sc_flow.data._encoders import Encoder, Lookup
 from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["ResponseDataSchema"]
 
 
 class ResponseDataSchema(StrictDataSchema):
-    """Data Schema implementing the logic for response data."""
+    """Data schema for response data — categorical covariates (one encoder each) plus continuous ones.
+
+    After Change 2 the categorical covariates are declared with a single ``{column: Encoder}`` map
+    (:param:`response_encoders`), the same abstraction used by conditions and covariates.
+
+    :param response_encoders: Mapping ``{column: Encoder}`` — one encoder per categorical response covariate.
+    :param continuous_covs: Continuous response covariates (keys in ``.obsm``).
+    """
 
     def __init__(
         self,
-        categorical_covs_dict: dict[str, TargetCovariatesEncodingId] | None = None,
+        response_encoders: Mapping[str, Encoder] | None = None,
         continuous_covs: Collection[str] | None = None,
-        encoding_transform_fn: dict[str, Callable] | None = None,
-        encoding_inverse_transform_fn: dict[str, Callable] | None = None,
     ) -> None:
-        """Initializes the data schema.
-
-        :param categorical_covs_dict: Dictionary mapping column identifiers in :param: `groups`
-            to the corresponding key of `.uns` used to store the covariate representations.
-            The corresponding value in `.uns` need to have keys matching the unique values
-            of the corresponding column in `.obs`. Defaults to `None`.
-        :type categorical_covs_dict: class: `dict[str, TargetCovariatesEncodingId] | None`
-
-        :param continuous_covs: Sequence of continuous condition covariates. They should appear
-            as key in `.obsm`. Defaults to `None`.
-        :type continuous_covs: class: `Collection[str] | None`
-
-        :param encoding_transform_fn: Dictionary mapping column identifiers in :param: `categorical_covs_dict`
-            to the corresponding function used to define functional tranformations.
-            This is only used if the corresponding value is `"fuctional"`.
-            Defaults to `None`, in which case it will be set to the identity function.
-        :type encoding_transform_fn: class: `dict[str, Callable] | None`
-
-        :param encoding_inverse_transform_fn: Dictionary mapping column identifiers in :param: `categorical_covs_dict`
-            to the corresponding function used to define inverse functional tranformations.
-            This is only used if the corresponding value is `"fuctional"`.
-            Defaults to `None`, in which case it will be set to the identity function.
-        :type encoding_inverse_transform_fn: class: `dict[str, Callable] | None`
-        """
-        self._categorical_covs_dict = {} if categorical_covs_dict is None else categorical_covs_dict
+        self._response_encoders = {} if response_encoders is None else response_encoders
         self._continuous_covs = [] if continuous_covs is None else continuous_covs
-        self._encoding_transform_fn = {} if encoding_transform_fn is None else encoding_transform_fn
-        self._encoding_inverse_transform_fn = (
-            {} if encoding_inverse_transform_fn is None else encoding_inverse_transform_fn
-        )
         super().__init__()
 
     def _verify_args(self) -> None:
-        """Verifies the validity of the encoder identifiers."""
-        self._check_is_valid_encoder_id_dict(self._categorical_covs_dict)
+        """No structural argument checks beyond the encoder map being present."""
 
-    def _verify_schema_categorical_covariates(
-        self,
-        adata: AnnData,
-    ) -> None:
-        """Verifies the categorical target covariates settings on the input :class: `AnnData`.
-
-        :param adata: The input annotated data to verify.
-        :type adata: class: `AnnData`
-        """
-        for target_covariate in self._categorical_covs_dict.keys():
-            self._check_key_found_in_adata_field(adata, target_covariate, "obs")
-
-    def _verify_schema_continuous_covariates(
-        self,
-        adata: AnnData,
-    ) -> None:
-        """Verifies the continuous target covariates settings on the input :class: `AnnData`.
-
-        :param adata: The input annotated data to verify.
-        :type adata: class: `AnnData`
-        """
-        for target_covariate in self._continuous_covs:
-            self._check_key_found_in_adata_field(adata, target_covariate, "obsm")
-
-    def _verify_schema(
-        self,
-        adata: AnnData,
-    ) -> None:
-        """Verifies the schema for target and continuous covariates on the input data.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        self._verify_schema_categorical_covariates(adata)
-        self._verify_schema_continuous_covariates(adata)
+    def _verify_schema(self, adata: AnnData) -> None:
+        """Categorical columns must be in ``obs`` (lookups' tables in ``uns``); continuous in ``obsm``."""
+        for col, encoder in self._response_encoders.items():
+            self._check_key_found_in_adata_field(adata, col, "obs")
+            if isinstance(encoder, Lookup):
+                self._check_key_found_in_adata_field(adata, encoder.uns_key, "uns")
+        for covariate in self._continuous_covs:
+            self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
     @property
     def categorical_covariates(self) -> tuple[str]:
-        """Returns the keys of :attr: `categorical_covs_dict`."""
-        return tuple(self.categorical_covs_dict.keys())
+        """The categorical response covariate columns — the encoder map's keys."""
+        return tuple(self._response_encoders.keys())
 
     @property
-    def categorical_covs_dict(self) -> dict[str, TargetCovariatesEncodingId]:
-        """Exposes to `categorical_covs_dict` parameter set at initialization."""
-        return self._categorical_covs_dict
+    def response_encoders(self) -> Mapping[str, Encoder]:
+        """Per-covariate encoder map (``lookup``/``one_hot``/``label``/``functional``)."""
+        return self._response_encoders
 
     @property
     def continuous_covs(self) -> Collection[str]:
@@ -107,21 +56,15 @@ class ResponseDataSchema(StrictDataSchema):
 
     @property
     def has_categorical_covariates(self) -> bool:
-        """Whether the response schema includes categorical covariates.
-
-        This will be `True` whenever :param: `categorical_covs_dict` is set at initializtion
-        """
-        return len(self._categorical_covs_dict) > 0
+        """Whether the response schema includes categorical covariates."""
+        return len(self._response_encoders) > 0
 
     @property
     def has_continuous_covariates(self) -> bool:
-        """Whether the response schema includes categorical covariates.
-
-        This will be `True` whenever :param: `continuous_covs` is set at initializtion
-        """
+        """Whether the response schema includes continuous covariates."""
         return len(self._continuous_covs) > 0
 
     @property
     def categorical_reps_map(self) -> dict[str, str]:
-        """Dictionary mapping each categorical column to the corresponding realm for their representation."""
-        return {target_covariate: target_covariate for target_covariate in self._categorical_covs_dict.keys()}
+        """Each categorical response covariate is its own realm."""
+        return {covariate: covariate for covariate in self._response_encoders}

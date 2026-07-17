@@ -18,7 +18,8 @@ pytest.importorskip("binded")  # needs the annbatch BoundClassSampler fork too
 import anndata as ad
 
 from sc_flow.data import compile_obs
-from sc_flow.data.schemas import ConditionDataSchema, GroupsDataSchema, StateDataSchema
+from sc_flow.data._encoders import lookup
+from sc_flow.data.schemas import ConditionDataSchema, CovariatesDataSchema, StateDataSchema
 
 
 def _make_adata(seed: int = 0) -> ad.AnnData:
@@ -47,8 +48,8 @@ def _compile(adata: ad.AnnData):
     return compile_obs(
         adata,
         state=StateDataSchema(sample_rep="X"),
-        condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, conditions_reps={"drug": "drug"}),
-        groups=GroupsDataSchema(groups=["cell_type"], groups_reps={"cell_type": "cell_type"}),
+        condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        covariates=CovariatesDataSchema(covariate_encoders={"cell_type": lookup("cell_type")}),
         control_key="control",
         match_context=["cell_type"],
     )
@@ -78,6 +79,20 @@ def test_condition_fn_is_per_leaf_not_dataset_wide():
     assert reps["drug"].shape[0] == 1
     assert reps["cell_type"].shape[0] == 1
     assert reps["drug"].shape[-1] == 5  # the drug embedding dim from uns
+
+
+def test_condition_fn_matches_raw_uns_lookup():
+    """The unified Lookup encoder reproduces the raw ``uns[key][value]`` embedding, per leaf."""
+    adata = _make_adata()
+    compiled = _compile(adata)
+    assert compiled.cols == ("cell_type", "drug1")  # leaf tuple order
+    for leaf in compiled.scheme.nodes["pert"].weights:
+        cell_type, drug = leaf
+        reps = compiled.condition_fn(leaf)
+        np.testing.assert_array_equal(reps["drug"][0, 0], np.asarray(adata.uns["drug"][drug]).reshape(-1))
+        np.testing.assert_array_equal(
+            reps["cell_type"][0, 0], np.asarray(adata.uns["cell_type"][cell_type]).reshape(-1)
+        )
 
 
 def test_loader_streams_source_target_condition():

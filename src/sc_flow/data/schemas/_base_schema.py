@@ -1,10 +1,9 @@
 import abc
-from typing import Literal, get_args
+from typing import Literal
 
 import numpy as np
 from anndata import AnnData
 
-from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data.containers._base import BaseData
 
 __all__ = ["DataSchema", "StrictDataSchema"]
@@ -65,8 +64,8 @@ class DataSchema(abc.ABC):  # noqa: B024  # base for StrictDataSchema; _get_data
         No longer the extraction path: after the ``binded`` migration cell arrays are streamed by
         :class:`binded.Loader` and per-leaf conditions are built by
         :func:`sc_flow.data.compile_obs` from the schemas' declared columns/reps. Schemas are now
-        pure declarations; a subclass only overrides this when it still produces a label container
-        (e.g. :class:`GroupsDataSchema`). The default raises to flag any stale array-materializing use.
+        pure declarations consumed by :func:`sc_flow.data.compile_obs`. The default raises to flag any
+        stale array-materializing use.
 
         :param adata: The input data.
         :type adata: class: `AnnData`
@@ -118,23 +117,6 @@ class StrictDataSchema(DataSchema, abc.ABC):
     def __init__(self) -> None:
         """Initializes the class and verifies the arguments."""
         self._verify_args()
-
-    @staticmethod
-    def _check_is_valid_encoder_id_dict(encoder_id_dict: dict[str, str]) -> None:
-        """Verifies that the provided dictionary of covariate encoder identifiers is provided.
-
-        :param encoder_id_dict: The input dictionary, mapping each covariate to the string
-            identifier for its encoder.
-        :type encoder_id_dict: class: `encoder_id_dict: dict[str, str]`
-        """
-        valid_encoder_ids: tuple[str] = get_args(TargetCovariatesEncodingId)
-        for encoder_id in encoder_id_dict.values():
-            if encoder_id not in valid_encoder_ids:
-                msg = (
-                    f"Encoder identifier {encoder_id} for target covariate encoding is not supported."
-                    f"Possible options are {valid_encoder_ids}"
-                )
-                raise ValueError(msg)
 
     @abc.abstractmethod
     def _verify_args(

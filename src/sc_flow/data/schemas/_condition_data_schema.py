@@ -1,228 +1,86 @@
-from collections.abc import Collection
+from collections.abc import Collection, Mapping
 
 from anndata import AnnData
 
-from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow._utils import check_sequence_query_against_reference
+from sc_flow.data._encoders import Encoder, Lookup
 from sc_flow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["ConditionDataSchema"]
 
 
 class ConditionDataSchema(StrictDataSchema):
-    """Data Schema Implementing the logic for conditioning."""
+    """Data schema for conditioning — combinatorial categorical covariates plus continuous ones.
+
+    Discrete conditioning is organized into **condition levels** (the combinatorial axes). Each level
+    maps to a set of ``.obs`` columns (its combination slots) via :param:`conditions`, and to a single
+    :class:`~sc_flow.data._encoders.Encoder` via :param:`condition_encoders`. After Change 2 there is
+    no ``reps`` vs ``encoding`` split — a ``.uns`` lookup is just a
+    :func:`~sc_flow.data._encoders.lookup` encoder, so every level carries exactly one encoder.
+
+    Continuous "paired" covariates (one dense value per observation, stored in ``.obsm``) are declared
+    with :param:`conditions_covariates`; they disable grouping (each observation is its own condition).
+
+    Example::
+
+        >>> from sc_flow.data._encoders import lookup, one_hot
+        >>> ConditionDataSchema(
+        ...     conditions={"drug_perturbation": ["drugA", "drugB"], "genetic_ko": ["koA", "koB"]},
+        ...     condition_encoders={"drug_perturbation": lookup("drug"), "genetic_ko": one_hot()},
+        ... )
+
+    :param conditions: Mapping ``{level: columns}`` — the combination slots of each condition level.
+    :param condition_encoders: Mapping ``{level: Encoder}`` — exactly one encoder per condition level.
+    :param conditions_covariates: Continuous ``.obsm`` condition covariates (paired conditioning).
+    """
 
     def __init__(
         self,
         conditions: dict[str, Collection[str]] | None = None,
-        conditions_reps: dict[str, str] | None = None,
-        conditions_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
+        condition_encoders: Mapping[str, Encoder] | None = None,
         conditions_covariates: Collection[str] | None = None,
     ) -> None:
-        """Initializes the condition data schema.
-
-        The schema used to define conditioning information entails two types of data:
-
-        * Combinatorial Discrete Covariates.
-
-            ## Condition Levels.
-            Condition levels represent the (combinatorial) axes over which the conditioning is applied.
-            Each condition level will be determined by a set of columns, whose cardinality is associated
-            to the number of combinatorial conditions considered for such conditioning axes. When possible,
-            categorical condition covariates define the grouping.
-
-            ## Storage Strategies.
-            The unique values over the dataset for each categorical covariate will be associated to
-            some pre-computed representation (i.e.: condition embedding).
-
-            Since such categories usually distribute over a finite support with cardinality significantly
-            lower than the one of the training data, the embeddings for each unique condition value are stored
-            as a lookup table, mapping (hashable) identifiers for each unique values
-            (stored as set of columns of `.obs`) to the corresponding representation (stored as in dictionaries in `.uns`).
-
-            ## Practical Examples.
-            In the example below we illustrate how to initialize the condition data schema for modeling combinatorial
-            condition over two conditioning axes (i.e.: drug perturbations and genetic knockout).
-            Each of these axes will be associated to a set of columns, defining the combinatorial nature
-            of the conditioning over them. In the following example, we will specify the condition levels/axes
-            by setting :param: `conditions`.
-
-            ### Condition Levels
-
-            * Drug Perturbation
-                #### Level Covariates for Drug Level
-                - Drug A
-                - Drug B
-
-            * Genetic KnockOut
-                #### Level Covariates for KO Level
-                - KO A
-                - KO B
-
-            Note that, while the choice of the name of the keys to pass as :param: `conditions` and :param: `conditions_reps`
-            is arbitrary (as long as the two dictionaries share the same set of keys), the values of both arguments need
-            to appear in the input `AnnData`.
-
-            In particular, the values of :param:`conditions`, should be given by sequences of string identifier
-            of columns in `adata.obs`` for each conditioning level.
-
-            On the other hand, the values of :param:`conditions_reps` should be given by a single string identifier,
-            specifying the key in `adata.uns` containing the representation for each level.
-
-            .. code-block:: python
-                >>> # importing libraries
-                >>> from sc_flow.data import schemas, sim
-                >>> # annotated data
-                >>> adata = sim.get_dummy_adata()
-                ... AnnData object with n_obs × n_vars = 60000 × 400
-                ... obs: 'drugA', 'drugB', 'koA', 'koB', 'target', 'source_split', 'is_control'
-                ... uns: 'drug', 'ko', 'source_split'
-                ... obsm: 'drugA_time', 'drugA_dose', 'drugB_time', 'drugB_dose', 'koA_time', 'koA_dose', \
-                ...     'koB_time', 'koB_dose', 'paired_condition', 'X_repr', 'target_variable', 'X_src', 'X_tgt'
-                >>> condition_schema = schemas.ConditionDataSchema(
-                ...     conditions={
-                ...         "drug_perturbation":["drugA", "drugB"],
-                ...         "genetic_ko":["koA", "koB"],
-                ...     },
-                ...     conditions_reps={
-                ...         "drug_perturbation": "drug",
-                ...         "genetic_ko": "ko",
-                ...     }
-                ... )
-                >>> condition_data = condition_schema.get_data(adata)
-                >>> type(condition_data)
-                ... sc_flow.data._structures.MixedTypeData
-
-        * Multi-Dimensional Continuous Covariates.
-
-            ## Continuous Condition Covariates.
-            These are the dense covariates associated to each observation.
-
-            Conditions should be modeled in such a way when each observation is associated to its unique
-            and individual condition value. This is the reason why this type of condition covariates
-            is referred to as "paired" conditioning.
-
-            In a continuous space, the density at each given point is degenerate, hence
-            using such covariates to define the grouping would entail infinitely many different groups.
-
-            For this reason, grouping over conditions when they comprise continuous covariates is not supported.
-            In such case, all the conditions will constitute a joint "conditional" groups for sampling.
-
-            ## Storage Strategies.
-            We cannot avoid in this case to store the full array as a lookup table, as there will be no duplicate
-            conditions. For this reason, continuous conditioning covariates are assumed to be stored as arrays in `.obsm`.
-
-            ## Practical Examples.
-            We will continue from the example above and use the data stored in the `"paired_condition"` key of `adata.obsm`
-            as dense condition covariates.
-            In order to model this type of conditioning is necessary to add the :param: `conditions_covariates` argument
-            at initialization, specifying the sequence of key identifier to be used as condition.
-
-            .. code-block:: python
-                >>> condition_schema = schemas.ConditionDataSchema(
-                ...     conditions={
-                ...         "drug_perturbation":["drugA", "drugB"],
-                ...         "genetic_ko":["koA", "koB"],
-                ...     },
-                ...     conditions_reps={
-                ...         "drug_perturbation": "drug",
-                ...         "genetic_ko": "ko",
-                ...     },
-                ...     conditions_covariates=["paired_condition"],
-                ... )
-                >>> condition_data = condition_schema.get_data(adata)
-                >>> type(condition_data)
-                ... sc_flow.data._structures.MixedTypeData
-
-            Naturally, it is also possible to only use the continuous covariates, when there is no additional information
-            available for the conditioning. To achieve this, all it is required is to drop all the arguments associated to
-            discrete conditioning covariates, while keeping the arguments for the continuous ones:
-
-            .. code-block:: python
-                >>> condition_schema = schemas.ConditionDataSchema(
-                ...     conditions_covariates=["paired_condition"],
-                ... )
-                >>> condition_data = condition_schema.get_data(adata)
-                >>> type(condition_data)
-                ... sc_flow.data._structures.MixedTypeData
-
-        :param conditions: Mapping from each condition level to the corresponding columns, as described in
-            the dedicated section above. Defaults to `None`.
-        :type conditions: class: `dict[str, Collection[str]] | None`
-
-        :param conditions_reps: Mapping from each condition level to the corresponding representation, as described in
-            the dedicated section above. Defaults to `None`.
-        :type conditions_reps: class: `dict[str, str] | None`
-
-        :param conditions_covariates: Sequence of continuous condition covariates, as described in the
-            dedicated section above. Defaulst to `None`.
-        :type conditions_covariates: class: `Collection[str] | None`
-        """
         self._conditions = {} if conditions is None else conditions
-        self._conditions_reps = {} if conditions_reps is None else conditions_reps
-        self._conditions_encoding = {} if conditions_encoding is None else conditions_encoding
+        self._condition_encoders = {} if condition_encoders is None else condition_encoders
         self._conditions_covariates = () if conditions_covariates is None else conditions_covariates
         super().__init__()
 
     def _verify_args(self) -> None:
-        """Every condition level must declare exactly one representation: a rep or an encoding.
-
-        Mirrors :class:`GroupsDataSchema`: each level appears in ``conditions_reps`` (embedding
-        lookup) *or* ``conditions_encoding`` (e.g. ``"one-hot"``) — encoding is explicit, not inferred
-        from a missing rep. Every rep/encoding key must be a declared level, and no level may be in
-        both.
-        """
+        """Every condition level must declare exactly one encoder (and vice versa)."""
         check_sequence_query_against_reference(
             self._conditions.keys(),
-            set(self._conditions_reps.keys()).union(set(self._conditions_encoding.keys())),
+            self._condition_encoders.keys(),
             allow_missing_from_query=False,
             allow_missing_from_reference=False,
         )
-        shared_keys = set(self._conditions_reps.keys()).intersection(self._conditions_encoding.keys())
-        if len(shared_keys):
-            raise ValueError("Each condition level should have only one representation (rep or encoding).")
-        self._check_is_valid_encoder_id_dict(self._conditions_encoding)
 
     def _verify_categorical_covariates(self, adata: AnnData) -> None:
-        """Verifies the categorical condition covariates setting on the input `AnnData`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
-        # every condition column must exist in obs (all levels, rep'd or one-hot)...
+        """Every condition column must exist in ``obs``; every lookup encoder's table must be in ``uns``."""
         for condition_cols in self._conditions.values():
             for col in condition_cols:
                 self._check_key_found_in_adata_field(adata, col, "obs")
-        # ...and every declared rep must exist in uns (rep'd levels only).
-        for condition_rep in self._conditions_reps.values():
-            self._check_key_found_in_adata_field(adata, condition_rep, "uns")
+        for encoder in self._condition_encoders.values():
+            if isinstance(encoder, Lookup):
+                self._check_key_found_in_adata_field(adata, encoder.uns_key, "uns")
 
     def _verify_continuous_covariates(self, adata: AnnData) -> None:
-        """Verifies the continuous condition covariates on the input `AnnData`.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
+        """Verifies the continuous condition covariates on the input `AnnData`."""
         for covariate in self._conditions_covariates:
             self._check_key_found_in_adata_field(adata, covariate, "obsm")
 
     def _verify_schema(self, adata: AnnData) -> None:
-        """Verifies that input data satisfies the requirements defined by the schema.
-
-        :param adata: The input data.
-        :type adata: class: `AnnData`
-        """
+        """Verifies that input data satisfies the requirements defined by the schema."""
         self._verify_categorical_covariates(adata)
         self._verify_continuous_covariates(adata)
 
     @property
     def all_condition_cols(self) -> tuple[str]:
-        """Identifiers for the condition columns of all leves returned as a tuple."""
+        """Identifiers for the condition columns of all levels returned as a tuple."""
         return tuple(cat for condition in self._conditions.values() for cat in condition)
 
     @property
     def condition_col_to_level(self) -> dict[str, str]:
-        """Dictionary mapping each columns to the condition level it is associated with."""
+        """Dictionary mapping each column to the condition level it is associated with."""
         col2level = {}
         for condition, condition_cols in self._conditions.items():
             for cat in condition_cols:
@@ -231,10 +89,7 @@ class ConditionDataSchema(StrictDataSchema):
 
     @property
     def allows_grouping(self) -> bool:
-        """Whether the condition schema allows grouping.
-
-        This will be false whenever continuous condition covariates are provided.
-        """
+        """Whether the condition schema allows grouping (false when continuous covariates are provided)."""
         return len(self._conditions_covariates) == 0
 
     @property
@@ -243,14 +98,9 @@ class ConditionDataSchema(StrictDataSchema):
         return self._conditions
 
     @property
-    def conditions_reps(self) -> dict[str, str]:
-        """Exposes to `conditions_reps` parameter set at initialization."""
-        return self._conditions_reps
-
-    @property
-    def conditions_encoding(self) -> dict[str, TargetCovariatesEncodingId]:
-        """Per-level encoding ids (e.g. ``"one-hot"``) for levels without a precomputed rep."""
-        return self._conditions_encoding
+    def condition_encoders(self) -> Mapping[str, Encoder]:
+        """Per-level encoder map (``lookup``/``one_hot``/``label``/``functional``)."""
+        return self._condition_encoders
 
     @property
     def conditions_covariates(self) -> Collection[str]:
@@ -259,23 +109,17 @@ class ConditionDataSchema(StrictDataSchema):
 
     @property
     def has_categorical_covariates(self) -> bool:
-        """Whether the condition schema includes categorical covariates.
-
-        This will be `True` whenever :param: `conditions` is set at initializtion
-        """
+        """Whether the condition schema includes categorical covariates."""
         return len(self._conditions) > 0
 
     @property
     def has_continuous_covariates(self) -> bool:
-        """Whether the condition schema includes categorical covariates.
-
-        This will be `True` whenever :param: `conditions_covariates` is set at initializtion
-        """
+        """Whether the condition schema includes continuous covariates."""
         return len(self._conditions_covariates) > 0
 
     @property
     def categorical_reps_map(self) -> dict[str, str]:
-        """Dictionary mapping each categorical column to the corresponding realm for their representation."""
+        """Dictionary mapping each categorical column to the realm (condition level) of its representation."""
         reps_map = {}
         for realm, cov_list in self.conditions.items():
             for cov in cov_list:

@@ -53,12 +53,26 @@ class BaseMethod(abc.ABC):
         self._dm = dm
         self._is_paired_setting = is_paired_setting
 
-        # check module is passed
-        if self._module_cls is None:
-            raise NotImplementedError(f"{self.__class__.__name__} must define a `_module_cls` class attribute.")
+        # build the method's module through the overridable construction seam
+        self._module = self.build_module(*args, **kwargs)
 
-        # initialize module with dimensionality registry
-        self._module = self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
+    def build_module(self, *args: Any, **kwargs: Any) -> "JaxModule | TorchModule":
+        """Construct this method's neural module from the dimensionality registry.
+
+        The construction seam. The default builds the class-level ``_module_cls``
+        via its dims-registry factory, so declaring ``_module_cls`` is the common
+        path. Override this instead when a method needs to build (or be handed) its
+        module some other way — e.g. an injected model, or reusing an already-built
+        module for the inverse-problem surrogate / JAX-bridge paths — without a
+        class-global. Kept as a method (not a class attribute) so it is polymorphic
+        and test doubles can override it per subclass rather than mutating a shared
+        class attribute.
+        """
+        if self._module_cls is None:
+            raise NotImplementedError(
+                f"{type(self).__name__} must set `_module_cls` or override `build_module`."
+            )
+        return self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
     @abc.abstractmethod
     def set_train_mode(self, mode: bool) -> None:

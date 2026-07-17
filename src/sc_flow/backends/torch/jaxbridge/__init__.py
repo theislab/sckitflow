@@ -12,6 +12,8 @@ from sc_flow.backends.torch.jaxbridge._bridge import (
     torch_to_jax,
 )
 from sc_flow.backends.torch.jaxbridge._cellflow import CellFlowJaxModule, make_fm_value_and_grad
+from sc_flow.backends.torch.jaxbridge._objective import CellFlowFMObjective, JaxParamModule
+from sc_flow.backends.torch.jaxbridge._adapter import adapt_fm_batch, iter_fm_batches
 
 __all__ = [
     "JaxLossFunction",
@@ -20,4 +22,8 @@ __all__ = [
     "torch_to_jax",
     "CellFlowJaxModule",
     "make_fm_value_and_grad",
+    "CellFlowFMObjective",
+    "JaxParamModule",
+    "adapt_fm_batch",
+    "iter_fm_batches",
 ]

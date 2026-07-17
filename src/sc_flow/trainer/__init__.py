@@ -7,7 +7,6 @@ from sc_flow.trainer._callbacks import (
     TrainingCallbacks,
     WandBLogger,
 )
-from sc_flow.trainer._trainer import Trainer
 
 __all__ = [
     "callbacks",
@@ -17,5 +16,4 @@ __all__ = [
     "TrainingCallbacks",
     "MetricsCallback",
     "WandBLogger",
-    "Trainer",
 ]

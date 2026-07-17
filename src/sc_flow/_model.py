@@ -1,882 +1,211 @@
+"""The FlowMatching model wrapper.
+
+Replaces the legacy SCFlow model. Wraps CellFlow's JAX conditional velocity field
+and probability path numerics inside a PyTorch training and prediction loop.
+"""
+
+from __future__ import annotations
+
 import logging
-import tarfile
-import tempfile
-import warnings
-from collections import defaultdict
-from collections.abc import Sequence
-from pathlib import Path
-from typing import Any, Literal, overload
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, Any
 
-import cloudpickle
 import numpy as np
-import pandas as pd
-from anndata import AnnData
-from omegaconf import OmegaConf
-from tqdm import tqdm
+import torch
+import lightning.pytorch as pl
 
-from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
-from sc_flow._types import PredictionData
-from sc_flow.config._run import RunConfig
-from sc_flow.data._composite import MatchedData
-from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
-from sc_flow.data._manager import DataManager
-from sc_flow.data.samplers._train import FTrainSampler
-from sc_flow.data.samplers._validation import FValidationSampler
-from sc_flow.methods._methods import BaseMethod
-from sc_flow.methods._opt import OptimConfig
-from sc_flow.trainer._callbacks import BaseCallback, TrainingCallbacks
-from sc_flow.trainer._trainer import Trainer
+from sc_flow.data import FlowSpec
+from sc_flow.backends.torch.jaxbridge import (
+    CellFlowFMObjective,
+    JaxParamModule,
+    iter_fm_batches,
+    torch_to_jax,
+    jax_to_torch,
+)
 
-__all__ = ["SCFlow"]
+if TYPE_CHECKING:
+    from sc_flow.data._compile_obs import DataInput
 
+__all__ = ["FlowMatching"]
 
-def _methods_registry() -> dict[str, type]:
-    """Return the method registry."""
-    from sc_flow.backends.torch.methods import METHODS_REGISTRY
-
-    return METHODS_REGISTRY
+logger = logging.getLogger(__name__)
 
 
-def _resolve_method_cls(method_cfg) -> type:
-    """Resolve a method class from a :class:`MethodConfig`."""
-    if method_cfg.method_target is not None:
-        module_path, _, cls_name = method_cfg.method_target.partition(":")
-        import importlib
-
-        return getattr(importlib.import_module(module_path), cls_name)
-    if method_cfg.method_id is None:
-        raise ValueError("MethodConfig requires either 'method_id' or 'method_target'.")
-    registry = _methods_registry()
-    if method_cfg.method_id not in registry:
-        raise KeyError(f"Method {method_cfg.method_id!r} not found. Available: {sorted(registry)}.")
-    return registry[method_cfg.method_id]
-
-
-def _resolve_run_config(cfg) -> tuple[RunConfig, type, Any]:
-    """Coerce ``cfg`` into a validated ``RunConfig`` and resolve the method.
-
-    Returns ``(run_config, method_cls, method_config_obj)`` where
-    ``method_config_obj`` is a typed instance of the method's ``config_cls``
-    (or a plain dict if the method declares none). All generic cross-slot
-    validation (e.g. device support) happens here.
-    """
-    # Coerce to a structured RunConfig (validates keys, fills defaults).
-    node = OmegaConf.structured(cfg) if isinstance(cfg, RunConfig) else OmegaConf.create(cfg)
-    merged = OmegaConf.merge(OmegaConf.structured(RunConfig), node)
-    run: RunConfig = OmegaConf.to_object(merged)
-
-    method_cls = _resolve_method_cls(run.method)
-    caps = method_cls.capabilities()
-
-    # Generic validation — no method-specific knowledge here.
-    if run.trainer.device not in caps.supported_devices:
-        raise ValueError(
-            f"Device {run.trainer.device!r} is not supported by method "
-            f"{run.method.method_id or run.method.method_target!r}. "
-            f"Supported: {sorted(caps.supported_devices)}."
-        )
-
-    # Validate & type the opaque method config against the method's own schema.
-    if caps.config_cls is not None:
-        merged_mc = OmegaConf.merge(OmegaConf.structured(caps.config_cls), OmegaConf.create(run.method.config))
-        method_config_obj = OmegaConf.to_object(merged_mc)
-    else:
-        method_config_obj = dict(run.method.config)
-
-    return run, method_cls, method_config_obj
-
-
-class SCFlow:
-    @staticmethod
-    def _setup_data(
-        adata: AnnData,
-        *,
-        view_on_condition_space: bool = False,
-        condition_state_key: str | None = None,
-        datamanager_kwargs: dict[str, Any] | None = None,
-    ) -> tuple[DataManager, DataDimensionalitiesRegistry, bool]:
-        """Build the per-instance data context from an ``AnnData``.
-
-        Returns ``(data_manager, dims_registry, is_paired_setting)``. This holds
-        no global/class state — each :class:`SCFlow` owns its own data manager.
-
-        :param adata: Input data whose schema/dimensionalities are read.
-        :param view_on_condition_space: Whether to model conditions as states.
-        :param condition_state_key: Key for continuous condition covariates viewed
-            as state (only when ``view_on_condition_space`` is ``True``).
-        :param datamanager_kwargs: Keyword arguments for :class:`DataManager`.
-        """
-        datamanager_kwargs = datamanager_kwargs or {}
-        dm = DataManager(**datamanager_kwargs)
-        dims_registry = dm.get_data_dimensionalities(
-            adata,
-            view_on_condition_space=view_on_condition_space,
-            condition_state_key=condition_state_key,
-            fit_preproc=True,
-            apply_transformations=True,
-        )
-        is_paired = dm.control_values_dict is not None or dm.matched_keys is not None
-        return dm, dims_registry, is_paired
-
-    @classmethod
-    def from_config(cls, cfg: "RunConfig | dict | Any", adata: AnnData) -> "SCFlow":
-        """Build an :class:`SCFlow` from a (validated) :class:`RunConfig`.
-
-        ``cfg`` may be a :class:`RunConfig`, a plain dict, or an OmegaConf node.
-        The ``AnnData`` is used to set up the (instance-level) data context;
-        training is done separately via :meth:`fit` (or :meth:`train`).
-        """
-        run, method_cls, method_config_obj = _resolve_run_config(cfg)
-
-        # Method-owned translation into constructor kwargs (framework stays generic).
-        if hasattr(method_config_obj, "build_construction_kwargs"):
-            ctor_kwargs = method_config_obj.build_construction_kwargs(device_id=run.trainer.device)
-        else:
-            ctor_kwargs = dict(method_config_obj)
-
-        model = cls(
-            adata,
-            method_cls=method_cls,
-            view_on_condition_space=run.data.view_on_condition_space,
-            condition_state_key=run.data.condition_state_key,
-            datamanager_kwargs=dict(run.data.datamanager),
-            **ctor_kwargs,
-        )
-        model._run_config = run
-        return model
-
-    @classmethod
-    def from_yaml(cls, path: str, adata: AnnData) -> "SCFlow":
-        """Build an :class:`SCFlow` from a YAML run-config file."""
-        return cls.from_config(OmegaConf.load(path), adata)
-
-    def fit(
-        self,
-        adata: AnnData,
-        *,
-        val_adatas_dict: dict[str, AnnData] | None = None,
-        callbacks: "TrainingCallbacks | Sequence[BaseCallback] | None" = None,
-    ) -> "SCFlow":
-        """Train using the trainer/optim settings from the stored run-config."""
-        if self._run_config is None:
-            raise RuntimeError("fit() requires a model built via from_config/from_yaml.")
-        tr = self._run_config.trainer
-
-        # Resolve callback/metric specs from the config (native loop only) and
-        # merge with any explicitly-passed callbacks.
-        from sc_flow.config._resolve import resolve_callbacks
-
-        if tr.framework == "native":
-            cfg_callbacks = resolve_callbacks(tr, self._backend)
-        else:
-            cfg_callbacks = []
-            if tr.metrics or tr.callbacks:
-                warnings.warn(
-                    "trainer.callbacks/metrics are native-loop callbacks and are not applied "
-                    "by the lightning backend; use trainer_kwargs for lightning callbacks.",
-                    RuntimeWarning,
-                    stacklevel=2,
-                )
-        merged_callbacks: list[Any] = list(cfg_callbacks)
-        if callbacks is not None:
-            if isinstance(callbacks, Sequence):
-                merged_callbacks.extend(callbacks)
-            else:
-                merged_callbacks.append(callbacks)
-
-        self.train(
-            adata,
-            val_adatas_dict=val_adatas_dict,
-            callbacks=merged_callbacks or None,
-            n_train_steps=tr.n_train_steps,
-            valid_freq=tr.valid_freq,
-            train_batch_size=tr.train_batch_size,
-            val_max_n_obs=tr.val_max_n_obs,
-            train_sampler_kwargs=dict(tr.train_sampler_kwargs),
-            val_sampler_kwargs=dict(tr.val_sampler_kwargs),
-            optim_kwargs=dict(self._run_config.optim),
-            framework=tr.framework,
-        )
-        return self
+class FlowMatching:
+    """The converged Flow Matching model wrapping CellFlow's JAX numerics inside PyTorch training/inference."""
 
     def __init__(
         self,
-        adata: AnnData,
-        *args,
-        method_cls: type[BaseMethod] | None = None,
-        method_id: str | None = None,
-        view_on_condition_space: bool = False,
-        condition_state_key: str | None = None,
-        datamanager_kwargs: dict[str, Any] | None = None,
-        **kwargs,
-    ) -> None:
-        # set up the per-instance data context (no class/global state)
-        self._dm, self._dims_registry, self._is_paired_setting = self._setup_data(
-            adata,
-            view_on_condition_space=view_on_condition_space,
-            condition_state_key=condition_state_key,
-            datamanager_kwargs=datamanager_kwargs,
-        )
-        self._view_on_condition_space = view_on_condition_space
-        self._condition_state_key = condition_state_key
+        spec: FlowSpec,
+        objective: str = "cellflow",
+        architecture: str = "mlp-velocity",
+        hidden_dims: tuple[int, ...] = (1024, 1024, 1024),
+        condition_embedding_dim: int = 64,
+        condition_mode: str = "deterministic",
+        regularization: float = 1.0,
+        sigma: float = 0.0,
+    ):
+        self.spec = spec
+        self.objective_name = objective
+        self.architecture_name = architecture
+        self.hidden_dims = hidden_dims
+        self.condition_embedding_dim = condition_embedding_dim
+        self.condition_mode = condition_mode
+        self.regularization = regularization
+        self.sigma = sigma
 
-        # numerics run in torch (weights are torch tensors); kept as an internal
-        # constant now that there is no user-facing backend selection.
-        self._backend = "torch"
+        self.vf = None
+        self.probability_path = None
+        self.model = None  # JaxParamModule holding PyTorch parameters
+        self.objective = None  # CellFlowFMObjective wrapping JAX value_and_grad
+        self._condition_fn = None
 
-        # get method cls
-        if method_cls is None and method_id is None:
-            msg = "At least one of `method_id` or `method_cls` should be specified."
-            raise ValueError(msg)
-
-        # use registry when method not provided
-        if method_cls is None:
-            from sc_flow.backends.torch.methods import METHODS_REGISTRY
-
-            # get method from registry
-            if method_id not in METHODS_REGISTRY:
-                msg = f"Method {method_id} not supported, possible options are {list(METHODS_REGISTRY.keys())}."
-                raise KeyError(msg)
-            method_cls = METHODS_REGISTRY[method_id]
-
-        # initialize method
-        self._method: BaseMethod = method_cls(
-            self._dims_registry,
-            self._dm,
-            self._is_paired_setting,
-            *args,
-            **kwargs,
-        )
-
-        # prepare attributes
-        self._trainer: Trainer | None = None
-        self._run_config: RunConfig | None = None
-        self._lightning_trainer: Any = None
-
-    @overload
-    def _predict_empty(
+    def fit(
         self,
-        return_raw: Literal[False],
-    ) -> AnnData:
-        pass
-
-    @overload
-    def _predict_empty(
-        self,
-        return_raw: Literal[True],
-    ) -> tuple[AnnData, None]:
-        pass
-
-    @overload
-    def _aggregate_nodes_pred(
-        self,
-        all_preds: list[PredictionData],
-        all_obs: list[pd.DataFrame],
-        all_obsm: dict[str, list[np.ndarray]],
-        return_raw: Literal[False],
-    ) -> AnnData:
-        pass
-
-    @overload
-    def _aggregate_nodes_pred(
-        self,
-        all_preds: list[PredictionData],
-        all_obs: list[pd.DataFrame],
-        all_obsm: dict[str, list[np.ndarray]],
-        return_raw: Literal[True],
-    ) -> tuple[AnnData, PredictionData]:
-        pass
-
-    @overload
-    def predict(
-        self,
-        adata: AnnData,
-        *args,
-        return_raw: Literal[False],
-        sort: bool = True,
-        **kwargs,
-    ) -> AnnData:
-        pass
-
-    @overload
-    def predict(
-        self,
-        adata: AnnData,
-        *args,
-        return_raw: Literal[True],
-        sort: bool = True,
-        **kwargs,
-    ) -> tuple[AnnData, PredictionData]:
-        pass
-
-    def _predict_empty(self, return_raw: bool) -> AnnData | tuple[AnnData, None]:
-        """Returns empty anndata for prediction."""
-        empty_adata = AnnData(
-            X=np.empty((0, len(self._dims_registry.feature_names))),
-            var=pd.DataFrame(index=self._dims_registry.feature_names),
-        )
-        return empty_adata if not return_raw else (empty_adata, None)
-
-    def _get_pred_obs_df(self, node: MatchedData, pred_obj: PredictionData) -> pd.DataFrame:
-        """Gets the observation dataframe for prediction"""
-        # 1. Collect observation metadata
-        ann_df = node.target_distr.ann_df.copy()
-        cond_df = ann_df.drop_duplicates()
-
-        # 2. Check that the node contains only one condition
-        #    or that the are actually columns inside
-        n_ann_cols = len(cond_df.columns)
-        if n_ann_cols:
-            n_unique_conds = cond_df.shape[0]
-            if n_unique_conds != 1:
-                msg = f"Node should contain unique condition, {n_unique_conds} found."
-                raise ValueError(msg)
-
-        # 3. Get number of generated observations
-        if hasattr(pred_obj, "X"):
-            n_pred_obs = pred_obj.X.shape[0]
-        else:
-            n_pred_obs = 1
-
-        # 4. Align dataframe and update
-        # only when there are columns we need to repeat, otherwise keep as is
-        if n_ann_cols:
-            df_data = np.repeat(cond_df, n_pred_obs, axis=0)
-        else:
-            df_data = cond_df
-        return pd.DataFrame(df_data, columns=ann_df.columns)
-
-    def _get_pred_traj(self, pred_obj: PredictionData) -> np.ndarray | None:
-        # early return if no trajectory
-        if pred_obj.traj is None:
-            return None
-
-        # get number of observations
-        n_obs = pred_obj.X.shape[0]
-
-        # convert trajectory to numpy
-        traj_np = self._to_numpy(pred_obj.traj)
-
-        if traj_np.ndim == 2 and traj_np.shape[0] == n_obs:
-            return traj_np
-        elif traj_np.ndim == 3 and traj_np.shape[1] == n_obs:
-            return np.transpose(traj_np, (1, 0, 2))
-        elif traj_np.ndim == 4 and traj_np.shape[2] == n_obs:
-            return np.transpose(traj_np, (2, 0, 1, 3))
-        else:
-            raise ValueError(
-                "Trajectory array has incompatible shape for AnnData.obsm: "
-                f"got {traj_np.shape}, expected first dimension to equal "
-                f"n_obs ({n_obs}) or, for 3D trajectories, second "
-                "dimension to equal n_obs so it can be transposed from "
-                "(n_time_steps, n_cells, n_features) to "
-                "(n_cells, n_time_steps, n_features)."
-            )
-
-    def _get_pred_raw_samples(self, pred_obj: PredictionData) -> np.ndarray | None:
-        # ---- Early return if no raw samples present ----
-        raw_samples = getattr(pred_obj, "raw_samples", None)
-        if raw_samples is None:
-            return None
-
-        # ---- Get number of observations from X ----
-        X = getattr(pred_obj, "X", None)
-        if X is None:
-            raise ValueError("Prediction object should have the .X attribute.")
-        n_obs = X.shape[0]
-
-        # ---- Convert raw samples to numpy and handle shape ----
-
-        samples_np = self._to_numpy(raw_samples)
-        if samples_np.ndim == 2 and samples_np.shape[0] == n_obs:
-            return samples_np
-        elif samples_np.ndim == 3 and samples_np.shape[1] == n_obs:
-            return np.transpose(samples_np, (1, 0, 2))
-        else:
-            raise ValueError(
-                "Samples array has incompatible shape for AnnData.obsm: "
-                f"got {samples_np.shape}, expected data of shape "
-                f"(n_obs, n_features) or (n_samples, n_obs, n_features)"
-            )
-
-    def _get_pred_obsm_dict(self, node: MatchedData, pred_obj: PredictionData) -> dict[str, np.ndarray]:
-        # ---- Get trajectory and samples ----
-        traj = self._get_pred_traj(pred_obj)
-        raw_samples = self._get_pred_raw_samples(pred_obj)
-
-        # ---- Get condition continuous covariates data ----
-        if node.target.has_continuous_condition_covariates:
-            condition_continuous_covs = node.target.condition_data.continuous_covariates.mapping
-        else:
-            condition_continuous_covs = {}
-
-        # ---- Get target continuous covariates data ----
-        if node.target.has_continuous_response_covariates:
-            response_continuous_covs = node.target.response_data.continuous_covariates.mapping
-        else:
-            response_continuous_covs = {}
-
-        # ---- Construct output ----
-        obsm_dict = {}
-        if traj is not None:
-            obsm_dict["trajectory"] = traj
-        if raw_samples is not None:
-            obsm_dict["raw_samples"] = raw_samples
-        obsm_dict.update(condition_continuous_covs)
-        obsm_dict.update(response_continuous_covs)
-        return obsm_dict
-
-    def _aggregate_nodes_pred(
-        self,
-        all_preds: list[PredictionData],
-        all_obs: list[pd.DataFrame],
-        all_obsm: dict[str, list[np.ndarray]],
-        return_raw: bool = False,
-    ) -> AnnData | tuple[AnnData, PredictionData]:
-        # ---- Aggregate predicted states ----
-        # Merge predictions using backend‑specific concatenation
-        merged_pred = type(all_preds[0]).concatenate(all_preds)
-
-        # ---- Construct prediction adata ----
-        # Convert to numpy
-        X_np = self._to_numpy(merged_pred.X)
-
-        # Aggregate obs dataframes
-        obs_final = pd.concat(all_obs, axis=0)
-
-        # Aggregate obsm array dictionary
-        obsm_final = {k: np.concatenate(v, axis=0) for k, v in all_obsm.items()}
-
-        pred_adata = AnnData(
-            X=X_np, obs=obs_final, var=pd.DataFrame(index=self._dims_registry.feature_names), obsm=obsm_final
-        )
-
-        # ---- Return output ----
-        if return_raw:
-            return pred_adata, merged_pred
-
-        return pred_adata
-
-    def _predict_on_node(self, node: MatchedData, *args, **kwargs) -> PredictionData:
-        return self._method.predict(node, *args, **kwargs)
-
-    def _to_numpy(self, tensor: Any) -> np.ndarray:
-        """
-        Convert a backend-specific tensor to a numpy array.
-
-        :param tensor: A tensor from the current backend (e.g., torch.Tensor or jnp.ndarray).
-        :return: numpy array
-        """
-        if tensor is None:
-            return None
-        if self._backend == "torch":
-            import torch
-
-            if isinstance(tensor, torch.Tensor):
-                return tensor.detach().cpu().numpy()
-            return np.array(tensor)
-        elif self._backend == "jax":
-            return np.array(tensor)
-        else:
-            raise ValueError(f"Unsupported backend: {self._backend}")
-
-    def to_device(self, device: str) -> None:
-        """Move the underlying PyTorch module and optimizer state to the specified device."""
-        if self._backend == "jax":
-            raise NotImplementedError("Device moving is currently supported only for the torch backend.")
-        elif self._backend == "torch":
-            import torch
-
-            self._method._module.to(device)
-            if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
-                opt = self._trainer.opt_manager.optimizer
-                for param_group in opt.param_groups:
-                    for param in param_group["params"]:
-                        if param.device.type != device.split(":")[0]:
-                            param.data = param.data.to(device)
-                for state in opt.state.values():
-                    for k, v in state.items():
-                        if isinstance(v, torch.Tensor) and v.device.type != device.split(":")[0]:
-                            state[k] = v.to(device)
-        else:
-            raise_runtime_error_on_backend_not_supported(self._backend)
-
-    def train(
-        self,
-        train_adata: AnnData,
-        *args,
-        val_adatas_dict: dict[str, AnnData] | None = None,
-        callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
+        data: DataInput,
+        *,
+        rep_tables: Mapping[str, Mapping] | None = None,
+        batch_size: int = 128,
         n_train_steps: int = 100_000,
         valid_freq: int = 1_000,
-        train_batch_size: int = 128,
-        val_max_n_obs: int = 10_000,
-        train_sampler_kwargs: dict[str, Any] | None = None,
-        val_sampler_kwargs: dict[str, Any] | None = None,
-        train_kwargs: dict[str, Any] | None = None,
-        optim_kwargs: dict[str, Any] | None = None,
-        sort: bool = False,
-        framework: str = "native",
-        **kwargs,
-    ) -> None:
-        """Trains the model on the input adata.
-
-        :param train_adata: The train adata.
-        :type train_adata: class: `AnnData`
-
-        :param *args: Positional arguments used to call the `.train` method of the trainer class.
-        :type *args: class: `Sequence[Any]`
-
-        :param val_adatas_dict: Dictionary containing the validation adatas.
-        :type val_adatas_dict: class: `dict[str, AnnData]`
-
-        :param callbacks: Callbacks to be used during training.
-        :type callbacks: class: `TrainingCallbacks | Sequence[BaseCallback] | None`
-
-        :param n_train_steps: The number of training steps to train the model over.
-            Defaults to `10_000`
-        :type n_train_steps: class: `int`
-
-        :param valid_freq: The frequency of the validation steps during training.
-            Defaults to `1_000`
-        :type valid_freq: class: `int`
-
-        :param train_batch_size: The number of observations to sample for each node in a batch
-            of training data. Defaults to `128`.
-        :type train_batch_size: class: `int`
-
-        :param val_max_n_obs: The maximum number of observations to sample for each node in a batch
-            of validation data. Defaults to `10_000`.
-        :type val_max_n_obs: class: `int`
-
-        :param train_sampler_kwargs: Extra keyword arguments for the training sampler. Defaults to `None`.
-        :type train_sampler_kwargs: class: `dict[str, Any] | None`
-
-        :param val_sampler_kwargs: Extra keyword arguments for the validation sampler. Defaults to `None`.
-        :type val_sampler_kwargs: class: `dict[str, Any] | None`
-
-        :param optim_kwargs: Keyword arguments to configure for the optimization manager (optimizer, scheduler, etc.). Defaults to `None`.
-        :type optim_kwargs: class: `OptimConfig | None`
-
-        :param sort: If ``True``, create a sorted copy of *adata* via
-            :meth:`sort_adata` and compile from that copy.  When setting this one
-            should keep in mind this will copy the full adata object. When ``False`` (the
-            default) the data must already be sorted; a ``ValueError``
-            is raised otherwise.
-        :type sort: class: `bool`
-
-        :param *kwargs: Keyword arguments used to call the `.train` method of the trainer class.
-        :type *kwargs: class: `dict[str, Any]`
-        """
-        # compile adata
-        train_tree = self._dm.compile_adata(
-            train_adata,
-            sort=sort,
-            view_on_condition_space=self._view_on_condition_space,
-            condition_state_key=self._condition_state_key,
-            apply_transformations=True,
+        device: str = "cpu",
+        lr: float = 1e-4,
+        min_runs_per_leaf: int = 0,
+    ) -> FlowMatching:
+        """Fits the model by compiling data into a Loader and running PL Trainer."""
+        # 1. Compile spec & build loader
+        loader = self.spec.build_loader(
+            data,
+            rep_tables=rep_tables,
+            batch_size=batch_size,
+            min_runs_per_leaf=min_runs_per_leaf,
+            to=None,  # yield numpy arrays
         )
-        if val_adatas_dict is not None:
-            val_trees_dict = {
-                val_id: self._dm.compile_adata(
-                    val_adata,
-                    sort=sort,
-                    view_on_condition_space=self._view_on_condition_space,
-                    condition_state_key=self._condition_state_key,
-                    apply_transformations=True,
-                )
-                for val_id, val_adata in val_adatas_dict.items()
-            }
-        else:
-            val_trees_dict = {}
+        self._condition_fn = loader._cond_fn
 
-        # create train sampler
-        if train_sampler_kwargs is None:
-            train_sampler_kwargs = {}
-        train_sampler = FTrainSampler(
-            train_tree,
-            batch_size=train_batch_size,
-            **train_sampler_kwargs,
+        # 2. Infer dimensions
+        leaf = next(iter(loader.s.nodes["pert"].weights))
+        sample_cond = loader._cond_fn(leaf)
+        batch = next(iter(loader))
+        D = batch["target"].shape[-1]
+
+        from cellflow.networks._velocity_field import ConditionalVelocityField
+        from cellflow._compat import ConstantNoiseFlow
+
+        # 3. Instantiate JAX ConditionalVelocityField & ConstantNoiseFlow
+        self.vf = ConditionalVelocityField(
+            output_dim=D,
+            max_combination_length=sample_cond[next(iter(sample_cond))].shape[1],
+            condition_mode=self.condition_mode,
+            regularization=self.regularization,
+            condition_embedding_dim=self.condition_embedding_dim,
+            hidden_dims=self.hidden_dims,
         )
+        self.probability_path = ConstantNoiseFlow(sigma=self.sigma)
 
-        # create validation samplers
-        if val_sampler_kwargs is None:
-            val_sampler_kwargs = {}
-        val_samplers_dict = {
-            val_id: FValidationSampler(val_tree, max_n_obs=val_max_n_obs, **val_sampler_kwargs)
-            for val_id, val_tree in val_trees_dict.items()
-        }
+        # Initialize JAX parameters
+        import jax
+        import jax.numpy as jnp
+        k_init, k_enc = jax.random.split(jax.random.PRNGKey(0))
+        cond_init = {k: jnp.ones(v.shape) for k, v in sample_cond.items()}
+        params = self.vf.init(
+            {"params": k_init, "condition_encoder": k_enc},
+            t=jnp.ones((1, 1)),
+            x_t=jnp.ones((1, D)),
+            cond=cond_init,
+            encoder_noise=jnp.ones((1, self.condition_embedding_dim)),
+            train=False,
+        )["params"]
 
-        # prepare optimization configurations
-        if optim_kwargs is None:
-            optim_kwargs = {}
-        optim_config = OptimConfig(**optim_kwargs)
+        # 4. Instantiate JaxParamModule and CellFlowFMObjective
+        self.model = JaxParamModule(params)
+        self.objective = CellFlowFMObjective(self.vf, self.probability_path, seed=0)
 
-        # Optional Lightning backend: delegate the loop to lightning.Trainer.
-        if framework == "lightning":
-            from sc_flow.config._run import TrainerConfig
-            from sc_flow.trainer._lightning import fit_with_lightning
+        # 5. Setup data harness
+        class _AdaptedIterableDataset(torch.utils.data.IterableDataset):
+            def __init__(self, loader, cond_emb_dim):
+                self.loader = loader
+                self.cond_emb_dim = cond_emb_dim
+            def __iter__(self):
+                yield from iter_fm_batches(self.loader, condition_embedding_dim=self.cond_emb_dim)
 
-            if self._run_config is not None:
-                trainer_cfg = self._run_config.trainer
-            else:
-                trainer_cfg = TrainerConfig(
-                    device=getattr(self._method, "_device_id", "cpu"),
-                    n_train_steps=n_train_steps,
-                    valid_freq=valid_freq,
-                )
-            self._method.set_train_mode(True)
-            self._lightning_trainer = fit_with_lightning(
-                self._method, optim_config, trainer_cfg, train_sampler, val_samplers_dict
-            )
-            return
+        dataset = _AdaptedIterableDataset(loader, self.condition_embedding_dim)
+        torch_loader = torch.utils.data.DataLoader(dataset, batch_size=None)
 
-        # create optimization manager
-        if self._backend == "torch":
-            from sc_flow.backends.torch.methods._opt import TorchOptimizationManager
+        from sc_flow.backends.torch.training._harness import SCFlowLightningModule
+        harness = SCFlowLightningModule(self.model, self.objective, lr=lr)
 
-            opt_manager = TorchOptimizationManager.from_config(self._method._module, optim_config)
-        elif self._backend == "jax":
-            # Placeholder for future JAX support
-            raise NotImplementedError("JAX optimization manager not yet implemented.")
-        else:
-            raise_runtime_error_on_backend_not_supported(self._backend)
-
-        # initialize trainer
-        if self._trainer is None:
-            self._trainer = Trainer(self._method, opt_manager, callbacks)
-
-        # module in training mode
-        self._method.set_train_mode(True)
-
-        # train model
-        self._trainer.train(
-            train_sampler, *args, val_samplers_dict=val_samplers_dict, n_train_steps=n_train_steps, valid_freq=valid_freq, **kwargs
+        trainer = pl.Trainer(
+            max_steps=n_train_steps,
+            accelerator=device,
+            val_check_interval=valid_freq,
+            logger=False,
+            enable_checkpointing=False,
         )
+        trainer.fit(harness, torch_loader)
+        return self
 
     def predict(
         self,
-        adata: AnnData,
-        *args,
-        return_raw: bool = False,
-        sort: bool = True,
-        control_values_dict: dict[str, str] | None = None,
-        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
-        **kwargs,
-    ) -> AnnData | tuple[AnnData, PredictionData]:
-        """
-        Generates flow predictions.
+        x: np.ndarray,
+        condition: dict[str, np.ndarray] | tuple[Any, ...],
+        *,
+        device: str = "cpu",
+        num_steps: int = 50,
+        return_trajectory: bool = False,
+    ) -> np.ndarray:
+        """Predicts translation using PyTorch ODE solver (torchdiffeq) driven by JAX velocity field."""
+        if self.model is None or self.vf is None:
+            raise RuntimeError("Model must be fitted before predict() can be called.")
 
-        :param adata: The input adata containing the metadata for prediction.
-        :type adata: class: `AnnData`
+        self.model.to(device)
 
-        :param return_raw: If True, returns the raw concatenated PredictionData
-            keeping the computation graph alive. Defaults to `False`.
-        :type return_raw: class: `bool`
+        if not isinstance(condition, dict) or not all(isinstance(v, np.ndarray) for v in condition.values()):
+            if self._condition_fn is None:
+                raise RuntimeError("Model must be fitted to resolve leaf conditions.")
+            condition = self._condition_fn(condition)
 
-        :param sort: If ``True``, create a sorted copy of *adata* via
-            :meth:`sort_adata` and compile from that copy.  When setting this one
-            should keep in mind this will copy the full adata object. When ``False`` (the
-            default) the data must already be sorted; a ``ValueError``
-            is raised otherwise.
-        :type sort: class: `bool`
+        import jax
+        import jax.numpy as jnp
 
-        :param control_values_dict: Optional dictionary mapping each condition
-            level to the corresponding value used to indicate control observations.
-            This overrides the homonimous attribute and is needed to allow
-            inference over arbitrary control keys at inference time.
-            Without this, inference would be bound to the source
-            group defined for training. Defaults to `None`,
-            in which case the instance attribute will be used.
-        :type control_values_dict: class: `dict[str, str] | None`
+        leaves = [torch_to_jax(p) for p in self.model.param_tensors]
+        params_jax = jax.tree_util.tree_unflatten(self.model.treedef, leaves)
+        cond_jax = {k: jax.device_put(v) for k, v in condition.items()}
+        encoder_noise = jnp.zeros((1, self.condition_embedding_dim))
 
-        :param matched_keys: Optional keys used to identify the source  and
-            corresponding target groups in the case of fixed matches.
-            This overrides the homonimous attribute and is needed to allow
-            inference over arbitrary matched groups at inference time.
-            Without this, inference would be bound to the pairs of source
-            and target groups defined for training. Defaults to `None`,
-            in which case the instance attribute will be used.
-        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
-
-        :return: Either an AnnData with predictions, or a tuple (AnnData, PredictionData)
-            if `return_raw` is True.
-        """
-        # Set module to evaluation mode (backend‑agnostic)
-        self._method.set_train_mode(False)
-
-        # Compile the data tree
-        tree = self._dm.compile_adata(
-            adata,
-            sort=sort,
-            view_on_condition_space=self._view_on_condition_space,
-            condition_state_key=self._condition_state_key,
-            control_values_dict=control_values_dict,
-            matched_keys=matched_keys,
-            apply_transformations=True,
+        # 1. Encode condition once
+        cond_embedding, _, _ = self.vf.apply(
+            {"params": params_jax},
+            cond_jax,
+            encoder_noise,
+            train=False,
+            method=self.vf.encode_condition
         )
-        tree_flat: tuple[MatchedData] = tree.flatten()
 
-        # early return
-        if not tree_flat:
-            return self._predict_empty(return_raw)
-
-        # define store
-        all_preds = []
-        all_obs = []
-        all_obsm = defaultdict(list)
-
-        # Iterate over each node
-        for node in tqdm(tree_flat, desc="Predicting"):
-            # 0. Align node
-            node_aligned = node.align()
-
-            # 1. Inference
-            pred_obj = self._predict_on_node(node_aligned, *args, **kwargs)
-            all_preds.append(pred_obj)
-
-            # 2. Construct node dataframe
-            pred_df = self._get_pred_obs_df(node_aligned, pred_obj)
-            all_obs.append(pred_df.copy())
-
-            # 3. Construct node obsm
-            node_obsm_dict = self._get_pred_obsm_dict(node_aligned, pred_obj)
-            for key, val in node_obsm_dict.items():
-                all_obsm[key].append(val)
-
-        return self._aggregate_nodes_pred(all_preds, all_obs, all_obsm, return_raw=return_raw)
-
-    def save(self, filepath: str, allow_overwrite: bool = False) -> None:
-        """
-        Save the entire model (including registered data) to a tarball.
-
-        :param filepath: Output file path (e.g., 'model.tar.gz').
-        :param allow_overwrite: If True, overwrite existing file.
-        """
-        path = Path(filepath)
-        if path.exists() and not allow_overwrite:
-            raise FileExistsError(f"{filepath} already exists. Use allow_overwrite=True.")
-        elif path.exists() and allow_overwrite:
-            path.unlink()
-
-        # Move model to CPU before pickling
-        if self._backend == "torch":
-            import torch
-
-            self._method._module.cpu()
-            # Fixed: access optimizer via trainer, not via method
-            if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
-                opt = self._trainer.opt_manager.optimizer
-                for state in opt.state.values():
-                    for k, v in state.items():
-                        if isinstance(v, torch.Tensor):
-                            state[k] = v.cpu()
-
-        # unload preprocessing context
-        self.dm.unload_preproc()
-
-        # Save self as a tarball containing a single pickle file
-        with tarfile.open(filepath, "w:gz") as tar:
-            with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as tmp:
-                cloudpickle.dump(self, tmp)
-                tmp.flush()
-                tar.add(tmp.name, arcname="model.pkl")
-            Path(tmp.name).unlink()
-
-        logging.info(f"Model saved to {filepath} (moved to CPU).")
-
-    @classmethod
-    def load(
-        cls,
-        filepath: str,
-        adata: AnnData | None = None,
-        map_location: str | None = None,
-        **register_kwargs,
-    ) -> "SCFlow":
-        """
-        Load a saved model from a tarball.
-
-        :param filepath: Path to the saved tarball.
-        :param adata: Optional AnnData to re‑register if the saved model does not contain data.
-        :param map_location: For PyTorch models, map to a device (e.g., 'cuda:0').
-        :param register_kwargs: Data-setup arguments (``view_on_condition_space``,
-            ``condition_state_key``, and ``DataManager`` kwargs) used when ``adata`` is provided.
-        :return: Loaded SCFlow instance.
-        """
-        path = Path(filepath)
-        if not path.exists():
-            raise FileNotFoundError(f"{filepath} not found.")
-
-        with tempfile.TemporaryDirectory() as tmpdir:
-            extract_dir = Path(tmpdir).resolve()
-            with tarfile.open(filepath, "r:gz") as tar:
-                for member in tar.getmembers():
-                    if member.issym() or member.islnk():
-                        raise ValueError(f"Refusing to extract link from archive: {member.name}")
-
-                    member_path = (extract_dir / member.name).resolve()
-                    try:
-                        member_path.relative_to(extract_dir)
-                    except ValueError as e:
-                        raise ValueError(
-                            f"Refusing to extract archive member outside target directory: {member.name}"
-                        ) from e
-
-                    tar.extract(member, tmpdir)
-
-            with open(Path(tmpdir) / "model.pkl", "rb") as f:
-                model = cloudpickle.load(f)
-
-        # If an AnnData is provided, re-set up the data context (overwrites the saved one, if any)
-        if adata is not None:
-            view_on_condition_space = register_kwargs.pop("view_on_condition_space", model._view_on_condition_space)
-            condition_state_key = register_kwargs.pop("condition_state_key", model._condition_state_key)
-            model._dm, model._dims_registry, model._is_paired_setting = cls._setup_data(
-                adata,
-                view_on_condition_space=view_on_condition_space,
-                condition_state_key=condition_state_key,
-                datamanager_kwargs=register_kwargs,
+        # 2. ODE closure for torchdiffeq
+        def f(t: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            t_expanded = t.expand(y.shape[0], 1)
+            t_jax = torch_to_jax(t_expanded)
+            y_jax = torch_to_jax(y)
+            v_jax = self.vf.apply(
+                {"params": params_jax},
+                t_jax,
+                y_jax,
+                cond_embedding,
+                train=False,
+                method=self.vf.velocity_from_embedding
             )
-            model._view_on_condition_space = view_on_condition_space
-            model._condition_state_key = condition_state_key
+            return jax_to_torch(v_jax).to(device)
 
-        # Move to desired device if using PyTorch
-        if model._backend == "torch" and map_location is not None:
-            model.to_device(map_location)
+        # 3. Integrate using torchdiffeq
+        from torchdiffeq import odeint
+        y0 = torch.as_tensor(x, dtype=torch.float32, device=device)
+        t_grid = torch.linspace(0.0, 1.0, num_steps, device=device)
 
-        return model
+        with torch.no_grad():
+            trajectory = odeint(f, y0, t_grid, method="euler")
 
-    @property
-    def backend(self) -> str:
-        """Returns the backend the model was initialized on."""
-        return self._backend
-
-    @property
-    def dm(self) -> DataManager:
-        """Returns the data manager associated to the current instance."""
-        return self._dm
-
-    @property
-    def is_paired_setting(self) -> bool:
-        """Whether the data was registered in a paired setting."""
-        return self._is_paired_setting
-
-    @property
-    def method(self) -> BaseMethod:
-        """Returns the underlying method."""
-        return self._method
-
-    @property
-    def trainer(self) -> Trainer:
-        """Returns the trainer used to fit the model."""
-        return self._trainer
-
-    @property
-    def view_on_condition_space(self) -> bool:
-        """Return whether the model is operating on the condition space."""
-        return self._view_on_condition_space
-
-    @property
-    def condition_state_key(self) -> str | None:
-        """Return the key used to extract the state from the condition."""
-        return self._condition_state_key
+        if return_trajectory:
+            return trajectory.cpu().numpy()
+        else:
+            return trajectory[-1].cpu().numpy()

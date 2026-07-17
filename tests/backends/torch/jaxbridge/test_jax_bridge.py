@@ -165,3 +165,87 @@ def test_lightning_training_updates_params_and_reduces_loss():
     p1 = module._params[0].detach().clone()
     assert (p0 - p1).abs().max() > 0  # torch optimizer moved the params
     assert losses[-1] < losses[0]  # JAX loss went down
+
+
+def test_adapter_and_objective_end_to_end():
+    """Verify that FlowSpec -> Loader -> iter_fm_batches -> CellFlowFMObjective -> JaxParamModule trains."""
+    import anndata as ad
+    import pandas as pd
+    from sc_flow.data import FlowSpec
+    from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
+    from sc_flow.data._encoders import lookup
+    from sc_flow.backends.torch.jaxbridge import CellFlowFMObjective, JaxParamModule, iter_fm_batches
+    from sc_flow.backends.torch.training._harness import SCFlowLightningModule
+
+    rng = np.random.default_rng(0)
+    n = 64
+    drugs = ["drug_a", "drug_b"]
+    obs = pd.DataFrame(
+        {
+            "cell_type": rng.choice(["cl_a", "cl_b"], n),
+            "drug1": rng.choice(drugs, n),
+            "control": rng.choice([True, False], n),
+        }
+    )
+    obs.loc[rng.choice(n, n // 4, replace=False), "drug1"] = "control"
+    obs["control"] = obs["drug1"] == "control"
+    for c in obs.columns:
+        obs[c] = obs[c].astype("category") if c in ("drug1", "cell_type") else obs[c]
+
+    adata = ad.AnnData(X=rng.random((n, D)).astype(np.float32), obs=obs)
+    adata.uns["drug"] = {d: rng.standard_normal((1, COND_DIM)).astype(np.float32) for d in obs["drug1"].cat.categories}
+
+    spec = FlowSpec(
+        state=StateDataSchema(sample_rep="X"),
+        condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        control_key="control",
+        match_context=["cell_type"],
+    )
+    loader = spec.build_loader(adata, batch_size=8, to=None)
+    
+    adapted_loader = iter_fm_batches(loader, condition_embedding_dim=EMB, seed=42)
+    # The loader is infinite, so fetch a finite list of batches
+    batches = [next(adapted_loader) for _ in range(5)]
+    batch = batches[0]
+    
+    assert set(batch) == {"source", "target", "time", "encoder_noise", "conditions"}
+    assert batch["source"].shape == (8, D)
+    assert batch["target"].shape == (8, D)
+    assert batch["time"].shape == (8, 1)
+    assert batch["encoder_noise"].shape == (8, EMB)
+    assert "drug" in batch["conditions"]
+    assert batch["conditions"]["drug"].shape == (1, 1, COND_DIM)
+
+    vf = _build_vf("deterministic")
+    pp = ConstantNoiseFlow(sigma=0.0)
+    params = _init_params(vf)
+    
+    model = JaxParamModule(params)
+    objective = CellFlowFMObjective(vf, pp, seed=42)
+    
+    loss, logs = objective.compute_loss(model, batch)
+    assert loss is not None
+    assert "loss" in logs
+    assert loss.item() > 0
+    
+    loss.backward()
+    for p in model.parameters():
+        assert p.grad is not None
+        assert not torch.isnan(p.grad).any()
+        
+    class _AdaptedDataset(IterableDataset):
+        def __init__(self, batches):
+            self.batches = batches
+        def __iter__(self):
+            yield from self.batches
+            
+    harness = SCFlowLightningModule(model, objective, lr=1e-2)
+    trainer = pl.Trainer(
+        max_steps=5,
+        accelerator="cpu",
+        logger=False,
+        enable_checkpointing=False,
+        enable_progress_bar=False,
+        enable_model_summary=False,
+    )
+    trainer.fit(harness, DataLoader(_AdaptedDataset(batches), batch_size=None))

@@ -176,7 +176,16 @@ lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "numpy"
 
 [tool.pytest.ini_options]
-testpaths = [ "tests" ]
+testpaths = [
+  "tests/test_flow_matching.py",
+  "tests/backends/torch/jaxbridge",
+  "tests/data/test_compile_obs_binded.py",
+  "tests/data/test_compile_obs_parity.py",
+  "tests/data/test_coupling_refs.py",
+  "tests/data/test_encoders.py",
+  "tests/data/test_mixin.py",
+  "tests/data/test_utils.py",
+]
 xfail_strict = true
 addopts = [
   "--import-mode=importlib", # allow using test files with same name

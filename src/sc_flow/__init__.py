@@ -16,7 +16,7 @@ __all__ = [
     "data",
     "dataset",
     "methods",
-    "SCFlow",
+    "FlowMatching",
     "trainer",
 ]
 
@@ -26,8 +26,8 @@ _LAZY_SUBMODULES = frozenset({"backends", "dataset", "methods", "trainer"})
 def __getattr__(name: str):
     if name in _LAZY_SUBMODULES:
         return importlib.import_module(f"sc_flow.{name}")
-    if name == "SCFlow":
-        from sc_flow._model import SCFlow
+    if name == "FlowMatching":
+        from sc_flow._model import FlowMatching
 
-        return SCFlow
+        return FlowMatching
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

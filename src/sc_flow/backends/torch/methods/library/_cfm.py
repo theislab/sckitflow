@@ -74,8 +74,6 @@ class CFM(TorchGenerativeFlow):
         backends=frozenset({"torch"}),
         supported_devices=frozenset({"cpu", "cuda", "mps"}),
         config_cls=CFMConfig,
-        requires_flow_solver=True,
-        flow_solver_differentiable=False,
     )
 
     def __init__(self, *args, **kwargs):

@@ -27,18 +27,9 @@ class MethodCapabilities:
         naming a solver.
     :param config_cls: The method-specific config dataclass that ``method.config``
         is validated against. ``None`` means the method takes free-form kwargs.
-    :param requires_flow_solver: Whether the method needs a flow solver
-        (ODE/SDE integrator over a velocity field) to be configured.
-    :param flow_solver_differentiable: Whether the method supports backpropagating
-        through the flow solve (adjoint / VJP bridge).
-    :param trains_through_ode: Whether the training loss is computed downstream of
-        the ODE/SDE solve (as opposed to simulation-free training).
     """
 
     category: str = "general"
     backends: frozenset[str] = field(default_factory=lambda: frozenset({"torch"}))
     supported_devices: frozenset[str] = field(default_factory=lambda: frozenset({"cpu", "cuda", "mps"}))
     config_cls: type | None = None
-    requires_flow_solver: bool = False
-    flow_solver_differentiable: bool = False
-    trains_through_ode: bool = False

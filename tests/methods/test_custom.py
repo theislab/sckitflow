@@ -76,7 +76,10 @@ def test_register_flow_method_success(mock_torch_registry, mock_torch_base_class
     registered_cls = mock_torch_registry["test_flow"]
     assert issubclass(registered_cls, UserFlow)
     assert issubclass(registered_cls, mock_flow)
-    assert registered_cls._module_cls == UserFlow.module_cls
+    # register_method wires the user's module_cls into a build_module seam
+    # (no `_module_cls` class global).
+    assert "build_module" in registered_cls.__dict__
+    assert registered_cls.module_cls is UserFlow.module_cls
     assert registered_cls._default_solver_cls == UserFlow.default_solver_cls
 
     # Check that the __init__ correctly sets probability_path from user's class
@@ -166,7 +169,9 @@ def test_register_general_method_success(mock_torch_registry, mock_torch_base_cl
     registered_cls = mock_torch_registry["test_general"]
     assert issubclass(registered_cls, UserGeneral)
     assert issubclass(registered_cls, mock_base)
-    assert registered_cls._module_cls == UserGeneral.module_cls
+    # register_method wires module_cls into a build_module seam (no `_module_cls`).
+    assert "build_module" in registered_cls.__dict__
+    assert registered_cls.module_cls is UserGeneral.module_cls
 
 
 def test_register_general_missing_train_step(mock_torch_registry, mock_torch_base_classes):

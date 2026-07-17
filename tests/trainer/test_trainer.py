@@ -13,8 +13,6 @@ from sc_flow.trainer._trainer import Trainer
 # Dummy classes for testing
 # -----------------------------------------------------------------------------
 class DummyMethod(BaseMethod):
-    _module_cls = None
-
     def __init__(self, *args, **kwargs):
         self._backend = kwargs.get("backend", "torch")
         self._train_mode = True

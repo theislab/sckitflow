@@ -64,8 +64,6 @@ class DummyPredictionData:
 
 
 class DummyMethod(BaseMethod):
-    _module_cls = None
-
     def __init__(self, dims_registry, dm, is_paired_setting, *args, **kwargs):
         self._dims_registry = dims_registry
         self._dm = dm
@@ -317,7 +315,8 @@ class TestSCFlow:
 
         # Create a proper method class that uses RealDummyModule
         class RealDummyMethod(BaseMethod):
-            _module_cls = RealDummyModule
+            def build_module(self, *args, **kwargs):
+                return RealDummyModule.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
             def __init__(self, dims_registry, dm, is_paired_setting, *args, **kwargs):
                 super().__init__(dims_registry, dm, is_paired_setting, *args, **kwargs)

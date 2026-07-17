@@ -66,7 +66,6 @@ class CFMConfig:
 
 
 class CFM(TorchGenerativeFlow):
-    _module_cls: type[BaseVelocityField] = MLPVelocity
     _default_solver_cls: type[BaseSolver] = ODESolver
     _capabilities = MethodCapabilities(
         category="flow",
@@ -74,6 +73,10 @@ class CFM(TorchGenerativeFlow):
         supported_devices=frozenset({"cpu", "cuda", "mps"}),
         config_cls=CFMConfig,
     )
+
+    def build_module(self, *args, **kwargs) -> BaseVelocityField:
+        """Build the conditional velocity field from the dimensionality registry."""
+        return MLPVelocity.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

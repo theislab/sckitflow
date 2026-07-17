@@ -34,7 +34,8 @@ class DummyModule(BaseModule):
 # Concrete test subclasses that use DummyModule
 # -----------------------------------------------------------------------------
 class DummyTorchMethod(TorchBaseMethod):
-    _module_cls = DummyModule
+    def build_module(self, *args, **kwargs):
+        return DummyModule.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
     def train_step(self, *args, **kwargs):
         return torch.tensor(0.0), {}
@@ -50,8 +51,10 @@ class DummyTorchMethod(TorchBaseMethod):
 
 
 class DummyTorchGenerativeFlow(TorchGenerativeFlow):
-    _module_cls = DummyModule
     _default_solver_cls = Mock()
+
+    def build_module(self, *args, **kwargs):
+        return DummyModule.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
     def _compute_loss(self, step_data, *args, **kwargs):
         return torch.tensor(0.0), {}

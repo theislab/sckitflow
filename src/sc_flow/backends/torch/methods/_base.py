@@ -22,8 +22,6 @@ T = TypeVar("T")
 
 
 class TorchBaseMethod(BaseMethod):
-    _module_cls: type[BaseModule] | None = None
-
     def __init__(
         self,
         *args,

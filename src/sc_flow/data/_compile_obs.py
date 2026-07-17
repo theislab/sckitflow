@@ -28,6 +28,7 @@ import pandas as pd
 from sc_flow.data._encoders import Encoder
 from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.schemas._condition_data_schema import ConditionDataSchema
+from sc_flow.data.schemas._coupling_data_schema import CouplingDataSchema
 from sc_flow.data.schemas._covariates_data_schema import CovariatesDataSchema
 from sc_flow.data.schemas._state_data_schema import StateDataSchema
 
@@ -45,6 +46,7 @@ class CompiledData:
     condition_fn: ConditionFn
     cols: tuple[str, ...]
     data_dim: int | None = None
+    coupling: dict[str, str] | None = None  # coupling role -> streamed rep loc-string (see compile_obs)
 
 
 def _sample_rep_to_key(sample_rep: str) -> str:
@@ -58,6 +60,7 @@ def compile_obs(
     state: StateDataSchema,
     condition: ConditionDataSchema,
     covariates: CovariatesDataSchema | None = None,
+    coupling: CouplingDataSchema | None = None,
     control_key: str,
     match_context: Sequence[str] = (),
 ) -> CompiledData:
@@ -68,6 +71,9 @@ def compile_obs(
     :param state: Which representation to stream (becomes the ``Node`` key).
     :param condition: The leaf-level (categorical/combinatorial) condition covariates.
     :param covariates: Embedded per-sample covariates (each with an encoder); ``None`` = none.
+    :param coupling: OT coupling source/target references (``src/tgt`` ``lin/quad``); their reps are
+        streamed as extra aligned ``Node`` keys (only those differing from the state rep) and recorded
+        in :attr:`CompiledData.coupling` as ``{role: loc-string}``. ``None`` = no coupling reps.
     :param control_key: Boolean/0-1 obs column marking control observations.
     :param match_context: Matching-context columns → the ``Bind.common`` (matching only, not
         embedded). sc-flow's native name for cellflow's ``split_covariates``.
@@ -125,6 +131,17 @@ def compile_obs(
                 out[cov] = v
         return out
 
+    # --- coupling reps: stream aligned to source (ctrl) / target (pert) cells as extra Node keys,
+    # only when the coupling space differs from the state rep (same-space matching reuses source/target).
+    def _ref_loc(ref: Any) -> str:
+        return Node("data", ("_ref_",), ref).keys[0]  # binded normalizes an accessor/str → loc-string
+
+    coupling_locs = {role: _ref_loc(ref) for role, ref in coupling.refs.items()} if coupling is not None else {}
+    tgt_extra = [coupling_locs[r] for r in ("tgt_lin", "tgt_quad") if r in coupling_locs]
+    src_extra = [coupling_locs[r] for r in ("src_lin", "src_quad") if r in coupling_locs]
+    pert_keys = tuple(dict.fromkeys([key, *tgt_extra]))
+    ctrl_keys = tuple(dict.fromkeys([key, *src_extra]))
+
     ctrl_flag = obs[control_key].to_numpy().astype(bool)
     pert = [tuple(r) for r in obs.loc[~ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
     ctrl = [tuple(r) for r in obs.loc[ctrl_flag, list(cols)].drop_duplicates().to_numpy()]
@@ -132,11 +149,11 @@ def compile_obs(
     scheme = Scheme(
         sources={"data": adata},
         nodes={
-            "pert": Node("data", cols, key, uniform(pert)),
-            "ctrl": Node("data", cols, key, uniform(ctrl)),
+            "pert": Node("data", cols, pert_keys, uniform(pert)),
+            "ctrl": Node("data", cols, ctrl_keys, uniform(ctrl)),
         },
         root="pert",
         binds=(Bind("pert", "ctrl", common=tuple(match_context)),),
         seed=0,
     )
-    return CompiledData(scheme=scheme, condition_fn=condition_fn, cols=cols)
+    return CompiledData(scheme=scheme, condition_fn=condition_fn, cols=cols, coupling=coupling_locs or None)

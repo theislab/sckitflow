@@ -22,7 +22,8 @@ classifiers = [
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-  "anndata",
+  # >=0.13 for the `anndata.acc` reference system (A.obsm[...] / adata[ref]) used by CouplingDataSchema.
+  "anndata>=0.13",
   # the data layer compiles labels into a binded Scheme and streams cells via binded.Loader.
   # Pinned to the git branch (not yet on PyPI); binded transitively pins the annbatch BoundClassSampler
   # fork. Requires `allow-direct-references` (see [tool.hatch.metadata]). For local development both are

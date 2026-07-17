@@ -112,6 +112,54 @@ def test_loader_streams_source_target_condition():
     assert isinstance(cond, dict) and set(cond) == {"drug", "cell_type"}
 
 
+def test_coupling_reps_stream_as_aligned_node_keys():
+    """A coupling ref in a different space than the state rep streams as an extra aligned Node key."""
+    from binded import Loader, SamplerConfig
+
+    from sc_flow.data.schemas import CouplingDataSchema
+
+    adata = _make_adata()
+    rng = np.random.default_rng(1)
+    adata.obsm["X_lin"] = rng.random((adata.n_obs, 6)).astype(np.float32)  # coupling space != state "X"
+    compiled = compile_obs(
+        adata,
+        state=StateDataSchema(sample_rep="X"),
+        condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        covariates=CovariatesDataSchema(covariate_encoders={"cell_type": lookup("cell_type")}),
+        coupling=CouplingDataSchema(src_lin="X_lin", tgt_lin="X_lin"),
+        control_key="control",
+        match_context=["cell_type"],
+    )
+    # role -> streamed loc recorded, and both nodes carry the extra aligned key
+    assert compiled.coupling == {"src_lin": "obsm/X_lin", "tgt_lin": "obsm/X_lin"}
+    assert compiled.scheme.nodes["pert"].keys == ("X", "obsm/X_lin")
+    assert compiled.scheme.nodes["ctrl"].keys == ("X", "obsm/X_lin")
+
+    cfg = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8, to=None)
+    batch = next(iter(Loader(compiled.scheme, cfg, compiled.condition_fn)))
+    assert "obsm/X_lin" in batch["target_reps"] and "obsm/X_lin" in batch["source_reps"]
+    assert np.asarray(batch["target_reps"]["obsm/X_lin"]).shape == (8, 6)
+    assert np.asarray(batch["source_reps"]["obsm/X_lin"]).shape == (8, 6)
+
+
+def test_coupling_same_space_as_state_is_not_duplicated():
+    """When a coupling ref IS the state rep, it is not streamed twice — source/target are reused."""
+    from sc_flow.data.schemas import CouplingDataSchema
+
+    adata = _make_adata()
+    compiled = compile_obs(
+        adata,
+        state=StateDataSchema(sample_rep="X"),
+        condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        coupling=CouplingDataSchema(src_lin="X", tgt_lin="X"),  # == state rep
+        control_key="control",
+        match_context=["cell_type"],
+    )
+    assert compiled.coupling == {"src_lin": "X", "tgt_lin": "X"}
+    assert compiled.scheme.nodes["pert"].keys == ("X",)  # deduped — no extra stream
+    assert compiled.scheme.nodes["ctrl"].keys == ("X",)
+
+
 def test_array_holding_containers_are_gone():
     """The dataset-wide array holders were removed; only label containers survive."""
     from sc_flow.data import containers

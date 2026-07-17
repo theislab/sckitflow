@@ -159,10 +159,15 @@ class CategoricalData(BaseData):
         repr_dict = {} if repr_dict is None else repr_dict
         categorical_encoders = {} if categorical_encoders is None else categorical_encoders
 
-        # set default encoders
+        # set default encoders: for a realm with no rep, fit a one-hot encoder on the union of
+        # its COLUMNS' values (a realm may group several columns, e.g. drug1/drug2 — the combination
+        # slots). Indexing ann_df by the realm name is wrong: the columns are the realm's members,
+        # not the realm itself. Flatten to one feature so the encoder learns all categories across
+        # slots; `_encode_col` then applies it per column.
         for cov_realm in set(categorical_reps_map.values()):
             if cov_realm not in categorical_encoders and cov_realm not in repr_dict:
-                cov_data = ann_df.loc[:, cov_realm].values
+                realm_cols = [col for col, realm in categorical_reps_map.items() if realm == cov_realm]
+                cov_data = ann_df.loc[:, realm_cols].to_numpy().reshape(-1, 1)
                 ohe = get_one_hot_encoder(cov_data)
                 categorical_encoders[cov_realm] = ohe
 

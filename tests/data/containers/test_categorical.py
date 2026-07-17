@@ -226,3 +226,20 @@ class TestCategoricalData:
         # which for a single object results in identical content but new dict objects.
         assert concatenated.categorical_encoders == cat.categorical_encoders
         assert concatenated.repr_dict == cat.repr_dict
+
+
+def test_from_pandas_one_hot_multi_column_realm() -> None:
+    """Regression: the one-hot fallback must iterate a realm's COLUMNS, not index by realm name.
+
+    A realm (``"ko"``) that groups >1 column (``koA``, ``koB``) with no precomputed rep must fall
+    back to one-hot. Previously ``from_pandas`` did ``ann_df.loc[:, realm]`` using the realm *name*
+    as a column key, raising ``KeyError: 'ko'`` for any multi-column realm. The encoder is fit on
+    the union of the realm's column values and applied per column.
+    """
+    df = pd.DataFrame({"koA": ["a", "b", "a"], "koB": ["b", "b", "c"]})
+    reps_map = {"koA": "ko", "koB": "ko"}  # both columns belong to one realm, no rep -> one-hot
+    cat = CategoricalData.from_pandas(df, categorical_reps_map=reps_map)
+    out = cat.extract_reps().mapping
+    assert set(out) == {"ko"}
+    # (n_obs, n_cols_in_realm, n_categories) = (3 rows, 2 slots, categories {a,b,c} = 3)
+    assert out["ko"].shape == (3, 2, 3)

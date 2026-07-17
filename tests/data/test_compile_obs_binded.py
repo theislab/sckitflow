@@ -40,7 +40,9 @@ def _make_adata(seed: int = 0) -> ad.AnnData:
     obs["control"] = obs["drug1"] == "control"
     adata = ad.AnnData(X=rng.random((n, 12)).astype(np.float32), obs=obs)
     adata.uns["drug"] = {d: rng.standard_normal((1, 5)).astype(np.float32) for d in obs["drug1"].cat.categories}
-    adata.uns["cell_type"] = {c: rng.standard_normal((1, 3)).astype(np.float32) for c in obs["cell_type"].cat.categories}
+    adata.uns["cell_type"] = {
+        c: rng.standard_normal((1, 3)).astype(np.float32) for c in obs["cell_type"].cat.categories
+    }
     return adata
 
 

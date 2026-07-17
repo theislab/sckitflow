@@ -108,7 +108,7 @@ def register_method(
 
         # Register in the backend's method registry
         if name in METHODS_REGISTRY:
-            raise ValueError(f"Method '{name}' already registered for backend '{backend}'.")
+            raise ValueError(f"Method '{name}' already registered.")
         METHODS_REGISTRY[name] = RegisteredMethod
 
         return user_cls

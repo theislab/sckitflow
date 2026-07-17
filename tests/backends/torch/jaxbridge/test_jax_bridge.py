@@ -171,11 +171,12 @@ def test_adapter_and_objective_end_to_end():
     """Verify that FlowSpec -> Loader -> iter_fm_batches -> CellFlowFMObjective -> JaxParamModule trains."""
     import anndata as ad
     import pandas as pd
-    from sc_flow.data import FlowSpec
-    from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
-    from sc_flow.data._encoders import lookup
+
     from sc_flow.backends.torch.jaxbridge import CellFlowFMObjective, JaxParamModule, iter_fm_batches
     from sc_flow.backends.torch.training._harness import SCFlowLightningModule
+    from sc_flow.data import FlowSpec
+    from sc_flow.data._encoders import lookup
+    from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
 
     rng = np.random.default_rng(0)
     n = 64
@@ -202,12 +203,12 @@ def test_adapter_and_objective_end_to_end():
         match_context=["cell_type"],
     )
     loader = spec.build_loader(adata, batch_size=8, to=None)
-    
+
     adapted_loader = iter_fm_batches(loader, condition_embedding_dim=EMB, seed=42)
     # The loader is infinite, so fetch a finite list of batches
     batches = [next(adapted_loader) for _ in range(5)]
     batch = batches[0]
-    
+
     assert set(batch) == {"source", "target", "time", "encoder_noise", "conditions"}
     assert batch["source"].shape == (8, D)
     assert batch["target"].shape == (8, D)
@@ -219,26 +220,27 @@ def test_adapter_and_objective_end_to_end():
     vf = _build_vf("deterministic")
     pp = ConstantNoiseFlow(sigma=0.0)
     params = _init_params(vf)
-    
+
     model = JaxParamModule(params)
     objective = CellFlowFMObjective(vf, pp, seed=42)
-    
+
     loss, logs = objective.compute_loss(model, batch)
     assert loss is not None
     assert "loss" in logs
     assert loss.item() > 0
-    
+
     loss.backward()
     for p in model.parameters():
         assert p.grad is not None
         assert not torch.isnan(p.grad).any()
-        
+
     class _AdaptedDataset(IterableDataset):
         def __init__(self, batches):
             self.batches = batches
+
         def __iter__(self):
             yield from self.batches
-            
+
     harness = SCFlowLightningModule(model, objective, lr=1e-2)
     trainer = pl.Trainer(
         max_steps=5,

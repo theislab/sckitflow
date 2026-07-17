@@ -2,9 +2,9 @@ name: Check Build
 
 on:
   push:
-    branches: [main, feat/setup-repository]
+    branches: [main, feat/refactors]
   pull_request:
-    branches: [main, feat/setup-repository]
+    branches: [main, feat/refactors]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

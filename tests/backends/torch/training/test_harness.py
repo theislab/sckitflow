@@ -40,9 +40,7 @@ class _LossRecorder(pl.Callback):
 class _TorchVNet(torch.nn.Module):
     def __init__(self, d=D, h=64):
         super().__init__()
-        self.net = torch.nn.Sequential(
-            torch.nn.Linear(d + 1, h), torch.nn.SiLU(), torch.nn.Linear(h, d)
-        )
+        self.net = torch.nn.Sequential(torch.nn.Linear(d + 1, h), torch.nn.SiLU(), torch.nn.Linear(h, d))
 
     def forward(self, t, x):
         return self.net(torch.cat([x, t], dim=-1))

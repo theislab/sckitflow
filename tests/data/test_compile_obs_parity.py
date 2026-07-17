@@ -51,7 +51,9 @@ def _make_adata(seed: int = 0) -> ad.AnnData:
     obs["control"] = obs["drug1"] == "control"
     adata = ad.AnnData(X=rng.random((n, 12)).astype(np.float32), obs=obs)
     adata.uns["drug"] = {d: rng.standard_normal((1, 5)).astype(np.float32) for d in obs["drug1"].cat.categories}
-    adata.uns["cell_type"] = {c: rng.standard_normal((1, 3)).astype(np.float32) for c in obs["cell_type"].cat.categories}
+    adata.uns["cell_type"] = {
+        c: rng.standard_normal((1, 3)).astype(np.float32) for c in obs["cell_type"].cat.categories
+    }
     return adata
 
 
@@ -59,15 +61,26 @@ def _make_adata(seed: int = 0) -> ad.AnnData:
 #   builds = compile_obs can construct the schemas at all
 #   embeds = the per-leaf condition embedding matches cellflow
 SPECS = [
-    pytest.param({"drug": ["drug1"]}, {"drug": "drug"}, ["cell_type"], [], {}, True, True, "", id="single-drug-rep-split"),
+    pytest.param(
+        {"drug": ["drug1"]}, {"drug": "drug"}, ["cell_type"], [], {}, True, True, "", id="single-drug-rep-split"
+    ),
     pytest.param({"drug": ["drug1"]}, {"drug": "drug"}, [], [], {}, True, True, "", id="single-drug-rep-nosplit"),
     pytest.param({"drug": ["drug1"]}, {}, ["cell_type"], [], {}, True, True, "", id="single-drug-onehot"),
     # single multi-column level (a drug combination) — extract_reps stacks the slots.
     # cellflow requires all perturbation levels to share one column count, so this is the
     # general combination case; no cross-level padding is possible (unequal lengths are rejected).
-    pytest.param({"drug": ["drug1", "drug2"]}, {"drug": "drug"}, ["cell_type"], [], {}, True, True, "", id="combo-len2"),
     pytest.param(
-        {"drug": ["drug1"]}, {"drug": "drug"}, [], ["cell_type"], {"cell_type": "cell_type"}, True, True, "",
+        {"drug": ["drug1", "drug2"]}, {"drug": "drug"}, ["cell_type"], [], {}, True, True, "", id="combo-len2"
+    ),
+    pytest.param(
+        {"drug": ["drug1"]},
+        {"drug": "drug"},
+        [],
+        ["cell_type"],
+        {"cell_type": "cell_type"},
+        True,
+        True,
+        "",
         id="sample-covar",
     ),
 ]

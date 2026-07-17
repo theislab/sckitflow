@@ -41,9 +41,7 @@ class CFMConfig:
 
     velocity_field: VFConfig = field(default_factory=VFConfig)
     probability_path: dict[str, Any] = field(default_factory=lambda: {"kind": "linear-dirac"})
-    flow_solver: dict[str, Any] = field(
-        default_factory=lambda: {"kind": "ode", "scheme": "euler", "num_steps": 100}
-    )
+    flow_solver: dict[str, Any] = field(default_factory=lambda: {"kind": "ode", "scheme": "euler", "num_steps": 100})
     generate_from_noise: bool = False
     dtype: str = "float32"
 

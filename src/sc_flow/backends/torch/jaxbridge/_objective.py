@@ -33,9 +33,7 @@ class JaxParamModule(torch.nn.Module):
     def __init__(self, params_pytree: Any) -> None:
         super().__init__()
         leaves, self.treedef = jax.tree_util.tree_flatten(params_pytree)
-        self._leaves = torch.nn.ParameterList(
-            [torch.nn.Parameter(jax_to_torch(leaf).clone()) for leaf in leaves]
-        )
+        self._leaves = torch.nn.ParameterList([torch.nn.Parameter(jax_to_torch(leaf).clone()) for leaf in leaves])
 
     @property
     def param_tensors(self) -> list[torch.nn.Parameter]:

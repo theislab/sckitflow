@@ -10,18 +10,18 @@ import logging
 from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
+import lightning.pytorch as pl
 import numpy as np
 import torch
-import lightning.pytorch as pl
 
-from sc_flow.data import FlowSpec
 from sc_flow.backends.torch.jaxbridge import (
     CellFlowFMObjective,
     JaxParamModule,
     iter_fm_batches,
-    torch_to_jax,
     jax_to_torch,
+    torch_to_jax,
 )
+from sc_flow.data import FlowSpec
 
 if TYPE_CHECKING:
     from sc_flow.data._compile_obs import DataInput
@@ -89,8 +89,8 @@ class FlowMatching:
         batch = next(iter(loader))
         D = batch["target"].shape[-1]
 
-        from cellflow.networks._velocity_field import ConditionalVelocityField
         from cellflow._compat import ConstantNoiseFlow
+        from cellflow.networks._velocity_field import ConditionalVelocityField
 
         # 3. Instantiate JAX ConditionalVelocityField & ConstantNoiseFlow
         self.vf = ConditionalVelocityField(
@@ -106,6 +106,7 @@ class FlowMatching:
         # Initialize JAX parameters
         import jax
         import jax.numpy as jnp
+
         k_init, k_enc = jax.random.split(jax.random.PRNGKey(0))
         cond_init = {k: jnp.ones(v.shape) for k, v in sample_cond.items()}
         params = self.vf.init(
@@ -126,6 +127,7 @@ class FlowMatching:
             def __init__(self, loader, cond_emb_dim):
                 self.loader = loader
                 self.cond_emb_dim = cond_emb_dim
+
             def __iter__(self):
                 yield from iter_fm_batches(self.loader, condition_embedding_dim=self.cond_emb_dim)
 
@@ -133,6 +135,7 @@ class FlowMatching:
         torch_loader = torch.utils.data.DataLoader(dataset, batch_size=None)
 
         from sc_flow.backends.torch.training._harness import SCFlowLightningModule
+
         harness = SCFlowLightningModule(self.model, self.objective, lr=lr)
 
         trainer = pl.Trainer(
@@ -175,11 +178,7 @@ class FlowMatching:
 
         # 1. Encode condition once
         cond_embedding, _, _ = self.vf.apply(
-            {"params": params_jax},
-            cond_jax,
-            encoder_noise,
-            train=False,
-            method=self.vf.encode_condition
+            {"params": params_jax}, cond_jax, encoder_noise, train=False, method=self.vf.encode_condition
         )
 
         # 2. ODE closure for torchdiffeq
@@ -193,12 +192,13 @@ class FlowMatching:
                 y_jax,
                 cond_embedding,
                 train=False,
-                method=self.vf.velocity_from_embedding
+                method=self.vf.velocity_from_embedding,
             )
             return jax_to_torch(v_jax).to(device)
 
         # 3. Integrate using torchdiffeq
         from torchdiffeq import odeint
+
         y0 = torch.as_tensor(x, dtype=torch.float32, device=device)
         t_grid = torch.linspace(0.0, 1.0, num_steps, device=device)
 

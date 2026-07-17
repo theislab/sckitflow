@@ -55,7 +55,7 @@ class BaseMethod(abc.ABC):
         # build the method's module through the overridable construction seam
         self._module = self.build_module(*args, **kwargs)
 
-    def build_module(self, *args: Any, **kwargs: Any) -> "JaxModule | TorchModule":
+    def build_module(self, *args: Any, **kwargs: Any) -> JaxModule | TorchModule:
         """Construct this method's neural module from the dimensionality registry.
 
         The construction seam every method must provide — either a concrete method

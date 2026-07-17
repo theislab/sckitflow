@@ -1,11 +1,12 @@
+import anndata as ad
 import numpy as np
 import pandas as pd
-import pytest
-import anndata as ad
+
 from sc_flow import FlowMatching
 from sc_flow.data import FlowSpec
-from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
 from sc_flow.data._encoders import lookup
+from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
+
 
 def test_flow_matching_fit_and_predict():
     """Verify that FlowMatching fits on a toy adata and translates cells."""
@@ -60,6 +61,6 @@ def test_flow_matching_fit_and_predict():
     # Target condition leaf: (cell_type, drug1)
     leaf = ("cl_a", "drug_a")
     x_pred = model.predict(x_source, leaf, device="cpu", num_steps=5)
-    
+
     assert x_pred.shape == (10, d)
     assert not np.isnan(x_pred).any()

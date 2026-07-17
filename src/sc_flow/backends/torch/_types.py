@@ -46,6 +46,7 @@ class StepData:
     source_condition_data: Any | None
     source_group_data: Any | None
 
+
 TVfFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 TTimeFeaturesFn = Callable[[torch.Tensor, int], torch.Tensor]

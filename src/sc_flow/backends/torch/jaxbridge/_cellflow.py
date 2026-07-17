@@ -133,9 +133,7 @@ class CellFlowJaxModule(pl.LightningModule):
                 raise TypeError(f"Parameter leaves must be floating-point for gradient descent; got {lf.dtype}.")
         self._params = torch.nn.ParameterList([torch.nn.Parameter(lf) for lf in torch_leaves])
 
-        self._value_and_grad = make_fm_value_and_grad(
-            vf, probability_path, vf.condition_mode, vf.regularization
-        )
+        self._value_and_grad = make_fm_value_and_grad(vf, probability_path, vf.condition_mode, vf.regularization)
         self._key = jax.random.PRNGKey(seed)
 
     def jax_params(self) -> Any:

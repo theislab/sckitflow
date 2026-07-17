@@ -160,8 +160,7 @@ def _instantiate(spec: Any, registry_fn, what: str) -> Any:
 def resolve_metrics(specs: Mapping[str, Any], backend: str) -> dict[str, Any]:
     """Instantiate a ``{name: {kind|class_path: ..., ...}}`` metrics mapping."""
     return {
-        name: _instantiate(spec, lambda: _metrics_registry(backend), "metric")
-        for name, spec in (specs or {}).items()
+        name: _instantiate(spec, lambda: _metrics_registry(backend), "metric") for name, spec in (specs or {}).items()
     }
 
 

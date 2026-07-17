@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from sc_flow.backends.jax._types import ArrayLike, NumpyArray, JaxArray, JaxDevice, TDevice
+from sc_flow.backends.jax._types import ArrayLike, JaxArray, JaxDevice, NumpyArray, TDevice
 
 __all__ = [
     "broadcast_to_target_shape",

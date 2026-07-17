@@ -4,7 +4,6 @@ from typing import Any, Literal, TypeVar
 import torch
 
 from sc_flow.backends.torch._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
-from sc_flow.backends.torch.nn._modules import BaseModule
 from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver
 from sc_flow.data._composite import MatchedDistributions

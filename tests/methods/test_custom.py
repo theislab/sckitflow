@@ -266,8 +266,6 @@ def test_unsupported_category(mock_torch_registry):
                 pass
 
 
-
-
 # -----------------------------------------------------------------------------
 # Edge cases: user class with no __init__ (default object.__init__)
 # -----------------------------------------------------------------------------

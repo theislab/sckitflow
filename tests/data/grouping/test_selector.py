@@ -74,12 +74,7 @@ class TestNestedDict:
         selector, index, obs = _build(adata_small.obs, groups, ["drug"])
         nd = selector.index_to_nested_dict(index)
 
-        expected_group_keys = {
-            (b, cl, p)
-            for b in BATCHES
-            for cl in CELL_LINES
-            for p in PLATES
-        }
+        expected_group_keys = {(b, cl, p) for b in BATCHES for cl in CELL_LINES for p in PLATES}
         assert set(nd.mapping.keys()) == expected_group_keys
 
         for node in nd.mapping.values():
@@ -102,7 +97,8 @@ class TestNestedDict:
         n_per_cell_line = len(obs) // N_CELL_LINES
         for i, cl in enumerate(sorted(CELL_LINES)):
             assert nd.mapping[(cl,)].mapping[()] == slice(
-                i * n_per_cell_line, (i + 1) * n_per_cell_line,
+                i * n_per_cell_line,
+                (i + 1) * n_per_cell_line,
             )
 
     def test_condition_only(self):
@@ -154,9 +150,9 @@ class TestNestedDict:
             for c_key, leaf in group_node.mapping.items():
                 c_vals = c_key if isinstance(c_key, tuple) else (c_key,)
                 rows = obs.iloc[leaf]
-                for col, val in zip(groups_cols, g_vals):
+                for col, val in zip(groups_cols, g_vals, strict=False):
                     assert (rows[col] == val).all()
-                for col, val in zip(conditions_cols, c_vals):
+                for col, val in zip(conditions_cols, c_vals, strict=False):
                     assert (rows[col] == val).all()
 
 
@@ -166,7 +162,9 @@ class TestQueryLevel:
     def test_query_group_level(self, adata_small: AnnData):
         selector, index, obs = _build(adata_small.obs, ["cell_line"], ["drug"])
         result = selector.query_level_with_dict(
-            GROUP_LEVEL_NAME, {"cell_line": "HeLa"}, index,
+            GROUP_LEVEL_NAME,
+            {"cell_line": "HeLa"},
+            index,
         )
 
         n_expected = len(obs) // N_CELL_LINES
@@ -178,7 +176,9 @@ class TestQueryLevel:
         obs = _make_obs({"drug": DRUGS})
         selector, index, obs = _build(obs, None, ["drug"])
         result = selector.query_level_with_dict(
-            CONDITION_LEVEL_NAME, {"drug": "control"}, index,
+            CONDITION_LEVEL_NAME,
+            {"drug": "control"},
+            index,
         )
 
         assert len(result) == CELLS_PER_COMBINATION
@@ -189,7 +189,9 @@ class TestQueryLevel:
         obs = _make_obs({"dose": DOSES, "drug": DRUGS})
         selector, index, obs = _build(obs, None, ["dose", "drug"])
         result = selector.query_level_with_dict(
-            CONDITION_LEVEL_NAME, {"drug": "aspirin", "dose": "low"}, index,
+            CONDITION_LEVEL_NAME,
+            {"drug": "aspirin", "dose": "low"},
+            index,
         )
 
         assert len(result) == CELLS_PER_COMBINATION
@@ -203,7 +205,9 @@ class TestQueryLevel:
         obs = _make_obs({"dose": DOSES, "drug": DRUGS})
         selector, index, obs = _build(obs, None, ["dose", "drug"])
         result = selector.query_level_with_dict(
-            CONDITION_LEVEL_NAME, {"dose": "low"}, index,
+            CONDITION_LEVEL_NAME,
+            {"dose": "low"},
+            index,
         )
 
         expected_n = N_DRUGS * CELLS_PER_COMBINATION

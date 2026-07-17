@@ -17,7 +17,7 @@ pytest.importorskip("binded")  # needs the annbatch BoundClassSampler fork too
 
 import anndata as ad
 
-from sc_flow.data import compile_obs
+from sc_flow.data import FlowSpec, compile_obs
 from sc_flow.data._encoders import lookup
 from sc_flow.data.schemas import ConditionDataSchema, CovariatesDataSchema, StateDataSchema
 
@@ -158,6 +158,73 @@ def test_coupling_same_space_as_state_is_not_duplicated():
     assert compiled.coupling == {"src_lin": "X", "tgt_lin": "X"}
     assert compiled.scheme.nodes["pert"].keys == ("X",)  # deduped — no extra stream
     assert compiled.scheme.nodes["ctrl"].keys == ("X",)
+
+
+def _spec() -> FlowSpec:
+    return FlowSpec(
+        state=StateDataSchema(sample_rep="X"),
+        condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        covariates=CovariatesDataSchema(covariate_encoders={"cell_type": lookup("cell_type")}),
+        control_key="control",
+        match_context=["cell_type"],
+    )
+
+
+def test_flowspec_build_loader_from_zarr_path_with_explicit_rep_tables(tmp_path):
+    """FlowSpec.build_loader streams from a zarr PATH; lookup tables are passed via explicit rep_tables."""
+    adata = _make_adata()
+    path = tmp_path / "adata.zarr"
+    adata.write_zarr(path)
+
+    loader = _spec().build_loader(str(path), rep_tables=adata.uns, batch_size=8, to=None)
+    batch = next(iter(loader))
+    assert set(batch) >= {"source", "target", "condition"}
+    assert np.asarray(batch["target"]).shape == (8, adata.n_vars)
+    assert isinstance(batch["condition"], dict) and set(batch["condition"]) == {"drug", "cell_type"}
+
+
+def test_zarr_path_lookup_without_rep_tables_raises(tmp_path):
+    """A path has no in-memory .uns, so a lookup encoder without explicit rep_tables fails loudly."""
+    adata = _make_adata()
+    path = tmp_path / "adata.zarr"
+    adata.write_zarr(path)
+    with pytest.raises(KeyError, match="drug"):
+        _spec().build_loader(str(path), batch_size=8, to=None)  # no rep_tables → Lookup.fit can't bind
+
+
+def test_control_path_uses_separate_source():
+    """With control_path, controls come from a separate source, matched to targets by match_context only."""
+    adata = _make_adata()
+    targets = adata[~adata.obs["control"].to_numpy()].copy()
+    controls = adata[adata.obs["control"].to_numpy()].copy()
+    compiled = compile_obs(
+        targets,
+        state=StateDataSchema(sample_rep="X"),
+        condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        covariates=CovariatesDataSchema(covariate_encoders={"cell_type": lookup("cell_type")}),
+        control_key="control",
+        match_context=["cell_type"],
+        rep_tables=adata.uns,
+        control_path=controls,
+    )
+    assert set(compiled.scheme.sources) == {"data", "control"}
+    assert compiled.scheme.nodes["pert"].source == "data"
+    assert compiled.scheme.nodes["ctrl"].source == "control"
+    assert compiled.scheme.nodes["ctrl"].cols == ("cell_type",)  # match_context only
+
+
+def test_control_path_requires_match_context():
+    adata = _make_adata()
+    with pytest.raises(ValueError, match="match_context"):
+        compile_obs(
+            adata,
+            state=StateDataSchema(sample_rep="X"),
+            condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+            control_key="control",
+            match_context=[],
+            rep_tables=adata.uns,
+            control_path=adata,
+        )
 
 
 def test_array_holding_containers_are_gone():

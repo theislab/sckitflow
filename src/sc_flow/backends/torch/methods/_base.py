@@ -231,7 +231,7 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
         solver_cls: type[BaseSolver] | None = None,
         solver_kwargs: dict[str, Any] | None = None,
         return_trajectory: bool = False,
-        num_steps: int = 100,
+        n_steps: int = 100,
         latent: torch.Tensor | None = None,
         n_samples: int | None = None,
         **kwargs,

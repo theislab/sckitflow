@@ -157,7 +157,7 @@ class CFM(TorchGenerativeFlow):
         solver_cls: type[BaseSolver] | None = None,
         solver_kwargs: dict[str, Any] | None = None,
         return_trajectory: bool = False,
-        num_steps: int = 100,
+        n_steps: int = 100,
         latent: torch.Tensor | None = None,
         n_samples: int | None = None,
         **kwargs,
@@ -203,7 +203,7 @@ class CFM(TorchGenerativeFlow):
         if solver_cls is None:
             solver_cls = self._default_solver_cls
 
-        time_grid = torch.linspace(0.0, 1.0, steps=num_steps, device=latent.device, dtype=latent.dtype)
+        time_grid = torch.linspace(0.0, 1.0, steps=n_steps, device=latent.device, dtype=latent.dtype)
         solver = solver_cls(
             self._module,
             *args,

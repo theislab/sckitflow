@@ -18,6 +18,7 @@ except (ImportError, TypeError):
 
 from sc_flow._types import PredictionData
 from sc_flow.data import mixins
+from sc_flow.data.containers import BaseData
 
 ShapeLike = Sequence[int] | torch.Size
 
@@ -158,8 +159,8 @@ class StepData:
     target_state: torch.Tensor | None = None
     target_coupling_lin: torch.Tensor | None = None
     target_coupling_quad: torch.Tensor | None = None
-    target_condition_data: dict[str, torch.Tensor] | None = None
-    target_group_data: dict[str, torch.Tensor] | None = None
+    target_condition_data: BaseData | dict[str, torch.Tensor] | None = None
+    target_group_data: BaseData | dict[str, torch.Tensor] | None = None
     source_state: torch.Tensor | None = None
     source_coupling_lin: torch.Tensor | None = None
     source_coupling_quad: torch.Tensor | None = None

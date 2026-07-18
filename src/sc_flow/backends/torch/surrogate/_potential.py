@@ -4,7 +4,7 @@ from typing import Literal
 
 import torch
 
-from sc_flow.backends.torch.surrogate._wrappers import BaseSurrogateWrapper, GenerativeFlowSurrogateWrapper
+from sc_flow.backends.torch.surrogate._model import SurrogateFlowModel, SurrogateModel
 
 __all__ = ["SurrogatePotential"]
 
@@ -42,7 +42,7 @@ class SurrogatePotential(abc.ABC, torch.nn.Module):
     def __init__(
         self,
         ystar: torch.Tensor,
-        surr_model: torch.nn.Module | BaseSurrogateWrapper | GenerativeFlowSurrogateWrapper,
+        surr_model: torch.nn.Module | SurrogateModel | SurrogateFlowModel,
         *args,
         reduction_input: Literal["mean", "none"] | None = None,
         reduction_output: Literal["mean", "none"] | None = None,

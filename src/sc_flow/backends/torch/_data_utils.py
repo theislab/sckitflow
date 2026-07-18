@@ -1,6 +1,7 @@
-from dataclasses import asdict
+from dataclasses import replace
 from typing import Any, Literal
 
+import numpy as np
 import torch
 
 from sc_flow.backends.torch._types import StepData, TensorMixin, TNoiseSamplerFn
@@ -20,16 +21,22 @@ __all__ = [
     "expand_conditioning",
     "prepare_latent_train",
     "prepare_latent_inference",
-    "TensorMixin",
     "TorchMixedTypeData",
 ]
 
 
 def batchmixin_to_torch(
-    batch_mixin: mixins.BatchMixin, dtype: torch.dtype | None = None, device: torch.device | None = None
+    data: mixins.BatchMixin | dict[str, np.ndarray | torch.Tensor] | None,
+    dtype: torch.dtype | None = None,
+    device: torch.device | None = None,
 ) -> dict[str, torch.Tensor]:
     """Converts the elements of a mixin to torch tensors."""
-    return {k: to_torch_tensor(v, dtype=dtype, device=device) for k, v in batch_mixin.mapping.items()}
+    if data is None:
+        return {}
+    data_dict = data.mapping if isinstance(data, mixins.BatchMixin) else data
+    if not isinstance(data_dict, dict):
+        raise ValueError(f"Data dictionary of the wrong type, expected `dict` got {type(data_dict)}.")
+    return {k: to_torch_tensor(v, dtype=dtype, device=device) for k, v in data_dict.items()}
 
 
 def extract_state_data(
@@ -78,13 +85,15 @@ def extract_distribution_data(
 
 
 def get_tensor_dict_from_data(
-    data: MixedTypeData | CategoricalData | None, dtype: torch.dtype | None = None, device: torch.device | None = None
+    data: MixedTypeData | CategoricalData | dict[str, np.ndarray | torch.Tensor] | None,
+    dtype: torch.dtype | None = None,
+    device: torch.device | None = None,
 ) -> dict[str, torch.Tensor]:
     """Extracts torch tensors from the distribution data."""
     if data is None:
         return {}
-    group_reps_dict = data.extract_reps()
-    return batchmixin_to_torch(group_reps_dict, device=device, dtype=dtype)
+    data_dict = data.extract_reps() if isinstance(data, MixedTypeData | CategoricalData) else data
+    return batchmixin_to_torch(data_dict, device=device, dtype=dtype)
 
 
 def extract_step_data(
@@ -148,14 +157,16 @@ def write_continuous_cond_cov_to_step_data(
         return StepData(target_condition_data=condition_dict)
     else:
         # ---- Retrieve Metadata ----
-        step_data = extract_step_data(base_data, device=device, dtype=dtype)
-        step_data_dict = asdict(step_data)
+        step_data: StepData = extract_step_data(base_data, device=device, dtype=dtype)
+        target_condition_data: MixedTypeData = step_data.target_condition_data
 
-        # ---- Construct updated step data ----
-        target_condition_data = step_data_dict.get("target_condition_data", {})
-        target_condition_data[condition_key] = x
-        step_data_dict["target_condition_data"] = target_condition_data
-        return StepData(**step_data_dict)
+        # --- Update covariates ----
+        updated_condition_data = TorchMixedTypeData.from_mixed_type_data(
+            condition_key, x, base_container=target_condition_data
+        )
+        updated_step_data = replace(step_data, target_condition_data=updated_condition_data)
+        print(type(updated_step_data))
+        return updated_step_data
 
 
 def expand_conditioning(

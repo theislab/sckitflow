@@ -222,3 +222,17 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
             source_condition_data=source_condition_data,
             source_group_data=source_group_data,
         )
+
+    @abc.abstractmethod
+    def _predict(
+        self,
+        step_data: StepData,
+        *args,
+        solver_cls: type[BaseSolver] | None = None,
+        solver_kwargs: dict[str, Any] | None = None,
+        return_trajectory: bool = False,
+        num_steps: int = 100,
+        latent: torch.Tensor | None = None,
+        n_samples: int | None = None,
+        **kwargs,
+    ) -> PredictionData: ...

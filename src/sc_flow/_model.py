@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -19,7 +20,7 @@ import torch
 from sc_flow.data import FlowSpec
 
 if TYPE_CHECKING:
-    from sc_flow.data._compile_obs import CompiledData, DataInput
+    from sc_flow.data._compile_obs import CompiledDims, DataInput
 
 __all__ = ["FlowMatching"]
 
@@ -69,11 +70,10 @@ class FlowMatching:
 
     # --- construction helpers -------------------------------------------------------------------
 
-    def _build_vf(self, compiled: CompiledData) -> torch.nn.Module:
-        """Size an ``MLPVelocity`` from :attr:`CompiledData.dims` (no batch pulled)."""
+    def _build_vf(self, dims: CompiledDims) -> torch.nn.Module:
+        """Size an ``MLPVelocity`` from :class:`~sc_flow.data.CompiledDims` (no batch pulled)."""
         from sc_flow.backends.torch.nn._vf import MLPVelocity
 
-        dims = compiled.dims
         cond_input_layers = (
             {
                 realm: {"input_dim": int(dim), "output_dim": int(self.condition_embedding_dim)}
@@ -151,7 +151,7 @@ class FlowMatching:
         loader = Loader(compiled.scheme, cfg, compiled.condition_fn)
 
         # 2. Torch velocity field + probability path, sized from compiled.dims.
-        self.vf = self._build_vf(compiled)
+        self.vf = self._build_vf(compiled.dims)
         self.model = self.vf
         self.probability_path = self._build_probability_path()
 
@@ -245,3 +245,67 @@ class FlowMatching:
         if return_trajectory:
             return trajectory.cpu().numpy()
         return trajectory[-1].cpu().numpy()
+
+    # --- persistence ------------------------------------------------------------------------------
+
+    _CTOR_FIELDS: tuple[str, ...] = (
+        "hidden_dims",
+        "decoder_dims",
+        "time_encoder_dims",
+        "condition_embedding_dim",
+        "condition_mode",
+        "regularization",
+        "sigma",
+        "pooling",
+        "match_method",
+        "match_kwargs",
+        "seed",
+    )
+
+    def save(self, path: str | Path) -> None:
+        """Persist the fitted model so :meth:`predict` works again after :meth:`load`.
+
+        Writes ``path`` as a directory: ``weights.pt`` (the torch ``state_dict``, portable across
+        devices) and ``state.pkl`` (cloudpickle — the constructor config, :attr:`spec`, the compiled
+        :class:`~sc_flow.data.CompiledDims`, and the fitted ``condition_fn`` closure — the same
+        cloudpickle-of-a-closure pattern already used by :mod:`sc_flow.external`). Does **not** persist
+        optimizer/trainer state — this is for inference after reload, not resuming ``fit()``.
+        """
+        import cloudpickle
+
+        if self.vf is None:
+            raise RuntimeError("Model must be fitted before save().")
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+        torch.save(self.vf.state_dict(), path / "weights.pt")
+        state = {
+            "objective": self.objective_name,
+            "ctor_kwargs": {name: getattr(self, name) for name in self._CTOR_FIELDS},
+            "spec": self.spec,
+            "dims": self._dims,
+            "condition_fn": self._condition_fn,
+        }
+        with open(path / "state.pkl", "wb") as f:
+            cloudpickle.dump(state, f)
+
+    @classmethod
+    def load(cls, path: str | Path) -> FlowMatching:
+        """Reconstruct a fitted model from :meth:`save`.
+
+        ``predict()`` works immediately; ``fit()`` would start a fresh run (no optimizer/trainer state
+        is restored).
+        """
+        import cloudpickle
+
+        path = Path(path)
+        with open(path / "state.pkl", "rb") as f:
+            state = cloudpickle.load(f)
+
+        model = cls(spec=state["spec"], objective=state["objective"], **state["ctor_kwargs"])
+        model._dims = state["dims"]
+        model._condition_fn = state["condition_fn"]
+        model.vf = model._build_vf(model._dims)
+        model.vf.load_state_dict(torch.load(path / "weights.pt", map_location="cpu"))
+        model.model = model.vf
+        model.probability_path = model._build_probability_path()
+        return model

@@ -487,8 +487,9 @@ def test_fit_chunked_reads_train_and_predict(chunk_size):
     """fit() accepts chunk_size>1 on grouped data (contiguous per-condition runs) — the loader fast path.
 
     ``_multi_drug_adata`` lays cells out in contiguous per-(cell_type, drug) blocks, so a chunked read is
-    valid. chunk_size only changes the read pattern (sequential vs scattered), not the learned model, so
-    both settings must fit and predict finite outputs.
+    valid. chunk_size changes only the read pattern (sequential vs scattered) — this checks the fast path
+    fits and predicts finite outputs without error (not bit-equivalence: chunked reads change sample
+    order, so weights differ from the scattered path).
     """
     adata = _multi_drug_adata(n_per=96, d=6)
     model = FlowMatching(spec=_shift_spec(), condition_embedding_dim=8, hidden_dims=(16, 16))

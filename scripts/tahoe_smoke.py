@@ -10,13 +10,16 @@ state rep, ``drug`` perturbation covariate, ``cell_line`` split/match context, a
   held-out drugs* — the held-out-split validation R²/E-distance are a real learning signal, not noise.
 * **real** (``--plates '<glob>'``) — streams the converted Tahoe zarr plates.
 
-Exits non-zero if the model fails to learn (sim mode), so it doubles as a "did this machine set up the
-numeric stack correctly" gate on CPU and GPU.
+In sim mode the exit code is driven by a *conditional*-learning gate (predicted per-drug shift must
+align with that drug's true direction), so it doubles as a "did this machine set up the numeric stack
+correctly" gate on CPU and GPU. The held-out validation R²/E-distance are logged (not gated).
 
 Usage
 -----
     python scripts/tahoe_smoke.py --device cpu
     python scripts/tahoe_smoke.py --device cuda --objective otfm --n-train-steps 800
+    # real Tahoe plates from the config (data paths + model/train hyper-params):
+    python scripts/tahoe_smoke.py --config configs/tahoe.yaml --n-train-steps 2000
     python scripts/tahoe_smoke.py --device cuda --plates \
         '/lustre/groups/ml01/datasets/selman.ozleyen/tahoe100_converted/plate3_*.zarr' --n-train-steps 2000
 """
@@ -93,11 +96,52 @@ def build_spec(*, use_features: bool) -> FlowSpec:
     )
 
 
+def _explicit_flags(parser: argparse.ArgumentParser, argv: list[str]) -> set[str]:
+    """Dest names the user actually passed on the CLI (so config never clobbers an explicit flag)."""
+    seen: set[str] = set()
+    opt_to_dest = {opt: a.dest for a in parser._actions for opt in a.option_strings}
+    for tok in argv:
+        if tok.startswith("-"):
+            name = tok.split("=", 1)[0]
+            if name in opt_to_dest:
+                seen.add(opt_to_dest[name])
+    return seen
+
+
+def _apply_config(args: argparse.Namespace, path: str, *, explicit: set[str]) -> dict:
+    """Overlay ``configs/tahoe.yaml`` (data/model/train blocks) onto ``args``; CLI flags win. Returns split_ratios."""
+    from omegaconf import OmegaConf
+
+    cfg = OmegaConf.to_container(OmegaConf.load(path), resolve=True)
+    data, model, train = cfg.get("data", {}), cfg.get("model", {}), cfg.get("train", {})
+
+    def setdefault(dest: str, value):
+        if value is not None and dest not in explicit:
+            setattr(args, dest, value)
+
+    if args.plates is None and "plates_glob" in data and "plates" not in explicit:
+        args.plates = data["plates_glob"]
+    setdefault("objective", model.get("objective"))
+    setdefault("condition_embedding_dim", model.get("condition_embedding_dim"))
+    if model.get("hidden_dims") is not None and "hidden_dims" not in explicit:
+        args.hidden_dims = ",".join(str(x) for x in model["hidden_dims"])
+    for dest, key in [("batch_size", "batch_size"), ("chunk_size", "chunk_size"),
+                      ("n_train_steps", "n_train_steps"), ("valid_freq", "valid_freq"),
+                      ("lr", "lr"), ("device", "device")]:
+        setdefault(dest, train.get(key))
+    sr = train.get("split_ratios") or {"train": 0.7, "val": 0.3}
+    # sc-flow's split is train/val only; fold any test fraction into val so ratios sum to 1.
+    return {"train": float(sr["train"]), "val": float(sr.get("val", 0.0) + sr.get("test", 0.0)) or (1 - float(sr["train"]))}
+
+
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    p.add_argument("--config", default=None, help="YAML (e.g. configs/tahoe.yaml) with data/model/train blocks")
     p.add_argument("--objective", choices=["otfm", "genot"], default="otfm")
     p.add_argument("--device", default="cpu")
     p.add_argument("--plates", default=None, help="glob of real Tahoe zarr plates; omit for sim-tahoe")
+    p.add_argument("--condition-embedding-dim", type=int, default=32)
+    p.add_argument("--hidden-dims", default="128,128", help="comma-separated VF hidden dims")
     p.add_argument("--n-cell-lines", type=int, default=3)
     p.add_argument("--n-drugs", type=int, default=8)
     p.add_argument("--n-per", type=int, default=256, help="cells per (cell_line, drug) leaf")
@@ -112,6 +156,12 @@ def main() -> int:
     p.add_argument("--lr", type=float, default=1e-3)
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
+
+    split_ratios = {"train": 0.7, "val": 0.3}
+    if args.config:
+        # Config supplies the base; any flag the user passed explicitly on the CLI still overrides it.
+        split_ratios = _apply_config(args, args.config, explicit=_explicit_flags(p, sys.argv[1:]))
+    hidden_dims = tuple(int(x) for x in str(args.hidden_dims).split(",") if x != "")
 
     print(f"[tahoe_smoke] mode={'real' if args.plates else 'sim'} device={args.device!r} "
           f"objective={args.objective!r}", flush=True)
@@ -135,14 +185,15 @@ def main() -> int:
         controls = adata[adata.obs["is_control"].to_numpy()]
 
     model = FlowMatching(
-        spec=spec, objective=args.objective, condition_embedding_dim=32, hidden_dims=(128, 128), seed=args.seed
+        spec=spec, objective=args.objective, condition_embedding_dim=args.condition_embedding_dim,
+        hidden_dims=hidden_dims, seed=args.seed,
     )
 
     t0 = time.perf_counter()
     model.fit(
         data, rep_tables=rep_tables, batch_size=args.batch_size, chunk_size=args.chunk_size,
         n_train_steps=args.n_train_steps, valid_freq=args.valid_freq, device=args.device, lr=args.lr,
-        split_by=["drug"], split_ratios={"train": 0.7, "val": 0.3}, val_num_steps=20,
+        split_by=["drug"], split_ratios=split_ratios, val_num_steps=20,
     )
     dt = time.perf_counter() - t0
     steps_s = args.n_train_steps / dt
@@ -155,16 +206,24 @@ def main() -> int:
         print("[tahoe_smoke] real-plate run complete (no learning assertion).", flush=True)
         return 0
 
-    # sim gate: on a held-IN condition, the model must move control cells a real distance in PCA space
-    # (control cells sit at the cell-line mean; a learned drug applies shift = delta * W @ feature).
+    # sim gate: CONDITIONAL learning. For each drug the true shift is `delta * W @ feature_d`, a distinct
+    # direction per drug. Predict cl_0 controls under each drug and require the predicted mean shift to
+    # align with THAT drug's true direction (cosine). A model that ignores the drug predicts one shared
+    # shift, which cannot align with several distinct true directions at once → low mean cosine → FAIL.
     x_ctrl = controls[controls.obs["cell_line"] == "cl_0"].obsm["X_pca"]
-    d0 = "drug_0"
-    pred = model.predict(x_ctrl, ("cl_0", d0), num_steps=20, seed=0, device=args.device)
-    moved_norm = float(np.linalg.norm((pred - x_ctrl).mean(axis=0)))
-    print(f"[tahoe_smoke] held-in {d0}: mean shift norm |Δ|={moved_norm:.3f} (delta={args.delta})", flush=True)
-    ok = moved_norm > 0.3 * args.delta
-    print(f"[tahoe_smoke] {'PASS' if ok else 'FAIL'}: model {'learned' if ok else 'did NOT learn'} "
-          f"a condition-dependent shift.", flush=True)
+    drugs = [f"drug_{i}" for i in range(min(4, args.n_drugs))]
+    cosines = []
+    for d in drugs:
+        pred = model.predict(x_ctrl, ("cl_0", d), num_steps=20, seed=0, device=args.device)
+        pred_shift = (pred - x_ctrl).mean(axis=0)
+        true_shift = args.delta * (_W @ _feats[d])
+        cos = float(pred_shift @ true_shift / (np.linalg.norm(pred_shift) * np.linalg.norm(true_shift) + 1e-8))
+        cosines.append(cos)
+        print(f"[tahoe_smoke]   {d}: cos(pred, true)={cos:+.3f} |Δpred|={np.linalg.norm(pred_shift):.2f}", flush=True)
+    mean_cos = float(np.mean(cosines))
+    ok = mean_cos > 0.5  # each predicted shift must point the right (drug-specific) way
+    print(f"[tahoe_smoke] {'PASS' if ok else 'FAIL'}: mean cos(pred, true)={mean_cos:+.3f} — model "
+          f"{'learned' if ok else 'did NOT learn'} the CONDITION-dependent shift direction.", flush=True)
     return 0 if ok else 1
 
 

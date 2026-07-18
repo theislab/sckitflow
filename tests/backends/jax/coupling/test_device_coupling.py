@@ -62,3 +62,17 @@ def test_jitted_couple_matches_eager_sinkhorn():
     si, ti = couple_device(src, tgt, key=key)
     np.testing.assert_array_equal(np.asarray(si.cpu()), np.asarray(esi))
     np.testing.assert_array_equal(np.asarray(ti.cpu()), np.asarray(eti))
+
+
+def test_match_kwargs_forwarded_to_solver():
+    """Extra match_kwargs (e.g. max_iterations) reach the Sinkhorn solver — not silently dropped.
+
+    Capping iterations very low vs. running to convergence must change the sampled plan; if the kwarg
+    were dropped, both calls would run the same (default) solve and produce identical indices.
+    """
+    src, tgt = _reps(n_src=96, n_tgt=96, d=6, seed=2)
+    key = jax.random.PRNGKey(5)
+    converged = couple_device(src, tgt, key=key)
+    capped = couple_device(src, tgt, key=key, match_kwargs={"max_iterations": 1, "min_iterations": 1})
+    # Same key + same reps: any difference is attributable to the forwarded solver kwarg.
+    assert not (torch.equal(converged[0], capped[0]) and torch.equal(converged[1], capped[1]))

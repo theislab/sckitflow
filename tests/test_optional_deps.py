@@ -103,3 +103,43 @@ def test_require_translates_only_optional_backends():
     assert r.returncode == 0, r.stderr
     assert "sc-flow-tools[" not in r.stdout
     assert "_definitely_missing_module_xyz" in r.stdout
+
+
+def test_require_translates_lightning_and_jax_seams():
+    """The real fit()/_couple() require() call sites map to the right extras in a bare env."""
+    r = _run(
+        """
+        from sc_flow._optional import require
+        for mod, want in [("lightning.pytorch", "sc-flow-tools[lightning]"), ("jax", "sc-flow-tools[jax]")]:
+            try:
+                require(mod)
+            except ModuleNotFoundError as e:
+                print(mod, "->", "OK" if want in str(e) else f"BAD:{e}")
+        """
+    )
+    assert r.returncode == 0, r.stderr
+    assert "lightning.pytorch -> OK" in r.stdout
+    assert "jax -> OK" in r.stdout
+
+
+def test_require_does_not_mask_typo_in_installed_backend():
+    """A missing SUBmodule of an INSTALLED backend keeps its real error (no false 'install torch')."""
+    # No blocker here — torch is installed in the test env; a bogus submodule must not be mistranslated.
+    r = subprocess.run(
+        [sys.executable, "-c", textwrap.dedent(
+            """
+            import importlib.util as u
+            from sc_flow._optional import require
+            if u.find_spec("torch") is None:
+                print("SKIP: torch not installed"); raise SystemExit
+            try:
+                require("torch._this_submodule_does_not_exist_zzz")
+            except ModuleNotFoundError as e:
+                print("hint" if "sc-flow-tools[" in str(e) else "raw", "->", e.name)
+            """
+        )],
+        capture_output=True, text=True,
+    )
+    assert r.returncode == 0, r.stderr
+    # Either torch is absent (SKIP) or the error is raw (not a mistranslated install hint).
+    assert "SKIP" in r.stdout or r.stdout.startswith("raw")

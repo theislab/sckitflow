@@ -183,6 +183,9 @@ class FlowMatching:
         # (+ CUBLAS_WORKSPACE_CONFIG) behind a `deterministic=True` fit flag when GPU repro is needed.
         torch.manual_seed(int(self.seed))
 
+        if chunk_size > 1 and batch_size % chunk_size != 0:
+            raise ValueError(f"chunk_size ({chunk_size}) must divide batch_size ({batch_size}).")
+
         # 1. Compile to labels + dims (no cells / no sampler); optionally hold out whole conditions.
         compiled = self.spec.compile(
             data, rep_tables=rep_tables, min_runs_per_leaf=min_runs_per_leaf, seed=self.seed

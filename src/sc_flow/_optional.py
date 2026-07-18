@@ -10,6 +10,7 @@ single actionable line naming the extra to install. This module itself imports n
 from __future__ import annotations
 
 import importlib
+import importlib.util
 from types import ModuleType
 
 __all__ = ["require", "EXTRA_FOR"]
@@ -31,6 +32,18 @@ EXTRA_FOR: dict[str, str] = {
 }
 
 
+def _root_absent(root: str) -> bool:
+    """True if top-level ``root`` cannot be found (missing, or a finder hard-blocks it).
+
+    In a real bare env ``find_spec`` returns ``None`` for an uninstalled top-level module; a meta-path
+    finder that raises for a blocked root (our bare-env test harness) is likewise treated as absent.
+    """
+    try:
+        return importlib.util.find_spec(root) is None
+    except ModuleNotFoundError:
+        return True
+
+
 def require(module: str) -> ModuleType:
     """Import ``module`` (dotted path), re-raising a missing *optional backend* with an install hint.
 
@@ -45,7 +58,10 @@ def require(module: str) -> ModuleType:
     except ModuleNotFoundError as e:
         missing_root = (e.name or "").split(".")[0]
         extra = EXTRA_FOR.get(missing_root)
-        if extra is not None:
+        # Only translate when the backend ROOT is genuinely absent. A missing *sub*module of an installed
+        # backend (e.name is then the full dotted path, e.g. a real "torch.optimm" typo) must propagate its
+        # true traceback — not get mis-reported as "install torch".
+        if extra is not None and _root_absent(missing_root):
             raise ModuleNotFoundError(
                 f"{module!r} needs the optional {missing_root!r} backend, which is not installed. "
                 f"Install it with:  pip install 'sc-flow-tools[{extra}]'  "

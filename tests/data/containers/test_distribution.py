@@ -461,3 +461,62 @@ class TestDistributionData:
         assert result.groups_data is original.groups_data
         assert result.source_coupling_data is original.source_coupling_data
         assert result.target_coupling_data is original.target_coupling_data
+
+
+class TestDistributionDataNoneState:
+    """No target state available: prediction-without-target-states use case."""
+
+    def test_len_falls_back_to_condition_data(self, adata: AnnData) -> None:
+        obs_df = adata.obs.copy()
+        cat_data = _make_categorical_from_obs(obs_df)
+        condition = MixedTypeData(categorical_covariates=cat_data, continuous_covariates=None)
+
+        dist = DistributionData(state_data=None, condition_data=condition)
+
+        assert dist.state_data is None
+        assert len(dist) == adata.n_obs
+
+    def test_len_falls_back_to_groups_data(self, adata: AnnData) -> None:
+        groups = _make_categorical_from_obs(adata.obs.copy())
+        dist = DistributionData(state_data=None, groups_data=groups)
+
+        assert len(dist) == adata.n_obs
+
+    def test_len_raises_when_everything_is_none(self) -> None:
+        dist = DistributionData(state_data=None)
+        with pytest.raises(ValueError, match="Cannot determine length"):
+            len(dist)
+
+    def test_post_init_does_not_crash_without_state(self, adata: AnnData) -> None:
+        groups = _make_categorical_from_obs(adata.obs.copy())
+        # should not raise, even though groups_data is set and state_data is None
+        dist = DistributionData(state_data=None, groups_data=groups)
+        assert dist.state_data is None
+
+    def test_getitem_keeps_state_none(self, adata: AnnData) -> None:
+        groups = _make_categorical_from_obs(adata.obs.copy())
+        dist = DistributionData(state_data=None, groups_data=groups)
+
+        subset = dist[slice(0, 5)]
+
+        assert subset.state_data is None
+        assert len(subset) == 5
+
+    def test_concat_collection_all_none_state(self, adata: AnnData) -> None:
+        groups1 = _make_categorical_from_obs(adata.obs.iloc[:10])
+        groups2 = _make_categorical_from_obs(adata.obs.iloc[10:20])
+        d1 = DistributionData(state_data=None, groups_data=groups1)
+        d2 = DistributionData(state_data=None, groups_data=groups2)
+
+        concatenated = DistributionData.concat_collection([d1, d2])
+
+        assert concatenated.state_data is None
+        assert len(concatenated) == 20
+
+    def test_concat_collection_incompatible_state(self, adata: AnnData) -> None:
+        """Mismatch in presence of state_data raises ValueError, same as other optional fields."""
+        d1 = DistributionData(state_data=None)
+        d2 = DistributionData(state_data=StateData(adata.X[:10]))
+
+        with pytest.raises(ValueError, match="incompatible objects"):
+            DistributionData.concat_collection([d1, d2])

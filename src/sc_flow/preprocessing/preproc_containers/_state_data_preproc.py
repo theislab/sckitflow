@@ -34,6 +34,18 @@ class StatePreprocessing(BasePreprocessing):
         super().__init__(transform=transform, encoder_context=encoder_context, decoder_context=decoder_context)
         self._repr_name = "Feature" if repr_name is None else repr_name
 
+    def transform(self, data: DistributionData) -> DistributionData:
+        """No-op when there is no state data to transform."""
+        if data.state_data is None:
+            return data
+        return super().transform(data)
+
+    def inverse_transform(self, data: DistributionData) -> DistributionData:
+        """No-op when there is no state data to transform."""
+        if data.state_data is None:
+            return data
+        return super().inverse_transform(data)
+
     def _extract_data(self, data: DistributionData) -> np.ndarray:
         state_data = data.state_data
         return state_data.X

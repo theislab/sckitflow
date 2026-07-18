@@ -521,12 +521,16 @@ class SCFlow:
         sort: bool = True,
         control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
+        require_target_state: bool = True,
         **kwargs,
     ) -> AnnData | tuple[AnnData, PredictionData]:
         """
         Generates flow predictions.
 
-        :param adata: The input adata containing the metadata for prediction.
+        :param adata: The input adata containing the metadata for prediction. When
+            `require_target_state` is `False`, this only needs `.obs` (and optionally
+            `.obsm` for continuous conditioning) describing the cells/conditions to
+            predict for - no `.X` or expression `obsm` key is required.
         :type adata: class: `AnnData`
 
         :param return_raw: If True, returns the raw concatenated PredictionData
@@ -558,6 +562,13 @@ class SCFlow:
             in which case the instance attribute will be used.
         :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
 
+        :param require_target_state: Whether `adata` needs to carry a target state
+            representation (`.X` or the configured `obsm` sample representation).
+            Set to `False` to predict purely from the conditioning metadata in
+            `adata.obs`/`adata.obsm`, without needing target expression data.
+            Defaults to `True`.
+        :type require_target_state: class: `bool`
+
         :return: Either an AnnData with predictions, or a tuple (AnnData, PredictionData)
             if `return_raw` is True.
         """
@@ -573,6 +584,7 @@ class SCFlow:
             control_values_dict=control_values_dict,
             matched_keys=matched_keys,
             apply_transformations=True,
+            require_target_state=require_target_state,
         )
         tree_flat: tuple[MatchedData] = tree.flatten()
 

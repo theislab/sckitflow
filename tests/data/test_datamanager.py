@@ -194,6 +194,55 @@ class TestSortAdata:
         assert (sorted_ad.obs_names == adata_small.obs_names).all()
 
 
+class TestRequireTargetState:
+    """get_distribution_data/compile_adata with require_target_state=False (predict without target states)."""
+
+    def test_get_distribution_data_state_is_none(self, adata_small: AnnData):
+        manager = _make_manager()
+        distr = manager.get_distribution_data(adata_small, require_target_state=False)
+
+        assert distr.state_data is None
+        assert len(distr) == adata_small.n_obs
+        assert isinstance(distr.groups_data, CategoricalData)
+
+    def test_get_distribution_data_works_without_x(self):
+        """An AnnData with only `.obs` (no `.X`) can be compiled when require_target_state=False."""
+        import pandas as pd
+        from tests.data.conftest import CELL_LINES, DRUGS
+
+        obs = pd.DataFrame(
+            {"cell_line": [CELL_LINES[0]] * 3, "drug": [DRUGS[0]] * 3},
+        ).astype("category")
+        ad = AnnData(obs=obs)
+        # condition/group reps are looked up by value in `.uns`, regardless of `.X`
+        ad.uns["drug"] = {DRUGS[0]: np.zeros((1, 4))}
+        ad.uns["cell_line"] = {CELL_LINES[0]: np.zeros((1, 4))}
+
+        manager = _make_manager()
+        distr = manager.get_distribution_data(ad, require_target_state=False)
+
+        assert distr.state_data is None
+        assert len(distr) == 3
+
+    def test_compile_adata_works_without_target_state(self, adata_small: AnnData):
+        manager = _make_manager()
+        nested = manager.compile_adata(adata_small, sort=True, require_target_state=False)
+
+        leaves = []
+
+        def collect(node):
+            if isinstance(node, NestedData):
+                for v in node.mapping.values():
+                    collect(v)
+            else:
+                leaves.append(node)
+
+        collect(nested)
+        assert len(leaves) == N_CELL_LINES * N_DRUGS
+        for leaf in leaves:
+            assert leaf.target.state_data is None
+
+
 class TestSourceKey:
     def test_with_control_values(self):
         manager = DataManager(

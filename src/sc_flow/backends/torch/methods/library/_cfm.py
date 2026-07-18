@@ -70,8 +70,9 @@ class CFM(TorchGenerativeFlow):
     def _prepare_latent_inference(
         self,
         source: torch.Tensor | None,
-        target_reference: torch.Tensor,
+        target_reference: torch.Tensor | None,
         n_samples: int | None = None,
+        n_obs: int | None = None,
     ) -> torch.Tensor:
         """Called from _predict.
 
@@ -79,9 +80,21 @@ class CFM(TorchGenerativeFlow):
         - Otherwise sample noise with shape:
             if n_samples is None:  (batch_size, dim)
             else:                  (n_samples, batch_size, dim)
+
+        When no target reference is available (predicting without target states), the
+        batch size is taken from `n_obs` and the feature dimension from the module's
+        own `_state_dim` (set at training time), instead of from `target_reference.shape`.
         """
         if source is None or self._generate_from_noise:
-            shape = target_reference.shape
+            if target_reference is not None:
+                shape = target_reference.shape
+            else:
+                if n_obs is None:
+                    raise ValueError(
+                        "Cannot determine the number of cells to generate: no target state "
+                        "and no `n_obs` were provided."
+                    )
+                shape = (n_obs, self._module._state_dim)
             if n_samples is not None:
                 shape = (n_samples, *shape)
             return self._noise_sampler(shape, device=self._device_id, dtype=self._dtype)
@@ -214,7 +227,12 @@ class CFM(TorchGenerativeFlow):
     ) -> PredictionData:
         # ----- 1. Prepare latent (noise) -----
         if latent is None:
-            latent = self._prepare_latent_inference(step_data.source_state, step_data.target_state, n_samples=n_samples)
+            latent = self._prepare_latent_inference(
+                step_data.source_state,
+                step_data.target_state,
+                n_samples=n_samples,
+                n_obs=step_data.target_n_obs,
+            )
 
         # ----- 2. Build conditioning dict -----
         condition_reps_dict = self._get_tensor_dict_from_data(step_data.target_condition_data)

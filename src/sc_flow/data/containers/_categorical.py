@@ -184,6 +184,9 @@ class CategoricalData(BaseData):
         collection: "Collection[CategoricalData]",
     ) -> "CategoricalData":
         """Concatenates a collection of instances into a single object."""
+        if len(collection) == 0:
+            raise ValueError("Need at least one element to concatenate.")
+
         # store for data
         ann_dfs_list = []
         repr_dict = {}

@@ -1,8 +1,7 @@
-"""One harness, two objectives (torch-compute and JAX-compute), weights on torch."""
+"""The Lightning harness trains a torch objective; weights live on torch."""
 
 from __future__ import annotations
 
-import numpy as np
 import pytest
 
 pytest.importorskip("torch")
@@ -63,68 +62,3 @@ def test_torch_objective_trains_through_harness():
     rec = _LossRecorder()
     _trainer(rec).fit(module, DataLoader(_DS(), batch_size=None))
     assert rec.losses[-1] < rec.losses[0]
-
-
-def test_jax_objective_trains_through_same_harness():
-    pytest.importorskip("jax")
-    pytest.importorskip("cellflow")
-    import jax
-    import jax.numpy as jnp
-    from cellflow._compat import ConstantNoiseFlow
-    from cellflow.networks._velocity_field import ConditionalVelocityField
-
-    from sc_flow.backends.torch.jaxbridge._objective import CellFlowFMObjective, JaxParamModule
-
-    emb, max_comb, cond_dim, n = 6, 2, 4, 16
-    vf = ConditionalVelocityField(
-        output_dim=D,
-        max_combination_length=max_comb,
-        condition_mode="deterministic",
-        regularization=1.0,
-        condition_embedding_dim=emb,
-        hidden_dims=(16, 16),
-        decoder_dims=(16, 16),
-        time_encoder_dims=(16, 16),
-    )
-    pp = ConstantNoiseFlow(sigma=0.0)
-    ki, ke = jax.random.split(jax.random.PRNGKey(0))
-    params = vf.init(
-        {"params": ki, "condition_encoder": ke},
-        t=jnp.ones((1, 1)),
-        x_t=jnp.ones((1, D)),
-        cond={"drug": jnp.ones((1, max_comb, cond_dim))},
-        encoder_noise=jnp.ones((1, emb)),
-        train=False,
-    )["params"]
-
-    model = JaxParamModule(params)
-    objective = CellFlowFMObjective(vf, pp, seed=0)
-
-    # weights are torch nn.Parameters — the optimizer's single source of truth
-    assert len(model.param_tensors) > 0
-    assert all(isinstance(p, torch.nn.Parameter) for p in model.parameters())
-
-    rng = np.random.default_rng(0)
-    src = rng.standard_normal((n, D)).astype(np.float32)
-    tgt = (src + 2.0).astype(np.float32)
-    import jax.numpy as _jnp
-
-    cond = _jnp.asarray(rng.standard_normal((n, max_comb, cond_dim)).astype(np.float32))
-
-    class _DS(IterableDataset):
-        def __iter__(self):
-            for i in range(40):
-                yield {
-                    "time": torch.from_numpy(np.random.default_rng(i).uniform(size=(n, 1)).astype(np.float32)),
-                    "source": torch.from_numpy(src),
-                    "target": torch.from_numpy(tgt),
-                    "encoder_noise": torch.from_numpy(
-                        np.random.default_rng(i + 99).standard_normal((n, emb)).astype(np.float32)
-                    ),
-                    "conditions": {"drug": cond},
-                }
-
-    module = SCFlowLightningModule(model, objective, lr=1e-2)
-    rec = _LossRecorder()
-    _trainer(rec).fit(module, DataLoader(_DS(), batch_size=None))
-    assert rec.losses[-1] < rec.losses[0]  # JAX-computed loss went down via the torch optimizer

@@ -43,12 +43,27 @@ if TYPE_CHECKING:
     # ``binded._io.open_source``. Mirrors cellflow's ``DataInput``.
     DataInput = ad.AnnData | DatasetCollection | str | os.PathLike | Sequence[str | os.PathLike | ad.AnnData]
 
-__all__ = ["compile_obs", "CompiledData"]
+__all__ = ["compile_obs", "CompiledData", "CompiledDims"]
 
 logger = logging.getLogger("sc_flow.data")
 
 Leaf = tuple[Any, ...]
 ConditionFn = Callable[[Leaf], dict[str, np.ndarray]]
+
+
+@dataclass(frozen=True)
+class CompiledDims:
+    """Data dimensionalities read from source headers + fitted encoders — no cells streamed.
+
+    The honest replacement for the removed ``DataDimensionalitiesRegistry``: everything a velocity
+    field needs to size itself, computed from array metadata (:func:`binded._io.key_backings`) and the
+    fitted ``condition_fn`` (one label lookup), so construction never spins the sampler.
+    """
+
+    state: int  # feature dim of the streamed state rep (``obsm/<rep>`` or ``X``)
+    condition: Mapping[str, int]  # condition realm -> encoding dim (trailing axis of condition_fn output)
+    max_comb: int  # combination slots (the set/pool axis length) shared across realms
+    coupling: Mapping[str, int] | None = None  # coupling role -> rep feature dim (only differing reps)
 
 
 @dataclass(frozen=True)
@@ -59,6 +74,7 @@ class CompiledData:
     condition_fn: ConditionFn
     cols: tuple[str, ...]
     coupling: dict[str, str] | None = None  # coupling role -> streamed rep loc-string (see compile_obs)
+    dims: CompiledDims | None = None  # data dimensionalities (headers + encoders); None only if unset
 
 
 def _sample_rep_to_key(sample_rep: str) -> str:
@@ -79,6 +95,7 @@ def compile_obs(
     control_in_memory: bool = False,
     control_path: DataInput | None = None,
     min_runs_per_leaf: int = 0,
+    seed: int = 0,
 ) -> CompiledData:
     """Compile the composed schemas into a binded ``Scheme`` + ``condition_fn`` from labels only.
 
@@ -107,9 +124,10 @@ def compile_obs(
     :param min_runs_per_leaf: Zero-weight (exclude) any **target** leaf with fewer than this many cells
         — a scientific filter on untrainable tiny conditions. Controls are never filtered. Default ``0``
         drops nothing (uniform weights, byte-identical to cellflow's defaults).
+    :param seed: Seed for the binded ``Scheme`` — controls the sampler RNG (data order). Default ``0``.
     """
     from binded import Bind, Node, Scheme, uniform
-    from binded._io import obs_columns, open_source
+    from binded._io import key_backings, obs_columns, open_source
 
     cond_cols = list(condition.all_condition_cols)
     cov_cols = list(covariates.covariates) if covariates is not None else []
@@ -220,6 +238,21 @@ def compile_obs(
         nodes={"pert": Node("data", cols, pert_keys, uniform(pert)), "ctrl": ctrl_node},
         root="pert",
         binds=(Bind("pert", "ctrl", common=tuple(match_context)),),
-        seed=0,
+        seed=seed,
     )
-    return CompiledData(scheme=scheme, condition_fn=condition_fn, cols=cols, coupling=coupling_locs or None)
+
+    # --- dimensionalities: array headers (no cells) + one condition_fn lookup (no sampler) ---
+    # state/coupling reps come from `key_backings(...).shape[1]`; condition realm dims from running the
+    # fitted condition_fn on one target leaf (label lookup only). Sizes the VF without touching a batch.
+    state_dim = int(key_backings(source, key)[0].shape[1])
+    cond_dims: dict[str, int] = {}
+    if pert:
+        cond_dims = {realm: int(arr.shape[-1]) for realm, arr in condition_fn(pert[0]).items()}
+    coupling_dims = {role: int(key_backings(source, loc)[0].shape[1]) for role, loc in coupling_locs.items()}
+    dims = CompiledDims(
+        state=state_dim, condition=cond_dims, max_comb=int(max_comb), coupling=coupling_dims or None
+    )
+
+    return CompiledData(
+        scheme=scheme, condition_fn=condition_fn, cols=cols, coupling=coupling_locs or None, dims=dims
+    )

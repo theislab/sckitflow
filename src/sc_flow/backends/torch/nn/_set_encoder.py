@@ -25,6 +25,7 @@ class SetEncoder(BaseModule):
         pooling_proj_bias: bool = True,
         covariates_not_pooled: Collection[str] | None = None,
         output_layers_kwargs: LayersDict | None = None,
+        condition_mode: Literal["deterministic", "stochastic"] = "deterministic",
     ) -> None:
         """Initializes the set encoder.
 
@@ -69,8 +70,14 @@ class SetEncoder(BaseModule):
         self._covariates_not_pooled = [] if covariates_not_pooled is None else covariates_not_pooled
         self._output_layers_kwargs = {} if output_layers_kwargs is None else output_layers_kwargs
         self._pooling_proj_dim = pooling_proj_dim if pooling_proj_dim else self._min_pooled_dims
+        self._condition_mode = condition_mode
 
         self._condition_encoder = self._make_modules()
+
+    @property
+    def is_stochastic(self) -> bool:
+        """Whether the encoder is variational (outputs a mean **and** a log-variance head)."""
+        return self._condition_mode == "stochastic"
 
     @property
     def _min_pooled_dims(self) -> int | None:
@@ -149,13 +156,19 @@ class SetEncoder(BaseModule):
             "pooling_layer": self._make_pooling_layer(),
             "output_layer": self._make_output_layer(),
         }
+        # A stochastic (VAE-style) encoder gets a second head for the log-variance (same shape as the mean).
+        if self.is_stochastic:
+            layers["var_layer"] = self._make_output_layer()
         return torch.nn.ModuleDict(layers)
 
     def forward(
         self,
         condition_dict: MappedTensor,
-    ) -> torch.Tensor:
+    ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Forward computation pass on the set encoder.
+
+        Returns ``(mean, logvar)`` — the pooled condition embedding (mean) and, for a stochastic
+        (VAE-style) encoder, its log-variance head; ``logvar`` is ``None`` when deterministic.
 
         :param condition_dict: The input dictionary containing the data for
             each perturbation covariate.
@@ -220,7 +233,9 @@ class SetEncoder(BaseModule):
             raise ValueError(msg)
         latent_cond = torch.concatenate(to_concat, dim=-1)
 
-        return self._condition_encoder["output_layer"](latent_cond)
+        mean = self._condition_encoder["output_layer"](latent_cond)
+        logvar = self._condition_encoder["var_layer"](latent_cond) if self.is_stochastic else None
+        return mean, logvar
 
     @property
     def decoder_input_dim(

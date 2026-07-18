@@ -20,7 +20,6 @@ from sc_flow.backends.torch.nn._modules import BaseModule, FunctionalModule
 from sc_flow.backends.torch.nn._set_encoder import SetEncoder
 from sc_flow.backends.torch.nn._time_features import get_time_features_fn
 from sc_flow.backends.torch.nn._utils import init_module_from_dict
-from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 
 __all__ = [
     "BaseVelocityField",
@@ -97,6 +96,7 @@ class MLPVelocity(BaseVelocityField):
         condition_encoder_pooling_proj_bias: bool = True,
         condition_encoder_covariates_not_pooled: Collection[str] | None = None,
         condition_encoder_output_layers_kwargs: LayersDict | None = None,
+        condition_mode: Literal["deterministic", "stochastic"] = "deterministic",
         source_encoder_mlp_kwargs: LayersDict | None = None,
         source_encoder_output_dim: int | None = None,
     ) -> None:
@@ -261,6 +261,7 @@ class MLPVelocity(BaseVelocityField):
         self._condition_encoder_pooling_proj_bias = condition_encoder_pooling_proj_bias
         self._condition_encoder_covariates_not_pooled = condition_encoder_covariates_not_pooled
         self._condition_encoder_output_layers_kwargs = condition_encoder_output_layers_kwargs
+        self._condition_mode = condition_mode
         self._source_encoder_mlp_kwargs = source_encoder_mlp_kwargs
         self._source_encoder_output_dim = (
             DEFAULT_SOURCE_ENCODER_OUTPUT_DIM if source_encoder_output_dim is None else source_encoder_output_dim
@@ -327,17 +328,23 @@ class MLPVelocity(BaseVelocityField):
                 return DEFAULT_NUM_TIME_FEATURES
             return self._num_time_features
 
-    def _get_encoded_conditions(
+    def condition_stats(
         self,
-        condition_dict: MappedTensor | None,
-    ) -> torch.Tensor | None:
-        """Retrieves the encoded conditions."""
-        if self.is_conditional:
-            if condition_dict is None:
-                msg = "Conditional VFs should take a condition as input, found `None`."
-                raise TypeError(msg)
-            return self._vf["condition_encoder"](condition_dict)
-        return None
+        condition_dict: MappedTensor | None = None,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
+        """The condition encoder outputs ``(mean, logvar)`` (``logvar`` is ``None`` when deterministic).
+
+        Returns ``(None, None)`` for an unconditional field. A training objective calls this **once** and
+        reuses the result for both the velocity (:meth:`velocity_from_embedding`) and the encoder
+        regularization — which is also what makes a stochastic encoder's reparameterization correct (a
+        single noise draw shared by the velocity and the KL term).
+        """
+        if not self.is_conditional:
+            return None, None
+        if condition_dict is None:
+            msg = "Conditional VFs should take a condition as input, found `None`."
+            raise TypeError(msg)
+        return self._vf["condition_encoder"](condition_dict)
 
     def _get_encoded_source(
         self,
@@ -446,6 +453,7 @@ class MLPVelocity(BaseVelocityField):
             pooling_proj_bias=self._condition_encoder_pooling_proj_bias,
             covariates_not_pooled=self._condition_encoder_covariates_not_pooled,
             output_layers_kwargs=self._condition_encoder_output_layers_kwargs,
+            condition_mode=self._condition_mode,
         )
 
     def _make_vf_decoder(
@@ -520,16 +528,31 @@ class MLPVelocity(BaseVelocityField):
             each perturbation covariate.
         :type condition_dict: class: `MappedTensor`
         """
+        # Inference/solver path: use the condition **mean** embedding (a stochastic encoder's inference
+        # is its mean, i.e. encoder_noise = 0). Training reparameterizes upstream and calls
+        # :meth:`velocity_from_embedding` directly.
+        mean, _ = self.condition_stats(condition_dict)
+        return self.velocity_from_embedding(t, x, mean, source=source)
+
+    def velocity_from_embedding(
+        self,
+        t: torch.Tensor,
+        x: torch.Tensor,
+        cond_embedding: torch.Tensor | None = None,
+        source: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        """Velocity from a **precomputed** condition embedding (skips condition encoding).
+
+        Lets a training objective encode the condition once (via :meth:`condition_stats`), reparameterize
+        if stochastic, and reuse the embedding here — avoiding a second encoder pass and keeping a
+        stochastic encoder's noise draw consistent between the velocity and its KL regularization.
+        :meth:`forward` is this composed with :meth:`condition_stats`.
+        """
         encoded_xt = self._vf["state_encoder"](x)
-
-        encoded_t = self._vf["time_features"](t)
-        encoded_t = self._vf["time_encoder"](encoded_t)
-
-        encoded_condition = self._get_encoded_conditions(condition_dict)
+        encoded_t = self._vf["time_encoder"](self._vf["time_features"](t))
         encoded_source = self._get_encoded_source(source)
-
         encoded_concat = self._vf["conditioning_layer"](
-            encoded_t, encoded_xt, encoded_condition=self._get_conditioning_input(encoded_condition, encoded_source)
+            encoded_t, encoded_xt, encoded_condition=self._get_conditioning_input(cond_embedding, encoded_source)
         )
         return self._vf["vf_decoder"](encoded_concat)
 
@@ -552,67 +575,9 @@ class MLPVelocity(BaseVelocityField):
         """Whether a condition encoder is associated to velocity field."""
         return self._condition_encoder_input_layers is not None
 
-    @classmethod
-    def init_from_dims_registry(
-        cls,
-        dims_registry: DataDimensionalitiesRegistry,
-        condition_encoder_input_layers: NestedLayersDict | None = None,
-        source_encoder_mlp_kwargs: LayersDict | None = None,
-        **kwargs,
-    ) -> "MLPVelocity":
-        # get dimensionalities from registry
-        state_dim = dims_registry.state_dim
-
-        # get covariates not to pool from registry
-        condition_encoder_covariates_not_pooled = []
-
-        # create dictionary with all conditions dimensions
-        all_dims_dict = {
-            **dims_registry.condition_reps_dims,
-            **dims_registry.condition_continuous_dims,
-            **dims_registry.groups_reps_dims,
-        }
-
-        # register input dimensionalities for condition encoder
-        if condition_encoder_input_layers is not None:
-            for cov, input_layers in condition_encoder_input_layers.items():
-                # check that covariate appears in the data
-                if cov not in all_dims_dict.keys():
-                    msg = f"Covariate {cov} not found in the data."
-                    raise KeyError(msg)
-
-                # update dimensionality
-                cov_input_dim = all_dims_dict[cov]
-                input_layers["input_dim"] = cov_input_dim
-
-                # add continuous covariates to the covariates not to pool
-                if cov in dims_registry.condition_continuous_dims.keys():
-                    condition_encoder_covariates_not_pooled.append(cov)
-
-        # register source state dimensionality when provided
-        if source_encoder_mlp_kwargs is not None:
-            # get source dimension
-            if dims_registry.source_lin_dim is not None and dims_registry.source_quad_dim is not None:
-                source_dim = dims_registry.source_lin_dim + dims_registry.source_quad_dim
-            elif dims_registry.source_lin_dim is not None:
-                source_dim = dims_registry.source_lin_dim
-            elif dims_registry.source_quad_dim is not None:
-                source_dim = dims_registry.source_quad_dim
-            else:
-                source_dim = None
-            source_encoder_mlp_kwargs["input_dim"] = source_dim
-
-        # promote arguments passed from kwargs
-        condition_encoder_input_layers = kwargs.pop("condition_encoder_input_layers", condition_encoder_input_layers)
-        source_encoder_mlp_kwargs = kwargs.pop("source_encoder_mlp_kwargs", source_encoder_mlp_kwargs)
-        condition_encoder_covariates_not_pooled = kwargs.pop(
-            "condition_encoder_covariates_not_pooled", condition_encoder_covariates_not_pooled
-        )
-
-        return cls(
-            state_dim,
-            condition_encoder_input_layers=condition_encoder_input_layers,
-            source_encoder_mlp_kwargs=source_encoder_mlp_kwargs,
-            condition_encoder_covariates_not_pooled=condition_encoder_covariates_not_pooled,
-            **kwargs,
-        )
+    @property
+    def is_stochastic(
+        self,
+    ) -> bool:
+        """Whether the condition encoder is variational (``condition_mode='stochastic'``)."""
+        return self.is_conditional and self._condition_mode == "stochastic"

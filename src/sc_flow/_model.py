@@ -1,30 +1,25 @@
 """The FlowMatching model wrapper.
 
-Replaces the legacy SCFlow model. Wraps CellFlow's JAX conditional velocity field
-and probability path numerics inside a PyTorch training and prediction loop.
+Torch-native (OT) conditional flow matching. The velocity field, probability path, and loss are all
+torch (trained by Lightning); the **only** JAX is the per-minibatch OT coupling
+(:func:`~sc_flow.backends.jax.coupling.ot_linear_coupling`), a forward-only resample of the
+``(source, target)`` pairing — no autograd crosses into JAX, so there is no DLPack bridge. Prediction
+integrates the torch velocity field with ``torchdiffeq``.
 """
 
 from __future__ import annotations
 
 import logging
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-import lightning.pytorch as pl
 import numpy as np
 import torch
 
-from sc_flow.backends.torch.jaxbridge import (
-    CellFlowFMObjective,
-    JaxParamModule,
-    iter_fm_batches,
-    jax_to_torch,
-    torch_to_jax,
-)
 from sc_flow.data import FlowSpec
 
 if TYPE_CHECKING:
-    from sc_flow.data._compile_obs import DataInput
+    from sc_flow.data._compile_obs import CompiledData, DataInput
 
 __all__ = ["FlowMatching"]
 
@@ -32,33 +27,95 @@ logger = logging.getLogger(__name__)
 
 
 class FlowMatching:
-    """The converged Flow Matching model wrapping CellFlow's JAX numerics inside PyTorch training/inference."""
+    """Torch-native (OT) conditional flow-matching model over a binded data spec."""
 
     def __init__(
         self,
         spec: FlowSpec,
-        objective: str = "cellflow",
-        architecture: str = "mlp-velocity",
-        hidden_dims: tuple[int, ...] = (1024, 1024, 1024),
+        *,
+        objective: str = "otfm",
+        hidden_dims: Sequence[int] = (1024, 1024, 1024),
+        decoder_dims: Sequence[int] | None = None,
+        time_encoder_dims: Sequence[int] | None = None,
         condition_embedding_dim: int = 64,
         condition_mode: str = "deterministic",
         regularization: float = 1.0,
         sigma: float = 0.0,
+        pooling: str = "mean",
+        match_method: str = "sinkhorn",
+        match_kwargs: Mapping[str, Any] | None = None,
+        seed: int = 0,
     ):
         self.spec = spec
         self.objective_name = objective
-        self.architecture_name = architecture
-        self.hidden_dims = hidden_dims
+        self.hidden_dims = tuple(hidden_dims)
+        self.decoder_dims = None if decoder_dims is None else tuple(decoder_dims)
+        self.time_encoder_dims = None if time_encoder_dims is None else tuple(time_encoder_dims)
         self.condition_embedding_dim = condition_embedding_dim
         self.condition_mode = condition_mode
         self.regularization = regularization
         self.sigma = sigma
+        self.pooling = pooling
+        self.match_method = match_method
+        self.match_kwargs = dict(match_kwargs) if match_kwargs else {}
+        self.seed = seed
 
-        self.vf = None
+        self.vf = None  # MLPVelocity (torch nn.Module holding the weights)
+        self.model = None  # alias of vf (the trained weights)
         self.probability_path = None
-        self.model = None  # JaxParamModule holding PyTorch parameters
-        self.objective = None  # CellFlowFMObjective wrapping JAX value_and_grad
+        self.objective = None
         self._condition_fn = None
+        self._dims = None
+
+    # --- construction helpers -------------------------------------------------------------------
+
+    def _build_vf(self, compiled: CompiledData) -> torch.nn.Module:
+        """Size an ``MLPVelocity`` from :attr:`CompiledData.dims` (no batch pulled)."""
+        from sc_flow.backends.torch.nn._vf import MLPVelocity
+
+        dims = compiled.dims
+        cond_input_layers = (
+            {
+                realm: {"input_dim": int(dim), "output_dim": int(self.condition_embedding_dim)}
+                for realm, dim in dims.condition.items()
+            }
+            if dims.condition
+            else None
+        )
+        vf_kwargs: dict[str, Any] = {
+            "state_dim": int(dims.state),
+            "conditioning_id": "concat",
+            "state_encoder_mlp_kwargs": {"hidden_dims": self.hidden_dims},
+        }
+        if self.decoder_dims is not None:
+            vf_kwargs["vf_decoder_mlp_kwargs"] = {"hidden_dims": self.decoder_dims}
+        if self.time_encoder_dims is not None:
+            vf_kwargs["time_encoder_mlp_kwargs"] = {"hidden_dims": self.time_encoder_dims}
+        if cond_input_layers is not None:
+            vf_kwargs.update(
+                condition_encoder_input_layers=cond_input_layers,
+                condition_encoder_output_dim=int(self.condition_embedding_dim),
+                condition_encoder_pooling_mode=self.pooling,
+                condition_mode=self.condition_mode,
+            )
+        if self.objective_name == "genot":
+            # GENOT flows noise->target (state space) with the SOURCE cell conditioning the field: enable
+            # the source encoder. G1 is same-space — the source cell is the state source, so it is sized by
+            # the state dim; the coupling reps (if any) only drive the OT plan. (Cross-space source is G2.)
+            vf_kwargs["source_encoder_mlp_kwargs"] = {"input_dim": int(dims.state), "hidden_dims": self.hidden_dims}
+        return MLPVelocity(**vf_kwargs)
+
+    def _build_probability_path(self):
+        from sc_flow.backends.torch.probability_paths._probability_paths import (
+            LinearDiracProbabilityPath,
+            LinearGaussianProbabilityPath,
+        )
+
+        if self.sigma > 0:
+            return LinearGaussianProbabilityPath(sigma=self.sigma, prng=torch.Generator().manual_seed(int(self.seed)))
+        return LinearDiracProbabilityPath(sigma=0.0)
+
+    # --- API ------------------------------------------------------------------------------------
 
     def fit(
         self,
@@ -72,78 +129,65 @@ class FlowMatching:
         lr: float = 1e-4,
         min_runs_per_leaf: int = 0,
     ) -> FlowMatching:
-        """Fits the model by compiling data into a Loader and running PL Trainer."""
-        # 1. Compile spec & build loader
-        loader = self.spec.build_loader(
-            data,
-            rep_tables=rep_tables,
-            batch_size=batch_size,
-            min_runs_per_leaf=min_runs_per_leaf,
-            to=None,  # yield numpy arrays
+        """Compile ``data``, build the torch VF + OT-FM objective, and run the Lightning trainer."""
+        import lightning.pytorch as pl
+        from binded import Loader, SamplerConfig
+
+        # Seed every stochastic source from self.seed for a bit-reproducible run: VF init (torch global,
+        # reset here), the binded data order (Scheme seed), the OT plan-sampling + t draw (objective), and
+        # any probability-path noise (its prng).
+        # TODO(reprod): this only guarantees bit-reproducibility on CPU. A CUDA run still has torch's
+        # nondeterministic kernels (atomics in some backward ops) — gate torch.use_deterministic_algorithms
+        # (+ CUBLAS_WORKSPACE_CONFIG) behind a `deterministic=True` fit flag when GPU repro is needed.
+        torch.manual_seed(int(self.seed))
+
+        # 1. Compile to labels + dims (no cells / no sampler); build a numpy-yielding loader.
+        compiled = self.spec.compile(
+            data, rep_tables=rep_tables, min_runs_per_leaf=min_runs_per_leaf, seed=self.seed
         )
-        self._condition_fn = loader._cond_fn
+        self._condition_fn = compiled.condition_fn
+        self._dims = compiled.dims
+        cfg = SamplerConfig(batch_size=batch_size, chunk_size=1, preload_nchunks=max(1, batch_size), to=None)
+        loader = Loader(compiled.scheme, cfg, compiled.condition_fn)
 
-        # 2. Infer dimensions
-        leaf = next(iter(loader.s.nodes["pert"].weights))
-        sample_cond = loader._cond_fn(leaf)
-        batch = next(iter(loader))
-        D = batch["target"].shape[-1]
+        # 2. Torch velocity field + probability path, sized from compiled.dims.
+        self.vf = self._build_vf(compiled)
+        self.model = self.vf
+        self.probability_path = self._build_probability_path()
 
-        from cellflow._compat import ConstantNoiseFlow
-        from cellflow.networks._velocity_field import ConditionalVelocityField
+        # 3. Objective selected by name (OT coupling in JAX, everything else torch) + shared harness.
+        from sc_flow.backends.torch.training._harness import SCFlowLightningModule
+        from sc_flow.backends.torch.training._objective import build_objective
 
-        # 3. Instantiate JAX ConditionalVelocityField & ConstantNoiseFlow
-        self.vf = ConditionalVelocityField(
-            output_dim=D,
-            max_combination_length=sample_cond[next(iter(sample_cond))].shape[1],
+        self.objective = build_objective(
+            self.objective_name,
+            self.probability_path,
             condition_mode=self.condition_mode,
             regularization=self.regularization,
-            condition_embedding_dim=self.condition_embedding_dim,
-            hidden_dims=self.hidden_dims,
+            coupling_locs=compiled.coupling,
+            match_method=self.match_method,
+            match_kwargs=self.match_kwargs,
+            seed=self.seed,
         )
-        self.probability_path = ConstantNoiseFlow(sigma=self.sigma)
+        harness = SCFlowLightningModule(self.vf, self.objective, lr=lr)
 
-        # Initialize JAX parameters
-        import jax
-        import jax.numpy as jnp
-
-        k_init, k_enc = jax.random.split(jax.random.PRNGKey(0))
-        cond_init = {k: jnp.ones(v.shape) for k, v in sample_cond.items()}
-        params = self.vf.init(
-            {"params": k_init, "condition_encoder": k_enc},
-            t=jnp.ones((1, 1)),
-            x_t=jnp.ones((1, D)),
-            cond=cond_init,
-            encoder_noise=jnp.ones((1, self.condition_embedding_dim)),
-            train=False,
-        )["params"]
-
-        # 4. Instantiate JaxParamModule and CellFlowFMObjective
-        self.model = JaxParamModule(params)
-        self.objective = CellFlowFMObjective(self.vf, self.probability_path, seed=0)
-
-        # 5. Setup data harness
-        class _AdaptedIterableDataset(torch.utils.data.IterableDataset):
-            def __init__(self, loader, cond_emb_dim):
-                self.loader = loader
-                self.cond_emb_dim = cond_emb_dim
+        # 4. Wrap the binded loader as an IterableDataset (batches pass through untouched).
+        class _BindedIterableDataset(torch.utils.data.IterableDataset):
+            def __init__(self, loader):
+                self._loader = loader
 
             def __iter__(self):
-                yield from iter_fm_batches(self.loader, condition_embedding_dim=self.cond_emb_dim)
+                yield from self._loader
 
-        dataset = _AdaptedIterableDataset(loader, self.condition_embedding_dim)
-        torch_loader = torch.utils.data.DataLoader(dataset, batch_size=None)
-
-        from sc_flow.backends.torch.training._harness import SCFlowLightningModule
-
-        harness = SCFlowLightningModule(self.model, self.objective, lr=lr)
+        torch_loader = torch.utils.data.DataLoader(_BindedIterableDataset(loader), batch_size=None)
 
         trainer = pl.Trainer(
             max_steps=n_train_steps,
             accelerator=device,
-            val_check_interval=valid_freq,
             logger=False,
             enable_checkpointing=False,
+            enable_progress_bar=False,
+            enable_model_summary=False,
         )
         trainer.fit(harness, torch_loader)
         return self
@@ -156,56 +200,48 @@ class FlowMatching:
         device: str = "cpu",
         num_steps: int = 50,
         return_trajectory: bool = False,
+        seed: int | None = None,
     ) -> np.ndarray:
-        """Predicts translation using PyTorch ODE solver (torchdiffeq) driven by JAX velocity field."""
-        if self.model is None or self.vf is None:
+        """Translate ``x`` under ``condition`` by integrating the torch velocity field with torchdiffeq.
+
+        For ``objective="otfm"`` the ODE integrates the cells ``x`` themselves (source → target). For
+        ``objective="genot"`` it integrates **from latent noise** (target space) with ``x`` held fixed as
+        the source-conditioning input (noise → target | source) — a *generative* translation, so it is
+        stochastic; ``seed`` (default :attr:`self.seed`) makes the noise draw reproducible.
+        """
+        if self.vf is None:
             raise RuntimeError("Model must be fitted before predict() can be called.")
+        from torchdiffeq import odeint
 
-        self.model.to(device)
+        self.vf.to(device)
+        self.vf.eval()
 
-        if not isinstance(condition, dict) or not all(isinstance(v, np.ndarray) for v in condition.values()):
+        # Resolve a leaf tuple to its condition dict; a ready condition dict is used as-is.
+        if not (isinstance(condition, dict) and all(isinstance(v, np.ndarray) for v in condition.values())):
             if self._condition_fn is None:
                 raise RuntimeError("Model must be fitted to resolve leaf conditions.")
             condition = self._condition_fn(condition)
+        cond_t = {k: torch.as_tensor(np.asarray(v, dtype=np.float32), device=device) for k, v in condition.items()}
 
-        import jax
-        import jax.numpy as jnp
-
-        leaves = [torch_to_jax(p) for p in self.model.param_tensors]
-        params_jax = jax.tree_util.tree_unflatten(self.model.treedef, leaves)
-        cond_jax = {k: jax.device_put(v) for k, v in condition.items()}
-        encoder_noise = jnp.zeros((1, self.condition_embedding_dim))
-
-        # 1. Encode condition once
-        cond_embedding, _, _ = self.vf.apply(
-            {"params": params_jax}, cond_jax, encoder_noise, train=False, method=self.vf.encode_condition
-        )
-
-        # 2. ODE closure for torchdiffeq
-        def f(t: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-            t_expanded = t.expand(y.shape[0], 1)
-            t_jax = torch_to_jax(t_expanded)
-            y_jax = torch_to_jax(y)
-            v_jax = self.vf.apply(
-                {"params": params_jax},
-                t_jax,
-                y_jax,
-                cond_embedding,
-                train=False,
-                method=self.vf.velocity_from_embedding,
-            )
-            return jax_to_torch(v_jax).to(device)
-
-        # 3. Integrate using torchdiffeq
-        from torchdiffeq import odeint
-
-        y0 = torch.as_tensor(x, dtype=torch.float32, device=device)
+        x_arr = np.asarray(x, dtype=np.float32)
+        is_genot = self.objective_name == "genot"
+        if is_genot:
+            # y0 = latent ~ N(0, I) in the target/generated space (dims.state); x conditions the field.
+            gen = torch.Generator().manual_seed(int(self.seed if seed is None else seed))
+            y0 = torch.randn(x_arr.shape[0], int(self._dims.state), generator=gen).to(device=device)
+            source_cells = torch.as_tensor(x_arr, device=device)
+        else:
+            y0 = torch.as_tensor(x_arr, device=device)
+            source_cells = None
         t_grid = torch.linspace(0.0, 1.0, num_steps, device=device)
+
+        def f(t: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
+            t_exp = t.reshape(1, 1).expand(y.shape[0], 1)
+            return self.vf(t_exp, y, cond_t, source_cells)
 
         with torch.no_grad():
             trajectory = odeint(f, y0, t_grid, method="euler")
 
         if return_trajectory:
             return trajectory.cpu().numpy()
-        else:
-            return trajectory[-1].cpu().numpy()
+        return trajectory[-1].cpu().numpy()

@@ -20,7 +20,11 @@ from sc_flow.backends.jax._utils import to_jax_array
 logger = logging.getLogger(__name__)
 
 
-def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray, NumpyArray]:
+def _select_indices(
+    coupling_matrix: NumpyArray,
+    size: int,
+    rng: np.random.Generator | None = None,
+) -> tuple[NumpyArray, NumpyArray]:
     """Samples matching indices from a coupling matrix.
 
     Draws index pairs from the provided coupling matrix according to the
@@ -33,6 +37,10 @@ def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray,
 
     :param size: Number of index pairs to sample from the coupling matrix.
     :type size: int
+
+    :param rng: (Optional) A :class:`numpy.random.Generator` for reproducible sampling.
+        When ``None``, the process-global ``numpy.random`` state is used (not reproducible).
+    :type rng: class:`numpy.random.Generator | None`
 
     Returns
     -------
@@ -50,8 +58,9 @@ def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray,
     # retrieving coupling probabilities
     coupling_probs = coupling_matrix.flatten()
     coupling_probs = coupling_probs / coupling_probs.sum()
-    # sampling indices
-    choices = np.random.choice(
+    # sampling indices (seeded Generator when provided, else global state)
+    chooser = np.random if rng is None else rng
+    choices = chooser.choice(
         coupling_matrix.shape[0] * coupling_matrix.shape[1],
         p=coupling_probs,
         size=size,
@@ -95,6 +104,7 @@ def _sanitize_coupling_matrix(
 def independent_coupling(
     source: ArrayLike,
     target: ArrayLike,
+    rng: np.random.Generator | None = None,
 ) -> tuple[NumpyArray, NumpyArray]:
     """Randomly matches source and target samples independently.
 
@@ -108,6 +118,10 @@ def independent_coupling(
     :param target: Array containing samples from the target distribution.
     :type target: class:`ArrayLike`
 
+    :param rng: (Optional) A :class:`numpy.random.Generator` for reproducible permutations.
+        When ``None``, the process-global ``numpy.random`` state is used (not reproducible).
+    :type rng: class:`numpy.random.Generator | None`
+
     Returns
     -------
     tuple[numpy.ndarray, numpy.ndarray]
@@ -119,9 +133,10 @@ def independent_coupling(
         The length of both arrays is equal to
         ``min(len(source), len(target))``.
     """
-    # randomy permuting the tensors
-    src_random_perm_idx = np.random.choice(source.shape[0], size=source.shape[0], replace=False)
-    tgt_random_perm_idx = np.random.choice(target.shape[0], size=source.shape[0], replace=False)
+    # randomly permuting the tensors (seeded Generator when provided, else global state)
+    chooser = np.random if rng is None else rng
+    src_random_perm_idx = chooser.choice(source.shape[0], size=source.shape[0], replace=False)
+    tgt_random_perm_idx = chooser.choice(target.shape[0], size=source.shape[0], replace=False)
     min_shape = min(src_random_perm_idx.shape[0], tgt_random_perm_idx.shape[0])
 
     return src_random_perm_idx[:min_shape], tgt_random_perm_idx[:min_shape]
@@ -161,6 +176,7 @@ def ot_linear_coupling(
     scale_cost: ScaleMethod = "mean",
     method: LinCouplingMethod = "sinkhorn",
     ot_fn: OTFn | None = None,
+    rng: np.random.Generator | None = None,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray] | tuple[NumpyArray, NumpyArray, NumpyArray]:
     """Computes a linear optimal transport coupling between source and target samples.
@@ -241,7 +257,7 @@ def ot_linear_coupling(
     # computing coupling matrix
     coupling_matrix = np.asarray(ot_fn(problem).matrix)
 
-    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source.shape[0])
+    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source.shape[0], rng=rng)
     if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs
@@ -284,6 +300,7 @@ def ot_quadratic_coupling(
     cost_fn: costs.CostFn | None = None,
     scale_cost: ScaleMethod = 1.0,
     method: QuadCouplingMethod = "entropic_gromov_wasserstein",
+    rng: np.random.Generator | None = None,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray] | tuple[NumpyArray, NumpyArray, NumpyArray]:
     """Computes a quadratic (Gromov-type) optimal transport coupling.
@@ -366,7 +383,7 @@ def ot_quadratic_coupling(
         )
     )
 
-    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source_quad.shape[0])
+    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source_quad.shape[0], rng=rng)
     if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs

@@ -482,6 +482,30 @@ def test_split_ratios_forms_and_validation():
         resolve((0.5, 0.3, 0.2))
 
 
+@pytest.mark.parametrize("chunk_size", [1, 8])
+def test_fit_chunked_reads_train_and_predict(chunk_size):
+    """fit() accepts chunk_size>1 on grouped data (contiguous per-condition runs) — the loader fast path.
+
+    ``_multi_drug_adata`` lays cells out in contiguous per-(cell_type, drug) blocks, so a chunked read is
+    valid. chunk_size only changes the read pattern (sequential vs scattered), not the learned model, so
+    both settings must fit and predict finite outputs.
+    """
+    adata = _multi_drug_adata(n_per=96, d=6)
+    model = FlowMatching(spec=_shift_spec(), condition_embedding_dim=8, hidden_dims=(16, 16))
+    model.fit(
+        adata, rep_tables=adata.uns, batch_size=32, chunk_size=chunk_size, n_train_steps=6, device="cpu"
+    )
+    pred = model.predict(np.zeros((5, 6), np.float32), ("cl_a", "drug_0"), device="cpu", num_steps=4)
+    assert pred.shape == (5, 6) and np.isfinite(pred).all()
+
+
+def test_fit_resolve_preload_buffer():
+    """_resolve_preload: explicit wins; chunk_size=1 → batch-sized; chunked → a multi-batch prefetch."""
+    assert FlowMatching._resolve_preload(256, 1, 999) == 999
+    assert FlowMatching._resolve_preload(256, 1, None) == 256
+    assert FlowMatching._resolve_preload(256, 32, None) == 4 * (256 // 32)  # prefetch several batches
+
+
 def test_fit_unknown_metric_raises():
     """A validation metric name not in METRICS_REGISTRY fails fast (before training)."""
     adata = _multi_drug_adata()

@@ -90,6 +90,7 @@ def main() -> int:
     p.add_argument("--cell-col", default="cell_line")
     p.add_argument("--control-key", default="is_control")
     p.add_argument("--batch-size", type=int, default=256)
+    p.add_argument("--chunk-size", type=int, default=1, help="contiguous cells/chunk (>1 needs grouped data)")
     p.add_argument("--emb-dim", type=int, default=64)
     p.add_argument("--hidden", type=int, nargs="+", default=[512, 512])
     p.add_argument("--n-steps", type=int, default=60, help="steps for the throughput measurement")
@@ -123,7 +124,8 @@ def main() -> int:
     )
     harness = SCFlowLightningModule(vf, objective, lr=1e-4)
     opt = harness.configure_optimizers()
-    cfg = SamplerConfig(batch_size=args.batch_size, chunk_size=1, preload_nchunks=max(1, args.batch_size), to=None)
+    _preload = max(1, args.batch_size) if args.chunk_size <= 1 else max(args.chunk_size, 4 * (args.batch_size // args.chunk_size))
+    cfg = SamplerConfig(batch_size=args.batch_size, chunk_size=args.chunk_size, preload_nchunks=_preload, to=None)
     loader = Loader(compiled.scheme, cfg, compiled.condition_fn)
 
     def sync():

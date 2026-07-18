@@ -1,0 +1,38 @@
+# Tahoe-100M streaming run for sc-flow's torch-native FlowMatching.
+#
+# Ports cf-train's configs/experiments/tahoe.yaml to the sc-flow FlowSpec/FlowMatching API. Consumed by
+# `scripts/tahoe_smoke.py --config configs/tahoe.yaml` (which builds the fixed Tahoe FlowSpec below and
+# streams the converted zarr plates via the binded Loader).
+#
+# Data provenance: the 14 converted plates live at $APP_DATA_DIR/tahoe100_converted/plate*.zarr with
+# obsm/X_pca (1024-d) precomputed; is_control := (drug == "DMSO_TF"). See cf-train configs/tahoe.yaml.
+
+data:
+  # Glob of the converted per-plate zarr stores (obsm/X_pca present). Absolute cluster path by default.
+  plates_glob: /lustre/groups/ml01/datasets/selman.ozleyen/tahoe100_converted/plate*.zarr
+  sample_rep: X_pca            # obsm rep streamed as the state (1024-d)
+  drug_col: drug               # perturbation covariate (one-hot encoded; 380 drugs)
+  cell_col: cell_line          # match / split context (50 cell lines)
+  control_key: is_control      # boolean control mask (drug == DMSO_TF)
+
+model:
+  objective: otfm              # otfm | genot
+  condition_embedding_dim: 64
+  hidden_dims: [1024, 1024, 1024]
+  condition_mode: deterministic
+  match_method: sinkhorn
+
+train:
+  batch_size: 1024
+  # binded Loader read pattern: contiguous 32-row runs (aligned to grouped conditions) → cheap sequential
+  # reads instead of ~1024 scattered single-row reads/batch. Must divide batch_size. preload_nchunks buffers
+  # ~128 batches (4096 chunks). Measured on H100: chunk_size=1 → ~2s/batch; chunk_size=32 → 10s+ faster.
+  chunk_size: 32
+  preload_nchunks: 4096
+  n_train_steps: 30000
+  valid_freq: 2000
+  lr: 0.0001
+  device: cuda
+  # Held out whole drugs → the validation loop translates held-out controls and scores r_squared / e-dist.
+  split_by: [drug]
+  split_ratios: {train: 0.8, val: 0.2}

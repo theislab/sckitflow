@@ -125,6 +125,8 @@ class FlowMatching:
         *,
         rep_tables: Mapping[str, Mapping] | None = None,
         batch_size: int = 128,
+        chunk_size: int = 1,
+        preload_nchunks: int | None = None,
         n_train_steps: int = 100_000,
         valid_freq: int = 1_000,
         device: str = "cpu",
@@ -145,6 +147,15 @@ class FlowMatching:
         metrics — ``r_squared``, ``e-dist``) are scored, logged as ``val_<metric>_mean`` and appended to
         :attr:`metrics_history`. ``split_by=None`` trains on all conditions with no validation.
 
+        :param chunk_size: Contiguous cells the binded ``Loader`` reads per chunk. ``1`` (default) works
+            on any layout but issues ``batch_size`` scattered single-row zarr reads per batch — on the
+            Tahoe plates that is the dominant training cost (~2s/batch on Lustre vs a ~7ms GPU step).
+            Set to e.g. ``32`` on data grouped into contiguous per-condition runs (Tahoe's grouped plates)
+            to read sequentially — cf-train measured ~80x fewer read ops. Must divide ``batch_size`` and
+            requires every sampled condition's contiguous run to be ≥ ``chunk_size`` cells.
+        :param preload_nchunks: How many chunks the loader prefetches (buffer size). ``None`` picks a
+            batch-sized buffer for ``chunk_size=1`` and a larger prefetch (``~4`` batches of chunks) when
+            ``chunk_size>1`` so reads stay ahead of the GPU.
         :param split_by: Condition column(s) whose unique combinations are partitioned into train/val
             (a subset of the compiled root columns). ``None`` = no held-out split / no validation.
         :param split_ratios: Train/val fractions — a ``{"train": .., "val": ..}`` mapping or a
@@ -191,7 +202,8 @@ class FlowMatching:
             )
             train_scheme, val_scheme = splits["train"], splits["val"]
 
-        cfg = SamplerConfig(batch_size=batch_size, chunk_size=1, preload_nchunks=max(1, batch_size), to=None)
+        preload = self._resolve_preload(batch_size, chunk_size, preload_nchunks)
+        cfg = SamplerConfig(batch_size=batch_size, chunk_size=chunk_size, preload_nchunks=preload, to=None)
         loader = Loader(train_scheme, cfg, compiled.condition_fn)
 
         # 2. Torch velocity field + probability path, sized from compiled.dims.
@@ -220,6 +232,8 @@ class FlowMatching:
                 val_scheme,
                 compiled.condition_fn,
                 val_batch_size=val_batch_size or batch_size,
+                chunk_size=chunk_size,
+                preload_nchunks=preload_nchunks,
                 n_val_conditions=n_val_conditions,
                 metrics=metrics,
                 val_num_steps=val_num_steps,
@@ -264,6 +278,15 @@ class FlowMatching:
     # --- validation helpers -----------------------------------------------------------------------
 
     @staticmethod
+    def _resolve_preload(batch_size: int, chunk_size: int, preload_nchunks: int | None) -> int:
+        """Prefetch-buffer size (chunks): explicit if given, else batch-sized (chunk 1) / ~4 batches (chunked)."""
+        if preload_nchunks is not None:
+            return int(preload_nchunks)
+        if chunk_size <= 1:
+            return max(1, batch_size)
+        return max(chunk_size, 4 * (batch_size // chunk_size))
+
+    @staticmethod
     def _resolve_split_ratios(split_ratios: Mapping[str, float] | Sequence[float] | None) -> dict[str, float]:
         """Normalize ``split_ratios`` to a ``{"train": .., "val": ..}`` mapping (default ``(0.8, 0.2)``)."""
         if split_ratios is None:
@@ -304,6 +327,8 @@ class FlowMatching:
         condition_fn: Any,
         *,
         val_batch_size: int,
+        chunk_size: int = 1,
+        preload_nchunks: int | None = None,
         n_val_conditions: int | None,
         metrics: Sequence[str],
         val_num_steps: int,
@@ -322,9 +347,8 @@ class FlowMatching:
             assignment = split_assignment({"val": val_scheme})
             n_val_conditions = max(int((assignment["split"] == "val").sum()), 1)
 
-        cfg = SamplerConfig(
-            batch_size=val_batch_size, chunk_size=1, preload_nchunks=max(1, val_batch_size), to=None
-        )
+        preload = self._resolve_preload(val_batch_size, chunk_size, preload_nchunks)
+        cfg = SamplerConfig(batch_size=val_batch_size, chunk_size=chunk_size, preload_nchunks=preload, to=None)
         eval_loader = EvalLoader(val_scheme, cfg, condition_fn, seed=int(self.seed))
 
         class _EvalIterableDataset(torch.utils.data.IterableDataset):

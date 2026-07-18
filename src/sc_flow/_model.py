@@ -67,6 +67,8 @@ class FlowMatching:
         self.objective = None
         self._condition_fn = None
         self._dims = None
+        # {metric_name: [mean-over-held-out-conditions per validation pass]}; populated by fit(split_by=...).
+        self.metrics_history: dict[str, list[float]] = {}
 
     # --- construction helpers -------------------------------------------------------------------
 
@@ -128,8 +130,34 @@ class FlowMatching:
         device: str = "cpu",
         lr: float = 1e-4,
         min_runs_per_leaf: int = 0,
+        split_by: str | Sequence[str] | None = None,
+        split_ratios: Mapping[str, float] | Sequence[float] | None = None,
+        val_batch_size: int | None = None,
+        n_val_conditions: int | None = None,
+        metrics: Sequence[str] = ("r_squared", "e-dist"),
+        val_num_steps: int = 50,
     ) -> FlowMatching:
-        """Compile ``data``, build the torch VF + OT-FM objective, and run the Lightning trainer."""
+        """Compile ``data``, build the torch VF + OT-FM objective, and run the Lightning trainer.
+
+        With ``split_by`` set, whole conditions (target combinations sharing the ``split_by`` values) are
+        held out into a validation split (deterministic in :attr:`seed`); every ``valid_freq`` steps the
+        held-out controls are translated under each held-out condition and the ``metrics`` (distribution
+        metrics — ``r_squared``, ``e-dist``) are scored, logged as ``val_<metric>_mean`` and appended to
+        :attr:`metrics_history`. ``split_by=None`` trains on all conditions with no validation.
+
+        :param split_by: Condition column(s) whose unique combinations are partitioned into train/val
+            (a subset of the compiled root columns). ``None`` = no held-out split / no validation.
+        :param split_ratios: Train/val fractions — a ``{"train": .., "val": ..}`` mapping or a
+            ``(train, val)`` sequence summing to 1.0. Defaults to ``(0.8, 0.2)``.
+        :param val_batch_size: Target cells sampled per held-out condition (controls are read in full).
+            Defaults to ``batch_size``.
+        :param n_val_conditions: How many condition batches to score per validation pass (control
+            populations are cycled, each drawing a held-out condition; seeded). Defaults to the number of
+            held-out condition combinations.
+        :param metrics: Names (in :data:`~sc_flow.backends.torch.metrics.METRICS_REGISTRY`) of the
+            distribution metrics to score on the held-out split.
+        :param val_num_steps: ODE integration steps for the validation translation.
+        """
         import lightning.pytorch as pl
         from binded import Loader, SamplerConfig
 
@@ -141,14 +169,27 @@ class FlowMatching:
         # (+ CUBLAS_WORKSPACE_CONFIG) behind a `deterministic=True` fit flag when GPU repro is needed.
         torch.manual_seed(int(self.seed))
 
-        # 1. Compile to labels + dims (no cells / no sampler); build a numpy-yielding loader.
+        # 1. Compile to labels + dims (no cells / no sampler); optionally hold out whole conditions.
         compiled = self.spec.compile(
             data, rep_tables=rep_tables, min_runs_per_leaf=min_runs_per_leaf, seed=self.seed
         )
         self._condition_fn = compiled.condition_fn
         self._dims = compiled.dims
+        self.metrics_history = {}
+
+        train_scheme, val_scheme = compiled.scheme, None
+        if split_by is not None:
+            from binded import split_scheme
+
+            split_by_cols = [split_by] if isinstance(split_by, str) else list(split_by)
+            ratios = self._resolve_split_ratios(split_ratios)
+            splits = split_scheme(
+                compiled.scheme, split_by=split_by_cols, ratios=ratios, random_state=int(self.seed)
+            )
+            train_scheme, val_scheme = splits["train"], splits["val"]
+
         cfg = SamplerConfig(batch_size=batch_size, chunk_size=1, preload_nchunks=max(1, batch_size), to=None)
-        loader = Loader(compiled.scheme, cfg, compiled.condition_fn)
+        loader = Loader(train_scheme, cfg, compiled.condition_fn)
 
         # 2. Torch velocity field + probability path, sized from compiled.dims.
         self.vf = self._build_vf(compiled.dims)
@@ -169,7 +210,21 @@ class FlowMatching:
             match_kwargs=self.match_kwargs,
             seed=self.seed,
         )
-        harness = SCFlowLightningModule(self.vf, self.objective, lr=lr)
+
+        val_metrics, val_loader = None, None
+        if val_scheme is not None:
+            val_metrics, val_loader = self._build_validation(
+                val_scheme,
+                compiled.condition_fn,
+                val_batch_size=val_batch_size or batch_size,
+                n_val_conditions=n_val_conditions,
+                metrics=metrics,
+                val_num_steps=val_num_steps,
+            )
+
+        harness = SCFlowLightningModule(
+            self.vf, self.objective, lr=lr, val_metrics=val_metrics, predict_fn=self._val_predict_fn(val_num_steps)
+        )
 
         # 4. Wrap the binded loader as an IterableDataset (batches pass through untouched).
         class _BindedIterableDataset(torch.utils.data.IterableDataset):
@@ -181,16 +236,106 @@ class FlowMatching:
 
         torch_loader = torch.utils.data.DataLoader(_BindedIterableDataset(loader), batch_size=None)
 
-        trainer = pl.Trainer(
-            max_steps=n_train_steps,
-            accelerator=device,
-            logger=False,
-            enable_checkpointing=False,
-            enable_progress_bar=False,
-            enable_model_summary=False,
-        )
-        trainer.fit(harness, torch_loader)
+        trainer_kwargs: dict[str, Any] = {
+            "max_steps": n_train_steps,
+            "accelerator": device,
+            "logger": False,
+            "enable_checkpointing": False,
+            "enable_progress_bar": False,
+            "enable_model_summary": False,
+        }
+        if val_loader is not None:
+            # Step-based validation: run the held-out pass every valid_freq training steps (no sanity pass,
+            # so metrics_history holds only real validation runs).
+            trainer_kwargs["val_check_interval"] = valid_freq
+            trainer_kwargs["num_sanity_val_steps"] = 0
+        trainer = pl.Trainer(**trainer_kwargs)
+
+        if val_loader is not None:
+            trainer.fit(harness, torch_loader, val_loader)
+        else:
+            trainer.fit(harness, torch_loader)
+        self.metrics_history = dict(harness.metrics_history)
         return self
+
+    # --- validation helpers -----------------------------------------------------------------------
+
+    @staticmethod
+    def _resolve_split_ratios(split_ratios: Mapping[str, float] | Sequence[float] | None) -> dict[str, float]:
+        """Normalize ``split_ratios`` to a ``{"train": .., "val": ..}`` mapping (default ``(0.8, 0.2)``)."""
+        if split_ratios is None:
+            return {"train": 0.8, "val": 0.2}
+        if isinstance(split_ratios, Mapping):
+            if {"train", "val"} - set(split_ratios):
+                raise ValueError("split_ratios mapping must contain 'train' and 'val' keys.")
+            return {"train": float(split_ratios["train"]), "val": float(split_ratios["val"])}
+        ratios = tuple(split_ratios)
+        if len(ratios) != 2:
+            raise ValueError("split_ratios sequence must be (train, val).")
+        return {"train": float(ratios[0]), "val": float(ratios[1])}
+
+    def _val_predict_fn(self, val_num_steps: int):
+        """A ``(model, val_batch) -> (pred, target)`` closure sharing :func:`integrate_translation` with predict."""
+        from sc_flow.backends.torch.training._predict import condition_to_device, integrate_translation
+
+        is_genot = self.objective_name == "genot"
+        state_dim = int(self._dims.state)
+        seed = int(self.seed)
+
+        def predict_fn(model: torch.nn.Module, batch: dict[str, Any]):
+            dev = next(model.parameters()).device
+            cond = batch.get("condition")
+            cond_t = condition_to_device(cond, dev) if cond is not None else None
+            pred = integrate_translation(
+                model, batch["source"], cond_t, is_genot=is_genot, state_dim=state_dim,
+                num_steps=val_num_steps, seed=seed, device=dev,
+            )
+            target = torch.as_tensor(np.asarray(batch["target"], dtype=np.float32), device=dev)
+            return pred, target
+
+        return predict_fn
+
+    def _build_validation(
+        self,
+        val_scheme: Any,
+        condition_fn: Any,
+        *,
+        val_batch_size: int,
+        n_val_conditions: int | None,
+        metrics: Sequence[str],
+        val_num_steps: int,
+    ) -> tuple[dict[str, Any], Any]:
+        """Build the ``{name: Metric}`` dict + an eval DataLoader (one condition per validation batch)."""
+        from binded import EvalLoader, SamplerConfig, split_assignment
+
+        from sc_flow.backends.torch.metrics import METRICS_REGISTRY
+
+        unknown = [m for m in metrics if m not in METRICS_REGISTRY]
+        if unknown:
+            raise KeyError(f"Unknown validation metric(s) {unknown}. Available: {sorted(METRICS_REGISTRY)}.")
+        val_metrics = {name: METRICS_REGISTRY[name]() for name in metrics}
+
+        if n_val_conditions is None:
+            assignment = split_assignment({"val": val_scheme})
+            n_val_conditions = max(int((assignment["split"] == "val").sum()), 1)
+
+        cfg = SamplerConfig(
+            batch_size=val_batch_size, chunk_size=1, preload_nchunks=max(1, val_batch_size), to=None
+        )
+        eval_loader = EvalLoader(val_scheme, cfg, condition_fn, seed=int(self.seed))
+
+        class _EvalIterableDataset(torch.utils.data.IterableDataset):
+            def __init__(self, eval_loader, n):
+                self._eval_loader = eval_loader
+                self._n = n
+
+            def __iter__(self):
+                yield from self._eval_loader.iter_conditions(self._n)
+
+        val_loader = torch.utils.data.DataLoader(
+            _EvalIterableDataset(eval_loader, n_val_conditions), batch_size=None
+        )
+        return val_metrics, val_loader
 
     def predict(
         self,
@@ -211,7 +356,7 @@ class FlowMatching:
         """
         if self.vf is None:
             raise RuntimeError("Model must be fitted before predict() can be called.")
-        from torchdiffeq import odeint
+        from sc_flow.backends.torch.training._predict import condition_to_device, integrate_translation
 
         self.vf.to(device)
         self.vf.eval()
@@ -221,30 +366,20 @@ class FlowMatching:
             if self._condition_fn is None:
                 raise RuntimeError("Model must be fitted to resolve leaf conditions.")
             condition = self._condition_fn(condition)
-        cond_t = {k: torch.as_tensor(np.asarray(v, dtype=np.float32), device=device) for k, v in condition.items()}
+        cond_t = condition_to_device(condition, device)
 
-        x_arr = np.asarray(x, dtype=np.float32)
-        is_genot = self.objective_name == "genot"
-        if is_genot:
-            # y0 = latent ~ N(0, I) in the target/generated space (dims.state); x conditions the field.
-            gen = torch.Generator().manual_seed(int(self.seed if seed is None else seed))
-            y0 = torch.randn(x_arr.shape[0], int(self._dims.state), generator=gen).to(device=device)
-            source_cells = torch.as_tensor(x_arr, device=device)
-        else:
-            y0 = torch.as_tensor(x_arr, device=device)
-            source_cells = None
-        t_grid = torch.linspace(0.0, 1.0, num_steps, device=device)
-
-        def f(t: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
-            t_exp = t.reshape(1, 1).expand(y.shape[0], 1)
-            return self.vf(t_exp, y, cond_t, source_cells)
-
-        with torch.no_grad():
-            trajectory = odeint(f, y0, t_grid, method="euler")
-
-        if return_trajectory:
-            return trajectory.cpu().numpy()
-        return trajectory[-1].cpu().numpy()
+        trajectory = integrate_translation(
+            self.vf,
+            np.asarray(x, dtype=np.float32),
+            cond_t,
+            is_genot=self.objective_name == "genot",
+            state_dim=int(self._dims.state),
+            num_steps=num_steps,
+            seed=int(self.seed if seed is None else seed),
+            device=device,
+            return_trajectory=return_trajectory,
+        )
+        return trajectory.cpu().numpy()
 
     # --- persistence ------------------------------------------------------------------------------
 

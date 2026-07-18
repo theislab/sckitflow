@@ -156,6 +156,24 @@ def test_flow_matching_bit_reproducible():
     assert not np.array_equal(pred_a, pred_c)
 
 
+def test_predict_helpers_accept_device_tensors():
+    """_as_f32 / condition_to_device / integrate_translation accept torch tensors already on a device.
+
+    Guards the GPU validation path: Lightning moves the val batch onto the accelerator, so the coercion
+    must NOT do np.asarray on those tensors (that raises "can't convert cuda tensor to numpy"). Exercised
+    on CPU tensors here — the code path (isinstance torch.Tensor branch) is device-agnostic.
+    """
+    from sc_flow.backends.torch.training._predict import _as_f32, condition_to_device
+
+    t = torch.ones(3, 4, dtype=torch.float64)  # a tensor, not numpy
+    out = _as_f32(t, torch.device("cpu"))
+    assert out.dtype == torch.float32 and out.shape == (3, 4)
+    cond = condition_to_device({"drug": torch.zeros(3, 5)}, torch.device("cpu"))
+    assert cond["drug"].dtype == torch.float32
+    # numpy still works too (predict() path passes numpy)
+    assert _as_f32(np.ones((2, 2), np.float64), torch.device("cpu")).dtype == torch.float32
+
+
 @pytest.mark.parametrize("with_coupling", [False, True])
 def test_genot_fit_and_predict(with_coupling):
     """GENOT (``objective="genot"``): flow noise→target conditioned on the source cell.

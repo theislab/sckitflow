@@ -305,7 +305,7 @@ class FlowMatching:
 
     def _val_predict_fn(self, val_num_steps: int):
         """A ``(model, val_batch) -> (pred, target)`` closure sharing :func:`integrate_translation` with predict."""
-        from sc_flow.backends.torch.training._predict import condition_to_device, integrate_translation
+        from sc_flow.backends.torch.training._predict import _as_f32, condition_to_device, integrate_translation
 
         is_genot = self.objective_name == "genot"
         state_dim = int(self._dims.state)
@@ -319,7 +319,7 @@ class FlowMatching:
                 model, batch["source"], cond_t, is_genot=is_genot, state_dim=state_dim,
                 num_steps=val_num_steps, seed=seed, device=dev,
             )
-            target = torch.as_tensor(np.asarray(batch["target"], dtype=np.float32), device=dev)
+            target = _as_f32(batch["target"], dev)  # batch may already be on the GPU (Lightning moved it)
             return pred, target
 
         return predict_fn

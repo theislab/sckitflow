@@ -17,9 +17,20 @@ import torch
 __all__ = ["integrate_translation", "condition_to_device"]
 
 
+def _as_f32(v: Any, device: Any) -> torch.Tensor:
+    """``float32`` torch tensor on ``device`` — accepts a numpy array OR a torch tensor already on a device.
+
+    In the validation loop Lightning has already moved batch values onto the GPU, so ``np.asarray`` on them
+    would raise ("can't convert cuda tensor to numpy"); handle the tensor case directly (no host round-trip).
+    """
+    if isinstance(v, torch.Tensor):
+        return v.to(device=device, dtype=torch.float32)
+    return torch.as_tensor(np.asarray(v, dtype=np.float32), device=device)
+
+
 def condition_to_device(condition: dict[str, Any], device: Any) -> dict[str, torch.Tensor]:
     """Coerce a resolved condition dict to ``float32`` torch tensors on ``device`` (broadcast as-is)."""
-    return {k: torch.as_tensor(np.asarray(v, dtype=np.float32), device=device) for k, v in condition.items()}
+    return {k: _as_f32(v, device) for k, v in condition.items()}
 
 
 def integrate_translation(
@@ -46,7 +57,7 @@ def integrate_translation(
 
     if device is None:
         device = next(vf.parameters()).device
-    src = torch.as_tensor(np.asarray(source, dtype=np.float32), device=device)
+    src = _as_f32(source, device)
 
     if is_genot:
         # y0 = latent ~ N(0, I) in the target/generated space; the cells condition the field.

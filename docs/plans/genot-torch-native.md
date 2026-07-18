@@ -43,19 +43,63 @@ free guidance — deferred.
 
 ---
 
+## ✅ Persistence shipped (`FlowMatching.save()`/`load()`) **[P0.2]**
+
+`save(path)` writes `path/weights.pt` (torch `state_dict`) + `path/state.pkl` (cloudpickle — ctor config,
+`spec`, the compiled `CompiledDims`, and the fitted `condition_fn` closure; same cloudpickle-of-a-closure
+pattern already used by `sc_flow.external`). `load(path)` rebuilds the VF from the persisted dims + config,
+loads the weights, and restores `condition_fn` — `predict()` works immediately after reload (does **not**
+restore optimizer/trainer state, so `fit()` after `load()` starts fresh, not resumed). `cloudpickle` is
+already a project dependency; `condition_fn`/`CompiledDims`/`FlowSpec` all roundtrip cleanly (verified).
+`_build_vf` was refactored to take `CompiledDims` directly (was `CompiledData`) so `load()` doesn't need a
+fake compile step. Tests: `test_save_load_roundtrip[otfm|genot]` (predict after reload is bit-identical to
+before saving) + `test_save_before_fit_raises`. cf-train can use `(path/"weights.pt").exists()` for its
+resume/skip check. Also added `scripts/smoke_train.py` — a standalone (non-pytest) fit+predict script with
+a real learning assertion, used to smoke-test the stack on a fresh machine (e.g. a cluster GPU node).
+
+## ✅ GPU-native OT coupling (data stays on the GPU)
+
+The batch lives where the model lives (Lightning moves it to CUDA). The coupling now keeps the reps **and**
+the transport plan on that device — `backends/jax/coupling/_device.py::couple_device` does torch tensor →
+JAX array via **zero-copy DLPack** (same device) → ott sinkhorn / GW → `sample_joint` → indices back to
+torch via DLPack. Only the tiny integer index arrays are produced; no cell data or coupling matrix is
+copied to host. The `_TorchOTObjective` was rewritten to normalize the batch to torch tensors on the model
+device and reorder there; the OT plan-sampling is seeded by a JAX `PRNGKey` (deterministic → bit-repro
+holds on CPU). `_device.py` sets `XLA_PYTHON_CLIENT_PREALLOCATE=false` (setdefault) so jax — which only does
+the small coupling — doesn't grab ~75% of VRAM and starve the torch model. `couple_device` is validated on
+CPU (DLPack CPU) and on an **A100** (probe + `smoke_train.py --device cuda` for otfm **and** genot: both
+train end-to-end and learn the conditional shift, reps/plan confirmed on `cuda:0`).
+
+**Perf note:** on the *toy* model, GPU is slower than CPU (~0.65 s/step) — per-step torch↔jax handoff +
+jax dispatch overhead dominates trivial compute. Amortizes on a real large model, but the per-step coupling
+overhead is a profiling item for the Tahoe run (`ml-performance-audit`).
+
+### GPU build recipe (both torch and jax on CUDA, matched to the node's driver)
+
+Both must be CUDA builds. The node's driver caps the CUDA version (e.g. driver 575 → CUDA 12.9), and
+`torch cu130` needs driver 580+, so **don't** hard-pin a CUDA torch. Instead:
+
+- **torch**: `UV_TORCH_BACKEND=auto` (env var — the `--torch-backend` *flag* only works with `uv pip`, not
+  `uv sync`) auto-detects the driver and picks the matching wheel (e.g. cu129). Re-sync **won't** swap an
+  already-installed torch — force it: `uv pip install --torch-backend=auto --reinstall-package torch torch`.
+- **jax**: the `cuda` extra (`pyproject.toml`) adds `jax[cuda12]` (Linux only) — self-contained CUDA-12
+  wheels from PyPI. So on a GPU node: `UV_TORCH_BACKEND=auto uv sync --extra all --extra cuda --extra test`.
+- Interactive session used: lab **dropbear** (`submit_dropbear.sbatch` on `gpu_p`/`gpu_priority` for a
+  driver-580 / newer-driver node; ssh `node-<session>` with `StrictHostKeyChecking=no`). The dropbear shell
+  doesn't inherit SLURM's GPU env — export `CUDA_VISIBLE_DEVICES=0` in commands. (`interactive_gpu` gave an
+  older-driver V100S; `gpu_priority` gave A100/H100.)
+
 ## Next up (todo)
 
 Ordered for a faithful cf-train Tahoe run (the ⏭ rows of `cellflow-vendor-fm.md` §8), then model polish:
 
-1. **Persist the model** — `FlowMatching.save(path)` / `load(path)`: torch `state_dict` + spec + objective/
-   coupling/condition config + `condition_fn`, so cf-train can write a run and resume/skip. **[P0.2]**
-2. **Validation loop + metrics** — a `validation_step` in the harness over a held-out split; add `r_squared`
+1. **Validation loop + metrics** — a `validation_step` in the harness over a held-out split; add `r_squared`
    (per-condition predicted-vs-target-mean R²) next to the existing `EnergyDistance`; expose a
    `metrics_history` on the model and emit `val_<metric>_mean` for the sweep objective. **[P0.3/P1.2/P1.3]**
-3. **Held-out split** — `split_by` + `split_ratios` over the compiled conditions (deterministic by seed) →
+2. **Held-out split** — `split_by` + `split_ratios` over the compiled conditions (deterministic by seed) →
    train/val loaders, surfaced through `FlowMatching.fit`. **[P1.1]**
-4. **Logger passthrough** — a `logger=` param on `fit` (None / wandb). **[P2.1]**
-5. **Classifier-free guidance** (GENOT + OTFM) — condition-dropout in training + a guided `predict`. **[G3]**
+3. **Logger passthrough** — a `logger=` param on `fit` (None / wandb). **[P2.1]**
+4. **Classifier-free guidance** (GENOT + OTFM) — condition-dropout in training + a guided `predict`. **[G3]**
 
 `uv.lock` is currently untracked (generated by the 3.12 `uv sync`); decide whether to commit it (the repo
 had no lockfile before).

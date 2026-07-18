@@ -39,6 +39,14 @@ dependencies = [
 optional-dependencies.all = [
   "sc-flow-tools[jax,lightning,torch]",
 ]
+# GPU install: the OT coupling runs on-device (torch reps -> JAX via zero-copy DLPack -> ott sinkhorn/GW
+# -> back to torch), so BOTH torch and jax must be CUDA builds matching the node's driver. This extra adds
+# JAX's self-contained CUDA-12 wheels (Linux only, from PyPI). torch's CUDA build is an *index* selection,
+# not a dependency, so pick it at sync time with the auto-detecting env var:
+#   UV_TORCH_BACKEND=auto uv sync --extra all --extra cuda --extra test   # on a GPU node
+optional-dependencies.cuda = [
+  "jax[cuda12]; sys_platform == 'linux'",
+]
 optional-dependencies.dev = [
   "pre-commit",
   "twine>=4.0.2",

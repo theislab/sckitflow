@@ -118,77 +118,37 @@ class TorchLinearFMObjective(Objective):
 # --- shared OT-coupled flow-matching plumbing (used by "otfm" and "genot") -----------------------
 
 
-def _resolve_match_reps(batch: dict[str, Any], coupling_locs: Mapping[str, str] | None) -> tuple[np.ndarray, np.ndarray]:
-    """The (source, target) reps to OT-match on: coupling reps when present, else the state reps."""
-    if coupling_locs and "src_lin" in coupling_locs and "tgt_lin" in coupling_locs:
-        return (
-            np.asarray(batch["source_reps"][coupling_locs["src_lin"]], dtype=np.float32),
-            np.asarray(batch["target_reps"][coupling_locs["tgt_lin"]], dtype=np.float32),
-        )
-    return np.asarray(batch["source"], dtype=np.float32), np.asarray(batch["target"], dtype=np.float32)
+def _to_device(x: Any, device: Any) -> torch.Tensor:
+    """Coerce a batch value to a ``float32`` torch tensor on ``device``.
 
-
-def _ot_indices(
-    src_rep: np.ndarray,
-    tgt_rep: np.ndarray,
-    *,
-    match_method: str,
-    match_kwargs: Mapping[str, Any],
-    rng: np.random.Generator,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Minibatch linear OT plan -> resample indices (the one JAX call; forward-only, seeded)."""
-    from sc_flow.backends.jax.coupling import independent_coupling, ot_linear_coupling
-
-    if match_method == "independent":
-        return independent_coupling(src_rep, tgt_rep, rng=rng)
-    return ot_linear_coupling(src_rep, tgt_rep, method=match_method, rng=rng, **match_kwargs)
-
-
-def _quadratic_indices(
-    batch: dict[str, Any],
-    coupling_locs: Mapping[str, str],
-    match_kwargs: Mapping[str, Any],
-    rng: np.random.Generator,
-) -> tuple[np.ndarray, np.ndarray]:
-    """Minibatch quadratic/fused Gromov-Wasserstein plan -> resample indices (JAX ott GW; seeded).
-
-    Matches cells by **intra-domain structure** on the ``*_quad`` reps (fused with the ``*_lin`` reps when
-    the schema provides both). Source/target quad reps may live in different spaces (GW is structural). The
-    returned indices reorder the state ``source``/``target`` just like the linear path.
+    Handles a binded numpy array or a torch tensor Lightning already moved to the GPU; the batch stays
+    where the model lives (no CPU round-trip).
     """
-    from sc_flow.backends.jax.coupling import ot_quadratic_coupling
-
-    src_quad = np.asarray(batch["source_reps"][coupling_locs["src_quad"]], dtype=np.float32)
-    tgt_quad = np.asarray(batch["target_reps"][coupling_locs["tgt_quad"]], dtype=np.float32)
-    src_lin = tgt_lin = None
-    if "src_lin" in coupling_locs and "tgt_lin" in coupling_locs:  # fused GW
-        src_lin = np.asarray(batch["source_reps"][coupling_locs["src_lin"]], dtype=np.float32)
-        tgt_lin = np.asarray(batch["target_reps"][coupling_locs["tgt_lin"]], dtype=np.float32)
-    return ot_quadratic_coupling(
-        src_quad, tgt_quad, source_lin=src_lin, target_lin=tgt_lin, rng=rng, **match_kwargs
-    )
+    if isinstance(x, torch.Tensor):
+        return x.to(device=device, dtype=torch.float32)
+    return torch.as_tensor(np.asarray(x, dtype=np.float32), device=device)
 
 
 def _condition_tensors(
     cond: Mapping[str, Any] | None,
-    tgt_ixs: np.ndarray,
+    tgt_ixs: torch.Tensor,
     n_target: int,
     device: Any,
     dtype: Any,
 ) -> dict[str, torch.Tensor] | None:
-    """Torch condition dict aligned to the coupled batch.
+    """Torch condition dict aligned to the coupled batch, on ``device``.
 
-    A per-cell ``(Bt, …)`` condition follows the target reorder (§7.2); a leaf-level ``(1, mc, dim)``
-    condition is left to broadcast.
+    A per-cell ``(Bt, …)`` condition follows the target reorder (§7.2) via ``tgt_ixs``; a leaf-level
+    ``(1, mc, dim)`` condition is left to broadcast.
     """
     if cond is None:
         return None
     out: dict[str, torch.Tensor] = {}
     for realm, arr in cond.items():
-        a = np.asarray(arr, dtype=np.float32)
+        a = _to_device(arr, device).to(dtype)
         if a.shape[0] == n_target:
             a = a[tgt_ixs]
-        out[realm] = torch.as_tensor(a, device=device, dtype=dtype)
+        out[realm] = a
     return out
 
 
@@ -278,11 +238,14 @@ class _TorchOTObjective(Objective):
         # Quadratic/GW coupling when the schema names quad reps (fused if it also names lin reps).
         self._quad = bool(self._coupling_locs) and {"src_quad", "tgt_quad"} <= set(self._coupling_locs)
         self._seed = int(seed)
-        # Seeded, explicit generators — coupling plan-sampling, the t draw, and (stochastic CE) the encoder
-        # noise are reproducible regardless of global numpy/torch state. Generators stay on CPU.
-        self._np_rng = np.random.default_rng(seed)
+        # Seeded generators — the t draw, the encoder-noise draw (stochastic CE), the latent draw (GENOT),
+        # the independent-coupling permutations, and the OT plan-sampling (a JAX PRNGKey) are all
+        # reproducible regardless of global RNG state. torch generators stay on CPU (device-agnostic); the
+        # jax key is created lazily on first use so importing the objective needs no jax.
         self._t_gen = torch.Generator().manual_seed(self._seed)
         self._enc_gen = torch.Generator().manual_seed(self._seed + 2)
+        self._perm_gen = torch.Generator().manual_seed(self._seed + 3)
+        self._coupling_key: Any = None
 
     def _encode(
         self, model: torch.nn.Module, cond_t: dict[str, torch.Tensor] | None
@@ -302,18 +265,47 @@ class _TorchOTObjective(Objective):
         eps = torch.randn(mean.shape, generator=self._enc_gen).to(device=mean.device, dtype=mean.dtype)
         return mean + torch.exp(0.5 * logvar) * eps, mean, logvar
 
-    def _couple(self, batch: dict[str, Any]) -> tuple[np.ndarray, np.ndarray]:
-        """OT-resample the batch: ``(src_ixs, tgt_ixs)`` on the coupling reps (seeded).
+    def _couple(self, batch: dict[str, Any], device: Any) -> tuple[torch.Tensor, torch.Tensor]:
+        """OT-resample the batch on ``device`` → ``(src_ixs, tgt_ixs)`` torch long tensors.
 
-        Quadratic/fused-GW when the coupling schema is quadratic (``src_quad``/``tgt_quad``), else linear
-        sinkhorn (or ``independent``). The generated state space is untouched — coupling only pairs cells.
+        Quadratic/fused-GW when the schema is quadratic (``src_quad``/``tgt_quad``), else linear sinkhorn
+        (or ``independent`` — a torch random pairing). The reps **and** the transport plan stay on
+        ``device`` (GPU under CUDA) via zero-copy DLPack; only the tiny index arrays are produced. The
+        generated state space is untouched — coupling only pairs cells.
         """
-        if self._quad and self._match_method != "independent":
-            return _quadratic_indices(batch, self._coupling_locs, self._match_kwargs, self._np_rng)
-        src_rep, tgt_rep = _resolve_match_reps(batch, self._coupling_locs)
-        return _ot_indices(
-            src_rep, tgt_rep, match_method=self._match_method, match_kwargs=self._match_kwargs, rng=self._np_rng
-        )
+        locs = self._coupling_locs
+        if self._match_method == "independent":
+            n_src = _to_device(batch["source"], device).shape[0]
+            n_tgt = _to_device(batch["target"], device).shape[0]
+            m = min(n_src, n_tgt)
+            src_ixs = torch.randperm(n_src, generator=self._perm_gen)[:m]
+            tgt_ixs = torch.randperm(n_tgt, generator=self._perm_gen)[:m]
+            return src_ixs.to(device), tgt_ixs.to(device)
+
+        import jax
+
+        from sc_flow.backends.jax.coupling._device import couple_device
+
+        if self._coupling_key is None:
+            self._coupling_key = jax.random.PRNGKey(self._seed)
+        self._coupling_key, sub = jax.random.split(self._coupling_key)
+
+        if self._quad:
+            src_rep = _to_device(batch["source_reps"][locs["src_quad"]], device)
+            tgt_rep = _to_device(batch["target_reps"][locs["tgt_quad"]], device)
+            src_lin = _to_device(batch["source_reps"][locs["src_lin"]], device) if "src_lin" in locs else None
+            tgt_lin = _to_device(batch["target_reps"][locs["tgt_lin"]], device) if "tgt_lin" in locs else None
+            return couple_device(
+                src_rep, tgt_rep, key=sub, quad=True, src_lin=src_lin, tgt_lin=tgt_lin, match_kwargs=self._match_kwargs
+            )
+
+        if locs and "src_lin" in locs and "tgt_lin" in locs:
+            src_rep = _to_device(batch["source_reps"][locs["src_lin"]], device)
+            tgt_rep = _to_device(batch["target_reps"][locs["tgt_lin"]], device)
+        else:
+            src_rep = _to_device(batch["source"], device)
+            tgt_rep = _to_device(batch["target"], device)
+        return couple_device(src_rep, tgt_rep, key=sub, match_kwargs=self._match_kwargs)
 
 
 @register_objective("otfm")
@@ -331,13 +323,12 @@ class TorchOTFMObjective(_TorchOTObjective):
         param = next(model.parameters())
         device, dtype = param.device, param.dtype
 
-        src_state = np.asarray(batch["source"], dtype=np.float32)
-        tgt_state = np.asarray(batch["target"], dtype=np.float32)
-        src_ixs, tgt_ixs = self._couple(batch)
-
-        x0 = torch.as_tensor(src_state[src_ixs], device=device, dtype=dtype)  # OTFM flows source -> target
-        x1 = torch.as_tensor(tgt_state[tgt_ixs], device=device, dtype=dtype)
-        cond_t = _condition_tensors(batch.get("condition"), tgt_ixs, tgt_state.shape[0], device, dtype)
+        src_ixs, tgt_ixs = self._couple(batch, device)  # torch long indices on device
+        source = _to_device(batch["source"], device)
+        target = _to_device(batch["target"], device)
+        x0 = source[src_ixs].to(dtype)  # OTFM flows source -> target
+        x1 = target[tgt_ixs].to(dtype)
+        cond_t = _condition_tensors(batch.get("condition"), tgt_ixs, target.shape[0], device, dtype)
         emb, mean, logvar = self._encode(model, cond_t)  # encode once (reparam if stochastic)
 
         # t drawn on CPU with the seeded generator (device-agnostic), then moved to the model's device.
@@ -371,19 +362,18 @@ class TorchGENOTObjective(_TorchOTObjective):
         param = next(model.parameters())
         device, dtype = param.device, param.dtype
 
-        src_state = np.asarray(batch["source"], dtype=np.float32)
-        tgt_state = np.asarray(batch["target"], dtype=np.float32)
-        src_ixs, tgt_ixs = self._couple(batch)
-
-        x0_source = torch.as_tensor(src_state[src_ixs], device=device, dtype=dtype)  # conditions the VF
-        target = torch.as_tensor(tgt_state[tgt_ixs], device=device, dtype=dtype)
-        cond_t = _condition_tensors(batch.get("condition"), tgt_ixs, tgt_state.shape[0], device, dtype)
+        src_ixs, tgt_ixs = self._couple(batch, device)  # torch long indices on device
+        source = _to_device(batch["source"], device)
+        target = _to_device(batch["target"], device)
+        x0_source = source[src_ixs].to(dtype)  # conditions the VF
+        target_r = target[tgt_ixs].to(dtype)
+        cond_t = _condition_tensors(batch.get("condition"), tgt_ixs, target.shape[0], device, dtype)
         emb, mean, logvar = self._encode(model, cond_t)  # encode once (reparam if stochastic)
 
         # latent ~ N(0, I) in target space, drawn on CPU (seeded), then moved to the model's device.
-        latent = torch.randn(target.shape, generator=self._latent_gen).to(device=device, dtype=dtype)
-        t = torch.rand(target.shape[0], 1, generator=self._t_gen).to(device=device, dtype=dtype)
-        x_t = self._path.compute_xt(t, latent, target)  # flow noise -> target
-        u = self._path.compute_ut(t, x_t, latent, target)
+        latent = torch.randn(target_r.shape, generator=self._latent_gen).to(device=device, dtype=dtype)
+        t = torch.rand(target_r.shape[0], 1, generator=self._t_gen).to(device=device, dtype=dtype)
+        x_t = self._path.compute_xt(t, latent, target_r)  # flow noise -> target
+        u = self._path.compute_ut(t, x_t, latent, target_r)
         v = model.velocity_from_embedding(t, x_t, emb, source=x0_source)  # source-conditioned velocity field
         return _loss_with_reg(v, u, mean, logvar, self._regularization)

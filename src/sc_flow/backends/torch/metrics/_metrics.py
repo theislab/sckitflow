@@ -46,6 +46,15 @@ class RSquared(Metric):
 
 
 class EnergyDistance(Metric):
+    r"""Per-condition energy distance between predicted and target cell populations (scPerturb E-distance).
+
+    Matches cellflow's ``compute_e_distance`` (:cite:`Peidli2024`): with **squared-Euclidean** pairwise
+    costs, ``E = 2·E‖X-Y‖² - E‖X-X'‖² - E‖Y-Y'‖²`` where ``X`` is the predicted and ``Y`` the target
+    population. (The squared cost is what distinguishes the scPerturb E-distance from the classical
+    energy distance, which uses plain Euclidean; cellflow uses the squared form, so we do too.)
+    :meth:`compute` averages over the conditions seen since :meth:`reset`.
+    """
+
     def __init__(self, dist_sync_on_step=False):
         super().__init__(dist_sync_on_step=dist_sync_on_step)
 
@@ -53,10 +62,11 @@ class EnergyDistance(Metric):
         self.add_state("total", default=torch.tensor(0.0, dtype=torch.float32), dist_reduce_fx="sum")
 
     def update(self, pred: torch.Tensor, target: torch.Tensor):
-        # computing energy distance
-        sigma_pred = torch.cdist(pred, pred).mean()
-        sigma_target = torch.cdist(target, target).mean()
-        delta = torch.cdist(pred, target).mean()
+        # Squared-Euclidean pairwise means (cellflow/scPerturb). cdist gives Euclidean; square it back to
+        # sqeuclidean (memory-efficient — the explicit (x-y)**2 broadcast is O(n·m·d) and blows up at 1024²).
+        sigma_pred = torch.cdist(pred, pred).square().mean()
+        sigma_target = torch.cdist(target, target).square().mean()
+        delta = torch.cdist(pred, target).square().mean()
         self.energy_distance_raw += 2.0 * delta - sigma_pred - sigma_target
         self.total += 1
 

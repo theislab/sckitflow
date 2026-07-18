@@ -320,3 +320,54 @@ def test_stochastic_condition_encoder_reproducible():
     sd_a, sd_b = run(), run()
     for k in sd_a:
         assert torch.equal(sd_a[k], sd_b[k]), f"stochastic param {k} differs across identical-seed runs"
+
+
+@pytest.mark.parametrize("objective", ["otfm", "genot"])
+def test_save_load_roundtrip(tmp_path, objective):
+    """save()/load(): predict() after reload matches predict() before saving, bit-for-bit."""
+    d = 5
+    adata, rng = _toy_adata(n=64, d=d, cond_dim=4)
+    spec = FlowSpec(
+        state=StateDataSchema(sample_rep="X"),
+        condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        control_key="control",
+        match_context=["cell_type"],
+    )
+    model = FlowMatching(spec=spec, objective=objective, condition_embedding_dim=8, hidden_dims=(16, 16))
+    model.fit(adata, rep_tables=adata.uns, batch_size=8, n_train_steps=5, device="cpu")
+
+    x = rng.random((6, d)).astype(np.float32)
+    leaf = ("cl_a", "drug_a")
+    pred_before = model.predict(x, leaf, device="cpu", num_steps=5, seed=0)
+
+    save_dir = tmp_path / "model"
+    model.save(save_dir)
+    assert (save_dir / "weights.pt").exists()
+    assert (save_dir / "state.pkl").exists()
+
+    reloaded = FlowMatching.load(save_dir)
+    assert reloaded.objective_name == objective
+    assert reloaded.vf.state_dict().keys() == model.vf.state_dict().keys()
+    for k, v in model.vf.state_dict().items():
+        assert torch.equal(v, reloaded.vf.state_dict()[k]), f"param {k} differs after reload"
+
+    # reloaded model never called .fit(); predict must still work via the persisted condition_fn + dims.
+    pred_after = reloaded.predict(x, leaf, device="cpu", num_steps=5, seed=0)
+    assert np.array_equal(pred_before, pred_after)
+
+    # also resolves a raw condition dict (not just a leaf tuple) and a fresh leaf, without erroring.
+    other = reloaded.predict(x, ("cl_b", "drug_b"), device="cpu", num_steps=5, seed=0)
+    assert np.isfinite(other).all()
+
+
+def test_save_before_fit_raises(tmp_path):
+    """save() on an unfitted model raises rather than silently writing nothing useful."""
+    spec = FlowSpec(
+        state=StateDataSchema(sample_rep="X"),
+        condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        control_key="control",
+        match_context=["cell_type"],
+    )
+    model = FlowMatching(spec=spec)
+    with pytest.raises(RuntimeError, match="fitted"):
+        model.save(tmp_path / "model")

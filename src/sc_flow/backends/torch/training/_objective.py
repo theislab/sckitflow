@@ -282,9 +282,10 @@ class _TorchOTObjective(Objective):
             tgt_ixs = torch.randperm(n_tgt, generator=self._perm_gen)[:m]
             return src_ixs.to(device), tgt_ixs.to(device)
 
-        import jax
+        from sc_flow._optional import require
 
-        from sc_flow.backends.jax.coupling._device import couple_device
+        jax = require("jax")
+        couple_device = require("sc_flow.backends.jax.coupling._device").couple_device
 
         if self._coupling_key is None:
             self._coupling_key = jax.random.PRNGKey(self._seed)

@@ -158,8 +158,11 @@ class FlowMatching:
             distribution metrics to score on the held-out split.
         :param val_num_steps: ODE integration steps for the validation translation.
         """
-        import lightning.pytorch as pl
         from binded import Loader, SamplerConfig
+
+        from sc_flow._optional import require
+
+        pl = require("lightning.pytorch")
 
         # Seed every stochastic source from self.seed for a bit-reproducible run: VF init (torch global,
         # reset here), the binded data order (Scheme seed), the OT plan-sampling + t draw (objective), and

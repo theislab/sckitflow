@@ -7,9 +7,8 @@ lazily so that ``import sc_flow.data`` works in isolation while accessing a not-
 subsystem raises its real import error at access time.
 """
 
-import importlib
-
 from sc_flow import data
+from sc_flow._optional import require
 
 __all__ = [
     "backends",
@@ -24,10 +23,11 @@ _LAZY_SUBMODULES = frozenset({"backends", "dataset", "methods", "trainer"})
 
 
 def __getattr__(name: str):
+    # The model + backend subsystems import the optional heavy deps (torch/jax/lightning). Route their
+    # lazy import through require() so a bare env gets a clear "install sc-flow-tools[...]" hint instead
+    # of a raw ModuleNotFoundError deep in a traceback.
     if name in _LAZY_SUBMODULES:
-        return importlib.import_module(f"sc_flow.{name}")
+        return require(f"sc_flow.{name}")
     if name == "FlowMatching":
-        from sc_flow._model import FlowMatching
-
-        return FlowMatching
+        return require("sc_flow._model").FlowMatching
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

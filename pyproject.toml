@@ -14,10 +14,9 @@ maintainers = [
 authors = [
   { name = "Lorenzo Consoli" },
 ]
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
@@ -38,7 +37,7 @@ dependencies = [
   "wandb",
 ]
 optional-dependencies.all = [
-  "sc-flow-tools[jax,torch]",
+  "sc-flow-tools[jax,lightning,torch]",
 ]
 optional-dependencies.dev = [
   "pre-commit",
@@ -85,7 +84,8 @@ optional-dependencies.test-lightning = [
   "sc-flow-tools[lightning,test,torch]",
 ]
 optional-dependencies.test-torch = [
-  "sc-flow-tools[test,torch]",
+  # the torch-native FM path also needs jax (ott minibatch-OT coupling) + lightning (trainer)
+  "sc-flow-tools[jax,lightning,test,torch]",
 ]
 optional-dependencies.torch = [
   "pot",         # noqa
@@ -111,7 +111,7 @@ envs.docs.scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
 envs.hatch-test.features = [ "test-all" ]
 envs.hatch-test.matrix = [
   # Test the lowest and highest supported Python versions with normal deps
-  { deps = [ "stable" ], python = [ "3.11", "3.13" ] },
+  { deps = [ "stable" ], python = [ "3.12", "3.13" ] },
   # Test the newest supported Python version also with pre-release deps
   { deps = [ "pre" ], python = [ "3.13" ] },
 ]
@@ -168,7 +168,7 @@ lint.pydocstyle.convention = "numpy"
 
 [tool.pytest]
 ini_options.testpaths = [
-  "tests/backends/torch/jaxbridge",
+  "tests/backends/torch/training/test_harness.py",
   "tests/data/test_compile_obs_binded.py",
   "tests/data/test_compile_obs_parity.py",
   "tests/data/test_coupling_refs.py",

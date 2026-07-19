@@ -133,12 +133,14 @@ class FlowMatching:
         device: str = "cpu",
         lr: float = 1e-4,
         min_runs_per_leaf: int = 0,
+        control_in_memory: bool = False,
         split_by: str | Sequence[str] | None = None,
         split_ratios: Mapping[str, float] | Sequence[float] | None = None,
         val_batch_size: int | None = None,
         n_val_conditions: int | None = None,
         metrics: Sequence[str] = ("r_squared", "e-dist"),
         val_num_steps: int = 50,
+        callbacks: Sequence[Any] | None = None,
     ) -> FlowMatching:
         """Compile ``data``, build the torch VF + OT-FM objective, and run the Lightning trainer.
 
@@ -173,6 +175,11 @@ class FlowMatching:
         :param metrics: Names (in :data:`~sc_flow.backends.torch.metrics.METRICS_REGISTRY`) of the
             distribution metrics to score on the held-out split.
         :param val_num_steps: ODE integration steps for the validation translation.
+        :param control_in_memory: Materialize the control (source) population in RAM. In-memory nodes are
+            exempt from the ``chunk_size`` run-length rule, so this lets ``chunk_size>1`` work even when the
+            controls are fragmented across stores (the target node is still governed by ``min_runs_per_leaf``).
+        :param callbacks: Extra Lightning ``Callback``\\s appended to the trainer (e.g. loss logging,
+            throughput timing, checkpointing). ``None`` adds none.
         """
         from binded import Loader, SamplerConfig
 
@@ -193,7 +200,8 @@ class FlowMatching:
 
         # 1. Compile to labels + dims (no cells / no sampler); optionally hold out whole conditions.
         compiled = self.spec.compile(
-            data, rep_tables=rep_tables, min_runs_per_leaf=min_runs_per_leaf, seed=self.seed
+            data, rep_tables=rep_tables, min_runs_per_leaf=min_runs_per_leaf,
+            control_in_memory=control_in_memory, seed=self.seed,
         )
         self._condition_fn = compiled.condition_fn
         self._dims = compiled.dims
@@ -275,6 +283,8 @@ class FlowMatching:
             "enable_progress_bar": False,
             "enable_model_summary": False,
         }
+        if callbacks:
+            trainer_kwargs["callbacks"] = list(callbacks)
         if val_loader is not None:
             # Step-based validation: run the held-out pass every valid_freq training steps (no sanity pass,
             # so metrics_history holds only real validation runs).

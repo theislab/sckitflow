@@ -6,6 +6,7 @@
 #SBATCH -p gpu_p
 #SBATCH -q gpu_normal
 #SBATCH --gres=gpu:1
+#SBATCH --constraint=h100_80gb
 #SBATCH -c 16
 #SBATCH --mem=160G
 #SBATCH -t 02:00:00

@@ -20,7 +20,6 @@ from __future__ import annotations
 import copy
 import logging
 import os
-from collections import Counter
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
@@ -121,9 +120,14 @@ def compile_obs(
         controls come from it (matched to targets purely by ``match_context``, which must be non-empty)
         and ``data`` is treated as all targets; when ``None``, controls come from ``data`` split by
         ``control_key``. Orthogonal to ``control_in_memory`` (which still chooses RAM vs streaming).
-    :param min_runs_per_leaf: Zero-weight (exclude) any **target** leaf with fewer than this many cells
-        — a scientific filter on untrainable tiny conditions. Controls are never filtered. Default ``0``
-        drops nothing (uniform weights, byte-identical to cellflow's defaults).
+    :param min_runs_per_leaf: Zero-weight (exclude) any **target** leaf whose *shortest contiguous on-disk
+        run* is smaller than this — both a scientific filter on tiny conditions and the guard that makes
+        ``chunk_size > 1`` valid: annbatch requires every drawn leaf's runs to be ``>= chunk_size``, so set
+        this ``>= chunk_size`` for chunked reads. Keying on the shortest *run* (not the total) is what makes
+        it hold across a multi-store collection, where a leaf can be large in total yet contribute a
+        sub-``chunk_size`` run in one store. On a single grouped store shortest-run == total. Controls are
+        never filtered. Default ``0`` (equivalently ``<=1``) drops nothing (uniform weights, byte-identical
+        to cellflow's defaults).
     :param seed: Seed for the binded ``Scheme`` — controls the sampler RNG (data order). Default ``0``.
     """
     from binded import Bind, Node, Scheme, uniform
@@ -207,12 +211,38 @@ def compile_obs(
         return [tuple(r) for r in frame.loc[:, list(leaf_cols)].drop_duplicates().to_numpy()]
 
     def _target_leaves(frame: pd.DataFrame, leaf_cols: Sequence[str]) -> list[Leaf]:
-        # perturbed-only filter: drop any target leaf with fewer than `min_runs_per_leaf` cells
-        # (first-occurrence order preserved). min_runs_per_leaf=0 keeps every leaf (uniform).
-        counts = Counter(tuple(r) for r in frame.loc[:, list(leaf_cols)].to_numpy())
-        kept = [leaf for leaf, n in counts.items() if n >= min_runs_per_leaf]
-        if (dropped := len(counts) - len(kept)) > 0:
-            logger.info("min_runs_per_leaf=%d dropped %d/%d target leaves", min_runs_per_leaf, dropped, len(counts))
+        # Perturbed-only filter: drop any target leaf whose *shortest contiguous on-disk run* is smaller
+        # than `min_runs_per_leaf` — not merely its total count. annbatch's chunk_size rule requires EVERY
+        # run of a drawn leaf to be >= chunk_size, and a leaf fragmented across stores (e.g. one plate
+        # contributing <chunk_size cells) has a short run even when its total is large; keying on total
+        # would let it through and the loader would then reject chunk_size>1. On a single grouped store each
+        # leaf is one run, so shortest-run == total and this matches the old behaviour. min_runs_per_leaf<=1
+        # keeps every leaf (runs are >=1). First-occurrence order preserved.
+        sub = frame.loc[:, list(leaf_cols)]
+        n = len(sub)
+        if n == 0 or min_runs_per_leaf <= 1:
+            return [tuple(r) for r in sub.drop_duplicates().to_numpy()]
+        # run boundaries: a new run starts wherever any leaf column differs from the previous row.
+        changed = np.zeros(n, dtype=bool)
+        changed[0] = True
+        for c in leaf_cols:
+            codes = pd.factorize(sub[c], use_na_sentinel=False)[0]
+            changed[1:] |= codes[1:] != codes[:-1]
+        starts = np.flatnonzero(changed)
+        lengths = np.diff(np.append(starts, n))  # contiguous run length at each start
+        min_run: dict[Leaf, int] = {}
+        order: list[Leaf] = []  # first-occurrence order
+        for row, length in zip(sub.to_numpy()[starts], lengths, strict=True):
+            leaf = tuple(row)
+            if leaf not in min_run:
+                min_run[leaf] = int(length)
+                order.append(leaf)
+            elif length < min_run[leaf]:
+                min_run[leaf] = int(length)
+        kept = [leaf for leaf in order if min_run[leaf] >= min_runs_per_leaf]
+        if (dropped := len(order) - len(kept)) > 0:
+            logger.info("min_runs_per_leaf=%d dropped %d/%d target leaves (shortest on-disk run < threshold)",
+                        min_runs_per_leaf, dropped, len(order))
         return kept
 
     sources: dict[str, Any] = {"data": source}

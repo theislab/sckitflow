@@ -71,6 +71,52 @@ def test_compile_obs_produces_binded_scheme():
     assert compiled.scheme.nodes["pert"].keys == ("X",)
 
 
+def _fragmented_adata() -> ad.AnnData:
+    """A perturbed leaf split into two contiguous runs (40 then 10) so total != shortest-run.
+
+    Layout (disk order): (cl_a, drug_a)×40, (cl_a, drug_b)×40, (cl_a, drug_a)×10, controls×40. So drug_a
+    has runs [40, 10] (total 50, shortest 10) and drug_b has one run [40].
+    """
+    rng = np.random.default_rng(0)
+    rows: list[tuple[str, str]] = []
+    for cl, dr, n in [("cl_a", "drug_a", 40), ("cl_a", "drug_b", 40), ("cl_a", "drug_a", 10),
+                      ("cl_a", "control", 40)]:
+        rows += [(cl, dr)] * n
+    obs = pd.DataFrame(rows, columns=["cell_type", "drug1"])
+    obs["control"] = obs["drug1"] == "control"
+    for c in ("cell_type", "drug1"):
+        obs[c] = obs[c].astype("category")
+    adata = ad.AnnData(X=rng.random((len(obs), 6)).astype(np.float32), obs=obs)
+    adata.uns["drug"] = {d: rng.standard_normal((1, 4)).astype(np.float32) for d in obs["drug1"].cat.categories}
+    return adata
+
+
+def _pert_leaves(adata: ad.AnnData, min_runs: int) -> set:
+    compiled = compile_obs(
+        adata,
+        state=StateDataSchema(sample_rep="X"),
+        condition=ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),
+        control_key="control",
+        match_context=["cell_type"],
+        min_runs_per_leaf=min_runs,
+    )
+    return set(compiled.scheme.nodes["pert"].weights)
+
+
+def test_min_runs_per_leaf_filters_on_shortest_run_not_total():
+    """min_runs_per_leaf excludes a leaf by its SHORTEST contiguous run, not its total count.
+
+    drug_a is fragmented into runs [40, 10] (total 50); at threshold 16 it must be dropped (its 10-run is
+    < 16) even though its total 50 >= 16 — the old total-count filter wrongly kept it, which then broke
+    chunk_size=16 downstream.
+    """
+    adata = _fragmented_adata()
+    both = {("cl_a", "drug_a"), ("cl_a", "drug_b")}
+    assert _pert_leaves(adata, 0) == both           # no filtering
+    assert _pert_leaves(adata, 8) == both            # drug_a shortest run 10 >= 8 -> kept
+    assert _pert_leaves(adata, 16) == {("cl_a", "drug_b")}  # drug_a 10-run < 16 -> dropped (total 50 ignored)
+
+
 def test_condition_fn_is_per_leaf_not_dataset_wide():
     """condition_fn maps ONE leaf → its reps dict; it never materializes a dataset-wide array."""
     compiled = _compile(_make_adata())
@@ -241,10 +287,17 @@ def test_control_path_uses_separate_source():
 
 
 def test_min_runs_per_leaf_drops_small_target_leaves_only():
-    """min_runs_per_leaf zero-weights small TARGET leaves; controls are never filtered."""
+    """min_runs_per_leaf zero-weights small TARGET leaves; controls are never filtered.
+
+    Uses grouped (sorted) obs so each leaf is a single contiguous run — there shortest-run == total, so a
+    median-of-totals threshold drops the smaller half (the per-run filter reduces to the count filter).
+    """
     import collections
 
     adata = _make_adata()
+    # group into contiguous per-leaf runs (a single grouped store); random order would give run-length 1.
+    order = adata.obs.sort_values(["cell_type", "drug1"], kind="stable").index
+    adata = adata[order].copy()
     kw = {
         "state": StateDataSchema(sample_rep="X"),
         "condition": ConditionDataSchema(conditions={"drug": ["drug1"]}, condition_encoders={"drug": lookup("drug")}),

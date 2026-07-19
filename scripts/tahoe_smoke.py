@@ -126,8 +126,8 @@ def _apply_config(args: argparse.Namespace, path: str, *, explicit: set[str]) ->
     if model.get("hidden_dims") is not None and "hidden_dims" not in explicit:
         args.hidden_dims = ",".join(str(x) for x in model["hidden_dims"])
     for dest, key in [("batch_size", "batch_size"), ("chunk_size", "chunk_size"),
-                      ("n_train_steps", "n_train_steps"), ("valid_freq", "valid_freq"),
-                      ("lr", "lr"), ("device", "device")]:
+                      ("min_runs_per_leaf", "min_runs_per_leaf"), ("n_train_steps", "n_train_steps"),
+                      ("valid_freq", "valid_freq"), ("lr", "lr"), ("device", "device")]:
         setdefault(dest, train.get(key))
     sr = train.get("split_ratios") or {"train": 0.7, "val": 0.3}
     # sc-flow's split is train/val only; fold any test fraction into val so ratios sum to 1.
@@ -151,6 +151,9 @@ def main() -> int:
     p.add_argument("--batch-size", type=int, default=256)
     p.add_argument("--chunk-size", type=int, default=1,
                    help="contiguous cells/read; >1 needs data grouped into per-condition runs (must divide batch)")
+    p.add_argument("--min-runs-per-leaf", type=int, default=None,
+                   help="zero-weight target leaves with fewer than this many cells; needed so chunk_size>1 "
+                        "validates on real grouped plates (defaults to chunk_size when chunked, else 0)")
     p.add_argument("--n-train-steps", type=int, default=600)
     p.add_argument("--valid-freq", type=int, default=200)
     p.add_argument("--lr", type=float, default=1e-3)
@@ -189,11 +192,16 @@ def main() -> int:
         hidden_dims=hidden_dims, seed=args.seed,
     )
 
+    # chunk_size>1 requires every sampled leaf's contiguous run to be >= chunk_size; zero-weight the small
+    # leaves so the run-length rule holds (cf-train's min_cells_per_condition). Default it to chunk_size.
+    min_runs = args.min_runs_per_leaf if args.min_runs_per_leaf is not None else (
+        args.chunk_size if args.chunk_size > 1 else 0
+    )
     t0 = time.perf_counter()
     model.fit(
         data, rep_tables=rep_tables, batch_size=args.batch_size, chunk_size=args.chunk_size,
-        n_train_steps=args.n_train_steps, valid_freq=args.valid_freq, device=args.device, lr=args.lr,
-        split_by=["drug"], split_ratios=split_ratios, val_num_steps=20,
+        min_runs_per_leaf=min_runs, n_train_steps=args.n_train_steps, valid_freq=args.valid_freq,
+        device=args.device, lr=args.lr, split_by=["drug"], split_ratios=split_ratios, val_num_steps=20,
     )
     dt = time.perf_counter() - t0
     steps_s = args.n_train_steps / dt

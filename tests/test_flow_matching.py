@@ -519,10 +519,19 @@ def test_fit_chunked_reads_train_and_predict(chunk_size):
 
 
 def test_fit_resolve_preload_buffer():
-    """_resolve_preload: explicit wins; chunk_size=1 → batch-sized; chunked → a multi-batch prefetch."""
+    """_resolve_preload: explicit wins; chunk_size=1 → batch-sized; chunked → a many-batch prefetch."""
     assert FlowMatching._resolve_preload(256, 1, 999) == 999
     assert FlowMatching._resolve_preload(256, 1, None) == 256
-    assert FlowMatching._resolve_preload(256, 32, None) == 4 * (256 // 32)  # prefetch several batches
+    # chunked default buffers ~32 batches of chunks so periodic loader refills don't stall training.
+    assert FlowMatching._resolve_preload(1024, 32, None) == 32 * (1024 // 32)  # = 1024 chunks
+
+
+def test_fit_resolve_preload_to_gpu():
+    """Transport: explicit wins; CPU training never GPU-preloads; GPU training defers to binded auto (None)."""
+    assert FlowMatching._resolve_preload_to_gpu("cpu", True) is True     # explicit wins
+    assert FlowMatching._resolve_preload_to_gpu("cuda", False) is False  # explicit wins
+    assert FlowMatching._resolve_preload_to_gpu("cpu", None) is False    # never GPU-preload on CPU
+    assert FlowMatching._resolve_preload_to_gpu("cuda", None) is None    # GPU: binded auto (cupy if present)
 
 
 def test_fit_unknown_metric_raises():

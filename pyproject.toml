@@ -45,6 +45,9 @@ optional-dependencies.all = [
 # not a dependency, so pick it at sync time with the auto-detecting env var:
 #   UV_TORCH_BACKEND=auto uv sync --extra all --extra cuda --extra test   # on a GPU node
 optional-dependencies.cuda = [
+  # cupy lets the binded/annbatch loader keep its read window GPU-resident (preload_to_gpu) so training
+  # batches arrive on-device with no per-step host->device copy. Optional at runtime (falls back to host).
+  "cupy-cuda12x; sys_platform == 'linux'",
   "jax[cuda12]; sys_platform == 'linux'",
 ]
 optional-dependencies.dev = [

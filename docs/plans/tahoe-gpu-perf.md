@@ -83,11 +83,34 @@ Sinkhorn converges in 10 iters; jitting compiles solve+`sample_joint` into one X
 config). ~2.4 → ~140 steps/s of compute. Fix: `backends/jax/coupling/_device.py`. cellflow jits its `match_fn`;
 we didn't.
 
-**#2 bottleneck — data loading.** With coupling fixed, the `next(it)`-inclusive step was 2059 ms/step
-(0.49 steps/s): the loader used `chunk_size=1` → ~1024 scattered single-row zarr reads/batch (~1985 ms/batch on
-Lustre). Fix: `fit()`/`profile_train` now expose `chunk_size`/`preload_nchunks`; on grouped data `chunk_size=32`
-reads contiguous runs (cf-train measured ~7.8 → 640 batch/s). The converted single plate isn't grouped into
-≥32-cell runs, so it needs the grouped store — sim-tahoe is grouped by construction and validates the fast path.
+**#2 bottleneck — data loading (measured on real plate3).** With coupling fixed, the `next(it)`-inclusive step
+was ~2094 ms/batch (0.5 batch/s): the loader used `chunk_size=1` → ~1024 scattered single-row zarr reads/batch
+on Lustre. The converted plates **are** grouped by `[is_control, drug, cell_line]`; only a handful of <32-cell
+leaves broke the `≥chunk_size` run-length rule. Zero-weighting those via **`min_runs_per_leaf=32`** (cf-train's
+`min_cells_per_condition`; drops ~0.05% of cells) makes `chunk_size=32` valid, and it reads sequentially:
+
+| loader config (real plate3, batch=1024) | ms/batch | batch/s |
+|---|--:|--:|
+| `chunk_size=1` | 2094 | 0.5 |
+| `chunk_size=32` + `min_runs_per_leaf=32` | **2.1** | **468** |
+
+**~1000× on real Tahoe data.** Fix: `fit()`/`profile_train`/`tahoe_smoke` expose `chunk_size`/`preload_nchunks`
+and thread `min_runs_per_leaf` (already a `compile()` knob); `configs/tahoe.yaml` sets both to 32.
+
+**#2b — loader buffer & transport.** Two more fixes, both in the pre-existing `fit()` data path:
+- **Prefetch buffer too small.** The binded buffer refills *synchronously*; a small buffer stalls training
+  ~400ms on every drain. `chunk_size=1` default (4-batch buffer) → p90 351ms / ~1.5 steps/s. Default
+  raised to ~32 batches → p90≈median, no stalls.
+- **Host-only transport.** `fit()` hardcoded `to=None` (host numpy) → numpy→torch→host→device every step,
+  and it *errors* once cupy is present. Switched to `to="torch"` + device-aware `preload_to_gpu` (GPU
+  training keeps the read window GPU-resident via cupy — no per-step host→device copy). Measured on real
+  plate3 (fresh full step): host-torch 10.2ms → GPU-resident 5.7ms (~1.8×).
+
+**End-to-end (real plate3, H100, batch=1024):** original ~0.4 steps/s (unjitted coupling 409ms + host
+`chunk_size=1` data ~2000ms) → **~150 steps/s** steady (6.6 ms/step: couple ~3 + fwd/bwd ~6, data
+overlapped/GPU-resident) — **~380×**. (The redundant torch `DataLoader(IterableDataset)` wrapper — present
+only to satisfy Lightning's API — is now a cheap pass-through with `to="torch"`; binded already batches +
+prefetches, so it could later be dropped.)
 
 **Also fixed:** the GPU validation loop crashed (`condition_to_device`/`integrate_translation` did `np.asarray`
 on tensors Lightning already moved to cuda) — now tensor-aware. `EnergyDistance` used plain Euclidean; cellflow's

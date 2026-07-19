@@ -127,6 +127,7 @@ class FlowMatching:
         batch_size: int = 128,
         chunk_size: int = 1,
         preload_nchunks: int | None = None,
+        preload_to_gpu: bool | None = None,
         n_train_steps: int = 100_000,
         valid_freq: int = 1_000,
         device: str = "cpu",
@@ -154,8 +155,12 @@ class FlowMatching:
             to read sequentially — cf-train measured ~80x fewer read ops. Must divide ``batch_size`` and
             requires every sampled condition's contiguous run to be ≥ ``chunk_size`` cells.
         :param preload_nchunks: How many chunks the loader prefetches (buffer size). ``None`` picks a
-            batch-sized buffer for ``chunk_size=1`` and a larger prefetch (``~4`` batches of chunks) when
-            ``chunk_size>1`` so reads stay ahead of the GPU.
+            batch-sized buffer for ``chunk_size=1`` and a large prefetch (``~32`` batches of chunks) when
+            ``chunk_size>1`` — the buffer refills synchronously, so a too-small buffer stalls training
+            ~400ms on every drain (measured on Tahoe/Lustre).
+        :param preload_to_gpu: Keep the loader's read window GPU-resident (needs ``cupy``), so batches
+            arrive as GPU tensors with no per-step host→device copy. ``None`` = auto (GPU training uses it
+            when cupy is available; CPU training never does). Batches are always torch tensors (``to="torch"``).
         :param split_by: Condition column(s) whose unique combinations are partitioned into train/val
             (a subset of the compiled root columns). ``None`` = no held-out split / no validation.
         :param split_ratios: Train/val fractions — a ``{"train": .., "val": ..}`` mapping or a
@@ -206,7 +211,12 @@ class FlowMatching:
             train_scheme, val_scheme = splits["train"], splits["val"]
 
         preload = self._resolve_preload(batch_size, chunk_size, preload_nchunks)
-        cfg = SamplerConfig(batch_size=batch_size, chunk_size=chunk_size, preload_nchunks=preload, to=None)
+        # Transport: yield torch tensors and (on GPU) keep the read window GPU-resident so there is no
+        # per-step host->device copy and refills happen on-device. `to=None` (annbatch default) is host
+        # numpy — a redundant numpy->torch->host->device chain, and it errors outright once cupy is present.
+        to_gpu = self._resolve_preload_to_gpu(device, preload_to_gpu)
+        cfg = SamplerConfig(batch_size=batch_size, chunk_size=chunk_size, preload_nchunks=preload,
+                            to="torch", preload_to_gpu=to_gpu)
         loader = Loader(train_scheme, cfg, compiled.condition_fn)
 
         # 2. Torch velocity field + probability path, sized from compiled.dims.
@@ -237,6 +247,7 @@ class FlowMatching:
                 val_batch_size=val_batch_size or batch_size,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
+                preload_to_gpu=to_gpu,
                 n_val_conditions=n_val_conditions,
                 metrics=metrics,
                 val_num_steps=val_num_steps,
@@ -281,13 +292,30 @@ class FlowMatching:
     # --- validation helpers -----------------------------------------------------------------------
 
     @staticmethod
+    def _resolve_preload_to_gpu(device: str, preload_to_gpu: bool | None) -> bool | None:
+        """Whether the loader keeps its read window on-GPU. Explicit wins; else never on CPU, auto on GPU.
+
+        ``None`` on GPU lets binded auto-select from cupy availability (GPU-resident batches when cupy is
+        present, host otherwise). On CPU training force ``False`` so batches never land on a GPU the model
+        isn't on.
+        """
+        if preload_to_gpu is not None:
+            return preload_to_gpu
+        return False if str(device) == "cpu" else None
+
+    @staticmethod
     def _resolve_preload(batch_size: int, chunk_size: int, preload_nchunks: int | None) -> int:
-        """Prefetch-buffer size (chunks): explicit if given, else batch-sized (chunk 1) / ~4 batches (chunked)."""
+        """Prefetch-buffer size in chunks: explicit if given, else a batch (chunk 1) / ~32 batches (chunked).
+
+        The chunked buffer must hold *many* batches: when it drains the loader refills synchronously, and a
+        refill of a few chunks stalls training ~400ms (measured on Tahoe/Lustre). A 4-batch buffer stalls
+        every ~4 steps (~1.5 steps/s); ~32 batches amortizes refills so steady-state holds ~160 steps/s.
+        """
         if preload_nchunks is not None:
             return int(preload_nchunks)
         if chunk_size <= 1:
             return max(1, batch_size)
-        return max(chunk_size, 4 * (batch_size // chunk_size))
+        return 32 * max(1, batch_size // chunk_size)
 
     @staticmethod
     def _resolve_split_ratios(split_ratios: Mapping[str, float] | Sequence[float] | None) -> dict[str, float]:
@@ -332,6 +360,7 @@ class FlowMatching:
         val_batch_size: int,
         chunk_size: int = 1,
         preload_nchunks: int | None = None,
+        preload_to_gpu: bool | None = None,
         n_val_conditions: int | None,
         metrics: Sequence[str],
         val_num_steps: int,
@@ -351,7 +380,8 @@ class FlowMatching:
             n_val_conditions = max(int((assignment["split"] == "val").sum()), 1)
 
         preload = self._resolve_preload(val_batch_size, chunk_size, preload_nchunks)
-        cfg = SamplerConfig(batch_size=val_batch_size, chunk_size=chunk_size, preload_nchunks=preload, to=None)
+        cfg = SamplerConfig(batch_size=val_batch_size, chunk_size=chunk_size, preload_nchunks=preload,
+                            to="torch", preload_to_gpu=preload_to_gpu)
         eval_loader = EvalLoader(val_scheme, cfg, condition_fn, seed=int(self.seed))
 
         class _EvalIterableDataset(torch.utils.data.IterableDataset):

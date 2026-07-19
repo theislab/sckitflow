@@ -29,6 +29,11 @@ train:
   # ~128 batches (4096 chunks). Measured on H100: chunk_size=1 → ~2s/batch; chunk_size=32 → 10s+ faster.
   chunk_size: 32
   preload_nchunks: 4096
+  # Zero-weight (exclude) target leaves with fewer than this many cells (cf-train's min_cells_per_condition).
+  # Required so chunk_size=32 validates: excluded runs are exempt from the >=chunk_size run-length rule, and
+  # the converted plates ARE grouped by [is_control, drug, cell_line] — only the few sub-32-cell leaves break
+  # it (drops ~0.05% of cells). Must be >= chunk_size.
+  min_runs_per_leaf: 32
   n_train_steps: 30000
   valid_freq: 2000
   lr: 0.0001

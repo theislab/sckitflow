@@ -4,13 +4,15 @@
 # `scripts/tahoe_smoke.py --config configs/tahoe.yaml` (which builds the fixed Tahoe FlowSpec below and
 # streams the converted zarr plates via the binded Loader).
 #
-# Data provenance: the 14 converted plates live at $APP_DATA_DIR/tahoe100_converted/plate*.zarr with
-# obsm/X_pca (1024-d) precomputed; is_control := (drug == "DMSO_TF"). See cf-train configs/tahoe.yaml.
+# Data provenance: the 14 converted plates live at $APP_DATA_DIR/tahoe100_converted/plate*_filt_*.zarr
+# (regenerated 2026-07-19 via the cf-train snakemake convert->unify->pca DAG, replacing the old
+# hand-rolled plate*.zarr this file used to point at) with obsm/X_pca_pflog2048 (2048-d, scclr pflog +
+# whole-data covariance PCA) precomputed; is_control := (drug == "DMSO_TF"). See cf-train configs/tahoe.yaml.
 
 data:
-  # Glob of the converted per-plate zarr stores (obsm/X_pca present). Absolute cluster path by default.
-  plates_glob: /lustre/groups/ml01/datasets/selman.ozleyen/tahoe100_converted/plate*.zarr
-  sample_rep: X_pca            # obsm rep streamed as the state (1024-d)
+  # Glob of the converted per-plate zarr stores (obsm/X_pca_pflog2048 present). Absolute cluster path.
+  plates_glob: /lustre/groups/ml01/datasets/selman.ozleyen/tahoe100_converted/plate*_filt_*.zarr
+  sample_rep: X_pca_pflog2048  # obsm rep streamed as the state (2048-d, pflog+cov-PCA)
   drug_col: drug               # perturbation covariate (one-hot encoded; 380 drugs)
   cell_col: cell_line          # match / split context (50 cell lines)
   control_key: is_control      # boolean control mask (drug == DMSO_TF)

@@ -41,6 +41,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--plates", required=True, help="training plates glob")
     p.add_argument("--eval-plate", required=True, help="single plate to read eval conditions from")
+    p.add_argument("--sample-rep", default="X_pca", help="obsm rep streamed as the state")
     p.add_argument("--n-conditions", type=int, default=8)
     p.add_argument("--eval-cells", type=int, default=512, help="max cells sampled per population for scoring")
     p.add_argument("--device", default="cuda")
@@ -50,6 +51,9 @@ def main() -> int:
     p.add_argument("--control-in-memory", action="store_true")
     p.add_argument("--hidden-dims", default="1024,1024,1024")
     p.add_argument("--condition-embedding-dim", type=int, default=64)
+    p.add_argument("--regularization", type=float, default=0.0,
+                    help="condition-embedding L2 penalty; default 0.0 (FlowMatching's own default of 1.0 "
+                         "collapses drug embeddings -> model degenerates to the identity baseline)")
     p.add_argument("--lr", type=float, default=3e-4)
     p.add_argument("--n-train-steps", type=int, default=4000)
     p.add_argument("--num-steps", type=int, default=50, help="ODE integration steps for predict")
@@ -69,16 +73,16 @@ def main() -> int:
     chunk = args.chunk_size
     min_runs = chunk if chunk > 1 else 0
     hidden = tuple(int(x) for x in args.hidden_dims.split(",") if x)
-    print(f"[eval] train_plates={len(plates)} eval_plate={eval_plate.split('/')[-1]} "
-          f"n_conditions={args.n_conditions} batch={args.batch_size} chunk={chunk} lr={args.lr} "
-          f"ctrl_in_mem={args.control_in_memory} steps={args.n_train_steps}", flush=True)
+    print(f"[eval] train_plates={len(plates)} eval_plate={eval_plate.split('/')[-1]} rep={args.sample_rep} "
+          f"n_conditions={args.n_conditions} batch={args.batch_size} chunk={chunk} reg={args.regularization} "
+          f"lr={args.lr} ctrl_in_mem={args.control_in_memory} steps={args.n_train_steps}", flush=True)
 
     # --- pick eval conditions: top-N (cell_line, drug) by perturbed cell count on the eval plate ---
     cl, dr, ic = _read_obs_cols(eval_plate)
     from collections import Counter
     pert_counts = Counter(zip(cl[~ic].tolist(), dr[~ic].tolist()))
     conditions = [c for c, _ in pert_counts.most_common(args.n_conditions)]
-    Xg = zarr.open_group(eval_plate, mode="r")["obsm"]["X_pca"]
+    Xg = zarr.open_group(eval_plate, mode="r")["obsm"][args.sample_rep]
 
     def read_rows(mask, cap):
         idx = np.flatnonzero(mask)
@@ -88,12 +92,12 @@ def main() -> int:
 
     # --- fit on all training plates ---
     spec = FlowSpec(
-        state=StateDataSchema(sample_rep="X_pca"),
+        state=StateDataSchema(sample_rep=args.sample_rep),
         condition=ConditionDataSchema(conditions={"drug": ["drug"]}, condition_encoders={"drug": one_hot()}),
         control_key="is_control", match_context=["cell_line"],
     )
     model = FlowMatching(spec=spec, objective=args.objective, condition_embedding_dim=args.condition_embedding_dim,
-                         hidden_dims=hidden, seed=args.seed)
+                         hidden_dims=hidden, regularization=args.regularization, seed=args.seed)
     t0 = time.perf_counter()
     model.fit(plates, rep_tables=None, batch_size=args.batch_size, chunk_size=chunk, min_runs_per_leaf=min_runs,
               control_in_memory=args.control_in_memory, n_train_steps=args.n_train_steps, device=args.device, lr=args.lr)

@@ -17,4 +17,7 @@ cd /lustre/groups/ml01/workspace/selman.ozleyen/projects/sc-flow-tools
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 DATA=/lustre/groups/ml01/datasets/selman.ozleyen/tahoe100_converted
 echo "### $(date) job=$SLURM_JOB_ID name=$SLURM_JOB_NAME node=$(hostname) gpu=$CUDA_VISIBLE_DEVICES"
-exec .venv/bin/python scripts/tahoe_train.py --plates "$DATA/plate*.zarr" --device cuda "$@"
+# Default plates glob + rep target the 2026-07-19 snakemake re-prep (plate*_filt_*.zarr,
+# obsm/X_pca_pflog2048); pass --plates/--sample-rep again to override (argparse: last wins).
+exec .venv/bin/python scripts/tahoe_train.py --plates "$DATA/plate*_filt_*.zarr" \
+    --sample-rep X_pca_pflog2048 --device cuda "$@"

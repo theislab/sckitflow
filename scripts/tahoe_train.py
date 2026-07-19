@@ -27,6 +27,7 @@ import numpy as np
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--plates", required=True, help="glob of Tahoe zarr plates")
+    p.add_argument("--sample-rep", default="X_pca", help="obsm rep streamed as the state")
     p.add_argument("--device", default="cuda")
     p.add_argument("--objective", choices=["otfm", "genot"], default="otfm")
     p.add_argument("--batch-size", type=int, default=1024)
@@ -36,6 +37,9 @@ def main() -> int:
     p.add_argument("--control-in-memory", action="store_true", help="materialize controls in RAM (enables larger chunk_size)")
     p.add_argument("--condition-embedding-dim", type=int, default=64)
     p.add_argument("--hidden-dims", default="1024,1024,1024")
+    p.add_argument("--regularization", type=float, default=0.0,
+                    help="condition-embedding L2 penalty; default 0.0 (FlowMatching's own default of 1.0 "
+                         "collapses drug embeddings -> model degenerates to the identity baseline)")
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--n-train-steps", type=int, default=3000)
     p.add_argument("--log-every", type=int, default=100)
@@ -57,19 +61,19 @@ def main() -> int:
     chunk = args.chunk_size
     min_runs = args.min_runs_per_leaf if args.min_runs_per_leaf is not None else (chunk if chunk > 1 else 0)
     hidden = tuple(int(x) for x in args.hidden_dims.split(",") if x)
-    print(f"[train] plates={len(paths)} objective={args.objective} batch={args.batch_size} chunk={chunk} "
-          f"min_runs={min_runs} hidden={hidden} emb={args.condition_embedding_dim} lr={args.lr} "
-          f"amp=off compile=off device={args.device}", flush=True)
+    print(f"[train] plates={len(paths)} rep={args.sample_rep} objective={args.objective} batch={args.batch_size} "
+          f"chunk={chunk} min_runs={min_runs} hidden={hidden} emb={args.condition_embedding_dim} "
+          f"reg={args.regularization} lr={args.lr} amp=off compile=off device={args.device}", flush=True)
 
     spec = FlowSpec(
-        state=StateDataSchema(sample_rep="X_pca"),
+        state=StateDataSchema(sample_rep=args.sample_rep),
         condition=ConditionDataSchema(conditions={"drug": ["drug"]}, condition_encoders={"drug": one_hot()}),
         control_key="is_control",
         match_context=["cell_line"],
     )
     model = FlowMatching(
         spec=spec, objective=args.objective, condition_embedding_dim=args.condition_embedding_dim,
-        hidden_dims=hidden, seed=args.seed,
+        hidden_dims=hidden, regularization=args.regularization, seed=args.seed,
     )
 
     class LossLogger(pl.Callback):

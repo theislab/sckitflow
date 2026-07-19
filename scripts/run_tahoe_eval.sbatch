@@ -12,5 +12,8 @@ cd /lustre/groups/ml01/workspace/selman.ozleyen/projects/sc-flow-tools
 export XLA_PYTHON_CLIENT_PREALLOCATE=false
 DATA=/lustre/groups/ml01/datasets/selman.ozleyen/tahoe100_converted
 echo "### $(date) job=$SLURM_JOB_ID name=$SLURM_JOB_NAME node=$(hostname)"
-exec .venv/bin/python scripts/tahoe_eval.py --plates "$DATA/plate*.zarr" \
-     --eval-plate "$DATA/plate3_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.zarr" --device cuda "$@"
+# plate*_filt_*.zarr + X_pca_pflog2048 = the 2026-07-19 snakemake re-prep; pass --plates/--sample-rep
+# again to eval a different rep (e.g. raw X_pca, if it's ever regenerated).
+exec .venv/bin/python scripts/tahoe_eval.py --plates "$DATA/plate*_filt_*.zarr" \
+     --eval-plate "$DATA/plate3_filt_Vevo_Tahoe100M_WServicesFrom_ParseGigalab.zarr" \
+     --sample-rep X_pca_pflog2048 --device cuda "$@"

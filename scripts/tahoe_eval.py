@@ -39,7 +39,7 @@ def _read_obs_cols(zpath):
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--plates", required=True, help="training plates glob")
+    p.add_argument("--plates", required=True, help="comma-separated glob(s) of training plates")
     p.add_argument("--eval-plate", required=True, help="single plate to read eval conditions from")
     p.add_argument("--sample-rep", default="X_pca", help="obsm rep streamed as the state")
     p.add_argument("--n-conditions", type=int, default=8)
@@ -68,7 +68,7 @@ def main() -> int:
     from sc_flow.data._encoders import one_hot
     from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
 
-    plates = sorted(glob.glob(args.plates))
+    plates = sorted({p for pattern in args.plates.split(",") for p in glob.glob(pattern)})
     eval_plate = sorted(glob.glob(args.eval_plate))[0]
     chunk = args.chunk_size
     min_runs = chunk if chunk > 1 else 0

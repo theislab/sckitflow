@@ -26,7 +26,7 @@ import numpy as np
 
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--plates", required=True, help="glob of Tahoe zarr plates")
+    p.add_argument("--plates", required=True, help="comma-separated glob(s) of Tahoe zarr plates")
     p.add_argument("--sample-rep", default="X_pca", help="obsm rep streamed as the state")
     p.add_argument("--device", default="cuda")
     p.add_argument("--objective", choices=["otfm", "genot"], default="otfm")
@@ -43,6 +43,11 @@ def main() -> int:
     p.add_argument("--lr", type=float, default=1e-4)
     p.add_argument("--n-train-steps", type=int, default=3000)
     p.add_argument("--log-every", type=int, default=100)
+    p.add_argument("--split-by", default=None, help="e.g. 'drug' — hold out whole conditions for validation")
+    p.add_argument("--valid-freq", type=int, default=2000, help="run the held-out validation pass every N steps")
+    p.add_argument("--val-num-steps", type=int, default=50, help="ODE integration steps for validation")
+    p.add_argument("--n-val-conditions", type=int, default=None)
+    p.add_argument("--metrics", default="r_squared,e-dist")
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
@@ -54,7 +59,7 @@ def main() -> int:
     from sc_flow.data._encoders import one_hot
     from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
 
-    paths = sorted(glob.glob(args.plates))
+    paths = sorted({p for pattern in args.plates.split(",") for p in glob.glob(pattern)})
     if not paths:
         print(f"[train] FAIL: no plates matched {args.plates!r}", flush=True)
         return 1
@@ -101,13 +106,33 @@ def main() -> int:
                 print(f"[train]   step {n:5d}  loss(mean last {self._log_every})={np.mean(window):.4f}  "
                       f"steps/s(median)={sps:.1f}", flush=True)
 
+    class ValLogger(pl.Callback):
+        """Print the held-out r_squared/e-dist etc. every validation pass (mid-training, not just at the end)."""
+
+        def on_validation_epoch_end(self, trainer, pl_module):
+            hist = pl_module.metrics_history
+            if not hist or not any(v for v in hist.values()):
+                return
+            msg = "  ".join(f"{name}={values[-1]:+.4f}" for name, values in hist.items() if values)
+            print(f"[train] VAL  step {trainer.global_step:7d}  {msg}", flush=True)
+
     logger = LossLogger(args.log_every)
+    callbacks = [logger]
+    split_kwargs: dict = {}
+    if args.split_by:
+        split_kwargs = dict(
+            split_by=args.split_by, valid_freq=args.valid_freq, val_num_steps=args.val_num_steps,
+            n_val_conditions=args.n_val_conditions, metrics=tuple(args.metrics.split(",")),
+        )
+        callbacks.append(ValLogger())
+        print(f"[train] validation ON: split_by={args.split_by} valid_freq={args.valid_freq} "
+              f"metrics={split_kwargs['metrics']} val_num_steps={args.val_num_steps}", flush=True)
 
     t0 = time.perf_counter()
     model.fit(
         paths, rep_tables=None, batch_size=args.batch_size, chunk_size=chunk, min_runs_per_leaf=min_runs,
         preload_nchunks=args.preload_nchunks, control_in_memory=args.control_in_memory,
-        n_train_steps=args.n_train_steps, device=args.device, lr=args.lr, callbacks=[logger],
+        n_train_steps=args.n_train_steps, device=args.device, lr=args.lr, callbacks=callbacks, **split_kwargs,
     )
     dt = time.perf_counter() - t0
 
@@ -121,6 +146,10 @@ def main() -> int:
     sps = 1.0 / st.median(steady) if steady else float("nan")
     print(f"[train] DONE {args.n_train_steps} steps in {dt:.1f}s | steady {sps:.1f} steps/s | "
           f"loss {first:.4f} -> {last:.4f} ({'DECREASED' if last < first else 'did NOT decrease'})", flush=True)
+    if model.metrics_history:
+        for name, values in model.metrics_history.items():
+            print(f"[train] VAL {name} trajectory ({len(values)} passes): "
+                  f"{values[0]:+.4f} -> {values[-1]:+.4f}", flush=True)
     return 0 if last < first else 2
 
 

@@ -140,6 +140,7 @@ class FlowMatching:
         n_val_conditions: int | None = None,
         metrics: Sequence[str] = ("r_squared", "e-dist"),
         val_num_steps: int = 50,
+        val_max_source_cells: int | None = 2048,
         callbacks: Sequence[Any] | None = None,
     ) -> FlowMatching:
         """Compile ``data``, build the torch VF + OT-FM objective, and run the Lightning trainer.
@@ -175,6 +176,12 @@ class FlowMatching:
         :param metrics: Names (in :data:`~sc_flow.backends.torch.metrics.METRICS_REGISTRY`) of the
             distribution metrics to score on the held-out split.
         :param val_num_steps: ODE integration steps for the validation translation.
+        :param val_max_source_cells: Cap on the control/source population size fed to prediction + metrics
+            per validation batch (random subsample; ``None`` disables the cap). binded's ``EvalLoader``
+            reads each held-out control population **in full** regardless of ``val_batch_size`` — with
+            ``match_context`` pooling controls across many plates/stores that population can reach tens of
+            thousands of cells, and both the ODE trajectory and the O(n^2) pairwise-distance metrics
+            (e.g. ``EnergyDistance``) scale with it, reliably OOMing at real multi-plate scale.
         :param control_in_memory: Materialize the control (source) population in RAM. In-memory nodes are
             exempt from the ``chunk_size`` run-length rule, so this lets ``chunk_size>1`` work even when the
             controls are fragmented across stores (the target node is still governed by ``min_runs_per_leaf``).
@@ -262,7 +269,8 @@ class FlowMatching:
             )
 
         harness = SCFlowLightningModule(
-            self.vf, self.objective, lr=lr, val_metrics=val_metrics, predict_fn=self._val_predict_fn(val_num_steps)
+            self.vf, self.objective, lr=lr, val_metrics=val_metrics, predict_fn=self._val_predict_fn(val_num_steps),
+            val_max_source_cells=val_max_source_cells,
         )
 
         # 4. Wrap the binded loader as an IterableDataset (batches pass through untouched).

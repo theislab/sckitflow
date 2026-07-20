@@ -59,6 +59,7 @@ class SCFlowLightningModule(pl.LightningModule):
         optimizer_cls: type[torch.optim.Optimizer] = torch.optim.Adam,
         val_metrics: Mapping[str, torch.nn.Module] | None = None,
         predict_fn: PredictFn | None = None,
+        val_max_source_cells: int | None = 2048,
     ) -> None:
         super().__init__()
         self.model = model
@@ -68,6 +69,13 @@ class SCFlowLightningModule(pl.LightningModule):
         # torchmetrics are nn.Modules — a ModuleDict registers them so Lightning moves them to the device.
         self._val_metrics = torch.nn.ModuleDict(dict(val_metrics)) if val_metrics else None
         self._predict_fn = predict_fn
+        # binded's EvalLoader reads each held-out control population IN FULL (by design — see
+        # binded._eval_loader), which can be tens of thousands of cells once match_context pools controls
+        # across many plates/stores. Both the ODE trajectory (integrate_translation) and the O(n^2)
+        # pairwise-distance metrics (EnergyDistance) scale with that count, so an uncapped population
+        # reliably OOMs at real multi-plate scale. Subsample the SOURCE (control) population before
+        # predict/scoring; None disables the cap (matches the old, unsafe-at-scale behavior).
+        self._val_max_source_cells = val_max_source_cells
         # {metric_name: [mean-over-conditions per validation pass]} — read back by FlowMatching after fit.
         self.metrics_history: dict[str, list[float]] = {}
 
@@ -80,6 +88,11 @@ class SCFlowLightningModule(pl.LightningModule):
     def validation_step(self, batch: Any, batch_idx: int) -> None:
         if self._val_metrics is None or self._predict_fn is None:
             return
+        cap = self._val_max_source_cells
+        source = batch["source"]
+        if cap is not None and source.shape[0] > cap:
+            idx = torch.randperm(source.shape[0], device=source.device)[:cap]
+            batch = {**batch, "source": source[idx]}
         pred, target = self._predict_fn(self.model, batch)
         for metric in self._val_metrics.values():
             metric.update(pred, target)

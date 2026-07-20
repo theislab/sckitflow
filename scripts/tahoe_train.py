@@ -48,6 +48,9 @@ def main() -> int:
     p.add_argument("--split-by", default=None, help="e.g. 'drug' — hold out whole conditions for validation")
     p.add_argument("--valid-freq", type=int, default=2000, help="run the held-out validation pass every N steps")
     p.add_argument("--val-num-steps", type=int, default=50, help="ODE integration steps for validation")
+    p.add_argument("--val-max-source-cells", type=int, default=2048,
+                    help="cap the control population size fed to validation (EvalLoader reads it in full; "
+                         "0 disables the cap)")
     p.add_argument("--n-val-conditions", type=int, default=None)
     p.add_argument("--metrics", default="r_squared,e-dist")
     p.add_argument("--seed", type=int, default=0)
@@ -125,6 +128,7 @@ def main() -> int:
     if args.split_by:
         split_kwargs = dict(
             split_by=args.split_by, valid_freq=args.valid_freq, val_num_steps=args.val_num_steps,
+            val_max_source_cells=args.val_max_source_cells or None,
             n_val_conditions=args.n_val_conditions, metrics=tuple(args.metrics.split(",")),
         )
         callbacks.append(ValLogger())

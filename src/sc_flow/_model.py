@@ -141,6 +141,7 @@ class FlowMatching:
         metrics: Sequence[str] = ("r_squared", "e-dist"),
         val_num_steps: int = 50,
         val_max_source_cells: int | None = 2048,
+        debug_val: bool = False,
         callbacks: Sequence[Any] | None = None,
     ) -> FlowMatching:
         """Compile ``data``, build the torch VF + OT-FM objective, and run the Lightning trainer.
@@ -270,7 +271,7 @@ class FlowMatching:
 
         harness = SCFlowLightningModule(
             self.vf, self.objective, lr=lr, val_metrics=val_metrics, predict_fn=self._val_predict_fn(val_num_steps),
-            val_max_source_cells=val_max_source_cells,
+            val_max_source_cells=val_max_source_cells, debug_val=debug_val,
         )
 
         # 4. Wrap the binded loader as an IterableDataset (batches pass through untouched).

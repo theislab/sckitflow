@@ -464,10 +464,11 @@ def test_fit_validation_loop(objective):
 
     model = run()
     hist = model.metrics_history
-    assert set(hist) == {"r_squared", "e-dist"}
+    # each requested metric is recorded alongside its identity baseline (untouched source vs target).
+    assert set(hist) == {"r_squared", "e-dist", "r_squared_identity", "e-dist_identity"}
     # validation fires every 25 steps over 60 steps → passes at 25 and 50.
     assert len(hist["r_squared"]) == 2
-    assert len(hist["e-dist"]) == len(hist["r_squared"])
+    assert all(len(v) == len(hist["r_squared"]) for v in hist.values())
     assert all(np.isfinite(v) for vals in hist.values() for v in vals)
 
     # same seed → identical validation history (train + eval both deterministic on CPU)

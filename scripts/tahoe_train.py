@@ -53,6 +53,8 @@ def main() -> int:
                          "0 disables the cap)")
     p.add_argument("--n-val-conditions", type=int, default=None)
     p.add_argument("--metrics", default="r_squared,e-dist")
+    p.add_argument("--debug-val", action="store_true",
+                    help="print per-condition (leaf, pred/target magnitude) diagnostics during validation")
     p.add_argument("--seed", type=int, default=0)
     args = p.parse_args()
 
@@ -128,7 +130,7 @@ def main() -> int:
     if args.split_by:
         split_kwargs = dict(
             split_by=args.split_by, valid_freq=args.valid_freq, val_num_steps=args.val_num_steps,
-            val_max_source_cells=args.val_max_source_cells or None,
+            val_max_source_cells=args.val_max_source_cells or None, debug_val=args.debug_val,
             n_val_conditions=args.n_val_conditions, metrics=tuple(args.metrics.split(",")),
         )
         callbacks.append(ValLogger())

@@ -51,6 +51,8 @@ def main() -> int:
     p.add_argument("--control-in-memory", action="store_true")
     p.add_argument("--hidden-dims", default="1024,1024,1024")
     p.add_argument("--condition-embedding-dim", type=int, default=64)
+    p.add_argument("--match-context", default="cell_line",
+                    help="comma-separated match_context columns; add 'plate' to keep OT matching within-plate")
     p.add_argument("--regularization", type=float, default=0.0,
                     help="condition-embedding L2 penalty; default 0.0 (FlowMatching's own default of 1.0 "
                          "collapses drug embeddings -> model degenerates to the identity baseline)")
@@ -74,8 +76,9 @@ def main() -> int:
     min_runs = chunk if chunk > 1 else 0
     hidden = tuple(int(x) for x in args.hidden_dims.split(",") if x)
     print(f"[eval] train_plates={len(plates)} eval_plate={eval_plate.split('/')[-1]} rep={args.sample_rep} "
-          f"n_conditions={args.n_conditions} batch={args.batch_size} chunk={chunk} reg={args.regularization} "
-          f"lr={args.lr} ctrl_in_mem={args.control_in_memory} steps={args.n_train_steps}", flush=True)
+          f"n_conditions={args.n_conditions} batch={args.batch_size} chunk={chunk} match_context={args.match_context} "
+          f"reg={args.regularization} lr={args.lr} ctrl_in_mem={args.control_in_memory} "
+          f"steps={args.n_train_steps}", flush=True)
 
     # --- pick eval conditions: top-N (cell_line, drug) by perturbed cell count on the eval plate ---
     cl, dr, ic = _read_obs_cols(eval_plate)
@@ -94,7 +97,7 @@ def main() -> int:
     spec = FlowSpec(
         state=StateDataSchema(sample_rep=args.sample_rep),
         condition=ConditionDataSchema(conditions={"drug": ["drug"]}, condition_encoders={"drug": one_hot()}),
-        control_key="is_control", match_context=["cell_line"],
+        control_key="is_control", match_context=args.match_context.split(","),
     )
     model = FlowMatching(spec=spec, objective=args.objective, condition_embedding_dim=args.condition_embedding_dim,
                          hidden_dims=hidden, regularization=args.regularization, seed=args.seed)

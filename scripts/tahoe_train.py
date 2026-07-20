@@ -36,6 +36,8 @@ def main() -> int:
     p.add_argument("--preload-nchunks", type=int, default=None)
     p.add_argument("--control-in-memory", action="store_true", help="materialize controls in RAM (enables larger chunk_size)")
     p.add_argument("--condition-embedding-dim", type=int, default=64)
+    p.add_argument("--match-context", default="cell_line",
+                    help="comma-separated match_context columns; add 'plate' to keep OT matching within-plate")
     p.add_argument("--hidden-dims", default="1024,1024,1024")
     p.add_argument("--regularization", type=float, default=0.0,
                     help="condition-embedding L2 penalty; default 0.0 (FlowMatching's own default of 1.0 "
@@ -67,14 +69,15 @@ def main() -> int:
     min_runs = args.min_runs_per_leaf if args.min_runs_per_leaf is not None else (chunk if chunk > 1 else 0)
     hidden = tuple(int(x) for x in args.hidden_dims.split(",") if x)
     print(f"[train] plates={len(paths)} rep={args.sample_rep} objective={args.objective} batch={args.batch_size} "
-          f"chunk={chunk} min_runs={min_runs} hidden={hidden} emb={args.condition_embedding_dim} "
-          f"reg={args.regularization} lr={args.lr} amp=off compile=off device={args.device}", flush=True)
+          f"chunk={chunk} min_runs={min_runs} match_context={args.match_context} hidden={hidden} "
+          f"emb={args.condition_embedding_dim} reg={args.regularization} lr={args.lr} "
+          f"amp=off compile=off device={args.device}", flush=True)
 
     spec = FlowSpec(
         state=StateDataSchema(sample_rep=args.sample_rep),
         condition=ConditionDataSchema(conditions={"drug": ["drug"]}, condition_encoders={"drug": one_hot()}),
         control_key="is_control",
-        match_context=["cell_line"],
+        match_context=args.match_context.split(","),
     )
     model = FlowMatching(
         spec=spec, objective=args.objective, condition_embedding_dim=args.condition_embedding_dim,

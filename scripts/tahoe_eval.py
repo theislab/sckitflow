@@ -23,18 +23,19 @@ import time
 import numpy as np
 
 
+def _read_obs_col(g, name):
+    node = g[name]
+    if hasattr(node, "keys") and "codes" in node:
+        cats = np.asarray(node["categories"][:], dtype=object)
+        return cats[np.asarray(node["codes"][:])]
+    return np.asarray(node[:])
+
+
 def _read_obs_cols(zpath):
     import zarr
     g = zarr.open_group(zpath, mode="r")["obs"]
-
-    def col(name):
-        node = g[name]
-        if hasattr(node, "keys") and "codes" in node:
-            cats = np.asarray(node["categories"][:], dtype=object)
-            return cats[np.asarray(node["codes"][:])]
-        return np.asarray(node[:])
-
-    return col("cell_line"), col("drug"), col("is_control").astype(bool)
+    return (_read_obs_col(g, "cell_line"), _read_obs_col(g, "drug"),
+            _read_obs_col(g, "is_control").astype(bool))
 
 
 def main() -> int:
@@ -87,6 +88,16 @@ def main() -> int:
     conditions = [c for c, _ in pert_counts.most_common(args.n_conditions)]
     Xg = zarr.open_group(eval_plate, mode="r")["obsm"][args.sample_rep]
 
+    # predict()'s leaf tuple must match compile_obs's `cols = (*match_context, *cond_cols)` order/length --
+    # cond_cols is always just ["drug"] here, so build (value-per-match-context-col..., drug).
+    mc_cols = args.match_context.split(",")
+    g_obs = zarr.open_group(eval_plate, mode="r")["obs"]
+    # every match_context column besides "cell_line" is constant across this single eval plate's rows.
+    mc_const = {c: _read_obs_col(g_obs, c)[0] for c in mc_cols if c != "cell_line"}
+
+    def leaf_for(cl_v, dr_v):
+        return tuple(cl_v if c == "cell_line" else mc_const[c] for c in mc_cols) + (dr_v,)
+
     def read_rows(mask, cap):
         idx = np.flatnonzero(mask)
         if idx.size > cap:
@@ -121,7 +132,7 @@ def main() -> int:
         real = read_rows((cl == cl_v) & (dr == dr_v) & ~ic, args.eval_cells)
         if len(ctrl) < 16 or len(real) < 16:
             continue
-        pred = model.predict(ctrl, (cl_v, dr_v), num_steps=args.num_steps, seed=0, device=args.device)
+        pred = model.predict(ctrl, leaf_for(cl_v, dr_v), num_steps=args.num_steps, seed=0, device=args.device)
         rows.append((cl_v, dr_v, r2(pred, real), r2(ctrl, real), ed(pred, real), ed(ctrl, real)))
         c = rows[-1]
         print(f"[eval]   {str((cl_v, dr_v)):40.40s} R2 model={c[2]:+.3f} id={c[3]:+.3f} | "

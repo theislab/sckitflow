@@ -41,7 +41,10 @@ def _read_obs_cols(zpath):
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--plates", required=True, help="comma-separated glob(s) of training plates")
-    p.add_argument("--eval-plate", required=True, help="single plate to read eval conditions from")
+    p.add_argument("--eval-plate", required=True,
+                   help="comma-separated glob(s) of plates to read eval conditions from -- scored "
+                        "independently (one fit(), scored against each eval plate in turn) so a single "
+                        "training run can compare held-in vs cross-plate generalization")
     p.add_argument("--sample-rep", default="X_pca", help="obsm rep streamed as the state")
     p.add_argument("--n-conditions", type=int, default=8)
     p.add_argument("--eval-cells", type=int, default=512, help="max cells sampled per population for scoring")
@@ -72,37 +75,14 @@ def main() -> int:
     from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
 
     plates = sorted({p for pattern in args.plates.split(",") for p in glob.glob(pattern)})
-    eval_plate = sorted(glob.glob(args.eval_plate))[0]
+    eval_plates = sorted({p for pattern in args.eval_plate.split(",") for p in glob.glob(pattern)})
     chunk = args.chunk_size
     min_runs = chunk if chunk > 1 else 0
     hidden = tuple(int(x) for x in args.hidden_dims.split(",") if x)
-    print(f"[eval] train_plates={len(plates)} eval_plate={eval_plate.split('/')[-1]} rep={args.sample_rep} "
-          f"n_conditions={args.n_conditions} batch={args.batch_size} chunk={chunk} match_context={args.match_context} "
-          f"reg={args.regularization} lr={args.lr} ctrl_in_mem={args.control_in_memory} "
-          f"steps={args.n_train_steps}", flush=True)
-
-    # --- pick eval conditions: top-N (cell_line, drug) by perturbed cell count on the eval plate ---
-    cl, dr, ic = _read_obs_cols(eval_plate)
-    from collections import Counter
-    pert_counts = Counter(zip(cl[~ic].tolist(), dr[~ic].tolist()))
-    conditions = [c for c, _ in pert_counts.most_common(args.n_conditions)]
-    Xg = zarr.open_group(eval_plate, mode="r")["obsm"][args.sample_rep]
-
-    # predict()'s leaf tuple must match compile_obs's `cols = (*match_context, *cond_cols)` order/length --
-    # cond_cols is always just ["drug"] here, so build (value-per-match-context-col..., drug).
-    mc_cols = args.match_context.split(",")
-    g_obs = zarr.open_group(eval_plate, mode="r")["obs"]
-    # every match_context column besides "cell_line" is constant across this single eval plate's rows.
-    mc_const = {c: _read_obs_col(g_obs, c)[0] for c in mc_cols if c != "cell_line"}
-
-    def leaf_for(cl_v, dr_v):
-        return tuple(cl_v if c == "cell_line" else mc_const[c] for c in mc_cols) + (dr_v,)
-
-    def read_rows(mask, cap):
-        idx = np.flatnonzero(mask)
-        if idx.size > cap:
-            idx = np.sort(np.random.default_rng(0).choice(idx, cap, replace=False))
-        return np.asarray(Xg.oindex[idx, :], dtype=np.float32)
+    print(f"[eval] train_plates={len(plates)} eval_plates={[p.split('/')[-1] for p in eval_plates]} "
+          f"rep={args.sample_rep} n_conditions={args.n_conditions} batch={args.batch_size} chunk={chunk} "
+          f"match_context={args.match_context} reg={args.regularization} lr={args.lr} "
+          f"ctrl_in_mem={args.control_in_memory} steps={args.n_train_steps}", flush=True)
 
     # --- fit on all training plates ---
     spec = FlowSpec(
@@ -117,7 +97,7 @@ def main() -> int:
               control_in_memory=args.control_in_memory, n_train_steps=args.n_train_steps, device=args.device, lr=args.lr)
     print(f"[eval] fit {args.n_train_steps} steps in {time.perf_counter()-t0:.0f}s", flush=True)
 
-    # --- score each condition: model vs identity baseline ---
+    # --- score each condition, per eval plate: model vs identity baseline ---
     import torch
 
     def r2(pred, target):
@@ -126,29 +106,60 @@ def main() -> int:
     def ed(pred, target):
         m = EnergyDistance(); m.update(torch.as_tensor(pred), torch.as_tensor(target)); return float(m.compute())
 
-    rows = []
-    for cl_v, dr_v in conditions:
-        ctrl = read_rows((cl == cl_v) & ic, args.eval_cells)
-        real = read_rows((cl == cl_v) & (dr == dr_v) & ~ic, args.eval_cells)
-        if len(ctrl) < 16 or len(real) < 16:
-            continue
-        pred = model.predict(ctrl, leaf_for(cl_v, dr_v), num_steps=args.num_steps, seed=0, device=args.device)
-        rows.append((cl_v, dr_v, r2(pred, real), r2(ctrl, real), ed(pred, real), ed(ctrl, real)))
-        c = rows[-1]
-        print(f"[eval]   {str((cl_v, dr_v)):40.40s} R2 model={c[2]:+.3f} id={c[3]:+.3f} | "
-              f"Edist model={c[4]:.1f} id={c[5]:.1f}", flush=True)
+    mc_cols = args.match_context.split(",")
+    all_win = True
+    for eval_plate in eval_plates:
+        name = eval_plate.split("/")[-1]
+        print(f"[eval] === eval_plate={name} ===", flush=True)
 
-    if not rows:
-        print("[eval] no scorable conditions", flush=True)
-        return 1
-    a = np.array([[r[2], r[3], r[4], r[5]] for r in rows])
-    mr2, ir2, med, ied = a.mean(0)
-    win = (mr2 > ir2) and (med < ied)
-    print(f"[eval] MEAN over {len(rows)} conditions: R2 model={mr2:+.3f} vs identity={ir2:+.3f} | "
-          f"E-dist model={med:.1f} vs identity={ied:.1f}", flush=True)
-    print(f"[eval] {'PASS' if win else 'FAIL'}: model {'BEATS' if win else 'does NOT beat'} the "
-          f"no-perturbation baseline (higher R2 + lower E-distance).", flush=True)
-    return 0 if win else 2
+        # top-N (cell_line, drug) by perturbed cell count on THIS eval plate
+        cl, dr, ic = _read_obs_cols(eval_plate)
+        from collections import Counter
+        pert_counts = Counter(zip(cl[~ic].tolist(), dr[~ic].tolist()))
+        conditions = [c for c, _ in pert_counts.most_common(args.n_conditions)]
+        Xg = zarr.open_group(eval_plate, mode="r")["obsm"][args.sample_rep]
+
+        # predict()'s leaf tuple must match compile_obs's `cols = (*match_context, *cond_cols)` order/length --
+        # cond_cols is always just ["drug"] here, so build (value-per-match-context-col..., drug). Every
+        # match_context column besides "cell_line" is constant across this single eval plate's rows.
+        g_obs = zarr.open_group(eval_plate, mode="r")["obs"]
+        mc_const = {c: _read_obs_col(g_obs, c)[0] for c in mc_cols if c != "cell_line"}
+
+        def leaf_for(cl_v, dr_v, mc_const=mc_const):
+            return tuple(cl_v if c == "cell_line" else mc_const[c] for c in mc_cols) + (dr_v,)
+
+        def read_rows(mask, cap, Xg=Xg):
+            idx = np.flatnonzero(mask)
+            if idx.size > cap:
+                idx = np.sort(np.random.default_rng(0).choice(idx, cap, replace=False))
+            return np.asarray(Xg.oindex[idx, :], dtype=np.float32)
+
+        rows = []
+        for cl_v, dr_v in conditions:
+            ctrl = read_rows((cl == cl_v) & ic, args.eval_cells)
+            real = read_rows((cl == cl_v) & (dr == dr_v) & ~ic, args.eval_cells)
+            if len(ctrl) < 16 or len(real) < 16:
+                continue
+            pred = model.predict(ctrl, leaf_for(cl_v, dr_v), num_steps=args.num_steps, seed=0, device=args.device)
+            rows.append((cl_v, dr_v, r2(pred, real), r2(ctrl, real), ed(pred, real), ed(ctrl, real)))
+            c = rows[-1]
+            print(f"[eval]   {str((cl_v, dr_v)):40.40s} R2 model={c[2]:+.3f} id={c[3]:+.3f} | "
+                  f"Edist model={c[4]:.1f} id={c[5]:.1f}", flush=True)
+
+        if not rows:
+            print(f"[eval] {name}: no scorable conditions", flush=True)
+            all_win = False
+            continue
+        a = np.array([[r[2], r[3], r[4], r[5]] for r in rows])
+        mr2, ir2, med, ied = a.mean(0)
+        win = (mr2 > ir2) and (med < ied)
+        all_win = all_win and win
+        print(f"[eval] {name} MEAN over {len(rows)} conditions: R2 model={mr2:+.3f} vs identity={ir2:+.3f} | "
+              f"E-dist model={med:.1f} vs identity={ied:.1f}", flush=True)
+        print(f"[eval] {name} {'PASS' if win else 'FAIL'}: model {'BEATS' if win else 'does NOT beat'} the "
+              f"no-perturbation baseline (higher R2 + lower E-distance).", flush=True)
+
+    return 0 if all_win else 2
 
 
 if __name__ == "__main__":

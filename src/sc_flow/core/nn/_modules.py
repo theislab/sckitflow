@@ -4,6 +4,7 @@ from collections.abc import Callable, Sequence
 from typing import Any
 
 import torch
+from huggingface_hub import PyTorchModelHubMixin
 
 from sc_flow._constants import DEFAULT_NUM_RESNET_LAYERS
 
@@ -15,8 +16,15 @@ __all__ = [
 ]
 
 
-class BaseModule(abc.ABC, torch.nn.Module):
-    """Base class for Neural Networks."""
+class BaseModule(abc.ABC, torch.nn.Module, PyTorchModelHubMixin):
+    """Base class for Neural Networks.
+
+    Mixes in :class:`~huggingface_hub.PyTorchModelHubMixin` so every toolbox model is Hub-shareable —
+    ``save_pretrained`` / ``from_pretrained`` / ``push_to_hub`` (weights as **safetensors**, ``__init__``
+    kwargs auto-captured to ``config.json``). Config auto-capture needs JSON-serializable ``__init__``
+    args; a model with a non-serializable arg (e.g. a passed-in callable) simply can't round-trip its
+    config, but never errors at construction.
+    """
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__()

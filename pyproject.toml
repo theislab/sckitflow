@@ -31,7 +31,11 @@ dependencies = [
   # `allow-direct-references` (see [tool.hatch.metadata]).
   "binded @ git+https://github.com/theislab/binded@318dd6e423e135a5cc71b2e4d58c6c1e2f7f6a7e",
   "cloudpickle",
+  # Hub model sharing (save_pretrained / from_pretrained / push_to_hub) for every nn.Module via
+  # core.nn.BaseModule's PyTorchModelHubMixin; safetensors is the mixin's weight-serialization backend.
+  "huggingface-hub",
   "omegaconf",
+  "safetensors",
   "scikit-learn",
   "session-info2",
   "tqdm",

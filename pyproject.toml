@@ -25,10 +25,11 @@ dependencies = [
   # >=0.13 for the `anndata.acc` reference system (A.obsm[...] / adata[ref]) used by CouplingDataSchema.
   "anndata>=0.13",
   # the data layer compiles labels into a binded Scheme and streams cells via binded.Loader.
-  # Pinned to the git branch (not yet on PyPI); binded transitively pins the annbatch BoundClassSampler
-  # fork. Requires `allow-direct-references` (see [tool.hatch.metadata]). For local development both are
-  # installed editable from sibling checkouts (see docs/plans/binded-integration.md).
-  "binded @ git+https://github.com/theislab/binded@feat/loader",
+  # Pinned to an IMMUTABLE binded commit (theislab/binded main; not yet on PyPI) so `uv lock` resolves
+  # reproducibly from GitHub — and so downstream (cf-train) can rebuild its lock without a local checkout.
+  # binded transitively pins the annbatch BoundClassSampler fork (also an immutable commit). Requires
+  # `allow-direct-references` (see [tool.hatch.metadata]).
+  "binded @ git+https://github.com/theislab/binded@318dd6e423e135a5cc71b2e4d58c6c1e2f7f6a7e",
   "cloudpickle",
   "omegaconf",
   "scikit-learn",
@@ -132,12 +133,9 @@ envs.hatch-test.overrides.matrix.deps.env-vars = [
   { value = "allow", key = "UV_PRERELEASE", if = [ "pre" ] },
 ]
 
-[tool.uv]
-# Local-dev editable checkout of the `binded` git dependency. Only uv PROJECT commands
-# (`uv sync` / `uv run`) read `[tool.uv.sources]`; CI (`uv build`, `uv pip install`, `uvx hatch`)
-# resolves the git ref from `[project.dependencies]` instead, so this stays dev-only. A fresh
-# `uv sync` needs the `../binded` sibling checkout present (and its annbatch fork — see binded).
-sources.binded = { path = "../binded", editable = true }
+# NB: no [tool.uv] `sources.binded` override — binded resolves from the immutable git commit pinned in
+# [project.dependencies] for everyone (dev, CI, and downstream lockers), not a relative `../binded` path.
+# For editable local-dev work on binded, add a personal (uncommitted) `sources.binded = { path = ... }`.
 
 [tool.ruff]
 line-length = 120

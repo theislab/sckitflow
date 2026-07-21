@@ -14,7 +14,7 @@ pytest.importorskip("torch")
 
 import torch
 
-from sc_flow.backends.torch.nn._vf import MLPVelocity
+from sc_flow.flow._vf import MLPVelocity
 from sc_flow.backends.torch.surrogate import GenerativeFlowSurrogateWrapper, SquaredErrorPotential
 
 D = 2

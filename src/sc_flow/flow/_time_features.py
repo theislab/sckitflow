@@ -8,8 +8,8 @@ import torch
 from sc_flow._constants import DEFAULT_NUM_TIME_FEATURES, DEFAULT_TIME_FEATURES_MAX_PERIOD, PI
 from sc_flow._types import TimeFeaturesId
 from sc_flow._utils import verify_fn_signature
-from sc_flow.backends.torch._types import TTimeFeaturesFn
-from sc_flow.backends.torch._utils import ensure_2d_tensor_with_singleton_trailing_dim
+from sc_flow.core._torch_types import TTimeFeaturesFn
+from sc_flow.core._torch_utils import ensure_2d_tensor_with_singleton_trailing_dim
 
 __all__ = [
     "ott_jax_time_features",

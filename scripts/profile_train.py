@@ -103,8 +103,8 @@ def main() -> int:
     import torch
     from binded import Loader, SamplerConfig
 
-    from sc_flow.backends.torch.training._harness import SCFlowLightningModule
-    from sc_flow.backends.torch.training._objective import build_objective
+    from sc_flow.core.training._harness import SCFlowLightningModule
+    from sc_flow.core.training._objective import build_objective
 
     print(f"[profile] device={args.device} objective={args.objective} batch={args.batch_size} "
           f"data={'synthetic' if not args.data else args.data}", flush=True)

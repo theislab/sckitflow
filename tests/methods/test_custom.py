@@ -49,7 +49,7 @@ def mock_prediction_data():
             self.samples = samples
             self.traj = traj
 
-    with patch("sc_flow.backends.torch._types.PredictionData", DummyPredictionData):
+    with patch("sc_flow.core._torch_types.PredictionData", DummyPredictionData):
         yield DummyPredictionData
 
 

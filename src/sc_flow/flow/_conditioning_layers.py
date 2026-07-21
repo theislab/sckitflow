@@ -6,9 +6,9 @@ import torch
 from sc_flow._constants import DEFAULT_CONDITIONING_LAYER
 from sc_flow._types import ConditioningLayersId
 from sc_flow._utils import verify_fn_kwargs_dictionary
-from sc_flow.backends.torch._types import TConditioningFn
-from sc_flow.backends.torch._utils import make_concatenation_possible
-from sc_flow.backends.torch.nn._modules import BaseModule, Resnet1d
+from sc_flow.core._torch_types import TConditioningFn
+from sc_flow.core._torch_utils import make_concatenation_possible
+from sc_flow.core.nn._modules import BaseModule, Resnet1d
 
 __all__ = [
     "BaseConditioningLayer",

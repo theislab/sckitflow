@@ -1,7 +1,7 @@
 """The one LightningModule that trains any (model, objective) pair.
 
 This is the single training harness the redesign converges on. It holds the torch
-``model`` (the weights) and an :class:`~sc_flow.backends.torch.training._objective.Objective`,
+``model`` (the weights) and an :class:`~sc_flow.core.training._objective.Objective`,
 and its ``training_step`` just asks the objective for a loss. Whether that loss was
 computed in torch or in JAX (via the DLPack bridge) is entirely the objective's
 concern — the harness, the optimizer, and the Lightning loop are shared. This is what
@@ -17,7 +17,7 @@ from typing import Any
 import lightning.pytorch as pl
 import torch
 
-from sc_flow.backends.torch.training._objective import Objective
+from sc_flow.core.training._objective import Objective
 
 __all__ = ["SCFlowLightningModule"]
 

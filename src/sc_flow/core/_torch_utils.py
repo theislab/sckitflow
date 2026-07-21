@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import torch
 
-from sc_flow.backends.torch._types import NumpyArray, ShapeLike, TDevice, TensorLike
+from sc_flow.core._torch_types import NumpyArray, ShapeLike, TDevice, TensorLike
 
 __all__ = [
     "broadcast_to_target_shape",

@@ -1,5 +1,5 @@
 from sc_flow._types import LayersDict
-from sc_flow.backends.torch.nn._modules import MLP, BaseModule
+from sc_flow.core.nn._modules import MLP, BaseModule
 
 __all__ = ["init_module_from_dict"]
 

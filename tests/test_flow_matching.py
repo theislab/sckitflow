@@ -163,7 +163,7 @@ def test_predict_helpers_accept_device_tensors():
     must NOT do np.asarray on those tensors (that raises "can't convert cuda tensor to numpy"). Exercised
     on CPU tensors here — the code path (isinstance torch.Tensor branch) is device-agnostic.
     """
-    from sc_flow.backends.torch.training._predict import _as_f32, condition_to_device
+    from sc_flow.flow._predict import _as_f32, condition_to_device
 
     t = torch.ones(3, 4, dtype=torch.float64)  # a tensor, not numpy
     out = _as_f32(t, torch.device("cpu"))
@@ -396,7 +396,7 @@ def test_save_before_fit_raises(tmp_path):
 
 def test_r_squared_metric():
     """RSquared: per-condition R² between predicted and target feature-wise means, averaged over updates."""
-    from sc_flow.backends.torch.metrics import RSquared
+    from sc_flow.core.metrics import RSquared
 
     torch.manual_seed(0)
     # feature-varying target means (baseline differs per feature) so the R² denominator is non-degenerate.

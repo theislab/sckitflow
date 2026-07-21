@@ -1,4 +1,4 @@
-from sc_flow.backends.torch.probability_paths._probability_paths import (
+from sc_flow.flow.probability_paths._probability_paths import (
     BaseProbabilityPath,
     LinearDiracProbabilityPath,
     LinearGaussianProbabilityPath,

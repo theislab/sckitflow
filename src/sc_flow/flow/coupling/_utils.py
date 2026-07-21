@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from sc_flow.backends.jax._types import ArrayLike, JaxArray, JaxDevice, NumpyArray, TDevice
+from sc_flow.flow.coupling._types import ArrayLike, JaxArray, JaxDevice, NumpyArray, TDevice
 
 __all__ = [
     "broadcast_to_target_shape",
@@ -74,7 +74,7 @@ def broadcast_to_target_shape(
             expanded to match the corresponding target dimension. In case of mismatch a :class: `ValueError` is raised.
 
     :param input_array: The input tensor whose to broadcast.
-    :type input_array: :class:`~sc_flow.backends.jax._types.ArrayLike`
+    :type input_array: :class:`~sc_flow.flow.coupling._types.ArrayLike`
 
     :param target_shape: The target shape which we want to broadcast the input to.
     :type target_shape: Sequence[int]

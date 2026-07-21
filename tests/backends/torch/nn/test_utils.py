@@ -1,8 +1,8 @@
 import pytest
 
 from sc_flow._types import LayersDict
-from sc_flow.backends.torch.nn._modules import MLP
-from sc_flow.backends.torch.nn._utils import init_module_from_dict
+from sc_flow.core.nn._modules import MLP
+from sc_flow.core.nn._utils import init_module_from_dict
 
 input_dim = 16
 output_dim = 8

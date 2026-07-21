@@ -13,13 +13,13 @@ from sc_flow._constants import (
     DEFAULT_VF_LATENT_TIME_DIM,
 )
 from sc_flow._types import ConditioningLayersId, LayersDict, NestedLayersDict, TimeFeaturesId
-from sc_flow.backends.torch._types import MappedTensor, TConditioningFn, TTimeFeaturesFn, TVfFn
-from sc_flow.backends.torch._utils import make_concatenation_possible
-from sc_flow.backends.torch.nn._conditioning_layers import BaseConditioningLayer, get_conditioning_layer
-from sc_flow.backends.torch.nn._modules import BaseModule, FunctionalModule
-from sc_flow.backends.torch.nn._set_encoder import SetEncoder
-from sc_flow.backends.torch.nn._time_features import get_time_features_fn
-from sc_flow.backends.torch.nn._utils import init_module_from_dict
+from sc_flow.core._torch_types import MappedTensor, TConditioningFn, TTimeFeaturesFn, TVfFn
+from sc_flow.core._torch_utils import make_concatenation_possible
+from sc_flow.flow._conditioning_layers import BaseConditioningLayer, get_conditioning_layer
+from sc_flow.core.nn._modules import BaseModule, FunctionalModule
+from sc_flow.flow._set_encoder import SetEncoder
+from sc_flow.flow._time_features import get_time_features_fn
+from sc_flow.core.nn._utils import init_module_from_dict
 
 __all__ = [
     "BaseVelocityField",

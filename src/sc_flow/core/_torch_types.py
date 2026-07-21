@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 
 if TYPE_CHECKING:
-    from sc_flow.backends.torch.nn._vf import BaseVelocityField
+    from sc_flow.flow._vf import BaseVelocityField
 
 try:
     from numpy.typing import NDArray

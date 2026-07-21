@@ -69,7 +69,7 @@ def main() -> int:
     import zarr
 
     from sc_flow import FlowMatching
-    from sc_flow.backends.torch.metrics import EnergyDistance, RSquared
+    from sc_flow.core.metrics import EnergyDistance, RSquared
     from sc_flow.core.data import FlowSpec
     from sc_flow.core.data._encoders import one_hot
     from sc_flow.core.data.schemas import ConditionDataSchema, StateDataSchema

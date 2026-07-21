@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from sc_flow.backends.torch._types import PredictionData
+from sc_flow.core._torch_types import PredictionData
 from sc_flow.backends.torch.methods._utils import StepData
 from sc_flow.backends.torch.methods.library._cfm import CFM
 

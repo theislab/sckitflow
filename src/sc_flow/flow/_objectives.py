@@ -1,107 +1,33 @@
-"""The training seam: a model (torch weights) + an objective (computes the loss).
+"""Concrete flow-matching objectives (the FM loss math), registered on import.
 
-The redesign turns "how a batch becomes a scalar loss" into a small, registerable
-:class:`Objective`. The weights always live in a torch ``nn.Module`` (the *model*);
-the objective decides *where the numerics run* — natively in torch, or in JAX via the
-DLPack bridge with the torch weights mirrored per step. Both are trained by the one
-:class:`~sc_flow.backends.torch.training._harness.SCFlowLightningModule`, so "torch
-vs JAX compute" is a one-line objective swap rather than a second LightningModule.
-
-A third party who installs the toolbox and wants a slightly different architecture
-registers a model builder (and reuses an objective); a new training math registers an
-objective (and reuses the harness + data plumbing).
+The generic seam (:class:`~sc_flow.core.training._objective.Objective` + registries) lives in the ML
+core; these are the flow-matching implementations. The weights always live in a torch ``nn.Module``; the
+OT-coupled objectives solve the minibatch transport plan in JAX via the DLPack bridge, imported **lazily**
+(:func:`sc_flow._optional.require`) only when a coupling actually runs — so ``import sc_flow.flow`` and the
+``match_method="independent"`` path need no jax. Importing this module registers ``fm-linear``, ``otfm``
+and ``genot``.
 """
 
 from __future__ import annotations
 
-import abc
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from typing import Any
 
 import numpy as np
 import torch
 
-__all__ = [
-    "Objective",
-    "register_objective",
-    "register_architecture",
-    "build_objective",
-    "build_architecture",
-    "OBJECTIVE_REGISTRY",
-    "ARCHITECTURE_REGISTRY",
-]
+from sc_flow.core.training._objective import Objective, register_objective
 
-
-class Objective(abc.ABC):
-    """Computes a scalar training loss for a model on a batch.
-
-    The single seam the harness calls each step. Implementations own *where* the
-    numerics run (torch or JAX) and how they read the batch; the harness only sees the
-    returned loss (whose gradient must flow to ``model``'s torch parameters) and logs.
-    """
-
-    @abc.abstractmethod
-    def compute_loss(self, model: torch.nn.Module, batch: Any) -> tuple[torch.Tensor, dict[str, Any]]:
-        """Return ``(loss, logs)``. ``loss.backward()`` must reach ``model.parameters()``."""
-
-
-# Registries so third-party architectures / objectives are discoverable by name.
-# An architecture builder returns a torch ``nn.Module`` (the weights); an objective
-# builder returns an :class:`Objective`.
-ARCHITECTURE_REGISTRY: dict[str, Callable[..., torch.nn.Module]] = {}
-OBJECTIVE_REGISTRY: dict[str, Callable[..., Objective]] = {}
-
-
-def register_architecture(name: str) -> Callable[[Callable[..., torch.nn.Module]], Callable[..., torch.nn.Module]]:
-    """Register a model (architecture) builder under ``name``.
-
-    The builder returns a torch ``nn.Module`` holding the weights. Lets someone
-    ``register_architecture("my-net")`` and select it by config without editing the
-    framework.
-    """
-
-    def deco(builder: Callable[..., torch.nn.Module]) -> Callable[..., torch.nn.Module]:
-        if name in ARCHITECTURE_REGISTRY:
-            raise ValueError(f"Architecture {name!r} already registered.")
-        ARCHITECTURE_REGISTRY[name] = builder
-        return builder
-
-    return deco
-
-
-def register_objective(name: str) -> Callable[[Callable[..., Objective]], Callable[..., Objective]]:
-    """Register an :class:`Objective` builder under ``name`` (e.g. ``"fm-linear"``, ``"otfm"``, ``"genot"``)."""
-
-    def deco(builder: Callable[..., Objective]) -> Callable[..., Objective]:
-        if name in OBJECTIVE_REGISTRY:
-            raise ValueError(f"Objective {name!r} already registered.")
-        OBJECTIVE_REGISTRY[name] = builder
-        return builder
-
-    return deco
-
-
-def build_architecture(name: str, *args: Any, **kwargs: Any) -> torch.nn.Module:
-    """Instantiate a registered architecture by name."""
-    if name not in ARCHITECTURE_REGISTRY:
-        raise KeyError(f"Architecture {name!r} not registered. Available: {sorted(ARCHITECTURE_REGISTRY)}.")
-    return ARCHITECTURE_REGISTRY[name](*args, **kwargs)
-
-
-def build_objective(name: str, *args: Any, **kwargs: Any) -> Objective:
-    """Instantiate a registered objective by name."""
-    if name not in OBJECTIVE_REGISTRY:
-        raise KeyError(f"Objective {name!r} not registered. Available: {sorted(OBJECTIVE_REGISTRY)}.")
-    return OBJECTIVE_REGISTRY[name](*args, **kwargs)
+__all__ = ["LinearFMObjective", "OTFMObjective", "GENOTObjective"]
 
 
 @register_objective("fm-linear")
-class TorchLinearFMObjective(Objective):
+class LinearFMObjective(Objective):
     """Conditional flow-matching loss computed natively in torch.
 
-    Straight-path CFM: for a batch of ``source``/``target`` (and optional ``cond``),
-    sample ``t``, form ``x_t = (1-t) x0 + t x1`` and regress the model's velocity onto
-    ``u = x1 - x0``. The model is called as ``model(t, x_t[, cond])``.
+    Straight-path CFM: for a batch of ``source``/``target`` (and optional ``cond``), sample ``t``, form
+    ``x_t = (1-t) x0 + t x1`` and regress the model's velocity onto ``u = x1 - x0``. The model is called
+    as ``model(t, x_t[, cond])``.
     """
 
     def compute_loss(self, model: torch.nn.Module, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, Any]]:
@@ -152,9 +78,7 @@ def _condition_tensors(
     return out
 
 
-def _encoder_reg(
-    mean: torch.Tensor | None, logvar: torch.Tensor | None, regularization: float
-) -> torch.Tensor | None:
+def _encoder_reg(mean: torch.Tensor | None, logvar: torch.Tensor | None, regularization: float) -> torch.Tensor | None:
     """Condition-encoder regularization (cellflow's) from the precomputed encoder stats.
 
     Deterministic (``logvar is None``): L2 ``0.5 * mean(mean**2)``, gated by ``regularization > 0``.
@@ -189,7 +113,7 @@ def _loss_with_reg(
     return loss, logs
 
 
-class _TorchOTObjective(Objective):
+class _OTObjective(Objective):
     """Shared setup for OT-coupled torch flow-matching objectives (``otfm``, ``genot``).
 
     Holds the torch probability path, the coupling configuration, and the seeded generators; subclasses
@@ -205,17 +129,18 @@ class _TorchOTObjective(Objective):
     regularization
         Gate for the encoder regularization term (cellflow semantics: ``> 0`` includes it, unscaled).
     coupling_locs
-        ``{role: loc}`` from :attr:`CompiledData.coupling` (e.g. ``src_lin``/``tgt_lin``), or ``None``
-        to OT-match on the state reps.
+        ``{role: loc}`` from :attr:`CompiledData.coupling` (e.g. ``src_lin``/``tgt_lin``), or ``None`` to
+        OT-match on the state reps.
     match_method
-        ``"sinkhorn"`` / ``"unbalanced"`` (OT via :func:`ot_linear_coupling`) or ``"independent"``.
+        ``"sinkhorn"`` / ``"unbalanced"`` (OT, solved in JAX) or ``"independent"`` (a torch random pairing,
+        needs no jax).
     match_kwargs
         Extra kwargs forwarded to the coupling solver (e.g. ``epsilon``/``tau_a``/``tau_b``).
     seed
-        Seed for this objective's stochastic sources — the OT plan-sampling
-        (:class:`numpy.random.Generator`), the per-step ``t`` draw and (GENOT) the latent-noise draw
-        (CPU :class:`torch.Generator` objects). Fixing it makes each step bit-reproducible (Sinkhorn itself
-        is a deterministic solve), independent of process-global RNG state.
+        Seed for this objective's stochastic sources — the OT plan-sampling (:class:`numpy.random.Generator`),
+        the per-step ``t`` draw and (GENOT) the latent-noise draw (CPU :class:`torch.Generator` objects).
+        Fixing it makes each step bit-reproducible (Sinkhorn itself is a deterministic solve), independent of
+        process-global RNG state.
     """
 
     def __init__(
@@ -269,9 +194,10 @@ class _TorchOTObjective(Objective):
         """OT-resample the batch on ``device`` → ``(src_ixs, tgt_ixs)`` torch long tensors.
 
         Quadratic/fused-GW when the schema is quadratic (``src_quad``/``tgt_quad``), else linear sinkhorn
-        (or ``independent`` — a torch random pairing). The reps **and** the transport plan stay on
+        (or ``independent`` — a torch random pairing, no jax). The reps **and** the transport plan stay on
         ``device`` (GPU under CUDA) via zero-copy DLPack; only the tiny index arrays are produced. The
-        generated state space is untouched — coupling only pairs cells.
+        generated state space is untouched — coupling only pairs cells. JAX is imported lazily here (and
+        only here), so the ``independent`` path and plain ``import sc_flow.flow`` never need it.
         """
         locs = self._coupling_locs
         if self._match_method == "independent":
@@ -285,7 +211,7 @@ class _TorchOTObjective(Objective):
         from sc_flow._optional import require
 
         jax = require("jax")
-        couple_device = require("sc_flow.backends.jax.coupling._device").couple_device
+        couple_device = require("sc_flow.flow.coupling._device").couple_device
 
         if self._coupling_key is None:
             self._coupling_key = jax.random.PRNGKey(self._seed)
@@ -310,14 +236,14 @@ class _TorchOTObjective(Objective):
 
 
 @register_objective("otfm")
-class TorchOTFMObjective(_TorchOTObjective):
+class OTFMObjective(_OTObjective):
     """(OT) conditional flow-matching loss, computed in torch, coupling solved in JAX.
 
-    Mirrors cellflow's ``OTFlowMatching`` step: each minibatch, resample the ``(source, target)`` pairing
-    by a **minibatch OT plan** (the one JAX call — :func:`ot_linear_coupling`, forward-only, no gradient),
-    then the straight-path CFM loss on the coupled pairs — ``x_t = compute_xt(t, source, target)``, regress
-    ``model(t, x_t, cond)`` onto ``u = target - source`` — plus the deterministic encoder regularization.
-    ``match_method="independent"`` gives cellflow's ``match_fn=None`` (vanilla CFM) baseline.
+    Mirrors cellflow's ``OTFlowMatching`` step: each minibatch, resample the ``(source, target)`` pairing by
+    a **minibatch OT plan** (the one JAX call, forward-only, no gradient), then the straight-path CFM loss on
+    the coupled pairs — ``x_t = compute_xt(t, source, target)``, regress ``model(t, x_t, cond)`` onto
+    ``u = target - source`` — plus the deterministic encoder regularization. ``match_method="independent"``
+    gives cellflow's ``match_fn=None`` (vanilla CFM) baseline and needs no jax.
     """
 
     def compute_loss(self, model: torch.nn.Module, batch: dict[str, Any]) -> tuple[torch.Tensor, dict[str, Any]]:
@@ -341,7 +267,7 @@ class TorchOTFMObjective(_TorchOTObjective):
 
 
 @register_objective("genot")
-class TorchGENOTObjective(_TorchOTObjective):
+class GENOTObjective(_OTObjective):
     """GENOT (generative entropic OT) loss, computed in torch, coupling solved in JAX.
 
     Mirrors cellflow's ``GENOT`` step: OT-resample ``(source, target)`` (as OTFM), then sample a latent

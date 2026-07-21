@@ -7,7 +7,7 @@ from ott.problems.linear import linear_problem
 from ott.solvers.linear import sinkhorn
 from ott.solvers.utils import match_quadratic
 
-from sc_flow.backends.jax._types import (
+from sc_flow.flow.coupling._types import (
     ArrayLike,
     LinCouplingMethod,
     NumpyArray,
@@ -15,7 +15,7 @@ from sc_flow.backends.jax._types import (
     QuadCouplingMethod,
     ScaleMethod,
 )
-from sc_flow.backends.jax._utils import to_jax_array
+from sc_flow.flow.coupling._utils import to_jax_array
 
 logger = logging.getLogger(__name__)
 

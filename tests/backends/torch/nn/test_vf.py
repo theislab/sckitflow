@@ -5,8 +5,8 @@ import pytest
 import torch
 
 from sc_flow._types import TimeFeaturesId
-from sc_flow.backends.torch._types import TTimeFeaturesFn
-from sc_flow.backends.torch.nn._vf import (
+from sc_flow.core._torch_types import TTimeFeaturesFn
+from sc_flow.flow._vf import (
     MLPVelocity,
 )
 

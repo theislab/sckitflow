@@ -1,7 +1,7 @@
 """Shared inference: integrate the torch velocity field to translate cells.
 
 The one ODE-integration used by **both** :meth:`~sc_flow.FlowMatching.predict` and the validation loop
-(:class:`~sc_flow.backends.torch.training._harness.SCFlowLightningModule`), so a validation metric reflects
+(:class:`~sc_flow.core.training._harness.SCFlowLightningModule`), so a validation metric reflects
 exactly what ``predict`` does. It is objective-agnostic apart from a single ``is_genot`` switch on the flow
 endpoints (OTFM integrates the cells themselves; GENOT integrates from latent noise with the cell held as
 the source-conditioning input).

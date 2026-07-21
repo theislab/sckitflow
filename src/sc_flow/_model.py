@@ -74,7 +74,7 @@ class FlowMatching:
 
     def _build_vf(self, dims: CompiledDims) -> torch.nn.Module:
         """Size an ``MLPVelocity`` from :class:`~sc_flow.core.data.CompiledDims` (no batch pulled)."""
-        from sc_flow.backends.torch.nn._vf import MLPVelocity
+        from sc_flow.flow._vf import MLPVelocity
 
         cond_input_layers = (
             {
@@ -108,7 +108,7 @@ class FlowMatching:
         return MLPVelocity(**vf_kwargs)
 
     def _build_probability_path(self):
-        from sc_flow.backends.torch.probability_paths._probability_paths import (
+        from sc_flow.flow.probability_paths._probability_paths import (
             LinearDiracProbabilityPath,
             LinearGaussianProbabilityPath,
         )
@@ -174,7 +174,7 @@ class FlowMatching:
         :param n_val_conditions: How many condition batches to score per validation pass (control
             populations are cycled, each drawing a held-out condition; seeded). Defaults to the number of
             held-out condition combinations.
-        :param metrics: Names (in :data:`~sc_flow.backends.torch.metrics.METRICS_REGISTRY`) of the
+        :param metrics: Names (in :data:`~sc_flow.core.metrics.METRICS_REGISTRY`) of the
             distribution metrics to score on the held-out split.
         :param val_num_steps: ODE integration steps for the validation translation.
         :param val_max_source_cells: Cap on the control/source population size fed to prediction + metrics
@@ -241,8 +241,9 @@ class FlowMatching:
         self.probability_path = self._build_probability_path()
 
         # 3. Objective selected by name (OT coupling in JAX, everything else torch) + shared harness.
-        from sc_flow.backends.torch.training._harness import SCFlowLightningModule
-        from sc_flow.backends.torch.training._objective import build_objective
+        # Import from sc_flow.flow so the concrete objectives register themselves before we build by name.
+        from sc_flow.core.training._harness import SCFlowLightningModule
+        from sc_flow.flow import build_objective
 
         self.objective = build_objective(
             self.objective_name,
@@ -352,7 +353,7 @@ class FlowMatching:
 
     def _val_predict_fn(self, val_num_steps: int):
         """A ``(model, val_batch) -> (pred, target)`` closure sharing :func:`integrate_translation` with predict."""
-        from sc_flow.backends.torch.training._predict import _as_f32, condition_to_device, integrate_translation
+        from sc_flow.flow._predict import _as_f32, condition_to_device, integrate_translation
 
         is_genot = self.objective_name == "genot"
         state_dim = int(self._dims.state)
@@ -387,7 +388,7 @@ class FlowMatching:
         """Build the ``{name: Metric}`` dict + an eval DataLoader (one condition per validation batch)."""
         from binded import EvalLoader, SamplerConfig, split_assignment
 
-        from sc_flow.backends.torch.metrics import METRICS_REGISTRY
+        from sc_flow.core.metrics import METRICS_REGISTRY
 
         unknown = [m for m in metrics if m not in METRICS_REGISTRY]
         if unknown:
@@ -435,7 +436,7 @@ class FlowMatching:
         """
         if self.vf is None:
             raise RuntimeError("Model must be fitted before predict() can be called.")
-        from sc_flow.backends.torch.training._predict import condition_to_device, integrate_translation
+        from sc_flow.flow._predict import condition_to_device, integrate_translation
 
         self.vf.to(device)
         self.vf.eval()

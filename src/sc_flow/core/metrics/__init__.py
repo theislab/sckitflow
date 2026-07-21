@@ -1,4 +1,4 @@
-from sc_flow.backends.torch.metrics._metrics import (
+from sc_flow.core.metrics._metrics import (
     EnergyDistance,
     MaximumMeanDiscrepancy,
     RSquared,

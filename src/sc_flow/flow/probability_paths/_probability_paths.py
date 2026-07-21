@@ -4,7 +4,7 @@ import logging
 import torch
 
 from sc_flow._constants import PI
-from sc_flow.backends.torch._utils import broadcast_to_target_shape
+from sc_flow.core._torch_utils import broadcast_to_target_shape
 
 logger = logging.getLogger(__name__)
 

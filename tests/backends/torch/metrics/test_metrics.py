@@ -7,7 +7,7 @@ pytest.importorskip("torchmetrics")
 
 from sklearn.metrics import r2_score
 
-from sc_flow.backends.torch.metrics._metrics import EnergyDistance, MaximumMeanDiscrepancy, RSquared
+from sc_flow.core.metrics._metrics import EnergyDistance, MaximumMeanDiscrepancy, RSquared
 
 
 def _compute_energy_distance_sklearn(pred: np.ndarray, target: np.ndarray) -> float:

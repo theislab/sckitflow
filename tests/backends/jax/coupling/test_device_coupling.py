@@ -14,7 +14,7 @@ import torch
 
 pytest.importorskip("ott")
 
-from sc_flow.backends.jax.coupling._device import couple_device, torch_to_jax
+from sc_flow.flow.coupling._device import couple_device, torch_to_jax
 
 
 def _reps(n_src=64, n_tgt=48, d=8, seed=0):

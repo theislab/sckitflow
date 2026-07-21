@@ -13,7 +13,7 @@ from sc_flow._runtime import (
 if TYPE_CHECKING:
     # Only for type checking – never imported at runtime
     from sc_flow.backends.jax.probability_paths._probability_paths import BaseProbabilityPath as JaxBaseProbabilityPath
-    from sc_flow.backends.torch.probability_paths._probability_paths import (
+    from sc_flow.flow.probability_paths._probability_paths import (
         BaseProbabilityPath as TorchBaseProbabilityPath,
     )
 

@@ -5,9 +5,9 @@ import torch
 
 from sc_flow._types import LayersDict, NestedLayersDict
 from sc_flow._utils import check_sequence_query_against_reference
-from sc_flow.backends.torch._types import MappedTensor
-from sc_flow.backends.torch.nn._modules import BaseModule, FunctionalModule
-from sc_flow.backends.torch.nn._utils import init_module_from_dict
+from sc_flow.core._torch_types import MappedTensor
+from sc_flow.core.nn._modules import BaseModule, FunctionalModule
+from sc_flow.core.nn._utils import init_module_from_dict
 
 __all__ = ["SetEncoder"]
 

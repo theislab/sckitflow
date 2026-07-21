@@ -8,8 +8,8 @@ velocity fields, probability paths, objectives, predict, and the optional JAX/OT
 Subsystems not on the train path are quarantined under ``sc_flow.legacy``.
 """
 
-from sc_flow.core import data
 from sc_flow._optional import require
+from sc_flow.core import data
 
 __all__ = [
     "FlowMatching",

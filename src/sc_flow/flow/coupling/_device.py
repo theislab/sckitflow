@@ -45,7 +45,7 @@ def jax_to_torch(a: Any) -> torch.Tensor:
 # fixed, so every step is a cache hit (a new batch shape simply triggers one recompile for that shape).
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def _linear_coupler(epsilon: float, scale_cost: Any, tau_a: float, tau_b: float, threshold: float, extra: tuple):
     """Return a jitted ``(src, tgt, key) -> (src_ixs, tgt_ixs)`` linear-sinkhorn coupler for this config.
 
@@ -54,11 +54,9 @@ def _linear_coupler(epsilon: float, scale_cost: Any, tau_a: float, tau_b: float,
     cache key so distinct configs get distinct jitted programs (never silently collapsed).
     """
     import jax
-
     from ott.geometry import costs, pointcloud
     from ott.problems.linear import linear_problem
     from ott.solvers.linear import sinkhorn
-
     from ott.solvers.utils import sample_joint
 
     extra_kwargs = dict(extra)
@@ -73,7 +71,7 @@ def _linear_coupler(epsilon: float, scale_cost: Any, tau_a: float, tau_b: float,
     return _fn
 
 
-@functools.lru_cache(maxsize=None)
+@functools.cache
 def _quadratic_coupler(scale_cost: Any, cost_fn: Any, fused: bool):
     """Return a jitted quadratic/GW coupler; ``fused`` selects whether linear reps also condition the plan.
 
@@ -81,7 +79,6 @@ def _quadratic_coupler(scale_cost: Any, cost_fn: Any, fused: bool):
     non-default GW cost is honored rather than silently dropped (it must be hashable to key the cache).
     """
     import jax
-
     from ott.solvers.utils import match_quadratic, sample_joint
 
     if fused:

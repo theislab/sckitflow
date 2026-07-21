@@ -2,8 +2,8 @@ from collections.abc import Collection, Mapping
 
 from anndata import AnnData
 
-from sc_flow.data._encoders import Encoder, Lookup
-from sc_flow.data.schemas._base_schema import StrictDataSchema
+from sc_flow.core.data._encoders import Encoder, Lookup
+from sc_flow.core.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["ResponseDataSchema"]
 

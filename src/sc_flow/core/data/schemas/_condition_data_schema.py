@@ -3,8 +3,8 @@ from collections.abc import Collection, Mapping
 from anndata import AnnData
 
 from sc_flow._utils import check_sequence_query_against_reference
-from sc_flow.data._encoders import Encoder, Lookup
-from sc_flow.data.schemas._base_schema import StrictDataSchema
+from sc_flow.core.data._encoders import Encoder, Lookup
+from sc_flow.core.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["ConditionDataSchema"]
 
@@ -14,16 +14,16 @@ class ConditionDataSchema(StrictDataSchema):
 
     Discrete conditioning is organized into **condition levels** (the combinatorial axes). Each level
     maps to a set of ``.obs`` columns (its combination slots) via :param:`conditions`, and to a single
-    :class:`~sc_flow.data._encoders.Encoder` via :param:`condition_encoders`. After Change 2 there is
+    :class:`~sc_flow.core.data._encoders.Encoder` via :param:`condition_encoders`. After Change 2 there is
     no ``reps`` vs ``encoding`` split — a ``.uns`` lookup is just a
-    :func:`~sc_flow.data._encoders.lookup` encoder, so every level carries exactly one encoder.
+    :func:`~sc_flow.core.data._encoders.lookup` encoder, so every level carries exactly one encoder.
 
     Continuous "paired" covariates (one dense value per observation, stored in ``.obsm``) are declared
     with :param:`conditions_covariates`; they disable grouping (each observation is its own condition).
 
     Example::
 
-        >>> from sc_flow.data._encoders import lookup, one_hot
+        >>> from sc_flow.core.data._encoders import lookup, one_hot
         >>> ConditionDataSchema(
         ...     conditions={"drug_perturbation": ["drugA", "drugB"], "genetic_ko": ["koA", "koB"]},
         ...     condition_encoders={"drug_perturbation": lookup("drug"), "genetic_ko": one_hot()},

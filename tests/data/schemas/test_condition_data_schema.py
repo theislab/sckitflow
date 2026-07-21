@@ -3,8 +3,8 @@ from collections.abc import Collection
 import pytest
 from anndata import AnnData
 
-from sc_flow.data.containers import MixedTypeData
-from sc_flow.data.schemas import ConditionDataSchema
+from sc_flow.core.data.containers import MixedTypeData
+from sc_flow.core.data.schemas import ConditionDataSchema
 
 from ..shared import verify_categorical_data, verify_mixin  # noqa
 

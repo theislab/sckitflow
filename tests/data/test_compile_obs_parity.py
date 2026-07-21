@@ -23,11 +23,11 @@ pytest.importorskip("binded")  # cellflow's build_annbatch_training now emits a 
 import anndata as ad
 from cellflow.data._annbatch import build_annbatch_training
 
-from sc_flow.data._compile_obs import compile_obs
-from sc_flow.data._encoders import lookup, one_hot
-from sc_flow.data.schemas._condition_data_schema import ConditionDataSchema
-from sc_flow.data.schemas._covariates_data_schema import CovariatesDataSchema
-from sc_flow.data.schemas._state_data_schema import StateDataSchema
+from sc_flow.core.data._compile_obs import compile_obs
+from sc_flow.core.data._encoders import lookup, one_hot
+from sc_flow.core.data.schemas._condition_data_schema import ConditionDataSchema
+from sc_flow.core.data.schemas._covariates_data_schema import CovariatesDataSchema
+from sc_flow.core.data.schemas._state_data_schema import StateDataSchema
 
 
 def _make_adata(seed: int = 0) -> ad.AnnData:

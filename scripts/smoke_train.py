@@ -27,9 +27,9 @@ import numpy as np
 import pandas as pd
 
 from sc_flow import FlowMatching
-from sc_flow.data import FlowSpec
-from sc_flow.data._encoders import lookup
-from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
+from sc_flow.core.data import FlowSpec
+from sc_flow.core.data._encoders import lookup
+from sc_flow.core.data.schemas import ConditionDataSchema, StateDataSchema
 
 
 def make_conditional_shift_adata(*, n_per: int, d: int, delta: float, seed: int) -> tuple[ad.AnnData, dict, dict]:

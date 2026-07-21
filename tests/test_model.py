@@ -9,7 +9,7 @@ import pytest
 from anndata import AnnData
 
 from sc_flow import SCFlow
-from sc_flow.data._manager import DataManager
+from sc_flow.core.data._manager import DataManager
 from sc_flow.methods._methods import BaseMethod
 
 
@@ -73,7 +73,7 @@ class DummyMethod(BaseMethod):
 
     def extract_state_data(self, matched_distr):
         """Return dummy StateData from the target state of the matched distribution."""
-        from sc_flow.data.containers._state import StateData
+        from sc_flow.core.data.containers._state import StateData
 
         # Dummy state: zeros with correct number of observations and feature dimension
         n_obs = len(matched_distr.target_distr.ann_df)
@@ -315,7 +315,7 @@ class TestSCFlow:
                 super().__init__(dims_registry, dm, is_paired_setting, *args, **kwargs)
 
             def extract_state_data(self, matched_distr):
-                from sc_flow.data.containers._state import StateData
+                from sc_flow.core.data.containers._state import StateData
 
                 n_obs = len(matched_distr.target_distr.ann_df)
                 n_feat = len(self._dims_registry.feature_names)

@@ -36,9 +36,9 @@ import numpy as np
 import pandas as pd
 
 from sc_flow import FlowMatching
-from sc_flow.data import FlowSpec
-from sc_flow.data._encoders import lookup, one_hot
-from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
+from sc_flow.core.data import FlowSpec
+from sc_flow.core.data._encoders import lookup, one_hot
+from sc_flow.core.data.schemas import ConditionDataSchema, StateDataSchema
 
 CONTROL_DRUG = "DMSO_TF"  # the Tahoe control drug (is_control := drug == DMSO_TF)
 

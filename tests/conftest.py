@@ -3,7 +3,7 @@ from collections.abc import Collection, Sequence
 import pandas as pd
 import pytest
 
-from sc_flow.data.sim._dummy_adata import get_dummy_adata
+from sc_flow.core.data.sim._dummy_adata import get_dummy_adata
 
 from .utils import get_dummy_network
 

@@ -6,13 +6,13 @@ import torch
 from sc_flow.backends.torch._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
 from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver
-from sc_flow.data._composite import MatchedDistributions
-from sc_flow.data._mixins import BatchMixin
-from sc_flow.data.containers._categorical import CategoricalData
-from sc_flow.data.containers._coupling import CouplingData
-from sc_flow.data.containers._distribution import DistributionData
-from sc_flow.data.containers._mixed_type import MixedTypeData
-from sc_flow.data.containers._state import StateData
+from sc_flow.core.data._composite import MatchedDistributions
+from sc_flow.core.data._mixins import BatchMixin
+from sc_flow.core.data.containers._categorical import CategoricalData
+from sc_flow.core.data.containers._coupling import CouplingData
+from sc_flow.core.data.containers._distribution import DistributionData
+from sc_flow.core.data.containers._mixed_type import MixedTypeData
+from sc_flow.core.data.containers._state import StateData
 from sc_flow.methods._methods import BaseGenerativeFlow, BaseMethod
 
 __all__ = ["TorchBaseMethod", "TorchGenerativeFlow"]

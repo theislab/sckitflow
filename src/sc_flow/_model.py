@@ -17,10 +17,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import torch
 
-from sc_flow.data import FlowSpec
+from sc_flow.core.data import FlowSpec
 
 if TYPE_CHECKING:
-    from sc_flow.data._compile_obs import CompiledDims, DataInput
+    from sc_flow.core.data._compile_obs import CompiledDims, DataInput
 
 __all__ = ["FlowMatching"]
 
@@ -73,7 +73,7 @@ class FlowMatching:
     # --- construction helpers -------------------------------------------------------------------
 
     def _build_vf(self, dims: CompiledDims) -> torch.nn.Module:
-        """Size an ``MLPVelocity`` from :class:`~sc_flow.data.CompiledDims` (no batch pulled)."""
+        """Size an ``MLPVelocity`` from :class:`~sc_flow.core.data.CompiledDims` (no batch pulled)."""
         from sc_flow.backends.torch.nn._vf import MLPVelocity
 
         cond_input_layers = (
@@ -481,7 +481,7 @@ class FlowMatching:
 
         Writes ``path`` as a directory: ``weights.pt`` (the torch ``state_dict``, portable across
         devices) and ``state.pkl`` (cloudpickle — the constructor config, :attr:`spec`, the compiled
-        :class:`~sc_flow.data.CompiledDims`, and the fitted ``condition_fn`` closure — the same
+        :class:`~sc_flow.core.data.CompiledDims`, and the fitted ``condition_fn`` closure — the same
         cloudpickle-of-a-closure pattern already used by :mod:`sc_flow.external`). Does **not** persist
         optimizer/trainer state — this is for inference after reload, not resuming ``fit()``.
         """

@@ -3,7 +3,7 @@
 Bundles the composed schemas (state / condition / covariates / coupling) plus the matching context and
 control key. It is *data-only* and speaks sc-flow's own vocabulary — no ``split_covariates`` /
 ``sample_covariates`` / ``perturbation_covariates``. ``build_loader(data, ...)`` compiles it against any
-:data:`~sc_flow.data._compile_obs.DataInput` (in-memory ``AnnData``, out-of-core ``DatasetCollection``,
+:data:`~sc_flow.core.data._compile_obs.DataInput` (in-memory ``AnnData``, out-of-core ``DatasetCollection``,
 or zarr path(s)) and returns a :class:`binded.Loader`.
 """
 
@@ -13,14 +13,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
-from sc_flow.data._compile_obs import CompiledData, compile_obs
-from sc_flow.data.schemas._condition_data_schema import ConditionDataSchema
-from sc_flow.data.schemas._coupling_data_schema import CouplingDataSchema
-from sc_flow.data.schemas._covariates_data_schema import CovariatesDataSchema
-from sc_flow.data.schemas._state_data_schema import StateDataSchema
+from sc_flow.core.data._compile_obs import CompiledData, compile_obs
+from sc_flow.core.data.schemas._condition_data_schema import ConditionDataSchema
+from sc_flow.core.data.schemas._coupling_data_schema import CouplingDataSchema
+from sc_flow.core.data.schemas._covariates_data_schema import CovariatesDataSchema
+from sc_flow.core.data.schemas._state_data_schema import StateDataSchema
 
 if TYPE_CHECKING:
-    from sc_flow.data._compile_obs import DataInput
+    from sc_flow.core.data._compile_obs import DataInput
 
 __all__ = ["FlowSpec"]
 
@@ -54,7 +54,7 @@ class FlowSpec:
         min_runs_per_leaf: int = 0,
         seed: int = 0,
     ) -> CompiledData:
-        """Compile the spec against ``data`` into a :class:`~sc_flow.data.CompiledData` (labels only)."""
+        """Compile the spec against ``data`` into a :class:`~sc_flow.core.data.CompiledData` (labels only)."""
         return compile_obs(
             data,
             state=self.state,

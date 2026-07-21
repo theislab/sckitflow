@@ -12,7 +12,7 @@ An :class:`Encoder` is fittable and exposes the two directions ``transform`` / `
 :func:`lookup`, :func:`functional`.
 
 The numerics are deliberately identical to the pre-refactor path: :class:`OneHot`/:class:`Label`/
-:class:`Functional` wrap the same scikit-learn estimators built in :mod:`sc_flow.data._utils`, and
+:class:`Functional` wrap the same scikit-learn estimators built in :mod:`sc_flow.core.data._utils`, and
 :class:`Lookup` reproduces ``CategoricalData._extract_col_repr`` (per-value ``.uns`` row, stacked).
 """
 

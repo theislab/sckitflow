@@ -5,7 +5,7 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-from sc_flow.data._abc import DataT, DataTree, DataTreeT
+from sc_flow.core.data._abc import DataT, DataTree, DataTreeT
 
 __all__ = ["MappedTree", "MappedArray", "BatchMixin"]
 

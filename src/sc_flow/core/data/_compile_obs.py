@@ -28,12 +28,12 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 
-from sc_flow.data._encoders import Encoder
-from sc_flow.data.containers._categorical import CategoricalData
-from sc_flow.data.schemas._condition_data_schema import ConditionDataSchema
-from sc_flow.data.schemas._coupling_data_schema import CouplingDataSchema
-from sc_flow.data.schemas._covariates_data_schema import CovariatesDataSchema
-from sc_flow.data.schemas._state_data_schema import StateDataSchema
+from sc_flow.core.data._encoders import Encoder
+from sc_flow.core.data.containers._categorical import CategoricalData
+from sc_flow.core.data.schemas._condition_data_schema import ConditionDataSchema
+from sc_flow.core.data.schemas._coupling_data_schema import CouplingDataSchema
+from sc_flow.core.data.schemas._covariates_data_schema import CovariatesDataSchema
+from sc_flow.core.data.schemas._state_data_schema import StateDataSchema
 
 if TYPE_CHECKING:
     from annbatch import DatasetCollection
@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
 __all__ = ["compile_obs", "CompiledData", "CompiledDims"]
 
-logger = logging.getLogger("sc_flow.data")
+logger = logging.getLogger("sc_flow.core.data")
 
 Leaf = tuple[Any, ...]
 ConditionFn = Callable[[Leaf], dict[str, np.ndarray]]

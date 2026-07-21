@@ -7,22 +7,22 @@ import numpy as np
 import pandas as pd
 
 from sc_flow._utils import check_sequence_query_against_reference
-from sc_flow.data._encoders import Encoder, one_hot
-from sc_flow.data._mixins import BatchMixin
-from sc_flow.data._utils import convert_to_categorical_in_place
-from sc_flow.data.containers._base import BaseData
+from sc_flow.core.data._encoders import Encoder, one_hot
+from sc_flow.core.data._mixins import BatchMixin
+from sc_flow.core.data._utils import convert_to_categorical_in_place
+from sc_flow.core.data.containers._base import BaseData
 
 __all__ = ["CategoricalData"]
 
 
 @dataclass(frozen=True)
 class CategoricalData(BaseData):
-    """Container for categorical data — columns plus one :class:`~sc_flow.data._encoders.Encoder` per realm.
+    """Container for categorical data — columns plus one :class:`~sc_flow.core.data._encoders.Encoder` per realm.
 
     Categorical data is a set of columns (a :class:`pandas.DataFrame`) together with, for each *realm*
     (a group of columns sharing a representation, e.g. the combination slots ``drug1``/``drug2``), a
     single fitted encoder. After schema-generalization Change 2 there is no ``reps`` vs ``encoding``
-    split: a ``.uns`` lookup is just a :class:`~sc_flow.data._encoders.Lookup` encoder, so every realm
+    split: a ``.uns`` lookup is just a :class:`~sc_flow.core.data._encoders.Lookup` encoder, so every realm
     has exactly one encoder regardless of whether its parameters came from ``.uns`` or from the data.
 
     :param ann_df: The data frame storing the original categorical values.
@@ -88,7 +88,7 @@ class CategoricalData(BaseData):
         """Create a CategoricalData from a DataFrame, defaulting any un-encoded realm to a fitted one-hot.
 
         For better performance pass the data in place. Realms without an entry in ``encoders`` get a
-        :func:`~sc_flow.data._encoders.one_hot` fit on the union of that realm's columns' values.
+        :func:`~sc_flow.core.data._encoders.one_hot` fit on the union of that realm's columns' values.
         """
         if not inplace:
             ann_df = ann_df.copy()

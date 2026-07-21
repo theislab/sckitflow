@@ -1,4 +1,4 @@
-"""Lazy / optional heavy-dep boundary: ``import sc_flow`` and ``sc_flow.data`` must work without
+"""Lazy / optional heavy-dep boundary: ``import sc_flow`` and ``sc_flow.core.data`` must work without
 torch / jax / lightning installed, and touching a heavy subsystem must raise a clear install hint.
 
 Each case runs in a fresh subprocess with a meta-path finder that makes the heavy backends look
@@ -48,9 +48,9 @@ def test_import_sc_flow_without_heavy_backends():
 def test_import_sc_flow_data_without_heavy_backends():
     r = _run(
         """
-        import sc_flow.data as d
+        import sc_flow.core.data as d
         d.FlowSpec; d.compile_obs
-        import sc_flow.data.schemas, sc_flow.data.containers, sc_flow.data.sim
+        import sc_flow.core.data.schemas, sc_flow.core.data.containers, sc_flow.core.data.sim
         print('ok')
         """
     )

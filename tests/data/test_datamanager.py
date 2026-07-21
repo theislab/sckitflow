@@ -9,13 +9,13 @@ from tests.data.conftest import (
 )
 
 from sc_flow._constants import ORIGINAL_INDEX_KEY
-from sc_flow.data._composite import MatchedData, NestedData
-from sc_flow.data._manager import DataManager
-from sc_flow.data.containers._categorical import CategoricalData
-from sc_flow.data.containers._coupling import CouplingData
-from sc_flow.data.containers._distribution import DistributionData
-from sc_flow.data.containers._mixed_type import MixedTypeData
-from sc_flow.data.containers._state import StateData
+from sc_flow.core.data._composite import MatchedData, NestedData
+from sc_flow.core.data._manager import DataManager
+from sc_flow.core.data.containers._categorical import CategoricalData
+from sc_flow.core.data.containers._coupling import CouplingData
+from sc_flow.core.data.containers._distribution import DistributionData
+from sc_flow.core.data.containers._mixed_type import MixedTypeData
+from sc_flow.core.data.containers._state import StateData
 from sc_flow.preprocessing.preproc_containers._state_data_preproc import StatePreprocessing
 
 

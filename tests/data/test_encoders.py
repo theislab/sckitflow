@@ -1,4 +1,4 @@
-"""Unit + equivalence tests for the unified :mod:`sc_flow.data._encoders` abstraction (Change 2).
+"""Unit + equivalence tests for the unified :mod:`sc_flow.core.data._encoders` abstraction (Change 2).
 
 These pin the numerics to the pre-refactor path: a :class:`Lookup` reproduces the old ``.uns`` ``reps``
 row-stack, and :class:`OneHot` reproduces scikit-learn's ``OneHotEncoder`` exactly.
@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from sklearn.preprocessing import OneHotEncoder
 
-from sc_flow.data._encoders import functional, label, lookup, one_hot
+from sc_flow.core.data._encoders import functional, label, lookup, one_hot
 
 
 def test_lookup_reproduces_uns_row_stack():

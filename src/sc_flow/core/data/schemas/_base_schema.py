@@ -4,7 +4,7 @@ from typing import Literal
 import numpy as np
 from anndata import AnnData
 
-from sc_flow.data.containers._base import BaseData
+from sc_flow.core.data.containers._base import BaseData
 
 __all__ = ["DataSchema", "StrictDataSchema"]
 
@@ -63,8 +63,8 @@ class DataSchema(abc.ABC):  # noqa: B024  # base for StrictDataSchema; _get_data
 
         No longer the extraction path: after the ``binded`` migration cell arrays are streamed by
         :class:`binded.Loader` and per-leaf conditions are built by
-        :func:`sc_flow.data.compile_obs` from the schemas' declared columns/reps. Schemas are now
-        pure declarations consumed by :func:`sc_flow.data.compile_obs`. The default raises to flag any
+        :func:`sc_flow.core.data.compile_obs` from the schemas' declared columns/reps. Schemas are now
+        pure declarations consumed by :func:`sc_flow.core.data.compile_obs`. The default raises to flag any
         stale array-materializing use.
 
         :param adata: The input data.
@@ -72,7 +72,7 @@ class DataSchema(abc.ABC):  # noqa: B024  # base for StrictDataSchema; _get_data
         """
         raise NotImplementedError(
             f"{type(self).__name__} is a declaration schema — array extraction moved to "
-            "sc_flow.data.compile_obs (binded streams cells). Read its declared properties instead."
+            "sc_flow.core.data.compile_obs (binded streams cells). Read its declared properties instead."
         )
 
     def extract_array(self, adata: AnnData, repr: str | None = None) -> np.ndarray:

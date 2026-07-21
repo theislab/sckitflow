@@ -5,9 +5,9 @@ import pytest
 import torch
 
 from sc_flow import FlowMatching
-from sc_flow.data import FlowSpec
-from sc_flow.data._encoders import lookup
-from sc_flow.data.schemas import ConditionDataSchema, CouplingDataSchema, StateDataSchema
+from sc_flow.core.data import FlowSpec
+from sc_flow.core.data._encoders import lookup
+from sc_flow.core.data.schemas import ConditionDataSchema, CouplingDataSchema, StateDataSchema
 
 
 def _toy_adata(n=64, d=5, cond_dim=4, pca=None, seed=0):

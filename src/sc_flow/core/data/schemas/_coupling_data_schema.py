@@ -3,7 +3,7 @@ from collections.abc import Mapping
 from anndata import AnnData
 from anndata.acc import A
 
-from sc_flow.data.schemas._base_schema import StrictDataSchema
+from sc_flow.core.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["CouplingDataSchema"]
 

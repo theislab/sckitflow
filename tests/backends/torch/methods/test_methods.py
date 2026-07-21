@@ -8,10 +8,10 @@ from sc_flow.backends.torch._types import PredictionData
 from sc_flow.backends.torch.methods._base import TorchBaseMethod, TorchGenerativeFlow
 from sc_flow.backends.torch.methods._utils import StepData
 from sc_flow.backends.torch.nn._modules import BaseModule
-from sc_flow.data._composite import MatchedDistributions
-from sc_flow.data.containers._coupling import CouplingData
-from sc_flow.data.containers._distribution import DistributionData
-from sc_flow.data.containers._state import StateData
+from sc_flow.core.data._composite import MatchedDistributions
+from sc_flow.core.data.containers._coupling import CouplingData
+from sc_flow.core.data.containers._distribution import DistributionData
+from sc_flow.core.data.containers._state import StateData
 
 
 # -----------------------------------------------------------------------------

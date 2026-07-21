@@ -70,9 +70,9 @@ def main() -> int:
 
     from sc_flow import FlowMatching
     from sc_flow.backends.torch.metrics import EnergyDistance, RSquared
-    from sc_flow.data import FlowSpec
-    from sc_flow.data._encoders import one_hot
-    from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
+    from sc_flow.core.data import FlowSpec
+    from sc_flow.core.data._encoders import one_hot
+    from sc_flow.core.data.schemas import ConditionDataSchema, StateDataSchema
 
     plates = sorted({p for pattern in args.plates.split(",") for p in glob.glob(pattern)})
     eval_plates = sorted({p for pattern in args.eval_plate.split(",") for p in glob.glob(pattern)})

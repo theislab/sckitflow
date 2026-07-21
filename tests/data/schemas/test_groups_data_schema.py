@@ -5,8 +5,8 @@ import pytest
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
-from sc_flow.data.containers import CategoricalData
-from sc_flow.data.schemas import GroupsDataSchema
+from sc_flow.core.data.containers import CategoricalData
+from sc_flow.core.data.schemas import GroupsDataSchema
 
 from ..shared import verify_categorical_data  # noqa
 

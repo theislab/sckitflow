@@ -51,9 +51,9 @@ def _synth_adata(*, n_per: int, d: int, seed: int):
 
 def _build(args):
     from sc_flow import FlowMatching
-    from sc_flow.data import FlowSpec
-    from sc_flow.data._encoders import lookup, one_hot
-    from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
+    from sc_flow.core.data import FlowSpec
+    from sc_flow.core.data._encoders import lookup, one_hot
+    from sc_flow.core.data.schemas import ConditionDataSchema, StateDataSchema
 
     if args.data:  # real dataset (Tahoe): one-hot the drug covariate, match on cell line
         spec = FlowSpec(

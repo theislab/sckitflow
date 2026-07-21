@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
-from sc_flow.data._utils import (
+from sc_flow.core.data._utils import (
     get_covariate_encoder,
     get_covariates_encoders_from_dict,
     get_label_encoder,

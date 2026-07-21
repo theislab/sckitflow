@@ -2,11 +2,11 @@
 
 The active path is torch + PyTorch-Lightning: ``FlowMatching`` (the model) over the ``data`` streaming
 layer, with the torch numerics under ``backends``. ``data`` is imported eagerly; ``backends`` and
-``FlowMatching`` are exposed lazily so ``import sc_flow.data`` works without pulling torch/jax.
+``FlowMatching`` are exposed lazily so ``import sc_flow.core.data`` works without pulling torch/jax.
 Subsystems not on the train path are quarantined under ``sc_flow.legacy``.
 """
 
-from sc_flow import data
+from sc_flow.core import data
 from sc_flow._optional import require
 
 __all__ = [

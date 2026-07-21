@@ -17,9 +17,9 @@ pytest.importorskip("binded")  # needs the annbatch BoundClassSampler fork too
 
 import anndata as ad
 
-from sc_flow.data import FlowSpec, compile_obs
-from sc_flow.data._encoders import lookup
-from sc_flow.data.schemas import ConditionDataSchema, CovariatesDataSchema, StateDataSchema
+from sc_flow.core.data import FlowSpec, compile_obs
+from sc_flow.core.data._encoders import lookup
+from sc_flow.core.data.schemas import ConditionDataSchema, CovariatesDataSchema, StateDataSchema
 
 
 def _make_adata(seed: int = 0) -> ad.AnnData:
@@ -164,7 +164,7 @@ def test_coupling_reps_stream_as_aligned_node_keys():
     """A coupling ref in a different space than the state rep streams as an extra aligned Node key."""
     from binded import Loader, SamplerConfig
 
-    from sc_flow.data.schemas import CouplingDataSchema
+    from sc_flow.core.data.schemas import CouplingDataSchema
 
     adata = _make_adata()
     rng = np.random.default_rng(1)
@@ -192,7 +192,7 @@ def test_coupling_reps_stream_as_aligned_node_keys():
 
 def test_coupling_same_space_as_state_is_not_duplicated():
     """When a coupling ref IS the state rep, it is not streamed twice — source/target are reused."""
-    from sc_flow.data.schemas import CouplingDataSchema
+    from sc_flow.core.data.schemas import CouplingDataSchema
 
     adata = _make_adata()
     compiled = compile_obs(
@@ -335,10 +335,10 @@ def test_control_path_requires_match_context():
 
 def test_array_holding_containers_are_gone():
     """The dataset-wide array holders were removed; only label containers survive."""
-    from sc_flow.data import containers
+    from sc_flow.core.data import containers
 
     assert containers.__all__ == ["BaseData", "CategoricalData"]
     with pytest.raises(ImportError):
-        from sc_flow.data.containers import StateData  # noqa: F401
+        from sc_flow.core.data.containers import StateData  # noqa: F401
     with pytest.raises(ImportError):
-        from sc_flow.data.containers import MixedTypeData  # noqa: F401
+        from sc_flow.core.data.containers import MixedTypeData  # noqa: F401

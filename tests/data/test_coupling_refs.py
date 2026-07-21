@@ -1,4 +1,4 @@
-"""Unit tests for :class:`~sc_flow.data.schemas.CouplingDataSchema` (schema-generalization Change 3).
+"""Unit tests for :class:`~sc_flow.core.data.schemas.CouplingDataSchema` (schema-generalization Change 3).
 
 Regime is inferred from which ``*_lin`` / ``*_quad`` refs are present; refs may be ``anndata.acc``
 accessors or bare strings, and both resolve/validate the same way.
@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from anndata.acc import A
 
-from sc_flow.data.schemas import CouplingDataSchema
+from sc_flow.core.data.schemas import CouplingDataSchema
 
 
 def _adata() -> ad.AnnData:

@@ -1,6 +1,6 @@
 """Lazy import of the optional heavy backends with a clear ``pip install`` hint.
 
-``import sc_flow`` and ``import sc_flow.data`` are pure-Python and must not pull torch / jax /
+``import sc_flow`` and ``import sc_flow.core.data`` are pure-Python and must not pull torch / jax /
 lightning (they are declared as *extras*, not core deps). The model + training subsystems import
 them lazily at use; when the extra is not installed that would surface as a bare
 ``ModuleNotFoundError: No module named 'torch'`` deep in a traceback. :func:`require` turns that into a

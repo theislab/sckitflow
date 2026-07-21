@@ -2,8 +2,8 @@ from collections.abc import Mapping
 
 from anndata import AnnData
 
-from sc_flow.data._encoders import Encoder, Lookup
-from sc_flow.data.schemas._base_schema import StrictDataSchema
+from sc_flow.core.data._encoders import Encoder, Lookup
+from sc_flow.core.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["CovariatesDataSchema"]
 
@@ -18,7 +18,7 @@ class CovariatesDataSchema(StrictDataSchema):
 
     Example::
 
-        >>> from sc_flow.data._encoders import lookup
+        >>> from sc_flow.core.data._encoders import lookup
         >>> CovariatesDataSchema(covariate_encoders={"cell_type": lookup("cell_type")})
 
     :param covariate_encoders: Mapping ``{column: Encoder}`` — one encoder per embedded covariate.

@@ -62,9 +62,9 @@ def main() -> int:
     import torch
 
     from sc_flow import FlowMatching
-    from sc_flow.data import FlowSpec
-    from sc_flow.data._encoders import one_hot
-    from sc_flow.data.schemas import ConditionDataSchema, StateDataSchema
+    from sc_flow.core.data import FlowSpec
+    from sc_flow.core.data._encoders import one_hot
+    from sc_flow.core.data.schemas import ConditionDataSchema, StateDataSchema
 
     paths = sorted({p for pattern in args.plates.split(",") for p in glob.glob(pattern)})
     if not paths:

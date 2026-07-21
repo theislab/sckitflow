@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from anndata import AnnData
 
-from sc_flow.data.containers import CouplingData, StateData
+from sc_flow.core.data.containers import CouplingData, StateData
 
 
 class TestCouplingData:

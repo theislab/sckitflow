@@ -3,7 +3,7 @@
 "How a batch becomes a scalar loss" is a small, registerable :class:`Objective`. The weights always live
 in a torch ``nn.Module`` (the *model*); the objective decides *where the numerics run* — natively in
 torch, or in JAX via the DLPack bridge with the torch weights mirrored per step. Both are trained by the
-one :class:`~sc_flow.core.training._harness.SCFlowLightningModule`, so "torch vs JAX compute" is a
+one :class:`~sc_flow.core.training._harness.TrainingModule`, so "torch vs JAX compute" is a
 one-line objective swap rather than a second LightningModule.
 
 This module is the generic seam (base class + registries); concrete objectives live in the

@@ -1,7 +1,7 @@
 """Shared inference: integrate the torch velocity field to translate cells.
 
 The one ODE-integration used by **both** :meth:`~sc_flow.FlowMatching.predict` and the validation loop
-(:class:`~sc_flow.core.training._harness.SCFlowLightningModule`), so a validation metric reflects
+(:class:`~sc_flow.core.training._harness.TrainingModule`), so a validation metric reflects
 exactly what ``predict`` does. It is objective-agnostic apart from a single ``is_genot`` switch on the flow
 endpoints (OTFM integrates the cells themselves; GENOT integrates from latent noise with the cell held as
 the source-conditioning input).
@@ -14,7 +14,9 @@ from typing import Any
 import numpy as np
 import torch
 
-__all__ = ["integrate_translation", "condition_to_device"]
+from sc_flow.core.training._predictor import Predictor, register_predictor
+
+__all__ = ["integrate_translation", "condition_to_device", "ODEPredictor"]
 
 
 def _as_f32(v: Any, device: Any) -> torch.Tensor:
@@ -78,3 +80,35 @@ def integrate_translation(
         trajectory = odeint(f, y0, t_grid, method="euler")
 
     return trajectory if return_trajectory else trajectory[-1]
+
+
+@register_predictor("ode")
+class ODEPredictor(Predictor):
+    """Flow-matching inference: Euler-integrate the velocity field to translate a batch's ``source``.
+
+    The one concrete :class:`~sc_flow.core.training._predictor.Predictor` for flow matching — wraps
+    :func:`integrate_translation`, so the validation loop and the public ``FlowMatching.predict`` produce
+    the same translation. OTFM integrates the cells themselves; GENOT integrates from latent noise with the
+    cells held as the source-conditioning input (``is_genot``).
+    """
+
+    def __init__(self, *, is_genot: bool, state_dim: int, num_steps: int = 50, seed: int = 0) -> None:
+        self._is_genot = is_genot
+        self._state_dim = int(state_dim)
+        self._num_steps = int(num_steps)
+        self._seed = int(seed)
+
+    def predict(self, model: torch.nn.Module, batch: dict[str, Any]) -> torch.Tensor:
+        device = next(model.parameters()).device
+        cond = batch.get("condition")
+        cond_t = condition_to_device(cond, device) if cond is not None else None
+        return integrate_translation(
+            model,
+            batch["source"],
+            cond_t,
+            is_genot=self._is_genot,
+            state_dim=self._state_dim,
+            num_steps=self._num_steps,
+            seed=self._seed,
+            device=device,
+        )

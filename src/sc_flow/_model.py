@@ -241,9 +241,9 @@ class FlowMatching:
         self.probability_path = self._build_probability_path()
 
         # 3. Objective selected by name (OT coupling in JAX, everything else torch) + shared harness.
-        # Import from sc_flow.flow so the concrete objectives register themselves before we build by name.
-        from sc_flow.core.training._harness import SCFlowLightningModule
-        from sc_flow.flow import build_objective
+        # Import from sc_flow.flow so the concrete objectives / predictor register before we build by name.
+        from sc_flow.core.training import TrainingModule
+        from sc_flow.flow import build_objective, build_predictor
 
         self.objective = build_objective(
             self.objective_name,
@@ -270,8 +270,12 @@ class FlowMatching:
                 val_num_steps=val_num_steps,
             )
 
-        harness = SCFlowLightningModule(
-            self.vf, self.objective, lr=lr, val_metrics=val_metrics, predict_fn=self._val_predict_fn(val_num_steps),
+        predictor = build_predictor(
+            "ode", is_genot=self.objective_name == "genot", state_dim=int(self._dims.state),
+            num_steps=val_num_steps, seed=int(self.seed),
+        )
+        harness = TrainingModule(
+            self.vf, self.objective, lr=lr, val_metrics=val_metrics, predictor=predictor,
             val_max_source_cells=val_max_source_cells, debug_val=debug_val,
         )
 
@@ -350,27 +354,6 @@ class FlowMatching:
         if len(ratios) != 2:
             raise ValueError("split_ratios sequence must be (train, val).")
         return {"train": float(ratios[0]), "val": float(ratios[1])}
-
-    def _val_predict_fn(self, val_num_steps: int):
-        """A ``(model, val_batch) -> (pred, target)`` closure sharing :func:`integrate_translation` with predict."""
-        from sc_flow.flow._predict import _as_f32, condition_to_device, integrate_translation
-
-        is_genot = self.objective_name == "genot"
-        state_dim = int(self._dims.state)
-        seed = int(self.seed)
-
-        def predict_fn(model: torch.nn.Module, batch: dict[str, Any]):
-            dev = next(model.parameters()).device
-            cond = batch.get("condition")
-            cond_t = condition_to_device(cond, dev) if cond is not None else None
-            pred = integrate_translation(
-                model, batch["source"], cond_t, is_genot=is_genot, state_dim=state_dim,
-                num_steps=val_num_steps, seed=seed, device=dev,
-            )
-            target = _as_f32(batch["target"], dev)  # batch may already be on the GPU (Lightning moved it)
-            return pred, target
-
-        return predict_fn
 
     def _build_validation(
         self,

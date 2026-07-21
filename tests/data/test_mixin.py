@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from sc_flow.data._mixins import MappedTree
+from sc_flow.core.data._mixins import MappedTree
 
 float_data_dict = lambda: {"a": 0.0, "b": 0.0}
 string_data_dict = lambda: {"a": "str", "b": "str"}

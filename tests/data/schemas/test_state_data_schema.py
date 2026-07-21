@@ -1,8 +1,8 @@
 import pytest
 from anndata import AnnData
 
-from sc_flow.data.containers import StateData
-from sc_flow.data.schemas import StateDataSchema
+from sc_flow.core.data.containers import StateData
+from sc_flow.core.data.schemas import StateDataSchema
 
 inval_key: str = "invalid_key"
 

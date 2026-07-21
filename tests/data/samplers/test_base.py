@@ -1,8 +1,8 @@
 import numpy as np
 import pytest
 
-from sc_flow.data._composite import DistributionData, MatchedData
-from sc_flow.data.samplers import FSampler
+from sc_flow.core.data._composite import DistributionData, MatchedData
+from sc_flow.core.data.samplers import FSampler
 
 from ..shared import make_distribution, make_tree  # noqa
 

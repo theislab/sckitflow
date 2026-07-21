@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from sc_flow.backends.torch.nn._conditioning_layers import (
+from sc_flow.flow._conditioning_layers import (
     ConcatConditioning,
     Resnet1dConditioning,
 )

@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sc_flow.data.containers._base import BaseData
+from sc_flow.core.data.containers._base import BaseData
 
 
 class DummyData(BaseData):

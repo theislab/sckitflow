@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import torch
 
-from sc_flow.backends.torch._types import PredictionData
+from sc_flow.core._torch_types import PredictionData
 from sc_flow.backends.torch.methods._utils import StepData
 from sc_flow.backends.torch.methods.library._cfm import CFM
 
@@ -38,12 +38,15 @@ def cfm_instance():
     dims_reg.n_features = 2
     dm = Mock()
 
-    original_module_cls = CFM._module_cls
-    CFM._module_cls = DummyModule
+    # Override the construction seam instead of mutating the shared `CFM._module_cls`
+    # class global (which required a save/restore dance and leaked across tests).
+    class _CFMWithDummyModule(CFM):
+        def build_module(self, *args, **kwargs):
+            return DummyModule.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
-    cfm = CFM(dims_registry=dims_reg, dm=dm, is_paired_setting=False, dtype=torch.float32, device_id="cpu")
-
-    CFM._module_cls = original_module_cls
+    cfm = _CFMWithDummyModule(
+        dims_registry=dims_reg, dm=dm, is_paired_setting=False, dtype=torch.float32, device_id="cpu"
+    )
     cfm._module.forward = Mock(return_value=torch.randn(4, 2))
     return cfm
 

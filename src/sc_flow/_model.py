@@ -1,735 +1,509 @@
+"""The FlowMatching model wrapper.
+
+Torch-native (OT) conditional flow matching. The velocity field, probability path, and loss are all
+torch (trained by Lightning); the **only** JAX is the per-minibatch OT coupling
+(:func:`~sc_flow.backends.jax.coupling.ot_linear_coupling`), a forward-only resample of the
+``(source, target)`` pairing — no autograd crosses into JAX, so there is no DLPack bridge. Prediction
+integrates the torch velocity field with ``torchdiffeq``.
+"""
+
+from __future__ import annotations
+
 import logging
-import tarfile
-import tempfile
-from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import TYPE_CHECKING, Any
 
-import cloudpickle
 import numpy as np
-import pandas as pd
-from anndata import AnnData
-from tqdm import tqdm
+import torch
 
-from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
-from sc_flow._types import PredictionData
-from sc_flow.data._composite import MatchedData
-from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
-from sc_flow.data._manager import DataManager
-from sc_flow.data.samplers._train import FTrainSampler
-from sc_flow.data.samplers._validation import FValidationSampler
-from sc_flow.methods._methods import BaseMethod
-from sc_flow.methods._opt import OptimConfig
-from sc_flow.trainer._callbacks import BaseCallback, TrainingCallbacks
-from sc_flow.trainer._trainer import Trainer
+from sc_flow.core.data import FlowSpec
 
-__all__ = ["SCFlow"]
+if TYPE_CHECKING:
+    from sc_flow.core.data._compile_obs import CompiledDims, DataInput
+
+__all__ = ["FlowMatching"]
+
+logger = logging.getLogger(__name__)
 
 
-class SCFlow:
-    _dm_cls: DataManager | None = None
-    _dims_registry: DataDimensionalitiesRegistry | None = None
-    _is_paired_setting_cls: bool = False
-    _view_on_condition_space_cls: bool = False
-    _condition_state_key_cls: str | None = None
-
-    @classmethod
-    def register_adata(
-        cls,
-        adata: AnnData,
-        view_on_condition_space: bool = False,
-        condition_state_key: str | None = None,
-        **kwargs,
-    ) -> None:
-        """Registers the input adata as a class attribute using the provided schema settings.
-
-        :param adata: The input adata to register.
-        :type adata: class: `AnnData`
-
-        :param view_on_condition_space: Whether to model condiion as states.
-            Defaults to `False`.
-        :type view_on_condition_space: class: `bool`
-
-        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
-            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
-            Defaults to `None`.
-        :type condition_state_key: `str | None`
-
-        :param **kwargs: Other key-word arguments used to initialize the `DataManager`.
-        :type **kwargs: class: `dict[str, Any]`
-        """
-        # initialize data manager
-        cls._dm_cls = DataManager(**kwargs)
-        cls._dims_registry = cls._dm_cls.get_data_dimensionalities(
-            adata,
-            view_on_condition_space=view_on_condition_space,
-            condition_state_key=condition_state_key,
-            fit_preproc=True,
-            apply_transformations=True,
-        )
-        cls._is_paired_setting_cls = cls._dm_cls.control_values_dict is not None or cls._dm_cls.matched_keys is not None
-        cls._view_on_condition_space_cls = view_on_condition_space
-        cls._condition_state_key_cls = condition_state_key
+class FlowMatching:
+    """Torch-native (OT) conditional flow-matching model over a binded data spec."""
 
     def __init__(
         self,
-        *args,
-        method_cls: type[BaseMethod] | None = None,
-        method_id: str | None = None,
-        backend: Literal["jax", "torch"] = "torch",
-        **kwargs,
-    ) -> None:
-        # check that data was prepared
-        if self.__class__._dm_cls is None:
-            raise RuntimeError(
-                f"Data has not been registered with {self.__class__.__name__}. "
-                "Please call .register_adata(adata, ...) before initializing the model."
+        spec: FlowSpec,
+        *,
+        objective: str = "otfm",
+        hidden_dims: Sequence[int] = (1024, 1024, 1024),
+        decoder_dims: Sequence[int] | None = None,
+        time_encoder_dims: Sequence[int] | None = None,
+        condition_embedding_dim: int = 64,
+        condition_mode: str = "deterministic",
+        regularization: float = 1.0,
+        sigma: float = 0.0,
+        pooling: str = "mean",
+        match_method: str = "sinkhorn",
+        match_kwargs: Mapping[str, Any] | None = None,
+        seed: int = 0,
+    ):
+        self.spec = spec
+        self.objective_name = objective
+        self.hidden_dims = tuple(hidden_dims)
+        self.decoder_dims = None if decoder_dims is None else tuple(decoder_dims)
+        self.time_encoder_dims = None if time_encoder_dims is None else tuple(time_encoder_dims)
+        self.condition_embedding_dim = condition_embedding_dim
+        self.condition_mode = condition_mode
+        self.regularization = regularization
+        self.sigma = sigma
+        self.pooling = pooling
+        self.match_method = match_method
+        self.match_kwargs = dict(match_kwargs) if match_kwargs else {}
+        self.seed = seed
+
+        self.vf = None  # MLPVelocity (torch nn.Module holding the weights)
+        self.model = None  # alias of vf (the trained weights)
+        self.probability_path = None
+        self.objective = None
+        self._condition_fn = None
+        self._dims = None
+        # {metric_name: [mean-over-held-out-conditions per validation pass]}; populated by fit(split_by=...).
+        self.metrics_history: dict[str, list[float]] = {}
+
+    # --- construction helpers -------------------------------------------------------------------
+
+    def _build_vf(self, dims: CompiledDims) -> torch.nn.Module:
+        """Size an ``MLPVelocity`` from :class:`~sc_flow.core.data.CompiledDims` (no batch pulled)."""
+        from sc_flow.flow._vf import MLPVelocity
+
+        cond_input_layers = (
+            {
+                realm: {"input_dim": int(dim), "output_dim": int(self.condition_embedding_dim)}
+                for realm, dim in dims.condition.items()
+            }
+            if dims.condition
+            else None
+        )
+        vf_kwargs: dict[str, Any] = {
+            "state_dim": int(dims.state),
+            "conditioning_id": "concat",
+            "state_encoder_mlp_kwargs": {"hidden_dims": self.hidden_dims},
+        }
+        if self.decoder_dims is not None:
+            vf_kwargs["vf_decoder_mlp_kwargs"] = {"hidden_dims": self.decoder_dims}
+        if self.time_encoder_dims is not None:
+            vf_kwargs["time_encoder_mlp_kwargs"] = {"hidden_dims": self.time_encoder_dims}
+        if cond_input_layers is not None:
+            vf_kwargs.update(
+                condition_encoder_input_layers=cond_input_layers,
+                condition_encoder_output_dim=int(self.condition_embedding_dim),
+                condition_encoder_pooling_mode=self.pooling,
+                condition_mode=self.condition_mode,
             )
+        if self.objective_name == "genot":
+            # GENOT flows noise->target (state space) with the SOURCE cell conditioning the field: enable
+            # the source encoder. G1 is same-space — the source cell is the state source, so it is sized by
+            # the state dim; the coupling reps (if any) only drive the OT plan. (Cross-space source is G2.)
+            vf_kwargs["source_encoder_mlp_kwargs"] = {"input_dim": int(dims.state), "hidden_dims": self.hidden_dims}
+        return MLPVelocity(**vf_kwargs)
 
-        # register class attributes to instance
-        self._dm = self.__class__._dm_cls
-        self._dims_registry = self.__class__._dims_registry
-        self._is_paired_setting = self.__class__._is_paired_setting_cls
-        self._view_on_condition_space = self.__class__._view_on_condition_space_cls
-        self._condition_state_key = self.__class__._condition_state_key_cls
-
-        # register backend
-        self._backend = backend
-
-        # get method cls
-        if method_cls is None and method_id is None:
-            msg = "At least one of `method_id` or `method_cls` should be specified."
-            raise ValueError(msg)
-
-        # use registry when method not provided
-        if method_cls is None:
-            # get registry for current backend
-            if backend == "torch":
-                from sc_flow.backends.torch.methods import METHODS_REGISTRY
-            elif backend == "jax":
-                from sc_flow.backends.jax.methods import METHODS_REGISTRY
-            else:
-                from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
-
-                raise_runtime_error_on_backend_not_supported(backend)
-
-            # get method from registry
-            if method_id not in METHODS_REGISTRY:
-                msg = f"Method {method_id} not supported, possible options are {list(METHODS_REGISTRY.keys())}."
-                raise KeyError(msg)
-            method_cls = METHODS_REGISTRY[method_id]
-
-        # initialize method
-        self._method: BaseMethod = method_cls(
-            self._dims_registry,
-            self._dm,
-            self._is_paired_setting,
-            *args,
-            **kwargs,
+    def _build_probability_path(self):
+        from sc_flow.flow.probability_paths._probability_paths import (
+            LinearDiracProbabilityPath,
+            LinearGaussianProbabilityPath,
         )
 
-        # prepare attributes
-        self._trainer: Trainer | None = None
+        if self.sigma > 0:
+            return LinearGaussianProbabilityPath(sigma=self.sigma, prng=torch.Generator().manual_seed(int(self.seed)))
+        return LinearDiracProbabilityPath(sigma=0.0)
 
-    @overload
-    def _predict_empty(
+    # --- API ------------------------------------------------------------------------------------
+
+    def fit(
         self,
-        return_raw: Literal[False],
-    ) -> AnnData:
-        pass
-
-    @overload
-    def _predict_empty(
-        self,
-        return_raw: Literal[True],
-    ) -> tuple[AnnData, None]:
-        pass
-
-    @overload
-    def _aggregate_nodes_pred(
-        self,
-        all_preds: list[PredictionData],
-        all_obs: list[pd.DataFrame],
-        all_obsm: dict[str, list[np.ndarray]],
-        return_raw: Literal[False],
-    ) -> AnnData:
-        pass
-
-    @overload
-    def _aggregate_nodes_pred(
-        self,
-        all_preds: list[PredictionData],
-        all_obs: list[pd.DataFrame],
-        all_obsm: dict[str, list[np.ndarray]],
-        return_raw: Literal[True],
-    ) -> tuple[AnnData, PredictionData]:
-        pass
-
-    @overload
-    def predict(
-        self,
-        adata: AnnData,
-        *args,
-        return_raw: Literal[False],
-        sort: bool = True,
-        **kwargs,
-    ) -> AnnData:
-        pass
-
-    @overload
-    def predict(
-        self,
-        adata: AnnData,
-        *args,
-        return_raw: Literal[True],
-        sort: bool = True,
-        **kwargs,
-    ) -> tuple[AnnData, PredictionData]:
-        pass
-
-    def _predict_empty(self, return_raw: bool) -> AnnData | tuple[AnnData, None]:
-        """Returns empty anndata for prediction."""
-        empty_adata = AnnData(
-            X=np.empty((0, len(self._dims_registry.feature_names))),
-            var=pd.DataFrame(index=self._dims_registry.feature_names),
-        )
-        return empty_adata if not return_raw else (empty_adata, None)
-
-    def _get_pred_obs_df(self, node: MatchedData, pred_obj: PredictionData) -> pd.DataFrame:
-        """Gets the observation dataframe for prediction"""
-        # 1. Collect observation metadata
-        ann_df = node.target_distr.ann_df.copy()
-        cond_df = ann_df.drop_duplicates()
-
-        # 2. Check that the node contains only one condition
-        #    or that the are actually columns inside
-        n_ann_cols = len(cond_df.columns)
-        if n_ann_cols:
-            n_unique_conds = cond_df.shape[0]
-            if n_unique_conds != 1:
-                msg = f"Node should contain unique condition, {n_unique_conds} found."
-                raise ValueError(msg)
-
-        # 3. Get number of generated observations
-        if hasattr(pred_obj, "X"):
-            n_pred_obs = pred_obj.X.shape[0]
-        else:
-            n_pred_obs = 1
-
-        # 4. Align dataframe and update
-        # only when there are columns we need to repeat, otherwise keep as is
-        if n_ann_cols:
-            df_data = np.repeat(cond_df, n_pred_obs, axis=0)
-        else:
-            df_data = cond_df
-        return pd.DataFrame(df_data, columns=ann_df.columns)
-
-    def _get_pred_traj(self, pred_obj: PredictionData) -> np.ndarray | None:
-        # early return if no trajectory
-        if pred_obj.traj is None:
-            return None
-
-        # get number of observations
-        n_obs = pred_obj.X.shape[0]
-
-        # convert trajectory to numpy
-        traj_np = self._to_numpy(pred_obj.traj)
-
-        if traj_np.ndim == 2 and traj_np.shape[0] == n_obs:
-            return traj_np
-        elif traj_np.ndim == 3 and traj_np.shape[1] == n_obs:
-            return np.transpose(traj_np, (1, 0, 2))
-        elif traj_np.ndim == 4 and traj_np.shape[2] == n_obs:
-            return np.transpose(traj_np, (2, 0, 1, 3))
-        else:
-            raise ValueError(
-                "Trajectory array has incompatible shape for AnnData.obsm: "
-                f"got {traj_np.shape}, expected first dimension to equal "
-                f"n_obs ({n_obs}) or, for 3D trajectories, second "
-                "dimension to equal n_obs so it can be transposed from "
-                "(n_time_steps, n_cells, n_features) to "
-                "(n_cells, n_time_steps, n_features)."
-            )
-
-    def _get_pred_raw_samples(self, pred_obj: PredictionData) -> np.ndarray | None:
-        # ---- Early return if no raw samples present ----
-        raw_samples = getattr(pred_obj, "raw_samples", None)
-        if raw_samples is None:
-            return None
-
-        # ---- Get number of observations from X ----
-        X = getattr(pred_obj, "X", None)
-        if X is None:
-            raise ValueError("Prediction object should have the .X attribute.")
-        n_obs = X.shape[0]
-
-        # ---- Convert raw samples to numpy and handle shape ----
-
-        samples_np = self._to_numpy(raw_samples)
-        if samples_np.ndim == 2 and samples_np.shape[0] == n_obs:
-            return samples_np
-        elif samples_np.ndim == 3 and samples_np.shape[1] == n_obs:
-            return np.transpose(samples_np, (1, 0, 2))
-        else:
-            raise ValueError(
-                "Samples array has incompatible shape for AnnData.obsm: "
-                f"got {samples_np.shape}, expected data of shape "
-                f"(n_obs, n_features) or (n_samples, n_obs, n_features)"
-            )
-
-    def _get_pred_obsm_dict(self, node: MatchedData, pred_obj: PredictionData) -> dict[str, np.ndarray]:
-        # ---- Get trajectory and samples ----
-        traj = self._get_pred_traj(pred_obj)
-        raw_samples = self._get_pred_raw_samples(pred_obj)
-
-        # ---- Get condition continuous covariates data ----
-        if node.target.has_continuous_condition_covariates:
-            condition_continuous_covs = node.target.condition_data.continuous_covariates.mapping
-        else:
-            condition_continuous_covs = {}
-
-        # ---- Get target continuous covariates data ----
-        if node.target.has_continuous_response_covariates:
-            response_continuous_covs = node.target.response_data.continuous_covariates.mapping
-        else:
-            response_continuous_covs = {}
-
-        # ---- Construct output ----
-        obsm_dict = {}
-        if traj is not None:
-            obsm_dict["trajectory"] = traj
-        if raw_samples is not None:
-            obsm_dict["raw_samples"] = raw_samples
-        obsm_dict.update(condition_continuous_covs)
-        obsm_dict.update(response_continuous_covs)
-        return obsm_dict
-
-    def _aggregate_nodes_pred(
-        self,
-        all_preds: list[PredictionData],
-        all_obs: list[pd.DataFrame],
-        all_obsm: dict[str, list[np.ndarray]],
-        return_raw: bool = False,
-    ) -> AnnData | tuple[AnnData, PredictionData]:
-        # ---- Aggregate predicted states ----
-        # Merge predictions using backend‑specific concatenation
-        merged_pred = type(all_preds[0]).concatenate(all_preds)
-
-        # ---- Construct prediction adata ----
-        # Convert to numpy
-        X_np = self._to_numpy(merged_pred.X)
-
-        # Aggregate obs dataframes
-        obs_final = pd.concat(all_obs, axis=0)
-
-        # Aggregate obsm array dictionary
-        obsm_final = {k: np.concatenate(v, axis=0) for k, v in all_obsm.items()}
-
-        pred_adata = AnnData(
-            X=X_np, obs=obs_final, var=pd.DataFrame(index=self._dims_registry.feature_names), obsm=obsm_final
-        )
-
-        # ---- Return output ----
-        if return_raw:
-            return pred_adata, merged_pred
-
-        return pred_adata
-
-    def _predict_on_node(self, node: MatchedData, *args, **kwargs) -> PredictionData:
-        return self._method.predict(node, *args, **kwargs)
-
-    def _to_numpy(self, tensor: Any) -> np.ndarray:
-        """
-        Convert a backend-specific tensor to a numpy array.
-
-        :param tensor: A tensor from the current backend (e.g., torch.Tensor or jnp.ndarray).
-        :return: numpy array
-        """
-        if tensor is None:
-            return None
-        if self._backend == "torch":
-            import torch
-
-            if isinstance(tensor, torch.Tensor):
-                return tensor.detach().cpu().numpy()
-            return np.array(tensor)
-        elif self._backend == "jax":
-            return np.array(tensor)
-        else:
-            raise ValueError(f"Unsupported backend: {self._backend}")
-
-    def to_device(self, device: str) -> None:
-        """Move the underlying PyTorch module and optimizer state to the specified device."""
-        if self._backend == "jax":
-            raise NotImplementedError("Device moving is currently supported only for the torch backend.")
-        elif self._backend == "torch":
-            import torch
-
-            self._method._module.to(device)
-            if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
-                opt = self._trainer.opt_manager.optimizer
-                for param_group in opt.param_groups:
-                    for param in param_group["params"]:
-                        if param.device.type != device.split(":")[0]:
-                            param.data = param.data.to(device)
-                for state in opt.state.values():
-                    for k, v in state.items():
-                        if isinstance(v, torch.Tensor) and v.device.type != device.split(":")[0]:
-                            state[k] = v.to(device)
-        else:
-            raise_runtime_error_on_backend_not_supported(self._backend)
-
-    def train(
-        self,
-        train_adata: AnnData,
-        *args,
-        val_adatas_dict: dict[str, AnnData] | None = None,
-        callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
+        data: DataInput,
+        *,
+        rep_tables: Mapping[str, Mapping] | None = None,
+        batch_size: int = 128,
+        chunk_size: int = 1,
+        preload_nchunks: int | None = None,
+        preload_to_gpu: bool | None = None,
         n_train_steps: int = 100_000,
         valid_freq: int = 1_000,
-        train_batch_size: int = 128,
-        val_max_n_obs: int = 10_000,
-        train_sampler_kwargs: dict[str, Any] | None = None,
-        val_sampler_kwargs: dict[str, Any] | None = None,
-        train_kwargs: dict[str, Any] | None = None,
-        optim_kwargs: dict[str, Any] | None = None,
-        sort: bool = False,
-        **kwargs,
-    ) -> None:
-        """Trains the model on the input adata.
+        device: str = "cpu",
+        lr: float = 1e-4,
+        min_runs_per_leaf: int = 0,
+        control_in_memory: bool = False,
+        split_by: str | Sequence[str] | None = None,
+        split_ratios: Mapping[str, float] | Sequence[float] | None = None,
+        val_batch_size: int | None = None,
+        n_val_conditions: int | None = None,
+        metrics: Sequence[str] = ("r_squared", "e-dist"),
+        val_num_steps: int = 50,
+        val_max_source_cells: int | None = 2048,
+        debug_val: bool = False,
+        callbacks: Sequence[Any] | None = None,
+    ) -> FlowMatching:
+        """Compile ``data``, build the torch VF + OT-FM objective, and run the Lightning trainer.
 
-        :param train_adata: The train adata.
-        :type train_adata: class: `AnnData`
+        With ``split_by`` set, whole conditions (target combinations sharing the ``split_by`` values) are
+        held out into a validation split (deterministic in :attr:`seed`); every ``valid_freq`` steps the
+        held-out controls are translated under each held-out condition and the ``metrics`` (distribution
+        metrics — ``r_squared``, ``e-dist``) are scored, logged as ``val_<metric>_mean`` and appended to
+        :attr:`metrics_history`. ``split_by=None`` trains on all conditions with no validation.
 
-        :param *args: Positional arguments used to call the `.train` method of the trainer class.
-        :type *args: class: `Sequence[Any]`
-
-        :param val_adatas_dict: Dictionary containing the validation adatas.
-        :type val_adatas_dict: class: `dict[str, AnnData]`
-
-        :param callbacks: Callbacks to be used during training.
-        :type callbacks: class: `TrainingCallbacks | Sequence[BaseCallback] | None`
-
-        :param n_train_steps: The number of training steps to train the model over.
-            Defaults to `10_000`
-        :type n_train_steps: class: `int`
-
-        :param valid_freq: The frequency of the validation steps during training.
-            Defaults to `1_000`
-        :type valid_freq: class: `int`
-
-        :param train_batch_size: The number of observations to sample for each node in a batch
-            of training data. Defaults to `128`.
-        :type train_batch_size: class: `int`
-
-        :param val_max_n_obs: The maximum number of observations to sample for each node in a batch
-            of validation data. Defaults to `10_000`.
-        :type val_max_n_obs: class: `int`
-
-        :param train_sampler_kwargs: Extra keyword arguments for the training sampler. Defaults to `None`.
-        :type train_sampler_kwargs: class: `dict[str, Any] | None`
-
-        :param val_sampler_kwargs: Extra keyword arguments for the validation sampler. Defaults to `None`.
-        :type val_sampler_kwargs: class: `dict[str, Any] | None`
-
-        :param optim_kwargs: Keyword arguments to configure for the optimization manager (optimizer, scheduler, etc.). Defaults to `None`.
-        :type optim_kwargs: class: `OptimConfig | None`
-
-        :param sort: If ``True``, create a sorted copy of *adata* via
-            :meth:`sort_adata` and compile from that copy.  When setting this one
-            should keep in mind this will copy the full adata object. When ``False`` (the
-            default) the data must already be sorted; a ``ValueError``
-            is raised otherwise.
-        :type sort: class: `bool`
-
-        :param *kwargs: Keyword arguments used to call the `.train` method of the trainer class.
-        :type *kwargs: class: `dict[str, Any]`
+        :param chunk_size: Contiguous cells the binded ``Loader`` reads per chunk. ``1`` (default) works
+            on any layout but issues ``batch_size`` scattered single-row zarr reads per batch — on the
+            Tahoe plates that is the dominant training cost (~2s/batch on Lustre vs a ~7ms GPU step).
+            Set to e.g. ``32`` on data grouped into contiguous per-condition runs (Tahoe's grouped plates)
+            to read sequentially — cf-train measured ~80x fewer read ops. Must divide ``batch_size`` and
+            requires every sampled condition's contiguous run to be ≥ ``chunk_size`` cells.
+        :param preload_nchunks: How many chunks the loader prefetches (buffer size). ``None`` picks a
+            batch-sized buffer for ``chunk_size=1`` and a large prefetch (``~32`` batches of chunks) when
+            ``chunk_size>1`` — the buffer refills synchronously, so a too-small buffer stalls training
+            ~400ms on every drain (measured on Tahoe/Lustre).
+        :param preload_to_gpu: Keep the loader's read window GPU-resident (needs ``cupy``), so batches
+            arrive as GPU tensors with no per-step host→device copy. ``None`` = auto (GPU training uses it
+            when cupy is available; CPU training never does). Batches are always torch tensors (``to="torch"``).
+        :param split_by: Condition column(s) whose unique combinations are partitioned into train/val
+            (a subset of the compiled root columns). ``None`` = no held-out split / no validation.
+        :param split_ratios: Train/val fractions — a ``{"train": .., "val": ..}`` mapping or a
+            ``(train, val)`` sequence summing to 1.0. Defaults to ``(0.8, 0.2)``.
+        :param val_batch_size: Target cells sampled per held-out condition (controls are read in full).
+            Defaults to ``batch_size``.
+        :param n_val_conditions: How many condition batches to score per validation pass (control
+            populations are cycled, each drawing a held-out condition; seeded). Defaults to the number of
+            held-out condition combinations.
+        :param metrics: Names (in :data:`~sc_flow.core.metrics.METRICS_REGISTRY`) of the
+            distribution metrics to score on the held-out split.
+        :param val_num_steps: ODE integration steps for the validation translation.
+        :param val_max_source_cells: Cap on the control/source population size fed to prediction + metrics
+            per validation batch (random subsample; ``None`` disables the cap). binded's ``EvalLoader``
+            reads each held-out control population **in full** regardless of ``val_batch_size`` — with
+            ``match_context`` pooling controls across many plates/stores that population can reach tens of
+            thousands of cells, and both the ODE trajectory and the O(n^2) pairwise-distance metrics
+            (e.g. ``EnergyDistance``) scale with it, reliably OOMing at real multi-plate scale.
+        :param control_in_memory: Materialize the control (source) population in RAM. In-memory nodes are
+            exempt from the ``chunk_size`` run-length rule, so this lets ``chunk_size>1`` work even when the
+            controls are fragmented across stores (the target node is still governed by ``min_runs_per_leaf``).
+        :param callbacks: Extra Lightning ``Callback``\\s appended to the trainer (e.g. loss logging,
+            throughput timing, checkpointing). ``None`` adds none.
         """
-        # compile adata
-        train_tree = self._dm.compile_adata(
-            train_adata,
-            sort=sort,
-            view_on_condition_space=self._view_on_condition_space,
-            condition_state_key=self._condition_state_key,
-            apply_transformations=True,
-        )
-        if val_adatas_dict is not None:
-            val_trees_dict = {
-                val_id: self._dm.compile_adata(
-                    val_adata,
-                    sort=sort,
-                    view_on_condition_space=self._view_on_condition_space,
-                    condition_state_key=self._condition_state_key,
-                    apply_transformations=True,
-                )
-                for val_id, val_adata in val_adatas_dict.items()
-            }
-        else:
-            val_trees_dict = {}
+        from binded import Loader, SamplerConfig
 
-        # create train sampler
-        if train_sampler_kwargs is None:
-            train_sampler_kwargs = {}
-        train_sampler = FTrainSampler(
-            train_tree,
-            batch_size=train_batch_size,
-            **train_sampler_kwargs,
+        from sc_flow._optional import require
+
+        pl = require("lightning.pytorch")
+
+        # Seed every stochastic source from self.seed for a bit-reproducible run: VF init (torch global,
+        # reset here), the binded data order (Scheme seed), the OT plan-sampling + t draw (objective), and
+        # any probability-path noise (its prng).
+        # TODO(reprod): this only guarantees bit-reproducibility on CPU. A CUDA run still has torch's
+        # nondeterministic kernels (atomics in some backward ops) — gate torch.use_deterministic_algorithms
+        # (+ CUBLAS_WORKSPACE_CONFIG) behind a `deterministic=True` fit flag when GPU repro is needed.
+        torch.manual_seed(int(self.seed))
+
+        if chunk_size > 1 and batch_size % chunk_size != 0:
+            raise ValueError(f"chunk_size ({chunk_size}) must divide batch_size ({batch_size}).")
+
+        # 1. Compile to labels + dims (no cells / no sampler); optionally hold out whole conditions.
+        compiled = self.spec.compile(
+            data, rep_tables=rep_tables, min_runs_per_leaf=min_runs_per_leaf,
+            control_in_memory=control_in_memory, seed=self.seed,
+        )
+        self._condition_fn = compiled.condition_fn
+        self._dims = compiled.dims
+        self.metrics_history = {}
+
+        train_scheme, val_scheme = compiled.scheme, None
+        if split_by is not None:
+            from binded import split_scheme
+
+            split_by_cols = [split_by] if isinstance(split_by, str) else list(split_by)
+            ratios = self._resolve_split_ratios(split_ratios)
+            splits = split_scheme(
+                compiled.scheme, split_by=split_by_cols, ratios=ratios, random_state=int(self.seed)
+            )
+            train_scheme, val_scheme = splits["train"], splits["val"]
+
+        preload = self._resolve_preload(batch_size, chunk_size, preload_nchunks)
+        # Transport: yield torch tensors and (on GPU) keep the read window GPU-resident so there is no
+        # per-step host->device copy and refills happen on-device. `to=None` (annbatch default) is host
+        # numpy — a redundant numpy->torch->host->device chain, and it errors outright once cupy is present.
+        to_gpu = self._resolve_preload_to_gpu(device, preload_to_gpu)
+        cfg = SamplerConfig(batch_size=batch_size, chunk_size=chunk_size, preload_nchunks=preload,
+                            to="torch", preload_to_gpu=to_gpu)
+        loader = Loader(train_scheme, cfg, compiled.condition_fn)
+
+        # 2. Torch velocity field + probability path, sized from compiled.dims.
+        self.vf = self._build_vf(compiled.dims)
+        self.model = self.vf
+        self.probability_path = self._build_probability_path()
+
+        # 3. Objective selected by name (OT coupling in JAX, everything else torch) + shared harness.
+        # Import from sc_flow.flow so the concrete objectives / predictor register before we build by name.
+        from sc_flow.core.training import TrainingModule
+        from sc_flow.flow import build_objective, build_predictor
+
+        self.objective = build_objective(
+            self.objective_name,
+            self.probability_path,
+            condition_mode=self.condition_mode,
+            regularization=self.regularization,
+            coupling_locs=compiled.coupling,
+            match_method=self.match_method,
+            match_kwargs=self.match_kwargs,
+            seed=self.seed,
         )
 
-        # create validation samplers
-        if val_sampler_kwargs is None:
-            val_sampler_kwargs = {}
-        val_samplers_dict = {
-            val_id: FValidationSampler(val_tree, max_n_obs=val_max_n_obs, **val_sampler_kwargs)
-            for val_id, val_tree in val_trees_dict.items()
+        val_metrics, val_loader = None, None
+        if val_scheme is not None:
+            val_metrics, val_loader = self._build_validation(
+                val_scheme,
+                compiled.condition_fn,
+                val_batch_size=val_batch_size or batch_size,
+                chunk_size=chunk_size,
+                preload_nchunks=preload_nchunks,
+                preload_to_gpu=to_gpu,
+                n_val_conditions=n_val_conditions,
+                metrics=metrics,
+                val_num_steps=val_num_steps,
+            )
+
+        predictor = build_predictor(
+            "ode", is_genot=self.objective_name == "genot", state_dim=int(self._dims.state),
+            num_steps=val_num_steps, seed=int(self.seed),
+        )
+        harness = TrainingModule(
+            self.vf, self.objective, lr=lr, val_metrics=val_metrics, predictor=predictor,
+            val_max_source_cells=val_max_source_cells, debug_val=debug_val,
+        )
+
+        # 4. Wrap the binded loader as an IterableDataset (batches pass through untouched).
+        class _BindedIterableDataset(torch.utils.data.IterableDataset):
+            def __init__(self, loader):
+                self._loader = loader
+
+            def __iter__(self):
+                yield from self._loader
+
+        torch_loader = torch.utils.data.DataLoader(_BindedIterableDataset(loader), batch_size=None)
+
+        trainer_kwargs: dict[str, Any] = {
+            "max_steps": n_train_steps,
+            "accelerator": device,
+            "logger": False,
+            "enable_checkpointing": False,
+            "enable_progress_bar": False,
+            "enable_model_summary": False,
         }
+        if callbacks:
+            trainer_kwargs["callbacks"] = list(callbacks)
+        if val_loader is not None:
+            # Step-based validation: run the held-out pass every valid_freq training steps (no sanity pass,
+            # so metrics_history holds only real validation runs).
+            trainer_kwargs["val_check_interval"] = valid_freq
+            trainer_kwargs["num_sanity_val_steps"] = 0
+        trainer = pl.Trainer(**trainer_kwargs)
 
-        # prepare optimization configurations
-        if optim_kwargs is None:
-            optim_kwargs = {}
-        optim_config = OptimConfig(**optim_kwargs)
-
-        # create optimization manager
-        if self._backend == "torch":
-            from sc_flow.backends.torch.methods._opt import TorchOptimizationManager
-
-            opt_manager = TorchOptimizationManager.from_config(self._method._module, optim_config)
-        elif self._backend == "jax":
-            # Placeholder for future JAX support
-            raise NotImplementedError("JAX optimization manager not yet implemented.")
+        if val_loader is not None:
+            trainer.fit(harness, torch_loader, val_loader)
         else:
-            raise_runtime_error_on_backend_not_supported(self._backend)
+            trainer.fit(harness, torch_loader)
+        self.metrics_history = dict(harness.metrics_history)
+        return self
 
-        # initialize trainer
-        if self._trainer is None:
-            self._trainer = Trainer(self._method, opt_manager, callbacks)
+    # --- validation helpers -----------------------------------------------------------------------
 
-        # module in training mode
-        self._method.set_train_mode(True)
+    @staticmethod
+    def _resolve_preload_to_gpu(device: str, preload_to_gpu: bool | None) -> bool | None:
+        """Whether the loader keeps its read window on-GPU. Explicit wins; else never on CPU, auto on GPU.
 
-        # train model
-        self._trainer.train(
-            train_sampler, *args, val_samplers_dict=val_samplers_dict, n_train_steps=n_train_steps, valid_freq=valid_freq, **kwargs
+        ``None`` on GPU lets binded auto-select from cupy availability (GPU-resident batches when cupy is
+        present, host otherwise). On CPU training force ``False`` so batches never land on a GPU the model
+        isn't on.
+        """
+        if preload_to_gpu is not None:
+            return preload_to_gpu
+        return False if str(device) == "cpu" else None
+
+    @staticmethod
+    def _resolve_preload(batch_size: int, chunk_size: int, preload_nchunks: int | None) -> int:
+        """Prefetch-buffer size in chunks: explicit if given, else a batch (chunk 1) / ~32 batches (chunked).
+
+        The chunked buffer must hold *many* batches: when it drains the loader refills synchronously, and a
+        refill of a few chunks stalls training ~400ms (measured on Tahoe/Lustre). A 4-batch buffer stalls
+        every ~4 steps (~1.5 steps/s); ~32 batches amortizes refills so steady-state holds ~160 steps/s.
+        """
+        if preload_nchunks is not None:
+            return int(preload_nchunks)
+        if chunk_size <= 1:
+            return max(1, batch_size)
+        return 32 * max(1, batch_size // chunk_size)
+
+    @staticmethod
+    def _resolve_split_ratios(split_ratios: Mapping[str, float] | Sequence[float] | None) -> dict[str, float]:
+        """Normalize ``split_ratios`` to a ``{"train": .., "val": ..}`` mapping (default ``(0.8, 0.2)``)."""
+        if split_ratios is None:
+            return {"train": 0.8, "val": 0.2}
+        if isinstance(split_ratios, Mapping):
+            if {"train", "val"} - set(split_ratios):
+                raise ValueError("split_ratios mapping must contain 'train' and 'val' keys.")
+            return {"train": float(split_ratios["train"]), "val": float(split_ratios["val"])}
+        ratios = tuple(split_ratios)
+        if len(ratios) != 2:
+            raise ValueError("split_ratios sequence must be (train, val).")
+        return {"train": float(ratios[0]), "val": float(ratios[1])}
+
+    def _build_validation(
+        self,
+        val_scheme: Any,
+        condition_fn: Any,
+        *,
+        val_batch_size: int,
+        chunk_size: int = 1,
+        preload_nchunks: int | None = None,
+        preload_to_gpu: bool | None = None,
+        n_val_conditions: int | None,
+        metrics: Sequence[str],
+        val_num_steps: int,
+    ) -> tuple[dict[str, Any], Any]:
+        """Build the ``{name: Metric}`` dict + an eval DataLoader (one condition per validation batch)."""
+        from binded import EvalLoader, SamplerConfig, split_assignment
+
+        from sc_flow.core.metrics import METRICS_REGISTRY
+
+        unknown = [m for m in metrics if m not in METRICS_REGISTRY]
+        if unknown:
+            raise KeyError(f"Unknown validation metric(s) {unknown}. Available: {sorted(METRICS_REGISTRY)}.")
+        val_metrics = {name: METRICS_REGISTRY[name]() for name in metrics}
+
+        if n_val_conditions is None:
+            assignment = split_assignment({"val": val_scheme})
+            n_val_conditions = max(int((assignment["split"] == "val").sum()), 1)
+
+        preload = self._resolve_preload(val_batch_size, chunk_size, preload_nchunks)
+        cfg = SamplerConfig(batch_size=val_batch_size, chunk_size=chunk_size, preload_nchunks=preload,
+                            to="torch", preload_to_gpu=preload_to_gpu)
+        eval_loader = EvalLoader(val_scheme, cfg, condition_fn, seed=int(self.seed))
+
+        class _EvalIterableDataset(torch.utils.data.IterableDataset):
+            def __init__(self, eval_loader, n):
+                self._eval_loader = eval_loader
+                self._n = n
+
+            def __iter__(self):
+                yield from self._eval_loader.iter_conditions(self._n)
+
+        val_loader = torch.utils.data.DataLoader(
+            _EvalIterableDataset(eval_loader, n_val_conditions), batch_size=None
         )
+        return val_metrics, val_loader
 
     def predict(
         self,
-        adata: AnnData,
-        *args,
-        return_raw: bool = False,
-        sort: bool = True,
-        control_values_dict: dict[str, str] | None = None,
-        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
-        **kwargs,
-    ) -> AnnData | tuple[AnnData, PredictionData]:
+        x: np.ndarray,
+        condition: dict[str, np.ndarray] | tuple[Any, ...],
+        *,
+        device: str = "cpu",
+        num_steps: int = 50,
+        return_trajectory: bool = False,
+        seed: int | None = None,
+    ) -> np.ndarray:
+        """Translate ``x`` under ``condition`` by integrating the torch velocity field with torchdiffeq.
+
+        For ``objective="otfm"`` the ODE integrates the cells ``x`` themselves (source → target). For
+        ``objective="genot"`` it integrates **from latent noise** (target space) with ``x`` held fixed as
+        the source-conditioning input (noise → target | source) — a *generative* translation, so it is
+        stochastic; ``seed`` (default :attr:`self.seed`) makes the noise draw reproducible.
         """
-        Generates flow predictions.
+        if self.vf is None:
+            raise RuntimeError("Model must be fitted before predict() can be called.")
+        from sc_flow.flow._predict import condition_to_device, integrate_translation
 
-        :param adata: The input adata containing the metadata for prediction.
-        :type adata: class: `AnnData`
+        self.vf.to(device)
+        self.vf.eval()
 
-        :param return_raw: If True, returns the raw concatenated PredictionData
-            keeping the computation graph alive. Defaults to `False`.
-        :type return_raw: class: `bool`
+        # Resolve a leaf tuple to its condition dict; a ready condition dict is used as-is.
+        if not (isinstance(condition, dict) and all(isinstance(v, np.ndarray) for v in condition.values())):
+            if self._condition_fn is None:
+                raise RuntimeError("Model must be fitted to resolve leaf conditions.")
+            condition = self._condition_fn(condition)
+        cond_t = condition_to_device(condition, device)
 
-        :param sort: If ``True``, create a sorted copy of *adata* via
-            :meth:`sort_adata` and compile from that copy.  When setting this one
-            should keep in mind this will copy the full adata object. When ``False`` (the
-            default) the data must already be sorted; a ``ValueError``
-            is raised otherwise.
-        :type sort: class: `bool`
-
-        :param control_values_dict: Optional dictionary mapping each condition
-            level to the corresponding value used to indicate control observations.
-            This overrides the homonimous attribute and is needed to allow
-            inference over arbitrary control keys at inference time.
-            Without this, inference would be bound to the source
-            group defined for training. Defaults to `None`,
-            in which case the instance attribute will be used.
-        :type control_values_dict: class: `dict[str, str] | None`
-
-        :param matched_keys: Optional keys used to identify the source  and
-            corresponding target groups in the case of fixed matches.
-            This overrides the homonimous attribute and is needed to allow
-            inference over arbitrary matched groups at inference time.
-            Without this, inference would be bound to the pairs of source
-            and target groups defined for training. Defaults to `None`,
-            in which case the instance attribute will be used.
-        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
-
-        :return: Either an AnnData with predictions, or a tuple (AnnData, PredictionData)
-            if `return_raw` is True.
-        """
-        # Set module to evaluation mode (backend‑agnostic)
-        self._method.set_train_mode(False)
-
-        # Compile the data tree
-        tree = self._dm.compile_adata(
-            adata,
-            sort=sort,
-            view_on_condition_space=self._view_on_condition_space,
-            condition_state_key=self._condition_state_key,
-            control_values_dict=control_values_dict,
-            matched_keys=matched_keys,
-            apply_transformations=True,
+        trajectory = integrate_translation(
+            self.vf,
+            np.asarray(x, dtype=np.float32),
+            cond_t,
+            is_genot=self.objective_name == "genot",
+            state_dim=int(self._dims.state),
+            num_steps=num_steps,
+            seed=int(self.seed if seed is None else seed),
+            device=device,
+            return_trajectory=return_trajectory,
         )
-        tree_flat: tuple[MatchedData] = tree.flatten()
+        return trajectory.cpu().numpy()
 
-        # early return
-        if not tree_flat:
-            return self._predict_empty(return_raw)
+    # --- persistence ------------------------------------------------------------------------------
 
-        # define store
-        all_preds = []
-        all_obs = []
-        all_obsm = defaultdict(list)
+    _CTOR_FIELDS: tuple[str, ...] = (
+        "hidden_dims",
+        "decoder_dims",
+        "time_encoder_dims",
+        "condition_embedding_dim",
+        "condition_mode",
+        "regularization",
+        "sigma",
+        "pooling",
+        "match_method",
+        "match_kwargs",
+        "seed",
+    )
 
-        # Iterate over each node
-        for node in tqdm(tree_flat, desc="Predicting"):
-            # 0. Align node
-            node_aligned = node.align()
+    def save(self, path: str | Path) -> None:
+        """Persist the fitted model so :meth:`predict` works again after :meth:`load`.
 
-            # 1. Inference
-            pred_obj = self._predict_on_node(node_aligned, *args, **kwargs)
-            all_preds.append(pred_obj)
-
-            # 2. Construct node dataframe
-            pred_df = self._get_pred_obs_df(node_aligned, pred_obj)
-            all_obs.append(pred_df.copy())
-
-            # 3. Construct node obsm
-            node_obsm_dict = self._get_pred_obsm_dict(node_aligned, pred_obj)
-            for key, val in node_obsm_dict.items():
-                all_obsm[key].append(val)
-
-        return self._aggregate_nodes_pred(all_preds, all_obs, all_obsm, return_raw=return_raw)
-
-    def save(self, filepath: str, allow_overwrite: bool = False) -> None:
+        Writes ``path`` as a directory: ``weights.pt`` (the torch ``state_dict``, portable across
+        devices) and ``state.pkl`` (cloudpickle — the constructor config, :attr:`spec`, the compiled
+        :class:`~sc_flow.core.data.CompiledDims`, and the fitted ``condition_fn`` closure — the same
+        cloudpickle-of-a-closure pattern already used by :mod:`sc_flow.external`). Does **not** persist
+        optimizer/trainer state — this is for inference after reload, not resuming ``fit()``.
         """
-        Save the entire model (including registered data) to a tarball.
+        import cloudpickle
 
-        :param filepath: Output file path (e.g., 'model.tar.gz').
-        :param allow_overwrite: If True, overwrite existing file.
-        """
-        path = Path(filepath)
-        if path.exists() and not allow_overwrite:
-            raise FileExistsError(f"{filepath} already exists. Use allow_overwrite=True.")
-        elif path.exists() and allow_overwrite:
-            path.unlink()
-
-        # Move model to CPU before pickling
-        if self._backend == "torch":
-            import torch
-
-            self._method._module.cpu()
-            # Fixed: access optimizer via trainer, not via method
-            if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
-                opt = self._trainer.opt_manager.optimizer
-                for state in opt.state.values():
-                    for k, v in state.items():
-                        if isinstance(v, torch.Tensor):
-                            state[k] = v.cpu()
-
-        # unload preprocessing context
-        self.dm.unload_preproc()
-
-        # Save self as a tarball containing a single pickle file
-        with tarfile.open(filepath, "w:gz") as tar:
-            with tempfile.NamedTemporaryFile(suffix=".pkl", delete=False) as tmp:
-                cloudpickle.dump(self, tmp)
-                tmp.flush()
-                tar.add(tmp.name, arcname="model.pkl")
-            Path(tmp.name).unlink()
-
-        logging.info(f"Model saved to {filepath} (moved to CPU).")
+        if self.vf is None:
+            raise RuntimeError("Model must be fitted before save().")
+        path = Path(path)
+        path.mkdir(parents=True, exist_ok=True)
+        torch.save(self.vf.state_dict(), path / "weights.pt")
+        state = {
+            "objective": self.objective_name,
+            "ctor_kwargs": {name: getattr(self, name) for name in self._CTOR_FIELDS},
+            "spec": self.spec,
+            "dims": self._dims,
+            "condition_fn": self._condition_fn,
+        }
+        with open(path / "state.pkl", "wb") as f:
+            cloudpickle.dump(state, f)
 
     @classmethod
-    def load(
-        cls,
-        filepath: str,
-        adata: AnnData | None = None,
-        map_location: str | None = None,
-        **register_kwargs,
-    ) -> "SCFlow":
+    def load(cls, path: str | Path) -> FlowMatching:
+        """Reconstruct a fitted model from :meth:`save`.
+
+        ``predict()`` works immediately; ``fit()`` would start a fresh run (no optimizer/trainer state
+        is restored).
         """
-        Load a saved model from a tarball.
+        import cloudpickle
 
-        :param filepath: Path to the saved tarball.
-        :param adata: Optional AnnData to re‑register if the saved model does not contain data.
-        :param map_location: For PyTorch models, map to a device (e.g., 'cuda:0').
-        :param register_kwargs: Additional arguments for register_adata if adata is provided.
-        :return: Loaded SCFlow instance.
-        """
-        path = Path(filepath)
-        if not path.exists():
-            raise FileNotFoundError(f"{filepath} not found.")
+        path = Path(path)
+        with open(path / "state.pkl", "rb") as f:
+            state = cloudpickle.load(f)
 
-        with tempfile.TemporaryDirectory() as tmpdir:
-            extract_dir = Path(tmpdir).resolve()
-            with tarfile.open(filepath, "r:gz") as tar:
-                for member in tar.getmembers():
-                    if member.issym() or member.islnk():
-                        raise ValueError(f"Refusing to extract link from archive: {member.name}")
-
-                    member_path = (extract_dir / member.name).resolve()
-                    try:
-                        member_path.relative_to(extract_dir)
-                    except ValueError as e:
-                        raise ValueError(
-                            f"Refusing to extract archive member outside target directory: {member.name}"
-                        ) from e
-
-                    tar.extract(member, tmpdir)
-
-            with open(Path(tmpdir) / "model.pkl", "rb") as f:
-                model = cloudpickle.load(f)
-
-        # If an AnnData is provided, re‑register it (overwrites the saved data manager if any)
-        if adata is not None:
-            cls.register_adata(adata, **register_kwargs)
-            # Replace the instance's data manager with the newly registered one
-            model._dm = cls._dm_cls
-            model._dims_registry = cls._dims_registry
-            model._is_paired_setting = cls._is_paired_setting_cls
-
-        # Move to desired device if using PyTorch
-        if model._backend == "torch" and map_location is not None:
-            model.to_device(map_location)
-
+        model = cls(spec=state["spec"], objective=state["objective"], **state["ctor_kwargs"])
+        model._dims = state["dims"]
+        model._condition_fn = state["condition_fn"]
+        model.vf = model._build_vf(model._dims)
+        model.vf.load_state_dict(torch.load(path / "weights.pt", map_location="cpu"))
+        model.model = model.vf
+        model.probability_path = model._build_probability_path()
         return model
-
-    @property
-    def backend(self) -> str:
-        """Returns the backend the model was initialized on."""
-        return self._backend
-
-    @property
-    def dm(self) -> DataManager:
-        """Returns the data manager associated to the current instance."""
-        return self._dm
-
-    @property
-    def is_paired_setting(self) -> bool:
-        """Whether the data was registered in a paired setting."""
-        return self._is_paired_setting
-
-    @property
-    def method(self) -> BaseMethod:
-        """Returns the underlying method."""
-        return self._method
-
-    @property
-    def trainer(self) -> Trainer:
-        """Returns the trainer used to fit the model."""
-        return self._trainer
-
-    @property
-    def view_on_condition_space(self) -> bool:
-        """Return whether the model is operating on the condition space."""
-        return self._view_on_condition_space
-
-    @property
-    def condition_state_key(self) -> str | None:
-        """Return the key used to extract the state from the condition."""
-        return self._condition_state_key

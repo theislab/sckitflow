@@ -6,7 +6,7 @@ import pytest
 from jax import numpy as jnp
 
 from sc_flow._types import TimeFeaturesId
-from sc_flow.backends.jax._types import TTimeFeaturesFn
+from sc_flow.flow.coupling._types import TTimeFeaturesFn
 from sc_flow.backends.jax.nn._vf import (
     MLPVelocity,
 )

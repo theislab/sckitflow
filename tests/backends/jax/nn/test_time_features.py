@@ -4,7 +4,7 @@ import jax.numpy as jnp
 import pytest
 
 from sc_flow._constants import DEFAULT_NUM_TIME_FEATURES, DEFAULT_TIME_FEATURES_MAX_PERIOD
-from sc_flow.backends.jax._types import ArrayLike
+from sc_flow.flow.coupling._types import ArrayLike
 from sc_flow.backends.jax.nn._time_features import (
     get_time_features_fn,
     ott_jax_time_features,

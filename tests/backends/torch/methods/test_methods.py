@@ -4,14 +4,14 @@ import numpy as np
 import pytest
 import torch
 
-from sc_flow.backends.torch._types import PredictionData
+from sc_flow.core._torch_types import PredictionData
 from sc_flow.backends.torch.methods._base import TorchBaseMethod, TorchGenerativeFlow
 from sc_flow.backends.torch.methods._utils import StepData
-from sc_flow.backends.torch.nn._modules import BaseModule
-from sc_flow.data._composite import MatchedDistributions
-from sc_flow.data.containers._coupling import CouplingData
-from sc_flow.data.containers._distribution import DistributionData
-from sc_flow.data.containers._state import StateData
+from sc_flow.core.nn._modules import BaseModule
+from sc_flow.core.data._composite import MatchedDistributions
+from sc_flow.core.data.containers._coupling import CouplingData
+from sc_flow.core.data.containers._distribution import DistributionData
+from sc_flow.core.data.containers._state import StateData
 
 
 # -----------------------------------------------------------------------------
@@ -34,7 +34,8 @@ class DummyModule(BaseModule):
 # Concrete test subclasses that use DummyModule
 # -----------------------------------------------------------------------------
 class DummyTorchMethod(TorchBaseMethod):
-    _module_cls = DummyModule
+    def build_module(self, *args, **kwargs):
+        return DummyModule.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
     def train_step(self, *args, **kwargs):
         return torch.tensor(0.0), {}
@@ -50,8 +51,10 @@ class DummyTorchMethod(TorchBaseMethod):
 
 
 class DummyTorchGenerativeFlow(TorchGenerativeFlow):
-    _module_cls = DummyModule
     _default_solver_cls = Mock()
+
+    def build_module(self, *args, **kwargs):
+        return DummyModule.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
     def _compute_loss(self, step_data, *args, **kwargs):
         return torch.tensor(0.0), {}

@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 import torch
 
-from sc_flow.backends.torch.nn._modules import MLP, Resnet1d
+from sc_flow.core.nn._modules import MLP, Resnet1d
 
 output_dim = 32
 

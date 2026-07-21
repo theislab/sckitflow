@@ -3,8 +3,8 @@ from collections.abc import Collection
 import pytest
 from anndata import AnnData
 
-from sc_flow.data.containers import MixedTypeData
-from sc_flow.data.schemas import ConditionDataSchema
+from sc_flow.core.data.containers import MixedTypeData
+from sc_flow.core.data.schemas import ConditionDataSchema
 
 from ..shared import verify_categorical_data, verify_mixin  # noqa
 
@@ -168,3 +168,21 @@ class TestConditionDataSchema:
         # test condition covariates
         N = len(adata)
         verify_mixin(data.continuous_covariates, N, obsm_keys_to_dim, conditions_covariates)
+
+
+def test_conditions_encoding_explicit_one_hot() -> None:
+    """A level may declare `conditions_encoding` (e.g. one-hot) instead of a rep — explicit, not inferred."""
+    # rep + explicit one-hot level: valid
+    ConditionDataSchema(
+        conditions={"drug": ["drug1"], "ko": ["koA", "koB"]},
+        conditions_reps={"drug": "drug"},
+        conditions_encoding={"ko": "one-hot"},
+    )
+    # a level with neither a rep nor an encoding is rejected (explicit representation required)
+    with pytest.raises(ValueError):
+        ConditionDataSchema(conditions={"drug": ["drug1"]})
+    # a level cannot be both rep'd and encoded
+    with pytest.raises(ValueError):
+        ConditionDataSchema(
+            conditions={"drug": ["drug1"]}, conditions_reps={"drug": "drug"}, conditions_encoding={"drug": "one-hot"}
+        )

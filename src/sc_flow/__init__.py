@@ -1,25 +1,21 @@
 """sc_flow top-level package.
 
-Only the ``data`` layer is imported eagerly. After the ``binded`` migration the
-``backends`` / ``dataset`` / ``methods`` / ``trainer`` subsystems (and ``SCFlow``) still
-reference symbols removed during the data-layer strip and are being rewired; they are exposed
-lazily so that ``import sc_flow.data`` works in isolation while accessing a not-yet-rewired
-subsystem raises its real import error at access time.
+The active path is torch + PyTorch-Lightning: ``FlowMatching`` (the model) over the ``data`` streaming
+layer, with the torch numerics under ``backends``. ``data`` is imported eagerly; ``backends`` and
+``FlowMatching`` are exposed lazily so ``import sc_flow.data`` works without pulling torch/jax.
+Subsystems not on the train path are quarantined under ``sc_flow.legacy``.
 """
 
 from sc_flow import data
 from sc_flow._optional import require
 
 __all__ = [
+    "FlowMatching",
     "backends",
     "data",
-    "dataset",
-    "methods",
-    "FlowMatching",
-    "trainer",
 ]
 
-_LAZY_SUBMODULES = frozenset({"backends", "dataset", "methods", "trainer"})
+_LAZY_SUBMODULES = frozenset({"backends"})
 
 
 def __getattr__(name: str):

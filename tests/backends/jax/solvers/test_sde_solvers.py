@@ -7,10 +7,9 @@ import jax.numpy as jnp
 import lineax as lx
 import pytest
 
-from sc_flow.backends.jax._types import ArrayLike, TVfFn
+from sc_flow.flow.coupling._types import ArrayLike, TSDEDynamics, TVfFn
 from sc_flow.backends.jax.nn import BaseVelocityField
 from sc_flow.backends.jax.solvers._sde_solver import SDESolver
-from sc_flow.backends.torch._types import TSDEDynamics
 
 
 class ConstantDriftVF(BaseVelocityField):

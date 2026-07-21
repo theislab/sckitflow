@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 import scanpy as sc
 
-pytest.importorskip("sc_flow.data.preprocessing")
+pytest.importorskip("sc_flow.core.data.preprocessing")
 
-from sc_flow.data.preprocessing import PCATransform
+from sc_flow.core.data.preprocessing import PCATransform
 
 
 class TestPCATransform:

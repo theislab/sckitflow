@@ -13,7 +13,7 @@ def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):
     print(BACKEND)
     if BACKEND == "torch":
         try:
-            from sc_flow.backends.torch.nn._modules import MLP
+            from sc_flow.core.nn._modules import MLP
         except (ImportError, ModuleNotFoundError):
             set_torch_import_failed(True)
             raise_runtime_error_on_backend_failed_import()
@@ -31,8 +31,8 @@ def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):
         from torch.nn import Module
         from torch.nn.functional import mse_loss
 
-        from sc_flow.backends.torch.nn._modules import MLP
-        from sc_flow.backends.torch.probability_paths import LinearGaussianProbabilityPath
+        from sc_flow.core.nn._modules import MLP
+        from sc_flow.flow.probability_paths import LinearGaussianProbabilityPath
 
         class MethodClassTorch(Module):
             def __init__(self, network, prob_path, time_sampler) -> None:

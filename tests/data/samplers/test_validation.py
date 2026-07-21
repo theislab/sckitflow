@@ -1,5 +1,5 @@
-from sc_flow.data._composite import MatchedData
-from sc_flow.data.samplers._validation import FValidationSampler
+from sc_flow.core.data._composite import MatchedData
+from sc_flow.core.data.samplers._validation import FValidationSampler
 
 from ..shared import make_distribution, make_tree  # noqa
 

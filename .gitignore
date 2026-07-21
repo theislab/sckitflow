@@ -186,3 +186,6 @@ cython_debug/
 
 # PyPI configuration file
 .pypirc
+
+# benchmark scratch cache (regenerable)
+.bench_cache/

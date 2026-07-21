@@ -14,31 +14,47 @@ maintainers = [
 authors = [
   { name = "Lorenzo Consoli" },
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
 ]
 dependencies = [
-  "anndata",
+  # >=0.13 for the `anndata.acc` reference system (A.obsm[...] / adata[ref]) used by CouplingDataSchema.
+  "anndata>=0.13",
+  # the data layer compiles labels into a binded Scheme and streams cells via binded.Loader.
+  # Pinned to an IMMUTABLE binded commit (theislab/binded main; not yet on PyPI) so `uv lock` resolves
+  # reproducibly from GitHub — and so downstream (cf-train) can rebuild its lock without a local checkout.
+  # binded transitively pins the annbatch BoundClassSampler fork (also an immutable commit). Requires
+  # `allow-direct-references` (see [tool.hatch.metadata]).
+  "binded @ git+https://github.com/theislab/binded@318dd6e423e135a5cc71b2e4d58c6c1e2f7f6a7e",
   "cloudpickle",
+  # Hub model sharing (save_pretrained / from_pretrained / push_to_hub) for every nn.Module via
+  # core.nn.BaseModule's PyTorchModelHubMixin; safetensors is the mixin's weight-serialization backend.
+  "huggingface-hub",
   "omegaconf",
+  "safetensors",
   "scikit-learn",
   "session-info2",
   "tqdm",
   "wandb",
 ]
 optional-dependencies.all = [
-  "diffrax",
-  "flax",
-  "jax",
-  "ott-jax",
-  "torch",
+  "sc-flow-tools[jax,lightning,torch]",
 ]
-
+# GPU install: the OT coupling runs on-device (torch reps -> JAX via zero-copy DLPack -> ott sinkhorn/GW
+# -> back to torch), so BOTH torch and jax must be CUDA builds matching the node's driver. This extra adds
+# JAX's self-contained CUDA-12 wheels (Linux only, from PyPI). torch's CUDA build is an *index* selection,
+# not a dependency, so pick it at sync time with the auto-detecting env var:
+#   UV_TORCH_BACKEND=auto uv sync --extra all --extra cuda --extra test   # on a GPU node
+optional-dependencies.cuda = [
+  # cupy lets the binded/annbatch loader keep its read window GPU-resident (preload_to_gpu) so training
+  # batches arrive on-device with no per-step host->device copy. Optional at runtime (falls back to host).
+  "cupy-cuda12x; sys_platform == 'linux'",
+  "jax[cuda12]; sys_platform == 'linux'",
+]
 optional-dependencies.dev = [
   "pre-commit",
   "twine>=4.0.2",
@@ -65,18 +81,27 @@ optional-dependencies.jax = [
   "jax",
   "ott-jax",
 ]
+optional-dependencies.lightning = [
+  "lightning",
+]
 optional-dependencies.test = [
   "coverage",
-  "diffrax",
-  "jax",
-  "ott-jax",
-  "pot",
   "pytest",
   "pytest-cov",
   "scanpy",
-  "torch",
-  "torchdiffeq",
-  "torchsde",
+]
+optional-dependencies.test-all = [
+  "sc-flow-tools[jax,lightning,test,torch]",
+]
+optional-dependencies.test-jax = [
+  "sc-flow-tools[jax,test]",
+]
+optional-dependencies.test-lightning = [
+  "sc-flow-tools[lightning,test,torch]",
+]
+optional-dependencies.test-torch = [
+  # the torch-native FM path also needs jax (ott minibatch-OT coupling) + lightning (trainer)
+  "sc-flow-tools[jax,lightning,test,torch]",
 ]
 optional-dependencies.torch = [
   "pot",         # noqa
@@ -89,46 +114,38 @@ urls.Documentation = "https://sc-flow-tools.readthedocs.io/"
 urls.Homepage = "https://github.com/lorenzo-consoli/sc-flow-tools"
 urls.Source = "https://github.com/lorenzo-consoli/sc-flow-tools"
 
-[tool.hatch.build.targets.wheel]
-packages = [ "src/sc_flow" ]
-
-[tool.hatch.envs.default]
-installer = "uv"
-features = [ "dev" ]
-
-[tool.hatch.envs.docs]
-features = [ "doc" ]
-scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
-scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
-scripts.clean = "git clean -fdX -- {args:docs}"
-
-# Test the lowest and highest supported Python versions with normal deps
-[[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "stable" ]
-python = [ "3.10", "3.13" ]
-
-# Test the newest supported Python version also with pre-release deps
-[[tool.hatch.envs.hatch-test.matrix]]
-deps = [ "pre" ]
-python = [ "3.13" ]
-
-[tool.hatch.envs.hatch-test]
-features = [ "test" ]
-
-[tool.hatch.envs.hatch-test.overrides]
+[tool.hatch]
+# binded (and its transitive annbatch fork) are declared as git direct references.
+metadata.allow-direct-references = true
+build.targets.wheel.packages = [ "src/sc_flow" ]
+envs.default.installer = "uv"
+envs.default.features = [ "dev" ]
+envs.docs.features = [ "doc" ]
+envs.docs.scripts.build = "sphinx-build -M html docs docs/_build -W {args}"
+envs.docs.scripts.clean = "git clean -fdX -- {args:docs}"
+envs.docs.scripts.open = "python -m webbrowser -t docs/_build/html/index.html"
+envs.hatch-test.features = [ "test-all" ]
+envs.hatch-test.matrix = [
+  # Test the lowest and highest supported Python versions with normal deps
+  { deps = [ "stable" ], python = [ "3.12", "3.13" ] },
+  # Test the newest supported Python version also with pre-release deps
+  { deps = [ "pre" ], python = [ "3.13" ] },
+]
 # If the matrix variable `deps` is set to "pre",
 # set the environment variable `UV_PRERELEASE` to "allow".
-matrix.deps.env-vars = [
-  { key = "UV_PRERELEASE", value = "allow", if = [ "pre" ] },
+envs.hatch-test.overrides.matrix.deps.env-vars = [
+  { value = "allow", key = "UV_PRERELEASE", if = [ "pre" ] },
 ]
+
+# NB: no [tool.uv] `sources.binded` override — binded resolves from the immutable git commit pinned in
+# [project.dependencies] for everyone (dev, CI, and downstream lockers), not a relative `../binded` path.
+# For editable local-dev work on binded, add a personal (uncommitted) `sources.binded = { path = ... }`.
 
 [tool.ruff]
 line-length = 120
 src = [ "src" ]
 extend-include = [ "*.ipynb" ]
-
 format.docstring-code-format = true
-
 lint.select = [
   "B",      # flake8-bugbear
   "BLE",    # flake8-blind-except
@@ -162,18 +179,27 @@ lint.per-file-ignores."docs/*" = [ "I" ]
 lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "numpy"
 
-[tool.pytest.ini_options]
-testpaths = [ "tests" ]
-xfail_strict = true
-addopts = [
+[tool.pytest]
+ini_options.testpaths = [
+  "tests/backends/torch/training/test_harness.py",
+  "tests/data/test_compile_obs_binded.py",
+  "tests/data/test_compile_obs_parity.py",
+  "tests/data/test_coupling_refs.py",
+  "tests/data/test_encoders.py",
+  "tests/data/test_mixin.py",
+  "tests/data/test_utils.py",
+  "tests/test_flow_matching.py",
+]
+ini_options.addopts = [
   "--import-mode=importlib", # allow using test files with same name
 ]
+ini_options.xfail_strict = true
 
-[tool.coverage.run]
-source = [ "sc_flow" ]
-omit = [
+[tool.coverage]
+run.omit = [
   "**/test_*.py",
 ]
+run.source = [ "sc_flow" ]
 
 [tool.cruft]
 skip = [

@@ -4,8 +4,8 @@ import pytest
 from anndata import AnnData
 
 from sc_flow._types import TargetCovariatesEncodingId
-from sc_flow.data.containers import MixedTypeData
-from sc_flow.data.schemas import ResponseDataSchema
+from sc_flow.core.data.containers import MixedTypeData
+from sc_flow.core.data.schemas import ResponseDataSchema
 
 from ..shared import verify_categorical_data, verify_mixin  # noqa
 

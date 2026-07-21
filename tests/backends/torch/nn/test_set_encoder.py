@@ -2,7 +2,7 @@ import pytest
 import torch
 
 from sc_flow._types import LayersDict, NestedLayersDict
-from sc_flow.backends.torch.nn._set_encoder import SetEncoder
+from sc_flow.flow._set_encoder import SetEncoder
 
 # dimensions
 batch_size = 32

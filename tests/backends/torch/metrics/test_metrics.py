@@ -5,21 +5,31 @@ from sklearn.metrics import pairwise_distances
 
 pytest.importorskip("torchmetrics")
 
-from sc_flow.backends.torch.metrics._metrics import EnergyDistance, MaximumMeanDiscrepancy
+from sklearn.metrics import r2_score
+
+from sc_flow.core.metrics._metrics import EnergyDistance, MaximumMeanDiscrepancy, RSquared
 
 
 def _compute_energy_distance_sklearn(pred: np.ndarray, target: np.ndarray) -> float:
-    """Reference implementation using sklearn pairwise distances."""
-    # Energy distance formula: 2 * E[||X-Y||] - E[||X-X'||] - E[||Y-Y'||]
-    pred_pred_dist = pairwise_distances(pred, pred, metric="euclidean")
-    target_target_dist = pairwise_distances(target, target, metric="euclidean")
-    pred_target_dist = pairwise_distances(pred, target, metric="euclidean")
-
-    sigma_pred = pred_pred_dist.mean()
-    sigma_target = target_target_dist.mean()
-    delta = pred_target_dist.mean()
-
+    """Reference: cellflow's scPerturb E-distance with **squared-Euclidean** costs (Peidli2024)."""
+    # E = 2 * E[||X-Y||^2] - E[||X-X'||^2] - E[||Y-Y'||^2]   (sqeuclidean, matching cellflow)
+    sigma_pred = pairwise_distances(pred, pred, metric="sqeuclidean").mean()
+    sigma_target = pairwise_distances(target, target, metric="sqeuclidean").mean()
+    delta = pairwise_distances(pred, target, metric="sqeuclidean").mean()
     return 2.0 * delta - sigma_pred - sigma_target
+
+
+def _cellflow_pairwise_sqeuclidean(x, y):
+    """cellflow's exact ``pairwise_squeuclidean`` (broadcast form)."""
+    return ((x[:, None, :] - y[None, :, :]) ** 2).sum(-1)
+
+
+def _compute_energy_distance_cellflow(x: np.ndarray, y: np.ndarray) -> float:
+    """cellflow ``compute_e_distance`` verbatim (x=pred, y=target)."""
+    sigma_x = _cellflow_pairwise_sqeuclidean(x, x).mean()
+    sigma_y = _cellflow_pairwise_sqeuclidean(y, y).mean()
+    delta = _cellflow_pairwise_sqeuclidean(x, y).mean()
+    return 2 * delta - sigma_x - sigma_y
 
 
 def _compute_maximum_mean_discrepancy_sklearn(pred: np.ndarray, target: np.ndarray, gamma: float) -> float:
@@ -49,10 +59,15 @@ def test_energy_distance_vs_sklearn():
     metric.update(pred, target)
     result = metric.compute().item()
     result_sklean = _compute_energy_distance_sklearn(pred.numpy(), target.numpy())
+    result_cellflow = _compute_energy_distance_cellflow(pred.numpy(), target.numpy())
 
     # Compare results (use relative tolerance due to floating point arithmetic)
     assert np.isclose(result, result_sklean, rtol=1e-3, atol=1e-5), (
         f"Batched result {result} does not match sklearn result {result_sklean}"
+    )
+    # And match cellflow's compute_e_distance formula exactly (squared-Euclidean).
+    assert np.isclose(result, result_cellflow, rtol=1e-3, atol=1e-5), (
+        f"Result {result} does not match cellflow e_distance {result_cellflow}"
     )
 
 
@@ -76,3 +91,33 @@ def test_maximum_mean_discrepancy_vs_sklearn():
     assert np.isclose(result, result_sklearn, rtol=1e-3, atol=1e-5), (
         f"Batched result {result} does not match sklearn result {result_sklearn}"
     )
+
+
+def test_r_squared_matches_cellflow_r2_score():
+    """RSquared must equal cellflow's compute_r_squared = r2_score(mean(true), mean(pred))."""
+    torch.manual_seed(0)
+    # Different cell counts (populations, not paired rows) — the metric reduces each to its feature mean.
+    pred = torch.randn(80, 32)
+    target = torch.randn(120, 32) * 1.5 + 0.3
+
+    metric = RSquared()
+    metric.update(pred, target)
+    result = metric.compute().item()
+
+    # cellflow: compute_r_squared(x=true, y=pred) = r2_score(mean(true, 0), mean(pred, 0))
+    expected = r2_score(target.numpy().mean(axis=0), pred.numpy().mean(axis=0))
+    assert np.isclose(result, expected, rtol=1e-4, atol=1e-5), (
+        f"RSquared {result} != cellflow r2_score {expected}"
+    )
+
+
+def test_r_squared_averages_over_conditions():
+    """compute() averages R² over the conditions fed via successive update() calls."""
+    torch.manual_seed(1)
+    metric = RSquared()
+    expected = []
+    for _ in range(3):
+        pred, target = torch.randn(50, 16), torch.randn(70, 16) * 2 - 1
+        metric.update(pred, target)
+        expected.append(r2_score(target.numpy().mean(0), pred.numpy().mean(0)))
+    assert np.isclose(metric.compute().item(), float(np.mean(expected)), rtol=1e-4, atol=1e-5)

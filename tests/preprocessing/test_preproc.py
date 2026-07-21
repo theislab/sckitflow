@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from sc_flow.data.containers._distribution import DistributionData
+from sc_flow.core.data.containers._distribution import DistributionData
 from sc_flow.preprocessing._preproc import DataPreprocessor
 from sc_flow.preprocessing.preproc_containers._condition_data_preproc import ConditionPreprocessing
 from sc_flow.preprocessing.preproc_containers._state_data_preproc import StatePreprocessing
@@ -95,9 +95,9 @@ class DummyConditionPreprocessing(ConditionPreprocessing):
 @pytest.fixture
 def sample_distribution():
     """Create a simple DistributionData with state and condition data."""
-    from sc_flow.data._mixins import BatchMixin
-    from sc_flow.data.containers._mixed_type import MixedTypeData
-    from sc_flow.data.containers._state import StateData
+    from sc_flow.core.data._mixins import BatchMixin
+    from sc_flow.core.data.containers._mixed_type import MixedTypeData
+    from sc_flow.core.data.containers._state import StateData
 
     X_state = np.random.randn(10, 5)
     state_data = StateData(X_state)

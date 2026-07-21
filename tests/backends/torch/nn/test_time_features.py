@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from sc_flow._constants import DEFAULT_NUM_TIME_FEATURES, DEFAULT_TIME_FEATURES_MAX_PERIOD
-from sc_flow.backends.torch.nn._time_features import (
+from sc_flow.flow._time_features import (
     get_time_features_fn,
     ott_jax_time_features,
     torch_cfm_time_features,

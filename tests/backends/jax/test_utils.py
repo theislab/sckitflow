@@ -2,7 +2,7 @@ import jax.numpy as jnp
 import pytest
 
 from sc_flow._runtime import set_backend
-from sc_flow.backends.jax._utils import broadcast_to_target_shape
+from sc_flow.flow.coupling._utils import broadcast_to_target_shape
 
 
 class TestTorchBackendUtils:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from importlib import import_module
 
-__all__ = ["solvers", "nn", "methods"]
+__all__ = ["coupling"]
 
 
 def __getattr__(name: str):

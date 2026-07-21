@@ -105,6 +105,9 @@ class TrainingModule(pl.LightningModule):
     def validation_step(self, batch: Any, batch_idx: int) -> None:
         if self._val_metrics is None or self._predictor is None:
             return
+        # TODO: this source-population cap is a dataloader concern, not the training module's — it should
+        # be handled at the dataloader level (e.g. binded's EvalLoader capping the control population it
+        # reads), so the module stays generic and never reaches into batch internals to subsample.
         cap = self._val_max_source_cells
         source = batch["source"]
         n_source = source.shape[0]

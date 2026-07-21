@@ -57,7 +57,7 @@ def torch_cfm_time_features(
     num_time_features: int,
     max_period: int,
 ) -> torch.Tensor:
-    r"""Applies the sinusoidal time features on the current time index as defined in the `ott-jax`package.
+    r"""Applies the sinusoidal time features on the current time index as defined in the `torchcfm` package.
 
     You can find the original implementation at the following link
     https://github.com/atong01/conditional-flow-matching/blob/66b236b2fd96466a9aa655f46df2b4762aa11281/torchcfm/models/unet/nn.py#L87

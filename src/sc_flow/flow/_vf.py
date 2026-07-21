@@ -62,6 +62,12 @@ class BaseVelocityField(BaseModule):
 class MLPVelocity(BaseVelocityField):
     """Class for MLP-base unconditional neural velocity fields.
 
+    Torch port of cellflow's ``ConditionalVelocityField`` / ``GENOTConditionalVelocityField`` (theislab/cellflow,
+    ``src/cellflow/networks/_velocity_field.py``, flax): same time / state / condition / source encoders,
+    conditioning (concatenation / FiLM / resnet) and decoder; :meth:`condition_stats` mirrors cellflow's
+    ``get_condition_embedding``. Kept structurally aligned so the jax original and this torch port stay mutually
+    reviewable.
+
     The architecture of unconditional velocity fields is defined as follows:
         * (Optional) Time Featurization. An identity mapping is instantiated otherwise.
         * (Optional) Time MLP Encoder. An identity mapping is instantiated otherwise.

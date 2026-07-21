@@ -21,6 +21,10 @@ __all__ = [
 class BaseProbabilityPath(abc.ABC):
     r"""Base Class for Conditional Probability Paths :math: `p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)`.
 
+    These conditional paths follow the flow-matching literature (Lipman et al., *Flow Matching for Generative
+    Modeling*; the (OT-)CFM formulations of Tong et al. / ``torchcfm``) and mirror cellflow's flow-matching
+    paths — a torch reimplementation of shared, standard math.
+
     :param _require_prng: Whether a Pseudo-Random Numbers Generator is required for the probability path.
         Pseudo-Random Numbers Generators are required for reproducibility of non-deterministic probability paths and should be instances of
         :class: `torch.Generator`, when provided. For non-deterministic probability paths a warning is displayed and it is set to the

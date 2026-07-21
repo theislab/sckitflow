@@ -13,7 +13,14 @@ __all__ = ["SetEncoder"]
 
 
 class SetEncoder(BaseModule):
-    """Encoder for set of conditioning covariates."""
+    """Permutation-invariant Deep-Sets encoder over a set of perturbation covariates (the *condition encoder*).
+
+    Torch port of cellflow's ``ConditionEncoder`` (theislab/cellflow, ``src/cellflow/networks/_set_encoders.py``,
+    flax) — kept structurally aligned so the jax original and this port stay mutually reviewable. Same shape: a
+    per-covariate input layer, a shared projection + pooling (``mean``/``sum``; the ``attention-*`` modes cellflow
+    adds are stubbed here), covariates that bypass pooling (``covariates_not_pooled``), an output layer, and a
+    deterministic or stochastic (mean + log-variance) head.
+    """
 
     def __init__(
         self,

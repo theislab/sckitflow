@@ -75,17 +75,18 @@ class FlowMatching:
     def _build_vf(self, dims: CompiledDims) -> torch.nn.Module:
         """Size an ``MLPVelocity`` from :class:`~sc_flow.core.data.CompiledDims` (no batch pulled)."""
         from sc_flow.flow._set_encoder import SetEncoder
-        from sc_flow.flow._vf import MLPVelocity
+        from sc_flow.flow._vf import MLPEmbedderConfig, MLPVelocity
 
         vf_kwargs: dict[str, Any] = {
             "state_dim": int(dims.state),
             "combiner": "concat",
-            "state_encoder_mlp_kwargs": {"hidden_dims": self.hidden_dims},
+            "state_embedder": MLPEmbedderConfig(mlp_kwargs={"hidden_dims": self.hidden_dims}),
+            "time_embedder": MLPEmbedderConfig(
+                mlp_kwargs={"hidden_dims": self.time_encoder_dims} if self.time_encoder_dims is not None else {}
+            ),
         }
         if self.decoder_dims is not None:
             vf_kwargs["vf_decoder_mlp_kwargs"] = {"hidden_dims": self.decoder_dims}
-        if self.time_encoder_dims is not None:
-            vf_kwargs["time_encoder_mlp_kwargs"] = {"hidden_dims": self.time_encoder_dims}
         if dims.condition:
             vf_kwargs["condition_encoder"] = SetEncoder(
                 input_layers={
@@ -100,7 +101,9 @@ class FlowMatching:
             # GENOT flows noise->target (state space) with the SOURCE cell conditioning the field: enable
             # the source encoder. G1 is same-space — the source cell is the state source, so it is sized by
             # the state dim; the coupling reps (if any) only drive the OT plan. (Cross-space source is G2.)
-            vf_kwargs["source_encoder_mlp_kwargs"] = {"input_dim": int(dims.state), "hidden_dims": self.hidden_dims}
+            vf_kwargs["source_embedder"] = MLPEmbedderConfig(
+                mlp_kwargs={"input_dim": int(dims.state), "hidden_dims": self.hidden_dims}
+            )
         return MLPVelocity(**vf_kwargs)
 
     def _build_probability_path(self):

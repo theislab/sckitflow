@@ -152,11 +152,15 @@ about flow matching. You plug in via three registerable seams:
   module extracts `target`/identity-baseline and runs metrics. `FlowMatching.predict` and validation share
   the same `Predictor`, so a validation metric reflects exactly what inference does.
 
-**Hub sharing (foundation-model story).** `core.nn.BaseModule` mixes in
-`huggingface_hub.PyTorchModelHubMixin`, so **every** toolbox model gets `save_pretrained` /
-`from_pretrained` / `push_to_hub` with **safetensors** + auto `config.json`, for free. We deliberately did
-**not** adopt the HF `Trainer` (its supervised eval loop fights our population-level generative validation);
-we took only the *sharing* win, additively. Weights round-trip verified.
+**Hub sharing (foundation-model story).** The current code mixes
+`huggingface_hub.PyTorchModelHubMixin` into `core.nn.BaseModule`, but automatic `__init__` capture is **not**
+the serialization contract we will standardize: it silently drops non-JSON arguments, and strict
+`state_dict` loading cannot detect parameter-free semantic changes (for example, an activation changing
+from `Tanh` to `ReLU`). The target is one explicit, versioned config on the **top-level exportable model**;
+leaf modules remain ordinary `nn.Module`s. The top-level model may still use the Hub mixin for
+`save_pretrained` / `from_pretrained` / `push_to_hub`, but passes its config explicitly and stores weights
+as safetensors. We deliberately do **not** adopt the HF `Trainer` (its supervised eval loop fights our
+population-level generative validation); only the artifact transport is reused. See §10.
 
 ## 7. What's unique here vs. generic (own vs. reuse)
 
@@ -212,42 +216,151 @@ live sources:
 Exception that *did* earn its place: `huggingface-hub` + `safetensors` (real capability = sharing; light;
 stable public API).
 
-## 10. Swappable slots — `id (registry) | instance (in-memory)` (Component contract dropped)
+## 10. Serialization + extensibility — explicit component specs (decision accepted)
 
-**Decision (locked, 2026-07-22):** we did **not** build the registry/discriminator "Component contract"
-(base + on-disk `{type, config}` discriminator + HF `coders`) originally sketched here — its only unique
-win, a *generic* loader rebuilding a third-party class from a bare checkpoint, still needs that class
-installed and isn't worth the "components can't be dataclasses" + on-disk-format tax. Instead a swappable
-slot is typed `CombinerId | <BaseFamily instance> | None`, with **two** paths:
+**Decision (accepted, 2026-07-22; implementation pending):** portable models use an explicit,
+versioned **component discriminator**. A runtime object and its persistent description are different
+things: the object is an `nn.Module`/`Objective`/`Predictor`; the description is immutable, JSON-safe data.
+We will not rely on HF constructor auto-capture, pickle a Python object graph, or store arbitrary importable
+class paths in a portable model.
 
-- **string id → per-family registry** (`combiner="concat"` / `"resnet1d"` / an extension's id). A small
-  `{id → class}` registry per family (`COMBINER_REGISTRY` + `@register_combiner("id")`) replaces the old
-  `if/elif` and is the **extension point**: an extension registers its own id from its own package (no PR
-  to sc-flow). Serialization is **free** — the id string (+ a JSON `combiner_kwargs`) round-trips through
-  `config.json`; on load the id is looked up and the class rebuilt. The **VF supplies the dims** (registered
-  combiners take `(latent_state_dim, latent_time_dim, latent_condition_dim=None, **combiner_kwargs)`), so
-  the user never sizes anything. An unregistered id raises a clear *"not registered — import the extension"*
-  error (fine, and better than a silent default).
-- **custom instance** (`combiner=MyCombiner(...)`) — the escape hatch for a throwaway class or one whose
-  init needs **non-JSON** args. Usable in-memory (train/predict this session), but **`save_pretrained` is
-  disabled** for it: `BaseModule.save_pretrained` raises if any slot holds a custom instance (detected via
-  `_injected_submodule_slots()`), telling you to register it under an id to make it saveable. So instances
-  never reach a checkpoint — no silent-drop, no re-supply dance.
+The deliberately small wire contract is:
 
-The decision rule for an author: **JSON-serializable config → register it (round-trips, shareable); non-JSON
-or throwaway → inject the instance (in-memory only, can't save).**
+```python
+@dataclass(frozen=True)
+class ComponentSpec:
+    type: str                  # stable, namespaced id, e.g. "sc_flow.concat"
+    version: int              # config schema version for this component
+    config: dict[str, JsonValue]
+```
 
-Belt-and-braces: `BaseModule._load_as_safetensor` still forces **`strict=True`** (the mixin default is
-`False`, which would silently load a mismatched checkpoint) as a general safety net for any weight/arch
-mismatch.
+The **slot determines the family** (`combiner`, `architecture`, `objective`, `predictor`, `encoder`, …), so
+the wire object does not repeat it. Each stable family uses the same generic registry implementation:
+`type → {config_type, build, migrate, provider}`. A registered config type may be a frozen dataclass; the
+runtime component does **not** need to be a dataclass or inherit a serialization base. The factory receives
+a `BuildContext` containing derived dimensions/device information, so a user still never manually sizes a
+combiner or condition encoder.
 
-**Built and removed** (do not re-add without cause): the `Injectable` marker base, the
-`{"__injected__": ...}` coder/marker + `save_pretrained` warning + `resolve_injected` ctor guard (the
-"mark/warn/raise on load" variant), and the object-discriminator Component contract. **No discriminator, no
-`{type, config}`, no class-path, no marker.** Reference impl: the `combiner` slot on `MLPVelocity`
-(`CombinerId | BaseCombiner | None`) — verified: built-in id saves+loads; extension id round-trips via the
-registry (id + kwargs in config, class rebuilt); custom instance works in-memory and `save_pretrained`
-raises. Pooling and time-features stay on plain string-ids until given the same registry treatment.
+Example nested model config (illustrative names):
+
+```json
+{
+  "format_version": 1,
+  "architecture": {
+    "type": "sc_flow.mlp_velocity",
+    "version": 1,
+    "config": {
+      "activation": "tanh",
+      "combiner": {"type": "sc_flow.concat", "version": 1, "config": {}},
+      "condition_encoder": {
+        "type": "sc_flow.set_encoder",
+        "version": 1,
+        "config": {"output_dim": 64, "pooling": "mean"}
+      }
+    }
+  }
+}
+```
+
+This is the same basic pattern used successfully elsewhere:
+
+- **[Hugging Face Transformers](https://huggingface.co/docs/transformers/model_doc/auto):**
+  `config.json.model_type` selects a registered `Config`/`Model` pair via `AutoConfig`/`AutoModel`. We
+  adapt the stable discriminator + typed-config + factory pattern.
+- **[Keras](https://keras.io/guides/serialization_and_saving/):** nested objects serialize as a registered
+  name plus JSON config and are rebuilt through a custom-object registry. We adapt the recursive
+  registered-object pattern, but not Python module/class paths.
+- **[Diffusers](https://huggingface.co/docs/diffusers/api/configuration):** models/components carry JSON
+  configs and pipelines have a component manifest. We adapt the bundle/manifest separation, not its
+  dependency or constructor-capture implementation.
+- **Hydra/OmegaConf:** remains useful for trusted experiment composition and CLI overrides. A Hydra
+  `_target_`/Python class path is **not** the portable checkpoint format.
+
+We adapt these **contracts**, not their code: this should be a small local implementation, not a dependency
+on Transformers, Keras, or Diffusers.
+
+### Extension path
+
+- Built-ins register directly in their owning package.
+- A third-party package exposes registrations through the standard
+  [Python package-entry-point](https://packaging.python.org/en/latest/guides/creating-and-discovering-plugins/)
+  group `mlcore.components`; loading discovers installed providers without requiring a magical
+  `import my_extension` first.
+- IDs are namespaced and stable (`my_package.my_component`), never bare globally-contended names such as
+  `resnet`.
+- The manifest records the providing distribution/version. An unavailable component raises an error that
+  names the missing provider; an old config version is migrated explicitly or rejected.
+- Not every choice becomes an **external** plugin. Parameter-free architecture choices (activation, time
+  features) must be serialized but may remain validated enums. A polymorphic trainable submodule gets a
+  discriminated spec even when its registry is initially closed to built-ins. The public entry-point
+  budget is initially: top-level architecture, objective, predictor, and fitted data encoder/transform;
+  nested families are exposed to third-party entry points only when cross-package extension is genuinely
+  required.
+
+### Attention pooling: specified component, not necessarily public plugin
+
+Attention pooling is the motivating nested example. `mean`/`sum` are parameter-free, while token- and
+seed-attention pooling add weights and have different output-dimension and hyperparameter contracts. They
+therefore cannot be represented safely as `pooling="..."` plus an untyped kwargs bag. `SetEncoderConfig`
+contains a built-in discriminated `PoolingSpec` from the first implementation slice:
+
+```json
+{"type": "sc_flow.attention_token", "version": 1,
+ "config": {"num_heads": 8, "qkv_dim": 64, "dropout": 0.0, "num_layers": 1,
+            "transformer_block": false, "layer_norm": false, "ff_dim": null}}
+```
+
+Built-in variants are `sc_flow.mean`, `sc_flow.sum`, `sc_flow.attention_token`, and
+`sc_flow.attention_seed`. This is a closed built-in family initially; it can use the same registry
+machinery without promising third-party pooling compatibility forever.
+
+Lineage/reuse decision: `cellflow` owns working JAX `TokenAttentionPooling` and
+`SeedAttentionPooling` implementations. `CellFlow2` on `dedup/reexport-cellflow` already imports/re-exports
+those classes instead of maintaining copies, which is the right same-backend deduplication pattern.
+`sc-flow-tools` remains torch-only for model weights and must not depend on cellflow, so it ports the
+algorithms and configuration semantics with attribution rather than importing the JAX modules. Prefer
+torch's maintained attention primitives over transliterating cellflow's manual head splitting.
+
+Masking is part of the pooling interface, not inferred serialization trivia. The torch port accepts an
+explicit per-example valid-token mask from the compiled biological input schema/data path; it must not
+infer padding solely from `embedding == 0`, and must not assume every example shares the first example's
+mask. Required tests: permutation invariance, mixed-length masks in one batch, padded-value independence,
+defined all-masked behaviour, output-dimension validation, eval/dropout determinism, and fresh-process
+config + weights round-trip.
+
+### Custom Python escape hatch and the two artifact tiers
+
+A custom instance is still useful for research, but it must not blur two different persistence promises:
+
+1. **Trusted resume checkpoint** — Lightning/PyTorch checkpoint + optimizer/RNG state + exact experiment
+   config + git commit/lockfile. Custom Python instances/class paths are allowed because the original code
+   environment is required. Expensive HPC work must always be checkpointable.
+2. **Portable pretrained bundle** — full component specs + safetensors + biological input schema/assets +
+   manifest. No pickle, closure, arbitrary callable, or out-of-band `from_pretrained(..., component=...)`
+   argument. Export fails early and reports every unresolved runtime override.
+
+Thus a throwaway component may train and resume without registration; it becomes publishable/shareable
+only after receiving a stable id and JSON config. `strict=True` weight loading remains mandatory, but is a
+last safety net, **not** proof that the architecture is the same: parameter-free operations and reordered
+biological features can change semantics without changing state-dict keys.
+
+### Portable bundle and biological schema
+
+The target artifact is:
+
+```text
+config.json             versioned mathematical model/component graph
+model.safetensors       parameters and persistent tensor buffers
+input_schema.json       ordered features + modality/identifier/condition semantics
+assets.safetensors      fitted lookup/PCA/scaler arrays (with keys described by the schema)
+manifest.json           format, package/plugin versions, hashes, provenance
+README.md               model card / usage
+```
+
+`input_schema.json` must record at least the ordered feature identifiers (not just `state_dim`), identifier
+namespace/organism where relevant, expected AnnData representation, fitted transforms, condition columns
+and vocabularies, lookup keys, and control/null-condition semantics. The current cloudpickled
+`condition_fn` is replaced by a deterministic compiler from this saved schema + assets.
 
 ## 11. cf-train migration (drop cellflow)
 
@@ -264,32 +377,34 @@ Target: `cf-train → sc-flow-tools → binded → annbatch(fork)`; **remove `ce
 - **New loss / training math** → implement an `Objective` in `flow` (or your extension), `@register_objective`.
   It may compute in torch or JAX (bridge with DLPack); the harness is unchanged.
 - **New inference** (e.g. a different solver) → implement a `Predictor`, `@register_predictor`.
-- **New architecture / backbone** → subclass `core.nn.BaseModule` → Hub-shareable for free. (Register only
-  once the architecture registry is revived; today the VF is built directly.)
+- **New architecture / backbone** → implement an ordinary torch `nn.Module`, a JSON-safe typed config,
+  and an architecture factory registered under a stable namespaced `ComponentSpec.type` (§10). Do not add
+  HF serialization to the leaf module.
 - **CFG / classifier-free guidance (pan-cellflow, Xiaotong)** → this was dropped in the port and is a known
   gap. Re-add as a first-class feature: condition-dropout + a null/`condition_null` embedding on the VF +
   the objective. Slots into the condition-encoder + objective seams.
 - **Inverse-problem model (Lorenzo)** → a new `Objective` (+ `Predictor`), using the JAX bridge where you
   need ODE differentiation; share your pipeline config for review.
-- **Fine-tuning popular models (Goncalo)** → the `core.nn.BaseModule` + Hub-sharing path is the entry;
-  a foundation-models toolbox would sit as a sibling of `flow` on top of `mlcore`.
+- **Fine-tuning popular models (Goncalo)** → wrap the upstream model as a top-level registered
+  architecture + explicit config and export the common portable bundle; a foundation-models toolbox would
+  sit as a sibling of `flow` on top of `mlcore`.
 - **Running on HPC** → use `cf-train`; don't run on the login node.
 
 ## 13. Open decisions & roadmap
 
 **In progress / next (Stage 3):**
-- **Swappable slots — DONE (reference) / rolling out.** The Component contract was dropped in favour of
-  `id (per-family registry) | instance (in-memory, save disabled) | None` (§10). Landed on the `combiner`
-  slot of `MLPVelocity` (`COMBINER_REGISTRY` + `@register_combiner`; `save_pretrained` raises on a custom
-  instance; strict-load net). Round-trips verified. *Next:* give
-  **pooling** and **time-features** the same treatment when wanted. (Time-features rename to
-  `sinusoidal`/`log-sinusoidal` — crediting ott-jax/torchcfm in comments only — is already done.)
-- **`MLPVelocity` ctor** — still ~25 flat kwargs; the composable-sub-config cleanup is deferred (the slot
-  polymorphism, which drove it, is now handled by injection, so this is lower priority).
-- **Gaps to close:** attention pooling in `SetEncoder` (currently `NotImplementedError`); variable-length
-  covariate-set masking; **CFG** (see §12).
+- **Component specs + portable bundle — accepted, not built.** Replace the experimental
+  `CombinerId | instance` serialization path with the explicit discriminator/factory contract in §10.
+  First slice: generic `ComponentRegistry`, `ComponentSpec`, `BuildContext`, and a fully round-tripping
+  `MLPVelocityConfig` containing `SetEncoderConfig` + built-in `PoolingSpec` + `CombinerSpec`. Then replace
+  `FlowMatching.save/load` (`state.pkl`) with the portable bundle and add entry-point discovery.
+- **`MLPVelocity` ctor** — replace the ~25 flat kwargs and nested runtime objects with composable typed
+  sub-configs. Construction from both training and loading must go through the same factory.
+- **Gaps to close:** explicit variable-length covariate-set masks, then the attributed torch ports of
+  token/seed attention pooling in `SetEncoder` (currently `NotImplementedError`); **CFG** (see §12).
 - Wire `OptimConfig` into `configure_optimizers` + `fit` (optimizer is currently inline).
-- Drop the dead `ARCHITECTURE_REGISTRY`; move the identity-baseline + debug logging out of
+- Drop the current dead, training-only `ARCHITECTURE_REGISTRY`; the new generic component registry owns
+  artifact reconstruction. Move the identity-baseline + debug logging out of
   `TrainingModule.validation_step` into a Lightning `Callback`; move the validation source-cap to the
   dataloader (there's a `TODO` in `validation_step`).
 - **jax-optional packaging decision:** make `core` installable torch-only with jax/ott behind an extra
@@ -297,20 +412,25 @@ Target: `cf-train → sc-flow-tools → binded → annbatch(fork)`; **remove `ce
 - Soften the cellflow "mutually reviewable" docstrings to "adapted-from, intentionally diverging" (§8).
 
 **Publish path:**
-1. Force-push `sc-flow-tools:feat/refactors` (human-run; classifier-gated).
-2. Cut a `binded` release tag from `main` and repin downstream to the tag (over the raw commit).
-3. Execute the cf-train migration (§11).
-4. Extract `sc_flow.core → mlcore` (mechanical, once the seams settle).
+1. Land the component-spec contract + portable round-trip tests before presenting serialization as stable.
+2. Force-push `sc-flow-tools:feat/refactors` (human-run; classifier-gated).
+3. Cut a `binded` release tag from `main` and repin downstream to the tag (over the raw commit).
+4. Execute the cf-train migration (§11).
+5. Extract `sc_flow.core → mlcore` only after the artifact and extension seams settle.
 
 ## 14. Gotchas / footguns
 
-- **HF mixin drops non-JSON `__init__` args silently** and loads weights **`strict=False`** by default, so
-  a mismatch would load *silently* — a wrong model, no error. `BaseModule._load_as_safetensor` forces
-  `strict=True` so this raises instead (§10). Tuples come back as **lists** on round-trip — normalize if you
-  rely on tuple-ness.
-- **Custom sub-module instances can't be saved** (§10). Slots take a registered string id *or* a custom
-  instance; an instance isn't serializable, so `save_pretrained` **raises** (register it under an id to make
-  it saveable). To carry hyperparameters through a registered id, they must be JSON (in `combiner_kwargs`).
+- **HF constructor capture is not architecture serialization.** It silently drops non-JSON arguments;
+  defaults may then be written in their place. Even `strict=True` cannot catch a parameter-free semantic
+  change: a saved `MLP(activation_cls=Tanh)` can rebuild with `ReLU`, match every state-dict key, and return
+  different predictions. Only the explicit config graph in §10 closes this class of bug.
+- **Do not confuse resume with portable export.** A runtime override/custom instance may always be included
+  in a trusted experiment checkpoint with its code environment. Portable export must fail before writing
+  if any component, callable, fitted transform, or biological input semantic lacks a `ComponentSpec` or
+  schema entry.
+- **`FlowMatching.save/load` currently uses cloudpickle.** Treat existing `state.pkl` files as trusted-code
+  artifacts only; never load one from an untrusted source. Migrate them to the §10 bundle rather than
+  extending the pickle format.
 - **Stringly-typed jax import**: `flow/_objectives.py` reaches the coupler via
   `require("sc_flow.flow.coupling._device")` — a string literal that refactors won't catch. Update it by
   hand on any move, and smoke-test (it only fires on the first OT step, deep into a run).
@@ -323,7 +443,7 @@ Target: `cf-train → sc-flow-tools → binded → annbatch(fork)`; **remove `ce
 - Model facade: `sc_flow/_model.py` (`FlowMatching`).
 - Seams: `sc_flow/core/training/{_harness.py (TrainingModule), _objective.py, _predictor.py}`.
 - FM impls: `sc_flow/flow/{_objectives.py, _predict.py (ODEPredictor), _vf.py, _set_encoder.py}`.
-- Hub sharing: `sc_flow/core/nn/_modules.py` (`BaseModule`).
+- Current experimental Hub sharing: `sc_flow/core/nn/_modules.py` (`BaseModule`); target contract: §10.
 - Smoke test: `scripts/smoke_train.py` (`--objective otfm|genot`).
 - Upstream lineage: cellflow `networks/`; ott-jax `time_encoder.py`; torchcfm `models/unet/nn.py`.
 - binded: `theislab/binded` (`EvalLoader`, `Loader`, `Scheme`, `split_scheme`).

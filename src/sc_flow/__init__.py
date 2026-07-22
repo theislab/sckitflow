@@ -5,7 +5,8 @@ optimizer, generic nn + metrics; torch only) and :mod:`sc_flow.flow` (the flow-m
 velocity fields, probability paths, objectives, predict, and the optional JAX/OTT coupling bridge).
 ``FlowMatching`` is the facade wiring them. ``core.data`` is imported eagerly; ``core`` / ``flow`` /
 ``FlowMatching`` are exposed lazily so ``import sc_flow.core.data`` works without pulling torch/jax.
-Subsystems not on the train path are quarantined under ``sc_flow.legacy``.
+Subsystems not on the train path have been moved out of the package to the repo-root ``legacy/``
+directory (archival reference only; not installed, not on any import path).
 """
 
 from sc_flow._optional import require

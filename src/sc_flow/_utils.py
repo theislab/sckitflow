@@ -139,10 +139,14 @@ def verify_fn_kwargs_dictionary(
         if name not in kwargs_names_and_types.keys():
             msg = f"Argument name {name} not found in key-word arguments of function {fn}."
             raise TypeError(msg)
-        if not isinstance(param, kwargs_names_and_types[name]):
+        annotation = kwargs_names_and_types[name]
+        # The value-type check only applies to plain-class annotations. Union / generic / Literal
+        # annotations (e.g. ``ActivationId | type[nn.Module] | None``) are not usable with isinstance, so
+        # the name check above is the guarantee for those; skipping the value check avoids a spurious crash.
+        if isinstance(annotation, type) and not isinstance(param, annotation):
             msg = (
                 f"Argument name {name} of function {fn} is of the wrong type."
-                f"Expected {kwargs_names_and_types[name]}, found {type(param)}."
+                f"Expected {annotation}, found {type(param)}."
             )
             raise TypeError(msg)
 

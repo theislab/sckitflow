@@ -121,11 +121,17 @@ Layout:
 ```
 sc_flow/
   core/   {data, nn, metrics, training}      ML toolbox (torch only, no jax)
+          _component.py                       generic ComponentSpec/Registry/BuildContext (family-agnostic)
+          nn/_activation.py                   ActivationId enum + resolve_activation (serializable enum)
   flow/   _vf, probability_paths/, _objectives, _predict, _set_encoder,
           _combiner, _time_features, coupling/ (jax-OT bridge)
-  legacy/ config, dataset, external, methods, preprocessing, trainer,
-          jax_*/ torch_*/                    quarantined; not on the train path
+          _config.py                          MLPEmbedderConfig / SetEncoderConfig / MLPVelocityConfig (JSON round-trip)
   _model.py   FlowMatching (facade wiring core + flow)
+
+legacy/   config, dataset, external, methods, preprocessing, trainer, jax_*/ torch_*/
+          MOVED out of the package to the repo root (July 2026): archival only, not installed
+          (excluded from the wheel), not on any import path, and not runnable as-is (its internal
+          imports still name deleted pre-quarantine modules). See legacy/README.md.
 ```
 
 **cf-train — `main @ b3457b4`, merged & pushed.** Still depends on `cellflow-tools[annbatch]`; its code
@@ -422,19 +428,30 @@ Target: `cf-train → sc-flow-tools → binded → annbatch(fork)`; **remove `ce
 ## 13. Open decisions & roadmap
 
 **In progress / next (Stage 3):**
-- **Component specs + portable bundle — accepted, not built.** Replace the experimental
-  `CombinerId | instance` serialization path with the explicit discriminator/factory contract in §10.
-  First slice: generic `ComponentRegistry`, `ComponentSpec`, `BuildContext`, and a fully round-tripping
-  `MLPVelocityConfig` containing `SetEncoderConfig` + built-in `PoolingSpec` + `CombinerSpec`. Then replace
-  `FlowMatching.save/load` (`state.pkl`) with the portable bundle and add entry-point discovery.
-- **`MLPVelocity` ctor — stream embedders DONE; full bundle pending.** The three MLP stream maps are now
-  presence-based `MLPEmbedderConfig | None` slots (`state_embedder` / `time_embedder` / `source_embedder`;
-  `None` = raw stream, a config = MLP), replacing the inconsistent `encode_*` bool vs kwargs-presence
-  toggles. Renamed `*_encoder → *_embedder` (DiT `x_embedder`/`t_embedder` precedent; `proj` was rejected —
-  it connotes a single Linear, these are multi-layer — and it disambiguates the Deep-Sets
-  `condition_encoder`). `MLPEmbedderConfig` is a plain dataclass that round-trips via the HF mixin. Still to
-  do: fold these + `SetEncoderConfig` / `PoolingSpec` / `CombinerSpec` into the single `MLPVelocityConfig`
-  bundle so training and loading share one factory (per the component-spec slice above).
+- **Component specs + portable model bundle — DONE (July 2026).** The generic
+  `ComponentRegistry` / `ComponentSpec` / build-context machinery lives in `sc_flow/core/_component.py`
+  (family-agnostic → future mlcore). Pooling was ported onto it; the combiner was migrated off its bespoke
+  `CombinerId` enum + `COMBINER_REGISTRY` string-id + `combiner_kwargs` onto a `CombinerSpec`
+  (`sc_flow.concat` / `sc_flow.resnet1d`) on the same registry, keeping the `CombinerSpec | BaseCombiner`
+  runtime escape hatch. Parameter-free choices stayed **enums** (per the design's own rule): `time_features_id`,
+  `condition_mode`, and a new serializable `ActivationId` (`resolve_activation`) that replaced raw-class
+  passing — the fix that lets layer configs be JSON at all. `MLPVelocityConfig` (with nested
+  `SetEncoderConfig` + `PoolingSpec` + `CombinerSpec`) round-trips through JSON exactly (`to_config` /
+  `from_config`), and `FlowMatching.save/load` + `MLPVelocity.save_pretrained/from_pretrained` now write a
+  **pickle-free model bundle** (`config.json` + `model.safetensors`, via safetensors `save_model` to dedupe
+  the double-registered condition encoder). Verified end-to-end by `scripts/smoke_component_specs.py`
+  (registry validation, permutation/masking, both combiners, activation enum, config round-trip, bundle) plus
+  the OTFM/GENOT `smoke_train.py` gate. **Still pending:** (1) the trusted data sidecar (`data_state.pkl` —
+  `spec`/`dims`/cloudpickled `condition_fn`) is the last pickle; replace it with `input_schema.json` +
+  `assets.safetensors` + a deterministic condition-fn compiler (§10 "biological schema"). (2) entry-point
+  discovery (`mlcore.components`) for third-party providers — registries are closed built-in for now.
+  (3) drop the dead builder-style `ARCHITECTURE_REGISTRY`; the top-level architecture is now the
+  `sc_flow.mlp_velocity` spec handled by `MLPVelocityConfig.from_spec`.
+- **`MLPVelocity` ctor — DONE.** Stream embedders are presence-based `MLPEmbedderConfig | None` slots
+  (`state_embedder` / `time_embedder` / `source_embedder`; `None` = raw stream, a config = MLP), and
+  `MLPEmbedderConfig` now lives in `flow/_config.py` (moved out of `_vf.py` to break the config↔vf import
+  cycle). These fold into the single `MLPVelocityConfig` bundle, so training and loading share one factory.
+  The combiner is now **required explicitly** — there is no hidden default (`DEFAULT_COMBINER` removed).
 - **Attention pooling DONE:** explicit per-realm, per-example masks now flow through `SetEncoder`,
   `MLPVelocity`, objectives, and prediction; the attributed torch token/seed ports plus mean/sum use the
   closed `PoolingSpec` registry. Today's compiled condition schemas have fixed, dense slot counts, so an
@@ -469,9 +486,11 @@ Target: `cf-train → sc-flow-tools → binded → annbatch(fork)`; **remove `ce
   in a trusted experiment checkpoint with its code environment. Portable export must fail before writing
   if any component, callable, fitted transform, or biological input semantic lacks a `ComponentSpec` or
   schema entry.
-- **`FlowMatching.save/load` currently uses cloudpickle.** Treat existing `state.pkl` files as trusted-code
-  artifacts only; never load one from an untrusted source. Migrate them to the §10 bundle rather than
-  extending the pickle format.
+- **`FlowMatching.save/load` — model is now pickle-free; only the data sidecar isn't.** The velocity field
+  is `config.json` + `model.safetensors` (rebuilt from the saved architecture spec, not re-derived). The
+  remaining `data_state.pkl` (`spec`/`dims`/`condition_fn` closure) is cloudpickle — a trusted-code artifact
+  only; never load one from an untrusted source. Retiring it (→ `input_schema.json` + `assets.safetensors`)
+  is the last step to a fully portable bundle.
 - **Stringly-typed jax import**: `flow/_objectives.py` reaches the coupler via
   `require("sc_flow.flow.coupling._device")` — a string literal that refactors won't catch. Update it by
   hand on any move, and smoke-test (it only fires on the first OT step, deep into a run).

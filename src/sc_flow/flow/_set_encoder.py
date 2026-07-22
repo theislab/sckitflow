@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from collections.abc import Collection, Mapping
 from typing import Literal
 
@@ -8,6 +10,7 @@ from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.core._torch_types import MappedTensor
 from sc_flow.core.nn._modules import BaseModule
 from sc_flow.core.nn._utils import init_module_from_dict
+from sc_flow.flow._config import SetEncoderConfig
 from sc_flow.flow._pooling import BasePooling, PoolingSpec, build_pooling, validate_pooling_spec
 
 __all__ = ["SetEncoder"]
@@ -108,6 +111,43 @@ class SetEncoder(BaseModule):
             self._hub_mixin_config["covariates_not_pooled"] = list(self._covariates_not_pooled)
 
         self._condition_encoder = self._make_modules()
+
+    def to_config(self) -> SetEncoderConfig:
+        """The portable :class:`SetEncoderConfig` describing this encoder.
+
+        Raises when the encoder uses a custom :class:`~sc_flow.flow._pooling.BasePooling` instance
+        (runtime-only) — that choice has no portable spec. ``pooling_proj_dim`` stores the *resolved* width.
+        """
+        spec = self.pooling_spec
+        if spec is None:
+            raise ValueError(
+                "This SetEncoder uses a custom BasePooling instance (runtime-only) and has no portable "
+                "config. Build it with a PoolingSpec to enable export."
+            )
+        return SetEncoderConfig(
+            input_layers={k: dict(v) for k, v in self._input_layers.items()},
+            output_dim=self._output_dim,
+            pooling=spec,
+            pooling_proj_dim=self._pooling_proj_dim,
+            pooling_proj_bias=self._pooling_proj_bias,
+            covariates_not_pooled=list(self._covariates_not_pooled),
+            output_layers_kwargs=dict(self._output_layers_kwargs),
+            condition_mode=self._condition_mode,
+        )
+
+    @classmethod
+    def from_config(cls, config: SetEncoderConfig) -> SetEncoder:
+        """Reconstruct a :class:`SetEncoder` from its portable config (fresh, uninitialized weights)."""
+        return cls(
+            input_layers={k: dict(v) for k, v in config.input_layers.items()},
+            output_dim=config.output_dim,
+            pooling=config.pooling,
+            pooling_proj_dim=config.pooling_proj_dim,
+            pooling_proj_bias=config.pooling_proj_bias,
+            covariates_not_pooled=list(config.covariates_not_pooled),
+            output_layers_kwargs=dict(config.output_layers_kwargs),
+            condition_mode=config.condition_mode,
+        )
 
     @property
     def output_dim(self) -> int:

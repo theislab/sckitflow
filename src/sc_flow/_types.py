@@ -17,8 +17,6 @@ ProbabilityPathId = Literal[
 ]
 TimeFeaturesId = Literal["sinusoidal", "log-sinusoidal"]
 
-CombinerId = Literal["concat", "resnet1d"]
-
 LayersDict = dict[str, Any]
 NestedLayersDict = dict[str, LayersDict]
 

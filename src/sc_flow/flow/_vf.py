@@ -1,6 +1,6 @@
+from __future__ import annotations
+
 import abc
-from dataclasses import dataclass, field
-from typing import Any
 
 import torch
 
@@ -11,12 +11,13 @@ from sc_flow._constants import (
     DEFAULT_VF_LATENT_STATE_DIM,
     DEFAULT_VF_LATENT_TIME_DIM,
 )
-from sc_flow._types import CombinerId, LayersDict, TimeFeaturesId
+from sc_flow._types import LayersDict, TimeFeaturesId
 from sc_flow.core._torch_types import MappedTensor, VelocityFieldFn
 from sc_flow.core._torch_utils import make_concatenation_possible
 from sc_flow.core.nn._modules import BaseModule, FunctionalModule
 from sc_flow.core.nn._utils import init_module_from_dict
-from sc_flow.flow._combiner import BaseCombiner, get_combiner
+from sc_flow.flow._combiner import BaseCombiner, CombinerSpec, build_combiner, validate_combiner_spec
+from sc_flow.flow._config import MLPEmbedderConfig, MLPVelocityConfig
 from sc_flow.flow._set_encoder import SetEncoder
 from sc_flow.flow._time_features import get_time_features_fn
 
@@ -25,20 +26,6 @@ __all__ = [
     "MLPEmbedderConfig",
     "MLPVelocity",
 ]
-
-
-@dataclass
-class MLPEmbedderConfig:
-    """Config for the optional MLP that embeds one vector stream into a latent width.
-
-    Used for the velocity field's ``state_embedder`` / ``time_embedder`` / ``source_embedder`` slots.
-    ``None`` in a slot skips the embedder and passes that stream through raw. The velocity field supplies
-    the MLP ``input_dim`` (it knows each stream's width), so this config only carries the target
-    ``output_dim`` (``None`` → a per-stream default) and any extra :class:`~sc_flow.core.nn.MLP` kwargs.
-    """
-
-    output_dim: int | None = None
-    mlp_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 class BaseVelocityField(BaseModule):
@@ -100,7 +87,7 @@ class MLPVelocity(BaseVelocityField):
         num_time_features: int | None = None,
         max_period: int | None = None,
         vf_decoder_mlp_kwargs: LayersDict | None = None,
-        combiner: CombinerId | BaseCombiner | None = None,
+        combiner: CombinerSpec | BaseCombiner | None = None,
         condition_encoder: SetEncoder | None = None,
     ) -> None:
         """Initializes the velocity field with the given settings.
@@ -146,13 +133,13 @@ class MLPVelocity(BaseVelocityField):
             defined directly in :class: `MLP`. Defaults to `None`.
         :type vf_decoder_mlp_kwargs: class: `dict[str, Any] | None`
 
-        :param combiner: (Optional) How state/time (and any condition) are combined. Either a built-in
-            choice by name from :class: `CombinerId` (``"concat"`` or ``"resnet1d"``), or your own
-            :class: `BaseCombiner` subclass instance sized for this VF's latent dims. A built-in
-            name is saved to and restored from ``config.json``; a custom instance is not saved and must be
-            passed again to ``from_pretrained``. Defaults to `None`, falling back to
-            :constant: `sc_flow._constants.DEFAULT_COMBINER`.
-        :type combiner: class: `CombinerId | BaseCombiner | None`
+        :param combiner: How state/time (and any condition) are combined. Either a portable
+            :class:`~sc_flow.flow._combiner.CombinerSpec` JSON mapping (``sc_flow.concat`` or
+            ``sc_flow.resnet1d``), saved to and restored from ``config.json``, or your own
+            :class:`~sc_flow.flow._combiner.BaseCombiner` subclass instance sized for this VF's latent dims
+            (the runtime-only research path — not saved, and portable export is disabled). This choice is
+            required explicitly: there is **no** hidden default combiner.
+        :type combiner: class: `CombinerSpec | BaseCombiner | None`
 
         :param condition_encoder: (Optional) The perturbation-covariate condition encoder — a
             :class: `SetEncoder` instance (built directly, since its dims come from the data, not from this
@@ -173,10 +160,13 @@ class MLPVelocity(BaseVelocityField):
         self._num_time_features = num_time_features
         self._max_period = DEFAULT_TIME_FEATURES_MAX_PERIOD if max_period is None else max_period
         self._vf_decoder_mlp_kwargs = {} if vf_decoder_mlp_kwargs is None else vf_decoder_mlp_kwargs
-        # A built-in name (str) is saved/restored via config.json; a custom BaseCombiner instance
-        # is not saved (see BaseModule) and must be passed again to from_pretrained — otherwise the strict
-        # weight load raises a clear mismatch error.
-        self._combiner = combiner
+        # A CombinerSpec (mapping) is validated/canonicalized now and saved/restored via config.json; a
+        # custom BaseCombiner instance is not saved (see BaseModule) and must be passed again to
+        # from_pretrained — otherwise the strict weight load raises a clear mismatch error. None is rejected
+        # at build time (no hidden default combiner).
+        self._combiner = combiner if (combiner is None or isinstance(combiner, BaseCombiner)) else (
+            validate_combiner_spec(combiner)
+        )
         self._condition_encoder = condition_encoder
 
         self._vf = self._make_modules()
@@ -348,11 +338,17 @@ class MLPVelocity(BaseVelocityField):
                 )
                 raise ValueError(msg)
             return self._combiner
-        return get_combiner(
-            latent_state_dim,
-            latent_time_dim,
+        if self._combiner is None:
+            raise ValueError(
+                "A combiner must be provided explicitly: pass a CombinerSpec (e.g. "
+                '{"type": "sc_flow.concat", "version": 1, "config": {}}) or a BaseCombiner instance. '
+                "There is no default combiner."
+            )
+        return build_combiner(
+            self._combiner,
+            latent_state_dim=latent_state_dim,
+            latent_time_dim=latent_time_dim,
             latent_condition_dim=latent_condition_dim,
-            combiner_id=self._combiner,
         )
 
     def _make_vf_decoder(
@@ -477,3 +473,83 @@ class MLPVelocity(BaseVelocityField):
     ) -> bool:
         """Whether the condition encoder is variational (a stochastic :class:`SetEncoder`)."""
         return self.is_conditional and self._condition_encoder.is_stochastic
+
+    def to_config(self) -> MLPVelocityConfig:
+        """The portable :class:`MLPVelocityConfig` describing this field (raises on a runtime-only slot).
+
+        A custom :class:`~sc_flow.flow._combiner.BaseCombiner` or :class:`~sc_flow.flow._pooling.BasePooling`
+        instance has no portable spec, so serialization fails here (before any weights are written).
+        """
+        if self._combiner is None:
+            raise ValueError("Velocity field has no combiner; nothing to serialize.")
+        if isinstance(self._combiner, BaseCombiner):
+            raise ValueError(
+                "This velocity field uses a custom BaseCombiner instance (runtime-only) and has no portable "
+                "config. Build it with a CombinerSpec to enable export."
+            )
+        condition_encoder = None if self._condition_encoder is None else self._condition_encoder.to_config()
+        return MLPVelocityConfig(
+            state_dim=self._state_dim,
+            combiner=dict(self._combiner),
+            state_embedder=self._state_embedder,
+            time_embedder=self._time_embedder,
+            source_embedder=self._source_embedder,
+            time_features_id=self._time_features_id,
+            num_time_features=self._num_time_features,
+            max_period=self._max_period,
+            vf_decoder_mlp_kwargs=dict(self._vf_decoder_mlp_kwargs),
+            condition_encoder=condition_encoder,
+        )
+
+    @classmethod
+    def from_config(cls, config: MLPVelocityConfig) -> MLPVelocity:
+        """Reconstruct an :class:`MLPVelocity` from its portable config (fresh, uninitialized weights)."""
+        condition_encoder = (
+            None if config.condition_encoder is None else SetEncoder.from_config(config.condition_encoder)
+        )
+        return cls(
+            state_dim=config.state_dim,
+            state_embedder=config.state_embedder,
+            time_embedder=config.time_embedder,
+            source_embedder=config.source_embedder,
+            time_features_id=config.time_features_id,
+            num_time_features=config.num_time_features,
+            max_period=config.max_period,
+            vf_decoder_mlp_kwargs=dict(config.vf_decoder_mlp_kwargs),
+            combiner=dict(config.combiner),
+            condition_encoder=condition_encoder,
+        )
+
+    def save_pretrained(self, save_directory: str, **kwargs) -> None:
+        """Write a portable bundle: ``config.json`` (the architecture spec) + ``model.safetensors``.
+
+        Overrides the Hub mixin's constructor-capture path (which cannot represent the nested condition
+        encoder and would silently drop non-JSON args). :meth:`to_config` raises **before** anything is
+        written if a slot holds a runtime-only custom module — the §14 "fail before export" guarantee.
+        """
+        import json
+        from pathlib import Path
+
+        from safetensors.torch import save_model
+
+        spec = self.to_config().to_spec()
+        path = Path(save_directory)
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "config.json").write_text(json.dumps(spec, indent=2))
+        # save_model (not save_file): the condition encoder is registered under two names, so its tensors
+        # are shared in the state_dict; save_model dedupes them, load_model restores both references.
+        save_model(self, str(path / "model.safetensors"))
+
+    @classmethod
+    def from_pretrained(cls, save_directory: str, **kwargs) -> MLPVelocity:
+        """Rebuild from a :meth:`save_pretrained` bundle: architecture from ``config.json``, weights strict."""
+        import json
+        from pathlib import Path
+
+        from safetensors.torch import load_model
+
+        path = Path(save_directory)
+        spec = json.loads((path / "config.json").read_text())
+        model = cls.from_config(MLPVelocityConfig.from_spec(spec))
+        load_model(model, str(path / "model.safetensors"), strict=True)
+        return model

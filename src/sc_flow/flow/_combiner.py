@@ -1,47 +1,39 @@
 import abc
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
 
-from sc_flow._constants import DEFAULT_COMBINER
-from sc_flow._types import CombinerId
 from sc_flow._utils import verify_fn_kwargs_dictionary
+from sc_flow.core._component import ComponentRegistry, ComponentSpec, JsonValue
 from sc_flow.core._torch_utils import make_concatenation_possible
 from sc_flow.core.nn._modules import BaseModule, Resnet1d
 
 __all__ = [
     "COMBINER_REGISTRY",
     "BaseCombiner",
+    "CombinerContext",
+    "CombinerSpec",
     "ConcatCombiner",
     "Resnet1dCombiner",
-    "get_combiner",
-    "register_combiner",
+    "build_combiner",
+    "validate_combiner_spec",
 ]
 
-#: Built-in + extension-registered combiners, keyed by string id (the on-disk name saved to config.json).
-COMBINER_REGISTRY: dict[str, type["BaseCombiner"]] = {}
+#: A combiner spec is a :class:`~sc_flow.core.ComponentSpec` — the slot (``combiner``) fixes the family.
+CombinerSpec = ComponentSpec
 
 
-def register_combiner(combiner_id: str):
-    """Register a :class:`BaseCombiner` subclass under a string ``combiner_id``.
+@dataclass(frozen=True)
+class CombinerContext:
+    """Build context for a combiner: the latent widths the velocity field will feed it.
 
-    The id is what a user passes as ``combiner=...`` and what is written to ``config.json`` (so it must be
-    stable and globally unique). An extension can register its own combiner from its own package — no edit
-    to sc-flow — and refer to it by id; a checkpoint that names an unregistered id fails loudly at load
-    (the providing package likely wasn't imported). Registered combiners must accept the standard signature
-    ``(latent_state_dim, latent_time_dim, latent_condition_dim=None, **combiner_kwargs)`` — the velocity
-    field supplies the dims, ``combiner_kwargs`` (JSON, from config) carries any hyperparameters.
+    ``latent_condition_dim`` is ``None`` for an unconditional field (state + time only).
     """
 
-    def _decorator(cls: type["BaseCombiner"]) -> type["BaseCombiner"]:
-        existing = COMBINER_REGISTRY.get(combiner_id)
-        if existing is not None and existing is not cls:
-            msg = f"Combiner id {combiner_id!r} is already registered to {existing.__name__}."
-            raise ValueError(msg)
-        COMBINER_REGISTRY[combiner_id] = cls
-        return cls
-
-    return _decorator
+    latent_state_dim: int
+    latent_time_dim: int
+    latent_condition_dim: int | None = None
 
 
 class BaseCombiner(BaseModule):
@@ -140,7 +132,6 @@ class BaseCombiner(BaseModule):
                 raise RuntimeError(msg)
 
 
-@register_combiner("concat")
 class ConcatCombiner(BaseCombiner):
     """Class for concatenation based combiner layers."""
 
@@ -226,12 +217,11 @@ class ConcatCombiner(BaseCombiner):
         return self._identity(concat_input)
 
 
-@register_combiner("resnet1d")
 class Resnet1dCombiner(BaseCombiner):
     """Class for residual network based combiner layers.
 
-    Its per-layer hyperparameters go in the ``resnet_kwargs`` dict; via the registry they are passed as
-    ``combiner="resnet1d", combiner_kwargs={"resnet_kwargs": {...}}``.
+    Its per-layer hyperparameters go in the ``resnet_kwargs`` dict; via a spec they are passed as
+    ``{"type": "sc_flow.resnet1d", "version": 1, "config": {"resnet_kwargs": {...}}}``.
     """
 
     def __init__(
@@ -334,26 +324,65 @@ class Resnet1dCombiner(BaseCombiner):
         return embedding_dim
 
 
-def get_combiner(
+@dataclass(frozen=True)
+class ConcatCombinerConfig:
+    """Config for :class:`ConcatCombiner` (parameter-free concatenation)."""
+
+
+@dataclass(frozen=True)
+class Resnet1dCombinerConfig:
+    """Config for :class:`Resnet1dCombiner`.
+
+    ``resnet_kwargs`` are the JSON-only :class:`~sc_flow.core.nn.Resnet1d` hyperparameters (e.g.
+    ``num_resnet_layers``, ``activation_cls`` as an activation *id* string, ``dropout_p``). The velocity
+    field supplies the ``input_dim`` / ``embedding_dim``, so those must not appear here.
+    """
+
+    resnet_kwargs: dict[str, JsonValue] = field(default_factory=dict)
+
+
+def _concat_factory(config: ConcatCombinerConfig, context: CombinerContext) -> BaseCombiner:
+    return ConcatCombiner(
+        context.latent_state_dim,
+        context.latent_time_dim,
+        latent_condition_dim=context.latent_condition_dim,
+    )
+
+
+def _resnet1d_factory(config: Resnet1dCombinerConfig, context: CombinerContext) -> BaseCombiner:
+    return Resnet1dCombiner(
+        context.latent_state_dim,
+        context.latent_time_dim,
+        latent_condition_dim=context.latent_condition_dim,
+        resnet_kwargs=dict(config.resnet_kwargs),
+    )
+
+
+#: Closed built-in combiner family on the shared registry machinery. ``concat`` is parameter-free; the
+#: resnet combiner carries weights and a different output dim, which is why a combiner is a discriminated
+#: spec (like pooling) rather than a flat enum. A custom :class:`BaseCombiner` instance is the runtime-only
+#: research escape hatch (see :class:`~sc_flow.flow._vf.MLPVelocity`), not a registered type.
+COMBINER_REGISTRY: ComponentRegistry[CombinerContext] = ComponentRegistry("combiner")
+COMBINER_REGISTRY.register("sc_flow.concat", config_type=ConcatCombinerConfig, build=_concat_factory)
+COMBINER_REGISTRY.register("sc_flow.resnet1d", config_type=Resnet1dCombinerConfig, build=_resnet1d_factory)
+
+
+def validate_combiner_spec(spec: CombinerSpec | dict[str, Any]) -> CombinerSpec:
+    """Validate an explicit combiner spec without filling fields or resolving aliases."""
+    return COMBINER_REGISTRY.validate(spec)
+
+
+def build_combiner(
+    spec: CombinerSpec,
+    *,
     latent_state_dim: int,
     latent_time_dim: int,
     latent_condition_dim: int | None = None,
-    combiner_id: CombinerId | str | None = None,
-    combiner_kwargs: dict[str, Any] | None = None,
 ) -> BaseCombiner:
-    """Build a combiner by its registered ``combiner_id``.
-
-    The velocity field supplies the latent dims; ``combiner_kwargs`` (JSON-serializable, restored from
-    ``config.json``) carries any hyperparameters. Raises if ``combiner_id`` is not registered — e.g. an
-    extension that provides it was not imported.
-    """
-    combiner_id = DEFAULT_COMBINER if combiner_id is None else combiner_id
-    cls = COMBINER_REGISTRY.get(combiner_id)
-    if cls is None:
-        msg = (
-            f"Combiner {combiner_id!r} is not registered. Available: {sorted(COMBINER_REGISTRY)}. "
-            f"(If it is provided by an extension, import that package before building/loading the model.)"
-        )
-        raise ValueError(msg)
-    combiner_kwargs = {} if combiner_kwargs is None else combiner_kwargs
-    return cls(latent_state_dim, latent_time_dim, latent_condition_dim=latent_condition_dim, **combiner_kwargs)
+    """Build a combiner from the closed built-in combiner registry; the VF supplies the latent dims."""
+    context = CombinerContext(
+        latent_state_dim=latent_state_dim,
+        latent_time_dim=latent_time_dim,
+        latent_condition_dim=latent_condition_dim,
+    )
+    return COMBINER_REGISTRY.build(spec, context)

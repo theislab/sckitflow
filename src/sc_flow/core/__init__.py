@@ -5,3 +5,11 @@ PyTorch-Lightning training harness + optimizer, generic ``nn`` backbones, and ev
 The flow-matching specifics (velocity fields, probability paths, objectives, predict, OT coupling) live
 in the sibling :mod:`sc_flow.flow`.
 """
+
+from sc_flow.core._component import ComponentRegistry, ComponentSpec, JsonValue
+
+__all__ = [
+    "ComponentRegistry",
+    "ComponentSpec",
+    "JsonValue",
+]

@@ -396,15 +396,6 @@ class MLPVelocity(BaseVelocityField):
             combiner_id=self._combiner,
         )
 
-    def _make_condition_encoder(
-        self,
-    ) -> BaseModule:
-        """Returns the injected condition encoder (a :class:`SetEncoder`) for a conditional field."""
-        if not self.is_conditional:
-            msg = "To initialize the condition encoder you have to pass the `condition_encoder` argument, `None` found."
-            raise TypeError(msg)
-        return self._condition_encoder
-
     def _make_vf_decoder(
         self,
         decoder_input_dim: int,
@@ -450,7 +441,7 @@ class MLPVelocity(BaseVelocityField):
             "combiner": self._make_combiner(),
         }
         if self.is_conditional:
-            modules["condition_encoder"] = self._make_condition_encoder()
+            modules["condition_encoder"] = self._condition_encoder
         if self.use_source_encoder:
             modules["source_encoder"] = self._make_source_encoder()
         modules["vf_decoder"] = self._make_vf_decoder(

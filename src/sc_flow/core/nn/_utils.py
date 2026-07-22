@@ -12,7 +12,7 @@ def init_module_from_dict(
     """Initilizes a base module from the specified settings.
 
     The type is specified by the `"layer_type"` key and falls back to
-    :class: `sc_flow.backends.torch.nn.MLP` by default.
+    :class: `sc_flow.core.nn.MLP` by default.
 
     * When initializing MLPs the configuration dictionary should also contain the `"input_dim"`
         and `"output_dim"` keys that are needed for the initialization of the module.

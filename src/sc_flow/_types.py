@@ -1,5 +1,3 @@
-import abc
-from collections.abc import Collection
 from typing import Any, Literal
 
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
@@ -23,17 +21,3 @@ NestedLayersDict = dict[str, LayersDict]
 TargetCovariatesEncodingId = Literal["label", "one-hot", "functional"]
 
 TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
-
-GENOTDataMatchFn = Any  # TODO
-
-TensorLike = Any  # TODO
-
-
-class PredictionData:
-    X: Any
-    raw_samples: Any | None = None
-    traj: Any | None = None
-
-    @classmethod
-    @abc.abstractmethod
-    def concatenate(cls, preds: Collection["PredictionData"]) -> "PredictionData": ...

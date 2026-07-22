@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Callable
 
 import torch
 
 from sc_flow._types import LayersDict, TimeFeaturesId
-from sc_flow.core._torch_types import MappedTensor, VelocityFieldFn
+from sc_flow.core._torch_types import MappedTensor
 from sc_flow.core._torch_utils import make_concatenation_possible
 from sc_flow.core.nn._modules import BaseModule, FunctionalModule
 from sc_flow.core.nn._utils import init_module_from_dict
@@ -18,7 +19,12 @@ __all__ = [
     "BaseVelocityField",
     "MLPEmbedderConfig",
     "MLPVelocity",
+    "VelocityFieldFn",
 ]
+
+#: Callable form of a velocity field, ``(t, x) -> velocity``, as fed to ODE/SDE solvers. Lives here (the
+#: flow-matching layer) rather than in the generic core: it is a flow-matching concept.
+VelocityFieldFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 
 class BaseVelocityField(BaseModule):

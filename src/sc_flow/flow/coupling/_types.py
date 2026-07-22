@@ -1,13 +1,11 @@
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeVar
+from typing import Any, Literal, NamedTuple, Protocol, TypeVar
 
 import diffrax as dfx
 import numpy as np
 from ott.problems.linear import linear_problem
 
-if TYPE_CHECKING:
-    from sc_flow.backends.jax.nn._vf import BaseVelocityField
 try:
     from numpy.typing import NDArray
 
@@ -57,7 +55,7 @@ TimeDiffusion = Callable[[ArrayLike, Any], ArrayLike]
 Diffusion = TimeDiffusion | TimeStateDiffusion
 
 
-ODEDynamics = TypeVar("ODEDynamics", bound="BaseVelocityField")
+ODEDynamics = TypeVar("ODEDynamics")
 SDEDynamics = tuple[ODEDynamics, Diffusion]
 SolverDynamics = TypeVar("SolverDynamics", ODEDynamics, SDEDynamics)
 

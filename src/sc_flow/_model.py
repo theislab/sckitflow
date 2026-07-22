@@ -2,7 +2,7 @@
 
 Torch-native (OT) conditional flow matching. The velocity field, probability path, and loss are all
 torch (trained by Lightning); the **only** JAX is the per-minibatch OT coupling
-(:func:`~sc_flow.backends.jax.coupling.ot_linear_coupling`), a forward-only resample of the
+(:func:`~sc_flow.flow.coupling.ot_linear_coupling`), a forward-only resample of the
 ``(source, target)`` pairing — no autograd crosses into JAX, so there is no DLPack bridge. Prediction
 integrates the torch velocity field with ``torchdiffeq``.
 """

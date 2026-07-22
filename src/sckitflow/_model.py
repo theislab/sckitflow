@@ -12,11 +12,12 @@ import pandas as pd
 from anndata import AnnData
 from tqdm import tqdm
 
+
 from sckitflow._types import PredictionData
 from sckitflow.data._composite import MatchedData
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
-from sckitflow.data.samplers._train import FTrainSampler
+from sckitflow.data.samplers._train import FTrainSampler, MultiTransitionSampler
 from sckitflow.data.samplers._validation import FValidationSampler
 from sckitflow.methods._methods import BaseMethod
 from sckitflow.methods._opt import OptimConfig
@@ -515,7 +516,8 @@ class Model:
         # create train sampler
         if train_sampler_kwargs is None:
             train_sampler_kwargs = {}
-        train_sampler = FTrainSampler(
+        sampler = MultiTransitionSampler if self._method.is_joint else FTrainSampler
+        train_sampler = sampler(
             train_tree,
             batch_size=train_batch_size,
             **train_sampler_kwargs,

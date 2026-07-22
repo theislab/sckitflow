@@ -47,6 +47,11 @@ class BaseMethod(abc.ABC):
     def train_step(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
         pass
 
+    def train_step_joint(self, *args: Any, **kwargs: Any) -> tuple[Any, dict[str, Any]]:
+        raise NotImplementedError(
+            f"{self.__class__.__name__} does not implement `train_step_joint`."
+            )
+
     @abc.abstractmethod
     def predict(self, *args: Any, **kwargs: Any) -> Any:
         pass
@@ -67,6 +72,9 @@ class BaseMethod(abc.ABC):
     def is_paired_setting(self) -> bool:
         return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
 
+    @property
+    def is_joint(self) -> bool:
+        return False
 
 class BaseGenerativeFlow(BaseMethod):
     _default_solver_cls: type[TorchSolver] | None = None

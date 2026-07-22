@@ -9,6 +9,7 @@ from sckitflow.data.samplers._validation import FValidationSampler
 from sckitflow.methods._methods import BaseMethod
 from sckitflow.methods._opt import BaseOptManager
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
+from sckitflow.data._abc import DataT
 
 __all__ = ["Trainer"]
 
@@ -103,6 +104,26 @@ class Trainer:
             log_df = log_df.drop(columns=["step"], axis=1)
         return log_df
 
+    def _independent_train_executor(
+        self,
+        method: BaseMethod,
+        nodes: tuple[DataT],
+        *args,
+        **kwargs
+    ) -> list[tuple[Any, dict[str, Any]]]:
+        """Executes a training step for an independent node."""
+        return [method.train_step(node, *args, **kwargs) for node in nodes]
+
+    def _join_train_executor(
+        self,
+        method: BaseMethod,
+        nodes: tuple[DataT],
+        *args,
+        **kwargs
+    ) -> list[tuple[Any, dict[str, Any]]]:
+        """Executes a training step for a joint node."""
+        return [method.train_step_joint(nodes, *args, **kwargs)]
+
     def train(
         self,
         train_sampler: FTrainSampler,
@@ -123,13 +144,15 @@ class Trainer:
         # Call on_train_begin
         self._callbacks.on_train_begin(self, **cb_kwargs)
 
+        step_executor = self._join_train_executor if self._method.is_joint \
+            else self._independent_train_executor
         pbar = tqdm(range(1, n_train_steps + 1))
         for self._current_step in pbar:
             # Sample nodes and perform training steps
             nodes = train_sampler.sample()
+            step_results = step_executor(self._method, nodes, *args, **kwargs)
             step_dict = {}
-            for node in nodes:
-                opt_data, step_dict = self._method.train_step(node, *args, **kwargs)
+            for opt_data, step_dict in step_results:
                 step_dict.update({"step": self._current_step})
                 self._opt_manager.step(opt_data)
                 self._append_train_log(step_dict)

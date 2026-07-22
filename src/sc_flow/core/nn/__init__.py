@@ -1,6 +1,6 @@
 """Generic torch backbones — the ML-toolbox nn layer.
 
-Flow-matching-specific modules (velocity fields, time features, conditioning) live in
+Flow-matching-specific modules (velocity fields, time features, combiner) live in
 :mod:`sc_flow.flow`.
 """
 

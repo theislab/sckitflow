@@ -6,7 +6,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from sc_flow.flow.coupling._types import ArrayLike, JaxArray, JaxDevice, NumpyArray, TDevice
+from sc_flow.flow.coupling._types import ArrayLike, JaxArray, JaxDevice, NumpyArray, DeviceLike
 
 __all__ = [
     "broadcast_to_target_shape",
@@ -137,7 +137,7 @@ def ensure_2d_tensor_with_singleton_trailing_dim(
     return broadcast_to_target_shape(input_tensor, (input_tensor.shape[0], 1))
 
 
-def get_jax_device(dev: TDevice) -> JaxDevice:
+def get_jax_device(dev: DeviceLike) -> JaxDevice:
     """Validate the JAX device passed as input and return the corresponding jax.Device object.
 
     If the requested device is not found, falls back to CPU with a warning.

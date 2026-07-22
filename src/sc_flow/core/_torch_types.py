@@ -47,22 +47,23 @@ class StepData:
     source_group_data: Any | None
 
 
-TVfFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+# Callable form of a velocity field, ``(t, x) -> velocity``, as fed to ODE/SDE solvers.
+VelocityFieldFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
-TTimeFeaturesFn = Callable[[torch.Tensor, int], torch.Tensor]
+TimeFeaturesFn = Callable[[torch.Tensor, int], torch.Tensor]
 
-TMeanFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
-TDriftFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
-TSigmaFn = Callable[[torch.Tensor], torch.Tensor]
+MeanFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+DriftFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+SigmaFn = Callable[[torch.Tensor], torch.Tensor]
 ScaleMethod = Literal["mean", "max", "median"] | float
 LinCouplingMethod = Literal["exact", "sinkhorn", "partial", "unbalanced"] | None
 QuadCouplingMethod = Literal["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"] | None
-CostFN = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+CostFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 MatchFnOut = tuple[TensorLike, TensorLike] | tuple[TensorLike, TensorLike, TensorLike]
 
 
-class TMatchFn(Protocol):
+class MatchFn(Protocol):
     def __call__(
         self,
         source_lin: TensorLike,
@@ -71,7 +72,7 @@ class TMatchFn(Protocol):
     ) -> MatchFnOut: ...
 
 
-class TSamplerFn(Protocol):
+class SamplerFn(Protocol):
     def __call__(
         self,
         *size: int,
@@ -79,15 +80,15 @@ class TSamplerFn(Protocol):
     ) -> TensorLike | tuple[TensorLike, TensorLike]: ...
 
 
-class TTimeSamplerFn(TSamplerFn):
+class TimeSamplerFn(SamplerFn):
     pass
 
 
-class TNoiseSamplerFn(TSamplerFn):
+class NoiseSamplerFn(SamplerFn):
     pass
 
 
-class TConditioningFn(Protocol):
+class CombinerFn(Protocol):
     def __call__(
         self,
         encoded_t: torch.Tensor,
@@ -96,17 +97,17 @@ class TConditioningFn(Protocol):
     ) -> torch.Tensor: ...
 
 
-TDevice = str | torch.device
-TNoiseType = Literal["scalar", "diagonal", "general", "additive"]
-TSDEType = Literal["ito", "stratonovich"]
+DeviceLike = str | torch.device
+NoiseType = Literal["scalar", "diagonal", "general", "additive"]
+SDEType = Literal["ito", "stratonovich"]
 
 
-TODEDynamics = TypeVar("TODEDynamics", bound="BaseVelocityField")
-TTimeStateDiffusion = Callable[[Tensor, Tensor], Tensor]
-TTimeDiffusion = Callable[[Tensor], Tensor]
-TDiffusion = TTimeDiffusion | TTimeStateDiffusion
-TSDEDynamics = tuple[TODEDynamics, TDiffusion]
-TSolverDynamics = TypeVar("TSolverDynamics", TODEDynamics, TSDEDynamics)
+ODEDynamics = TypeVar("ODEDynamics", bound="BaseVelocityField")
+TimeStateDiffusion = Callable[[Tensor, Tensor], Tensor]
+TimeDiffusion = Callable[[Tensor], Tensor]
+Diffusion = TimeDiffusion | TimeStateDiffusion
+SDEDynamics = tuple[ODEDynamics, Diffusion]
+SolverDynamics = TypeVar("SolverDynamics", ODEDynamics, SDEDynamics)
 
 
 class SolverConfig(NamedTuple):

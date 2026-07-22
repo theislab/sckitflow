@@ -3,24 +3,53 @@ from typing import Any
 
 import torch
 
-from sc_flow._constants import DEFAULT_CONDITIONING_LAYER
-from sc_flow._types import ConditioningLayersId
+from sc_flow._constants import DEFAULT_COMBINER
+from sc_flow._types import CombinerId
 from sc_flow._utils import verify_fn_kwargs_dictionary
-from sc_flow.core._torch_types import TConditioningFn
 from sc_flow.core._torch_utils import make_concatenation_possible
 from sc_flow.core.nn._modules import BaseModule, Resnet1d
 
 __all__ = [
-    "BaseConditioningLayer",
-    "ConcatConditioning",
-    "Resnet1dConditioning",
-    "make_custom_conditioning_layer",
-    "get_conditioning_layer",
+    "COMBINER_REGISTRY",
+    "BaseCombiner",
+    "ConcatCombiner",
+    "Resnet1dCombiner",
+    "get_combiner",
+    "register_combiner",
 ]
 
+#: Built-in + extension-registered combiners, keyed by string id (the on-disk name saved to config.json).
+COMBINER_REGISTRY: dict[str, type["BaseCombiner"]] = {}
 
-class BaseConditioningLayer(BaseModule):
-    """Base class for conditioning layers."""
+
+def register_combiner(combiner_id: str):
+    """Register a :class:`BaseCombiner` subclass under a string ``combiner_id``.
+
+    The id is what a user passes as ``combiner=...`` and what is written to ``config.json`` (so it must be
+    stable and globally unique). An extension can register its own combiner from its own package — no edit
+    to sc-flow — and refer to it by id; a checkpoint that names an unregistered id fails loudly at load
+    (the providing package likely wasn't imported). Registered combiners must accept the standard signature
+    ``(latent_state_dim, latent_time_dim, latent_condition_dim=None, **combiner_kwargs)`` — the velocity
+    field supplies the dims, ``combiner_kwargs`` (JSON, from config) carries any hyperparameters.
+    """
+
+    def _decorator(cls: type["BaseCombiner"]) -> type["BaseCombiner"]:
+        existing = COMBINER_REGISTRY.get(combiner_id)
+        if existing is not None and existing is not cls:
+            msg = f"Combiner id {combiner_id!r} is already registered to {existing.__name__}."
+            raise ValueError(msg)
+        COMBINER_REGISTRY[combiner_id] = cls
+        return cls
+
+    return _decorator
+
+
+class BaseCombiner(BaseModule):
+    """Base class for combiners.
+
+    A combiner fuses the encoded state with the conditioning signals — the encoded time, and the
+    condition embedding when present — into the vector fed to the velocity-field decoder.
+    """
 
     def __init__(
         self,
@@ -28,7 +57,7 @@ class BaseConditioningLayer(BaseModule):
         latent_time_dim: int,
         latent_condition_dim: int | None = None,
     ) -> None:
-        """Initializes the concatenation based conditioning.
+        """Initializes the combiner.
 
         :param latent_state_dim: The latent dimensionality of the input states.
         :type latent_state_dim: class: `int`
@@ -36,7 +65,10 @@ class BaseConditioningLayer(BaseModule):
         :param latent_time_dim: The latent dimensionality of the input time index.
         :type latent_time_dim: class: `int`
 
-        :param latent_condition_dim: (Optional) The dimensionality of extra conditioning argument to be concatenated to the input.
+        :param latent_condition_dim: (Optional) Dimensionality of the condition embedding fused with the
+            encoded state and time (the trailing dim of ``encoded_condition``, i.e. the condition-encoder
+            output, plus the source-encoder output when present). ``None`` for an unconditional combiner,
+            where only state and time are combined.
         :type latent_condition_dim: class: `int | None`
         """
         super().__init__()
@@ -49,7 +81,7 @@ class BaseConditioningLayer(BaseModule):
     def output_dim(
         self,
     ) -> int:
-        """Returns the dimensionality of the conditioned output."""
+        """Returns the dimensionality of the combined output."""
 
     @abc.abstractmethod
     def forward(
@@ -58,17 +90,17 @@ class BaseConditioningLayer(BaseModule):
         encoded_state: torch.Tensor,
         encoded_condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Retrieves the encoded concatenation to be fed as input to the velocity field decoder.
+        """The combined representation fed to the velocity-field decoder.
 
         :param encoded_t: The time index at which the velocity field is computed.
         :type encoded_t: class: `torch.Tensor`
 
-        :param encoded_state: The state at which the velocity fiel is computed.
+        :param encoded_state: The state at which the velocity field is computed.
         :type encoded_state: class: `torch.Tensor`
 
-        :param encoded_condition: Optional extra conditioning argument to be concatenated to the input.
-            Its trailing dimension should match the corresponding one specified in the :attr: `self._latent_condition_dim`
-            attribute, otherwise a :class: `RuntimeError` is raised.
+        :param encoded_condition: (Optional) The condition embedding to fuse with the encoded state and time.
+            Its trailing dimension must match :attr: `self._latent_condition_dim`,
+            otherwise a :class: `RuntimeError` is raised.
         :type encoded_condition: class: `torch.Tensor`
         """
 
@@ -108,8 +140,9 @@ class BaseConditioningLayer(BaseModule):
                 raise RuntimeError(msg)
 
 
-class ConcatConditioning(BaseConditioningLayer):
-    """Class for concatenation based conditioning layers."""
+@register_combiner("concat")
+class ConcatCombiner(BaseCombiner):
+    """Class for concatenation based combiner layers."""
 
     def __init__(
         self,
@@ -117,7 +150,7 @@ class ConcatConditioning(BaseConditioningLayer):
         latent_time_dim: int,
         latent_condition_dim: int | None = None,
     ) -> None:
-        """Initializes the concatenation based conditioning.
+        """Initializes the combiner.
 
         :param latent_state_dim: The latent dimensionality of the input states.
         :type latent_state_dim: class: `int`
@@ -125,7 +158,10 @@ class ConcatConditioning(BaseConditioningLayer):
         :param latent_time_dim: The latent dimensionality of the input time index.
         :type latent_time_dim: class: `int`
 
-        :param latent_condition_dim: (Optional) The dimensionality of extra conditioning argument to be concatenated to the input.
+        :param latent_condition_dim: (Optional) Dimensionality of the condition embedding fused with the
+            encoded state and time (the trailing dim of ``encoded_condition``, i.e. the condition-encoder
+            output, plus the source-encoder output when present). ``None`` for an unconditional combiner,
+            where only state and time are combined.
         :type latent_condition_dim: class: `int | None`
         """
         super().__init__(
@@ -146,7 +182,7 @@ class ConcatConditioning(BaseConditioningLayer):
     def output_dim(
         self,
     ) -> int:
-        """Return the dimensionality of the conditioned output."""
+        """Return the dimensionality of the combined output."""
         out_dim = self._latent_state_dim + self._latent_time_dim
         if self._latent_condition_dim is not None:
             out_dim = out_dim + self._latent_condition_dim
@@ -158,7 +194,7 @@ class ConcatConditioning(BaseConditioningLayer):
         encoded_state: torch.Tensor,
         encoded_condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Forward pass on the conditioning layer, done by concatenating the inputs.
+        """Forward pass: combine the encoded state, time, and optional condition into the decoder input.
 
         :param encoded_t: The encoded representation for the current time index.
             Its trailing dimension should match what specified in the :attr: `self._latent_time_dim`
@@ -170,9 +206,9 @@ class ConcatConditioning(BaseConditioningLayer):
             attribute, otherwise a :class: `RuntimeError` is raised.
         :type encoded_state: class: `torch.Tensor`
 
-        :param encoded_condition: Optional extra conditioning argument to be concatenated to the input.
-            Its trailing dimension should match the corresponding one specified in the :attr: `self._latent_condition_dim`
-            attribute, otherwise a :class: `RuntimeError` is raised.
+        :param encoded_condition: (Optional) The condition embedding to fuse with the encoded state and time.
+            Its trailing dimension must match :attr: `self._latent_condition_dim`,
+            otherwise a :class: `RuntimeError` is raised.
         :type encoded_condition: class: `torch.Tensor`
         """
         # sanity checks
@@ -190,8 +226,13 @@ class ConcatConditioning(BaseConditioningLayer):
         return self._identity(concat_input)
 
 
-class Resnet1dConditioning(BaseConditioningLayer):
-    """Class for residual network based conditioning layers."""
+@register_combiner("resnet1d")
+class Resnet1dCombiner(BaseCombiner):
+    """Class for residual network based combiner layers.
+
+    Its per-layer hyperparameters go in the ``resnet_kwargs`` dict; via the registry they are passed as
+    ``combiner="resnet1d", combiner_kwargs={"resnet_kwargs": {...}}``.
+    """
 
     def __init__(
         self,
@@ -200,7 +241,7 @@ class Resnet1dConditioning(BaseConditioningLayer):
         latent_condition_dim: int | None = None,
         resnet_kwargs: dict[str, Any] | None = None,
     ) -> None:
-        """Initializes the resnet based conditioning.
+        """Initializes the resnet based combiner.
 
         :param latent_state_dim: The latent dimensionality of the input states.
         :type latent_state_dim: class: `int`
@@ -208,7 +249,10 @@ class Resnet1dConditioning(BaseConditioningLayer):
         :param latent_time_dim: The latent dimensionality of the input time index.
         :type latent_time_dim: class: `int`
 
-        :param latent_condition_dim: (Optional) The dimensionality of extra conditioning argument to be concatenated to the input.
+        :param latent_condition_dim: (Optional) Dimensionality of the condition embedding fused with the
+            encoded state and time (the trailing dim of ``encoded_condition``, i.e. the condition-encoder
+            output, plus the source-encoder output when present). ``None`` for an unconditional combiner,
+            where only state and time are combined.
         :type latent_condition_dim: class: `int | None`
 
         :param resnet_kwargs: Additional key-word arguments used to initialize the :class: `Resnet1d` object.
@@ -240,7 +284,7 @@ class Resnet1dConditioning(BaseConditioningLayer):
         encoded_state: torch.Tensor,
         encoded_condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Forward pass on the conditioning layer, done by concatenating the inputs.
+        """Forward pass: combine the encoded state, time, and optional condition into the decoder input.
 
         :param encoded_t: The encoded representation for the current time index.
             Its trailing dimension should match what specified in the :attr: `self._latent_time_dim`
@@ -252,9 +296,9 @@ class Resnet1dConditioning(BaseConditioningLayer):
             attribute, otherwise a :class: `RuntimeError` is raised.
         :type encoded_state: class: `torch.Tensor`
 
-        :param encoded_condition: Optional extra conditioning argument to be concatenated to the input.
-            Its trailing dimension should match the corresponding one specified in the :attr: `self._latent_condition_dim`
-            attribute, otherwise a :class: `RuntimeError` is raised.
+        :param encoded_condition: (Optional) The condition embedding to fuse with the encoded state and time.
+            Its trailing dimension must match :attr: `self._latent_condition_dim`,
+            otherwise a :class: `RuntimeError` is raised.
         :type encoded_condition: class: `torch.Tensor`
         """
         # sanity checks
@@ -264,7 +308,7 @@ class Resnet1dConditioning(BaseConditioningLayer):
             encoded_condition,
         )
 
-        # concatenating input
+        # build the [time (+ condition)] conditioning vector the resnet is conditioned on
         to_concat = (make_concatenation_possible(encoded_t, encoded_state, -1),)
         if encoded_condition is not None:
             to_concat = to_concat + (make_concatenation_possible(encoded_condition, encoded_state, -1),)
@@ -276,59 +320,40 @@ class Resnet1dConditioning(BaseConditioningLayer):
     def output_dim(
         self,
     ) -> int:
-        """Return the dimensionality of the conditioned output."""
+        """Return the dimensionality of the combined output."""
         return self._resnet.output_dim
 
     @property
     def embedding_dim(
         self,
     ) -> int:
-        """Return the dimensionality of the conditioned output."""
+        """Dimensionality of the conditioning embedding (encoded time, plus condition when present) fed to the resnet."""
         embedding_dim = self._latent_time_dim
         if self._latent_condition_dim is not None:
             embedding_dim = embedding_dim + self._latent_condition_dim
         return embedding_dim
 
 
-def make_custom_conditioning_layer(
-    conditioning_fn: TConditioningFn,
-    conditioning_kwargs: dict[str, Any] | None = None,
-) -> BaseConditioningLayer:
-    """"""  # noqa
-    raise NotImplementedError
-
-
-def get_conditioning_layer(
+def get_combiner(
     latent_state_dim: int,
     latent_time_dim: int,
     latent_condition_dim: int | None = None,
-    conditioning_id: ConditioningLayersId | None = None,
-    conditioning_fn: TConditioningFn | None = None,
-    conditioning_kwargs: dict[str, Any] | None = None,
-) -> BaseConditioningLayer:
-    """"""  # noqa
+    combiner_id: CombinerId | str | None = None,
+    combiner_kwargs: dict[str, Any] | None = None,
+) -> BaseCombiner:
+    """Build a combiner by its registered ``combiner_id``.
 
-    if conditioning_fn is not None:
-        conditioning_kwargs = {} if conditioning_kwargs is None else conditioning_kwargs
-        return make_custom_conditioning_layer(conditioning_fn, conditioning_kwargs)
-
-    conditioning_id = DEFAULT_CONDITIONING_LAYER if conditioning_id is None else conditioning_id
-
-    if conditioning_id == "concat":
-        return ConcatConditioning(
-            latent_state_dim,
-            latent_time_dim,
-            latent_condition_dim=latent_condition_dim,
+    The velocity field supplies the latent dims; ``combiner_kwargs`` (JSON-serializable, restored from
+    ``config.json``) carries any hyperparameters. Raises if ``combiner_id`` is not registered — e.g. an
+    extension that provides it was not imported.
+    """
+    combiner_id = DEFAULT_COMBINER if combiner_id is None else combiner_id
+    cls = COMBINER_REGISTRY.get(combiner_id)
+    if cls is None:
+        msg = (
+            f"Combiner {combiner_id!r} is not registered. Available: {sorted(COMBINER_REGISTRY)}. "
+            f"(If it is provided by an extension, import that package before building/loading the model.)"
         )
-
-    elif conditioning_id == "resnet1d":
-        conditioning_kwargs = {} if conditioning_kwargs is None else conditioning_kwargs
-        return Resnet1dConditioning(
-            latent_state_dim,
-            latent_time_dim,
-            latent_condition_dim=latent_condition_dim,
-            resnet_kwargs=conditioning_kwargs,
-        )
-    else:
-        msg = f'Conditioning layer {conditioning_id} is not available, possible options are `["concat", "resnet1d"]`'
         raise ValueError(msg)
+    combiner_kwargs = {} if combiner_kwargs is None else combiner_kwargs
+    return cls(latent_state_dim, latent_time_dim, latent_condition_dim=latent_condition_dim, **combiner_kwargs)

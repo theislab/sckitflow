@@ -12,12 +12,12 @@ from sc_flow._constants import (
     DEFAULT_VF_LATENT_STATE_DIM,
     DEFAULT_VF_LATENT_TIME_DIM,
 )
-from sc_flow._types import ConditioningLayersId, LayersDict, NestedLayersDict, TimeFeaturesId
-from sc_flow.core._torch_types import MappedTensor, TConditioningFn, TTimeFeaturesFn, TVfFn
+from sc_flow._types import CombinerId, LayersDict, NestedLayersDict, TimeFeaturesId
+from sc_flow.core._torch_types import MappedTensor, VelocityFieldFn
 from sc_flow.core._torch_utils import make_concatenation_possible
 from sc_flow.core.nn._modules import BaseModule, FunctionalModule
 from sc_flow.core.nn._utils import init_module_from_dict
-from sc_flow.flow._conditioning_layers import BaseConditioningLayer, get_conditioning_layer
+from sc_flow.flow._combiner import BaseCombiner, get_combiner
 from sc_flow.flow._set_encoder import SetEncoder
 from sc_flow.flow._time_features import get_time_features_fn
 
@@ -55,7 +55,7 @@ class BaseVelocityField(BaseModule):
         self,
         *args,
         **kwargs,
-    ) -> TVfFn:
+    ) -> VelocityFieldFn:
         """Compiles the velocity field function to be fed to external solvers."""
 
 
@@ -64,7 +64,7 @@ class MLPVelocity(BaseVelocityField):
 
     Torch port of cellflow's ``ConditionalVelocityField`` / ``GENOTConditionalVelocityField`` (theislab/cellflow,
     ``src/cellflow/networks/_velocity_field.py``, flax): same time / state / condition / source encoders,
-    conditioning (concatenation / FiLM / resnet) and decoder; :meth:`condition_stats` mirrors cellflow's
+    combiner (concatenation / FiLM / resnet) and decoder; :meth:`condition_stats` mirrors cellflow's
     ``get_condition_embedding``. Kept structurally aligned so the jax original and this torch port stay mutually
     reviewable.
 
@@ -72,7 +72,7 @@ class MLPVelocity(BaseVelocityField):
         * (Optional) Time Featurization. An identity mapping is instantiated otherwise.
         * (Optional) Time MLP Encoder. An identity mapping is instantiated otherwise.
         * (Optional) State MLP Encoder. An identity mapping is instantiated otherwise.
-        * Conditioning layer, whereby the state and time information are combined.
+        * Combiner, whereby the state and time information are combined.
         * Velocity Field Decoder ultimately computing the velocity field.
     """
 
@@ -82,18 +82,15 @@ class MLPVelocity(BaseVelocityField):
         encode_state: bool = True,
         encode_time: bool = True,
         time_features_id: TimeFeaturesId | None = None,
-        time_features_fn: TTimeFeaturesFn | None = None,
         num_time_features: int | None = None,
         max_period: int | None = None,
-        time_features_kwargs: dict[str, Any] | None = None,
         state_encoder_output_dim: int | None = None,
         time_encoder_output_dim: int | None = None,
         state_encoder_mlp_kwargs: LayersDict | None = None,
         time_encoder_mlp_kwargs: LayersDict | None = None,
         vf_decoder_mlp_kwargs: LayersDict | None = None,
-        conditioning_id: ConditioningLayersId | None = None,
-        conditioning_fn: TConditioningFn | None = None,
-        conditioning_kwargs: dict[str, Any] | None = None,
+        combiner: CombinerId | BaseCombiner | None = None,
+        combiner_kwargs: dict[str, Any] | None = None,
         condition_encoder_input_layers: NestedLayersDict | None = None,
         condition_encoder_output_dim: int | None = None,
         condition_encoder_pooling_mode: Literal["mean", "sum"] = "mean",
@@ -122,30 +119,19 @@ class MLPVelocity(BaseVelocityField):
 
         :param time_features_id: (Optional) The identifier for the chosen time features.
             Could be set to any of the string identifiers for predefined time features,
-            specified in :class: `TimeFeaturesId`. Ignored when :param: `time_features_fn`
-            is passed as well. Defaults to `None`, in which case no time features are computed
-            (i.e.: identity mapping).
+            specified in :class: `TimeFeaturesId` (``"sinusoidal"`` or ``"log-sinusoidal"``).
+            Defaults to `None`, in which case no time features are computed (i.e.: identity mapping).
         :type time_features_id: class: `TimeFeaturesId | None`
-
-        :param time_features_fn: (Optional) Function defining the custom time featurizer which should accept tensor with
-            trailing singleton dimension and expand the trailing dimension to $2K$.The input function is wrapped,
-            so that it only need to actually implement the expansion of the trailing dimension.
-            When provided, takes precedence over string initialization. Defaults to `None`.
-        :type time_features_fn: class: `TTimeFeaturesFn | None`
 
         :param num_time_features: (Optional) Sets the number of resulting time features, hence it must be even.
             Raises a :class: `ValueError` otherwise. When not provided, it will be set to
             :constant: `sc_flow._constants.DEFAULT_NUM_TIME_FEATURES`. Defaults to `None`.
         :type num_time_features: class: `int | None`
 
-        :param max_period: (Optional) Sets the value of $M$, used for the linear scaling of the time features.
-            Only used when :param: `time_features_id` is set to `"torch-cfm"`, ignored otherwise.
+        :param max_period: (Optional) Sets the value of $M$, used for the log scaling of the time features.
+            Only used when :param: `time_features_id` is set to `"log-sinusoidal"`, ignored otherwise.
             When not provided, it will be set to :constant: `sc_flow._constants.DEFAULT_TIME_FEATURES_MAX_PERIOD`. Defaults to `None`.
         :type max_period: class: `int | None`
-
-        :param time_features_kwargs: (Optional) Keyword arguments used to compile custom time featurizers. Only used when
-            initializing time featurizers with :param: `time_features_fn`, ignored otherwise. Defaults to `None`
-        :type time_features_kwargs: class: `dict[str, Any] | None`
 
         :param state_encoder_output_dim: (Optional) The output dimensionality for the state encoder, only used when :param: `encode_state`
             is set to `True`. When `None` it will be set to :constant: `sc_flow._constants.DEFAULT_VF_LATENT_STATE_DIM`.
@@ -175,22 +161,19 @@ class MLPVelocity(BaseVelocityField):
             defined directly in :class: `MLP`. Defaults to `None`.
         :type vf_decoder_mlp_kwargs: class: `dict[str, Any] | None`
 
-        :param conditioning_id: (Optional) String identifier indicating the type of conditioning applied to the states.
-            For unconditional velocity fields, the conditioning is only done with respect to the time index.
-            Could be set to any of the string identifiers for predefined time features, specified in :class: `ConditioningLayersId`.
-            Ignored when :param: `conditioning_fn` is passed as well. Defaults to `None` and, when not provided, it will be set internally set to
-            :constant: `sc_flow._constants.DEFAULT_CONDITIONING_LAYER`.
-        :type conditioning_id: class: `ConditioningLayersId`
+        :param combiner: (Optional) How state/time (and any condition) are combined. Either a built-in
+            choice by name from :class: `CombinerId` (``"concat"`` or ``"resnet1d"``), or your own
+            :class: `BaseCombiner` subclass instance sized for this VF's latent dims. A built-in
+            name is saved to and restored from ``config.json``; a custom instance is not saved and must be
+            passed again to ``from_pretrained``. Defaults to `None`, falling back to
+            :constant: `sc_flow._constants.DEFAULT_COMBINER`.
+        :type combiner: class: `CombinerId | BaseCombiner | None`
 
-        :param conditioning_fn: (Optional) Callable using for the instantiation of custom conditioning layers.
-            When provided, takes precedence over string initialization. Defaults to `None`.
-        :type conditioning_fn: class: `TConditioningFn`
-
-        :param conditioning_kwargs: (Optional) Keyword arguments used to initialize the conditioning layer.
-            Ignored when the using concatenation based conditioning. When setting :param: `conditioning_id`
+        :param combiner_kwargs: (Optional) Keyword arguments used to initialize the combiner layer.
+            Ignored for concatenation and for a custom instance. When setting :param: `combiner`
             to `"resnet1d"`, it should match the signatures of the `__init__` method of the :class: `Resnet1d` class,
             raise :class: `TypeError` otherwise. Defaults to `None`.
-        :type conditioning_kwargs: class: `dict[str, Any]`
+        :type combiner_kwargs: class: `dict[str, Any]`
 
         :param condition_encoder_input_layers: Dictionary mapping each perturbation covariate
             identifier to the configurations for their respective input layer.
@@ -239,10 +222,8 @@ class MLPVelocity(BaseVelocityField):
         self._encode_state = encode_state
         self._encode_time = encode_time
         self._time_features_id = time_features_id
-        self._time_features_fn = time_features_fn
         self._num_time_features = num_time_features
         self._max_period = DEFAULT_TIME_FEATURES_MAX_PERIOD if max_period is None else max_period
-        self._time_features_kwargs = time_features_kwargs
         self._state_encoder_output_dim = (
             DEFAULT_VF_LATENT_STATE_DIM if state_encoder_output_dim is None else state_encoder_output_dim
         )
@@ -252,9 +233,11 @@ class MLPVelocity(BaseVelocityField):
         self._state_encoder_mlp_kwargs = {} if state_encoder_mlp_kwargs is None else state_encoder_mlp_kwargs
         self._time_encoder_mlp_kwargs = {} if time_encoder_mlp_kwargs is None else time_encoder_mlp_kwargs
         self._vf_decoder_mlp_kwargs = {} if vf_decoder_mlp_kwargs is None else vf_decoder_mlp_kwargs
-        self._conditioning_id = conditioning_id
-        self._conditioning_fn = conditioning_fn
-        self._conditioning_kwargs = {} if conditioning_kwargs is None else conditioning_kwargs
+        # A built-in name (str) is saved/restored via config.json; a custom BaseCombiner instance
+        # is not saved (see BaseModule) and must be passed again to from_pretrained — otherwise the strict
+        # weight load raises a clear mismatch error.
+        self._combiner = combiner
+        self._combiner_kwargs = {} if combiner_kwargs is None else combiner_kwargs
         self._condition_encoder_input_layers = condition_encoder_input_layers
         self._condition_encoder_output_dim = (
             DEFAULT_CONDITION_ENCODER_OUTPUT_DIM
@@ -281,10 +264,9 @@ class MLPVelocity(BaseVelocityField):
     ) -> bool:
         """Boolean flag indicating whether time featurization is used for the current velocity field.
 
-        This is the case when either :param: `time_features_id` or :param: `time_features_fn`
-        are passed during initialization.
+        This is the case when :param: `time_features_id` is passed during initialization.
         """
-        return (self._time_features_id is not None) or (self._time_features_fn is not None)
+        return self._time_features_id is not None
 
     @property
     def use_source_encoder(
@@ -306,10 +288,10 @@ class MLPVelocity(BaseVelocityField):
         return input_dim
 
     @property
-    def _conditioning_dim(
+    def _combiner_dim(
         self,
     ) -> int | None:
-        """Returns the dimensionality for the condition input of the conditioning layers."""
+        """Returns the dimensionality for the condition input of the combiner layers."""
         if self.is_conditional and self.use_source_encoder:
             return self._condition_encoder_output_dim + self._source_encoder_output_dim
         elif self.is_conditional and (not self.use_source_encoder):
@@ -364,10 +346,10 @@ class MLPVelocity(BaseVelocityField):
             return self._vf["source_encoder"](source)
         return None
 
-    def _get_conditioning_input(
+    def _get_combiner_input(
         self, encoded_condition: torch.Tensor, encoded_source: torch.tensor
     ) -> torch.Tensor | None:
-        """Retrieves the condition input for the conditioning layers."""
+        """Retrieves the condition input for the combiner layers."""
         if encoded_condition is not None and encoded_source is not None:
             return torch.concatenate(
                 (make_concatenation_possible(encoded_condition, encoded_source, -1), encoded_source), dim=-1
@@ -389,9 +371,7 @@ class MLPVelocity(BaseVelocityField):
         time_features_fn = get_time_features_fn(
             num_time_features=self._get_num_time_features(),
             time_features_id=self._time_features_id,
-            time_features_fn=self._time_features_fn,
             max_period=self._max_period,
-            time_features_kwargs=self._time_features_kwargs,
         )
         return FunctionalModule(time_features_fn)
 
@@ -427,17 +407,49 @@ class MLPVelocity(BaseVelocityField):
             )
         return torch.nn.Identity()
 
-    def _make_conditioning_layer(
-        self,
-    ) -> BaseConditioningLayer:
-        """Initializes the conditioning layer according to the configurations specified during initialization."""
-        return get_conditioning_layer(
+    def _injected_submodule_slots(self) -> dict[str, str]:
+        """Reports the ``combiner`` slot when it holds a custom instance (see :meth:`BaseModule.save_pretrained`)."""
+        if isinstance(self._combiner, BaseCombiner):
+            return {"combiner": type(self._combiner).__name__}
+        return {}
+
+    @property
+    def _combiner_dims(self) -> tuple[int, int, int | None]:
+        """The ``(latent_state, latent_time, latent_condition)`` dims the combiner layer must accept."""
+        return (
             self._state_encoder_output_dim if self._encode_state else self._state_dim,
             self._time_encoder_output_dim if self._encode_time else self._get_num_time_features(),
-            latent_condition_dim=self._conditioning_dim,
-            conditioning_id=self._conditioning_id,
-            conditioning_fn=self._conditioning_fn,
-            conditioning_kwargs=self._conditioning_kwargs,
+            self._combiner_dim,
+        )
+
+    def _make_combiner(
+        self,
+    ) -> BaseCombiner:
+        """Initializes the combiner layer.
+
+        Uses a custom :class:`BaseCombiner` instance directly (validating it was sized for this
+        VF's latent dims), otherwise builds a built-in layer from the name (defaulting when ``None``).
+        """
+        latent_state_dim, latent_time_dim, latent_condition_dim = self._combiner_dims
+        if isinstance(self._combiner, BaseCombiner):
+            got = (
+                self._combiner._latent_state_dim,
+                self._combiner._latent_time_dim,
+                self._combiner._latent_condition_dim,
+            )
+            if got != (latent_state_dim, latent_time_dim, latent_condition_dim):
+                msg = (
+                    f"Custom combiner was sized for (state, time, condition)={got}, but this velocity "
+                    f"field feeds it {(latent_state_dim, latent_time_dim, latent_condition_dim)}."
+                )
+                raise ValueError(msg)
+            return self._combiner
+        return get_combiner(
+            latent_state_dim,
+            latent_time_dim,
+            latent_condition_dim=latent_condition_dim,
+            combiner_id=self._combiner,
+            combiner_kwargs=self._combiner_kwargs,
         )
 
     def _make_condition_encoder(
@@ -504,14 +516,14 @@ class MLPVelocity(BaseVelocityField):
             "time_features": self._make_time_features(),
             "time_encoder": self._make_time_encoder(),
             "state_encoder": self._make_state_encoder(),
-            "conditioning_layer": self._make_conditioning_layer(),
+            "combiner": self._make_combiner(),
         }
         if self.is_conditional:
             modules["condition_encoder"] = self._make_condition_encoder()
         if self.use_source_encoder:
             modules["source_encoder"] = self._make_source_encoder()
         modules["vf_decoder"] = self._make_vf_decoder(
-            modules["conditioning_layer"].output_dim,
+            modules["combiner"].output_dim,
         )
         return torch.nn.ModuleDict(modules)
 
@@ -557,8 +569,8 @@ class MLPVelocity(BaseVelocityField):
         encoded_xt = self._vf["state_encoder"](x)
         encoded_t = self._vf["time_encoder"](self._vf["time_features"](t))
         encoded_source = self._get_encoded_source(source)
-        encoded_concat = self._vf["conditioning_layer"](
-            encoded_t, encoded_xt, encoded_condition=self._get_conditioning_input(cond_embedding, encoded_source)
+        encoded_concat = self._vf["combiner"](
+            encoded_t, encoded_xt, encoded_condition=self._get_combiner_input(cond_embedding, encoded_source)
         )
         return self._vf["vf_decoder"](encoded_concat)
 
@@ -566,7 +578,7 @@ class MLPVelocity(BaseVelocityField):
         self,
         condition_dict: MappedTensor | None = None,
         source: torch.Tensor | None = None,
-    ) -> TVfFn:
+    ) -> VelocityFieldFn:
         """Compiles the velocity field function to be fed to external solvers."""
 
         def _vf_fn(t: torch.Tensor, x: torch.Tensor):

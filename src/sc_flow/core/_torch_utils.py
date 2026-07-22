@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import torch
 
-from sc_flow.core._torch_types import NumpyArray, ShapeLike, TDevice, TensorLike
+from sc_flow.core._torch_types import NumpyArray, ShapeLike, DeviceLike, TensorLike
 
 __all__ = [
     "broadcast_to_target_shape",
@@ -99,7 +99,7 @@ def make_concatenation_possible(
     return broadcast_to_target_shape(input_tensor, dims_to_match + dims_to_retain)
 
 
-def get_torch_device(dev: TDevice) -> torch.device:
+def get_torch_device(dev: DeviceLike) -> torch.device:
     """Validate the PyTorch device passed as input and return the corresponding torch.device object.
 
     If the requested device is not found, falls back to CPU with a warning.

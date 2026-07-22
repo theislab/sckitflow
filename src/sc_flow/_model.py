@@ -86,7 +86,7 @@ class FlowMatching:
         )
         vf_kwargs: dict[str, Any] = {
             "state_dim": int(dims.state),
-            "conditioning_id": "concat",
+            "combiner": "concat",
             "state_encoder_mlp_kwargs": {"hidden_dims": self.hidden_dims},
         }
         if self.decoder_dims is not None:

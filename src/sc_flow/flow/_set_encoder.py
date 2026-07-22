@@ -5,11 +5,11 @@ from typing import Literal
 
 import torch
 
-from sc_flow._types import LayersDict, NestedLayersDict
-from sc_flow._utils import check_sequence_query_against_reference
-from sc_flow.core._torch_types import MappedTensor
-from sc_flow.core.nn._modules import BaseModule
-from sc_flow.core.nn._utils import init_module_from_dict
+from scfit._types import LayersDict, NestedLayersDict
+from scfit._utils import check_sequence_query_against_reference
+from sc_flow.flow._torch_types import MappedTensor
+from scfit.nn._modules import BaseModule
+from scfit.nn._utils import init_module_from_dict
 from sc_flow.flow._config import SetEncoderConfig
 from sc_flow.flow._pooling import BasePooling, PoolingSpec, build_pooling, validate_pooling_spec
 
@@ -17,17 +17,6 @@ __all__ = ["SetEncoder"]
 
 
 class SetEncoder(BaseModule):
-    """Permutation-invariant Deep-Sets encoder over a set of perturbation covariates (the *condition encoder*).
-
-    Torch port of cellflow's ``ConditionEncoder`` (theislab/cellflow, ``src/cellflow/networks/_set_encoders.py``,
-    flax) — kept structurally aligned so the jax original and this port stay mutually reviewable. Same shape: a
-    per-covariate input layer, a shared projection + pooling, covariates that bypass pooling
-    (``covariates_not_pooled``), an output layer, and a deterministic or stochastic (mean + log-variance) head.
-
-    A :class:`~sc_flow.flow._pooling.PoolingSpec` JSON mapping selects a portable built-in pooling implementation. A custom
-    :class:`~sc_flow.flow._pooling.BasePooling` instance is an explicitly runtime-only research escape hatch:
-    it can train and participate in trusted checkpoints, but :meth:`save_pretrained` refuses portable export.
-    """
 
     def __init__(
         self,
@@ -40,35 +29,6 @@ class SetEncoder(BaseModule):
         output_layers_kwargs: LayersDict | None = None,
         condition_mode: Literal["deterministic", "stochastic"] = "deterministic",
     ) -> None:
-        """Initializes the set encoder.
-
-        :param input_layers: Dictionary mapping each perturbation covariate
-            identifier to the configurations for their respective input layer.
-        :type input_layers: class: `NestedLayersDict`
-
-        :param output_dim: The output dimensionality of the set encoder.
-        :type output_dim: class: `int`
-
-        :param pooling: Portable built-in :class:`PoolingSpec` JSON mapping, or a custom
-            :class:`BasePooling` instance for runtime experimentation. This choice is required explicitly.
-
-        :param pooling_proj_dim: Shared projection dimension for the covariates to pool,
-            defaults to `None`, in which case it will be set to the minimum output
-            dimensionality of the input encoder for pooled covariates.
-        :type pooling_proj_dim: class: `int | None`
-
-        :param pooling_proj_bias: Whether to use bias term for linear projection of
-            covariates to pool, defaults to `True`.
-        :type pooling_proj_bias: class: `bool`
-
-        :param covariates_not_pooled: Collection of string identifiers for the covariates not to pool,
-            defaults to `None`.
-        :type covariates_not_pooled: class: `Collection[str] | None`
-
-        :param output_layers_kwargs: Dictionary containing the configurations for the output layer.
-            Defaults to `None`.
-        :type output_layers_kwargs: class: `LayersDict | None`
-        """
         super().__init__()
         self._input_layers = input_layers
         self._output_dim = output_dim
@@ -113,11 +73,6 @@ class SetEncoder(BaseModule):
         self._condition_encoder = self._make_modules()
 
     def to_config(self) -> SetEncoderConfig:
-        """The portable :class:`SetEncoderConfig` describing this encoder.
-
-        Raises when the encoder uses a custom :class:`~sc_flow.flow._pooling.BasePooling` instance
-        (runtime-only) — that choice has no portable spec. ``pooling_proj_dim`` stores the *resolved* width.
-        """
         spec = self.pooling_spec
         if spec is None:
             raise ValueError(
@@ -137,7 +92,6 @@ class SetEncoder(BaseModule):
 
     @classmethod
     def from_config(cls, config: SetEncoderConfig) -> SetEncoder:
-        """Reconstruct a :class:`SetEncoder` from its portable config (fresh, uninitialized weights)."""
         return cls(
             input_layers={k: dict(v) for k, v in config.input_layers.items()},
             output_dim=config.output_dim,
@@ -151,12 +105,10 @@ class SetEncoder(BaseModule):
 
     @property
     def output_dim(self) -> int:
-        """The output dimensionality of the condition embedding."""
         return self._output_dim
 
     @property
     def is_stochastic(self) -> bool:
-        """Whether the encoder is variational (outputs a mean **and** a log-variance head)."""
         return self._condition_mode == "stochastic"
 
     @property
@@ -169,14 +121,12 @@ class SetEncoder(BaseModule):
     def _make_input_layers(
         self,
     ) -> dict[str, torch.nn.Module]:
-        """Initializes the input layers."""
         layers = {}
         for covariate_id, covariate_layers_dict in self._input_layers.items():
             layers[covariate_id] = init_module_from_dict(covariate_layers_dict)
         return layers
 
     def _make_proj_layers(self) -> dict[str, torch.nn.Module]:
-        """Initializes the projection layers."""
         layers = {}
         for covariate_id, covariate_layers_dict in self._input_layers.items():
             if covariate_id not in self._covariates_not_pooled:
@@ -195,7 +145,6 @@ class SetEncoder(BaseModule):
     def _make_pooling_layer(
         self,
     ) -> torch.nn.Module:
-        """Initializes the pooling layer."""
         if not self.covariates_pooled:
             return torch.nn.Identity()
         if isinstance(self._pooling, BasePooling):
@@ -205,7 +154,6 @@ class SetEncoder(BaseModule):
     def _make_output_layer(
         self,
     ) -> torch.nn.Module:
-        """Initializes the output layer."""
         return init_module_from_dict(
             self._output_layers_kwargs, input_dim=self.decoder_input_dim, output_dim=self._output_dim
         )
@@ -213,7 +161,6 @@ class SetEncoder(BaseModule):
     def _make_modules(
         self,
     ) -> torch.nn.Module:
-        """Initializes the module."""
         # make input layers
         input_layers_dict = self._make_input_layers()
         input_layers = torch.nn.ModuleDict(input_layers_dict)
@@ -238,20 +185,6 @@ class SetEncoder(BaseModule):
         condition_dict: MappedTensor,
         condition_mask: Mapping[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
-        """Forward computation pass on the set encoder.
-
-        Returns ``(mean, logvar)`` — the pooled condition embedding (mean) and, for a stochastic
-        (VAE-style) encoder, its log-variance head; ``logvar`` is ``None`` when deterministic.
-
-        :param condition_dict: The input dictionary containing the data for
-            each perturbation covariate.
-        :type condition_dict: class: `MappedTensor`
-
-        :param condition_mask: Optional boolean valid-element mask per pooled covariate, each with shape
-            ``(batch, set)``. ``None`` declares a dense, unpadded input and takes a mask-free fast path.
-            When supplied, every pooled covariate must have a mask; partial mappings and masks for bypassed
-            covariates are rejected.
-        """
         if not condition_dict:
             raise ValueError("No condition covariate found.")
 
@@ -349,7 +282,6 @@ class SetEncoder(BaseModule):
     def decoder_input_dim(
         self,
     ) -> int:
-        """Retrieves the input dimensionality for the output decoder."""
         # define list to store dimensions
         not_pooled_input_dims = []
 
@@ -372,12 +304,10 @@ class SetEncoder(BaseModule):
 
     @property
     def covariates_pooled(self) -> list[str]:
-        """Returns the list of covariates that need to be pooled together."""
         return [cov for cov in self._input_layers.keys() if cov not in self._covariates_not_pooled]
 
     @property
     def pooling_spec(self) -> PoolingSpec | None:
-        """Canonical portable pooling spec, or ``None`` for a runtime-only custom instance."""
         if isinstance(self._pooling, BasePooling):
             return None
         return PoolingSpec(
@@ -388,7 +318,6 @@ class SetEncoder(BaseModule):
 
     @property
     def pooling_output_dim(self) -> int:
-        """Dimensionality produced by the configured pooling component."""
         if not self.covariates_pooled:
             return 0
         if isinstance(self._pooling, BasePooling):

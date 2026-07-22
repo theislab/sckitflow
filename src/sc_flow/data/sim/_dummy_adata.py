@@ -5,7 +5,7 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData, concat
 
-from sc_flow.core.data._mixins import MappedArray
+from sc_flow.data._mixins import MappedArray
 
 map_int_to_str = np.vectorize(lambda val, descr: f"{descr}{val}")
 
@@ -79,7 +79,6 @@ def _init_obs(
     obs_columns_to_nunique_and_prefix: dict[str, tuple[int, str]],
     obs_columns_to_fixed_val: dict[str, str] = None,
 ) -> pd.DataFrame:
-    """"""  # noqa
     data_dict = {
         k: map_int_to_str(np.random.choice(v[0], n_obs), v[1]) for k, v in obs_columns_to_nunique_and_prefix.items()
     }
@@ -92,7 +91,6 @@ def _init_obs(
 
 
 def _init_obsm(n_obs: int, obsm_keys_to_dim: dict[str, int], zeros: bool = False) -> MappedArray:
-    """"""  # noqa
     init_fn = lambda n, v: np.zeros((n, v)) if zeros else np.random.rand(n, v)
     return {k: init_fn(n_obs, v) for k, v in obsm_keys_to_dim.items()}
 
@@ -101,7 +99,6 @@ def _init_uns(
     uns_keys_to_nunique_prefix_and_dim: dict[str, Any],
     is_control_val: str,
 ) -> dict[str, Any]:
-    """"""  # noqa
 
     uns_dict = {}
     for k, v in uns_keys_to_nunique_prefix_and_dim.items():
@@ -119,7 +116,6 @@ def _get_perturbed_adata(
     uns_keys_to_nunique_prefix_and_dim: dict[str, Any] = uns_keys_to_nunique_prefix_and_dim,
     is_control_val: str = is_control_val,
 ) -> AnnData:
-    """"""  # noqa
 
     # initializing X
     X = np.random.randn(n_obs, n_genes)
@@ -150,7 +146,6 @@ def _get_control_adata(
     obs_columns_to_fixed_val: dict[str, str] = obs_columns_to_fixed_val,
     is_control_val: str = is_control_val,
 ) -> AnnData:
-    """"""  # noqa
 
     # initializing X
     X = np.random.randn(n_obs, n_genes)
@@ -182,7 +177,6 @@ def get_dummy_adata(
     obs_columns_to_fixed_val: dict[str, str] = obs_columns_to_fixed_val,
     control_key: str = control_key,
 ) -> AnnData:
-    """"""  # noqa
 
     # perturbation adata
     pert_adata = _get_perturbed_adata(

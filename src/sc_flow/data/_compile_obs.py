@@ -1,19 +1,3 @@
-"""Obs-only ``compile_obs`` — labels → binded ``Scheme`` + ``condition_fn``.
-
-Replaces the flat ``prepare_data`` blob with the composed schema objects
-(:class:`StateDataSchema` / :class:`ConditionDataSchema` / :class:`CovariatesDataSchema`)
-and compiles them **off the label columns (+ explicit ``rep_tables`` embedding tables) only** —
-cells are never read here; they are streamed later by binded. This mirrors cellflow's
-``build_annbatch_training``: the source may be an in-memory ``AnnData``, an out-of-core
-``DatasetCollection``, or a zarr path / list of paths, all resolved via :mod:`binded._io`.
-
-Two condition mechanisms (see the design note):
-
-* **leaf-level** categorical/combinatorial covariates → the returned ``condition_fn``
-  (a per-leaf lookup, constant within a class-coherent batch);
-* **per-cell** "paired" covariates → extra ``Node`` keys (streamed aligned to the state
-  cells), *not* handled here — pass them as additional ``state`` reps.
-"""
 
 from __future__ import annotations
 
@@ -28,12 +12,12 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 
-from sc_flow.core.data._encoders import Encoder
-from sc_flow.core.data.containers._categorical import CategoricalData
-from sc_flow.core.data.schemas._condition_data_schema import ConditionDataSchema
-from sc_flow.core.data.schemas._coupling_data_schema import CouplingDataSchema
-from sc_flow.core.data.schemas._covariates_data_schema import CovariatesDataSchema
-from sc_flow.core.data.schemas._state_data_schema import StateDataSchema
+from sc_flow.data._encoders import Encoder
+from sc_flow.data.containers._categorical import CategoricalData
+from sc_flow.data.schemas._condition_data_schema import ConditionDataSchema
+from sc_flow.data.schemas._coupling_data_schema import CouplingDataSchema
+from sc_flow.data.schemas._covariates_data_schema import CovariatesDataSchema
+from sc_flow.data.schemas._state_data_schema import StateDataSchema
 
 if TYPE_CHECKING:
     from annbatch import DatasetCollection
@@ -44,7 +28,7 @@ if TYPE_CHECKING:
 
 __all__ = ["compile_obs", "CompiledData", "CompiledDims"]
 
-logger = logging.getLogger("sc_flow.core.data")
+logger = logging.getLogger("sc_flow.data")
 
 Leaf = tuple[Any, ...]
 ConditionFn = Callable[[Leaf], dict[str, np.ndarray]]
@@ -52,12 +36,6 @@ ConditionFn = Callable[[Leaf], dict[str, np.ndarray]]
 
 @dataclass(frozen=True)
 class CompiledDims:
-    """Data dimensionalities read from source headers + fitted encoders — no cells streamed.
-
-    The honest replacement for the removed ``DataDimensionalitiesRegistry``: everything a velocity
-    field needs to size itself, computed from array metadata (:func:`binded._io.key_backings`) and the
-    fitted ``condition_fn`` (one label lookup), so construction never spins the sampler.
-    """
 
     state: int  # feature dim of the streamed state rep (``obsm/<rep>`` or ``X``)
     condition: Mapping[str, int]  # condition realm -> encoding dim (trailing axis of condition_fn output)
@@ -67,7 +45,6 @@ class CompiledDims:
 
 @dataclass(frozen=True)
 class CompiledData:
-    """Result of :func:`compile_obs` — everything binded needs, built from labels."""
 
     scheme: Any  # binded.Scheme
     condition_fn: ConditionFn
@@ -77,7 +54,6 @@ class CompiledData:
 
 
 def _sample_rep_to_key(sample_rep: str) -> str:
-    """``sample_rep`` → binded rep key (``"X"`` or ``"obsm/<rep>"``)."""
     return "X" if sample_rep == "X" else f"obsm/{sample_rep}"
 
 
@@ -96,42 +72,8 @@ def compile_obs(
     min_runs_per_leaf: int = 0,
     seed: int = 0,
 ) -> CompiledData:
-    """Compile the composed schemas into a binded ``Scheme`` + ``condition_fn`` from labels only.
-
-    :param data: The cell source — an in-memory ``AnnData``, an out-of-core ``annbatch.DatasetCollection``,
-        a zarr adata path, or a list of paths/adatas. Only the grouping/rep locations are read here (via
-        :func:`binded._io.open_source` / :func:`binded._io.obs_columns`); cells are streamed at train time.
-    :param state: Which representation to stream (becomes the ``Node`` key).
-    :param condition: The leaf-level (categorical/combinatorial) condition covariates.
-    :param covariates: Embedded per-sample covariates (each with an encoder); ``None`` = none.
-    :param coupling: OT coupling source/target references (``src/tgt`` ``lin/quad``); their reps are
-        streamed as extra aligned ``Node`` keys (only those differing from the state rep) and recorded
-        in :attr:`CompiledData.coupling` as ``{role: loc-string}``. ``None`` = no coupling reps.
-    :param control_key: Boolean/0-1 obs column marking control observations.
-    :param match_context: Matching-context columns → the ``Bind.common`` (matching only, not
-        embedded). sc-flow's native name for cellflow's ``split_covariates``.
-    :param rep_tables: Embedding lookup tables for ``lookup`` encoders (as ``adata.uns`` would hold).
-        **Explicit**: it defaults to ``data.uns`` only for an in-memory ``AnnData``; for a
-        ``DatasetCollection`` / path it must be passed when a ``lookup`` encoder is used (there is no
-        in-memory ``.uns``, and nothing is read from the store). Cellflow's ``rep_dict``.
-    :param control_in_memory: Materialize the control (child) node's cells into RAM once (binded
-        ``Node.in_memory``) instead of re-streaming every batch. Use only when controls fit in host RAM.
-    :param control_path: A separate source for the control cells (any :data:`DataInput`). When given,
-        controls come from it (matched to targets purely by ``match_context``, which must be non-empty)
-        and ``data`` is treated as all targets; when ``None``, controls come from ``data`` split by
-        ``control_key``. Orthogonal to ``control_in_memory`` (which still chooses RAM vs streaming).
-    :param min_runs_per_leaf: Zero-weight (exclude) any **target** leaf whose *shortest contiguous on-disk
-        run* is smaller than this — both a scientific filter on tiny conditions and the guard that makes
-        ``chunk_size > 1`` valid: annbatch requires every drawn leaf's runs to be ``>= chunk_size``, so set
-        this ``>= chunk_size`` for chunked reads. Keying on the shortest *run* (not the total) is what makes
-        it hold across a multi-store collection, where a leaf can be large in total yet contribute a
-        sub-``chunk_size`` run in one store. On a single grouped store shortest-run == total. Controls are
-        never filtered. Default ``0`` (equivalently ``<=1``) drops nothing (uniform weights, byte-identical
-        to cellflow's defaults).
-    :param seed: Seed for the binded ``Scheme`` — controls the sampler RNG (data order). Default ``0``.
-    """
-    from binded import Bind, Node, Scheme, uniform
-    from binded._io import key_backings, obs_columns, open_source
+    from scfit.data import Bind, Node, Scheme, uniform
+    from scfit.data._io import key_backings, obs_columns, open_source
 
     cond_cols = list(condition.all_condition_cols)
     cov_cols = list(covariates.covariates) if covariates is not None else []

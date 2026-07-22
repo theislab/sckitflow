@@ -5,30 +5,26 @@ from typing import Any, ClassVar
 
 import numpy as np
 
-from sc_flow.core.data._abc import DataT, DataTree, DataTreeT
+from sc_flow.data._abc import DataT, DataTree, DataTreeT
 
 __all__ = ["MappedTree", "MappedArray", "BatchMixin"]
 
 
 @dataclass(frozen=True)
 class MappedTree(DataTree):
-    """"""  # noqa
 
     _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = str
     _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = object
     mapping: Mapping[Hashable, DataT | DataTreeT] = dc_field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """"""  # noqa
         # verifying inputs
         self._verify_inputs()
 
     def __getitem__(self, key: Hashable) -> DataT | DataTreeT:
-        """"""  # noqa
         return self.mapping[key]
 
     def _verify_inputs(self) -> None:
-        """"""  # noqa
         # iterating over each key to check that the type is the same
         for key, value in self.mapping.items():
             if not isinstance(value, self._REQUIRED_VALUE_TYPE | MappedTree):
@@ -47,7 +43,6 @@ class MappedTree(DataTree):
         output_value_type: type[Any] | None = None,
         **kwargs,
     ) -> DataT:
-        """"""  # noqa
         if isinstance(level_value, MappedTree):
             return self._apply(
                 level_value,
@@ -67,7 +62,6 @@ class MappedTree(DataTree):
         output_value_type: type[Any] | None = None,
         **kwargs,
     ) -> DataTreeT:
-        """"""  # noqa
         out_dict = {}
         if isinstance(mapping, MappedTree):
             mapping = mapping.mapping
@@ -91,7 +85,6 @@ class MappedTree(DataTree):
         output_value_type: type[Any] | None = None,
         **kwargs,
     ) -> DataTreeT:
-        """"""  # noqa
         return self._apply(
             self.mapping,
             function,
@@ -106,7 +99,6 @@ class MappedTree(DataTree):
         return all(isinstance(v, self._REQUIRED_VALUE_TYPE) for v in self.mapping.values())
 
     def flatten(self) -> tuple[DataT]:
-        """Flattens itself into a list of nodes."""
         if not self.is_leaf:
             return tuple([v for val in self.mapping.values() for v in val.flatten()])
         return tuple(self.mapping.values())
@@ -114,26 +106,22 @@ class MappedTree(DataTree):
 
 @dataclass(frozen=True)
 class MappedArray(MappedTree):
-    """"""  # noqa
 
     _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = np.ndarray | np.generic
 
 
 @dataclass(frozen=True)
 class BatchMixin(MappedArray):
-    """"""  # noqa
 
     _MIN_DIMS: ClassVar[int] = 1
 
     def __len__(self) -> int:
-        """"""  # noqa
         if len(self.reference_dims) != 1:
             msg = f"Continuous covariates should have only one reference dim, found {len(self.reference_dims)}"
             raise ValueError(msg)
         return self.reference_dims[0]
 
     def _verify_inputs(self) -> None:
-        """"""  # noqa
         # calling method of parent class for usual checks
         super()._verify_inputs()
 
@@ -150,7 +138,6 @@ class BatchMixin(MappedArray):
         key: str,
         data: np.ndarray,
     ) -> None:
-        """"""  # noqa
         # we need at least self._minimum_dims + 1 dimensions
         if data.ndim <= self._MIN_DIMS:
             msg = (
@@ -176,7 +163,6 @@ class BatchMixin(MappedArray):
     def reference_dims(
         self,
     ) -> Collection[int]:
-        """"""  # noqa
         if len(self.mapping):
             reference_array = next(iter(self.mapping.values()))
             return reference_array.shape[: self._MIN_DIMS]

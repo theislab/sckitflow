@@ -1,11 +1,3 @@
-"""The FlowMatching model wrapper.
-
-Torch-native (OT) conditional flow matching. The velocity field, probability path, and loss are all
-torch (trained by Lightning); the **only** JAX is the per-minibatch OT coupling
-(:func:`~sc_flow.flow.coupling.ot_linear_coupling`), a forward-only resample of the
-``(source, target)`` pairing — no autograd crosses into JAX, so there is no DLPack bridge. Prediction
-integrates the torch velocity field with ``torchdiffeq``.
-"""
 
 from __future__ import annotations
 
@@ -17,10 +9,10 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import torch
 
-from sc_flow.core.data import FlowSpec
+from sc_flow.data import FlowSpec
 
 if TYPE_CHECKING:
-    from sc_flow.core.data._compile_obs import CompiledDims, DataInput
+    from sc_flow.data._compile_obs import CompiledDims, DataInput
     from sc_flow.flow._pooling import PoolingSpec
 
 __all__ = ["FlowMatching"]
@@ -29,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 
 class FlowMatching:
-    """Torch-native (OT) conditional flow-matching model over a binded data spec."""
 
     def __init__(
         self,
@@ -90,7 +81,6 @@ class FlowMatching:
     # --- construction helpers -------------------------------------------------------------------
 
     def _build_vf(self, dims: CompiledDims) -> torch.nn.Module:
-        """Size an ``MLPVelocity`` from :class:`~sc_flow.core.data.CompiledDims` (no batch pulled)."""
         from sc_flow.flow._set_encoder import SetEncoder
         from sc_flow.flow._vf import MLPEmbedderConfig, MLPVelocity
 
@@ -167,52 +157,7 @@ class FlowMatching:
         debug_val: bool = False,
         callbacks: Sequence[Any] | None = None,
     ) -> FlowMatching:
-        """Compile ``data``, build the torch VF + OT-FM objective, and run the Lightning trainer.
-
-        With ``split_by`` set, whole conditions (target combinations sharing the ``split_by`` values) are
-        held out into a validation split (deterministic in :attr:`seed`); every ``valid_freq`` steps the
-        held-out controls are translated under each held-out condition and the ``metrics`` (distribution
-        metrics — ``r_squared``, ``e-dist``) are scored, logged as ``val_<metric>_mean`` and appended to
-        :attr:`metrics_history`. ``split_by=None`` trains on all conditions with no validation.
-
-        :param chunk_size: Contiguous cells the binded ``Loader`` reads per chunk. ``1`` (default) works
-            on any layout but issues ``batch_size`` scattered single-row zarr reads per batch — on the
-            Tahoe plates that is the dominant training cost (~2s/batch on Lustre vs a ~7ms GPU step).
-            Set to e.g. ``32`` on data grouped into contiguous per-condition runs (Tahoe's grouped plates)
-            to read sequentially — cf-train measured ~80x fewer read ops. Must divide ``batch_size`` and
-            requires every sampled condition's contiguous run to be ≥ ``chunk_size`` cells.
-        :param preload_nchunks: How many chunks the loader prefetches (buffer size). ``None`` picks a
-            batch-sized buffer for ``chunk_size=1`` and a large prefetch (``~32`` batches of chunks) when
-            ``chunk_size>1`` — the buffer refills synchronously, so a too-small buffer stalls training
-            ~400ms on every drain (measured on Tahoe/Lustre).
-        :param preload_to_gpu: Keep the loader's read window GPU-resident (needs ``cupy``), so batches
-            arrive as GPU tensors with no per-step host→device copy. ``None`` = auto (GPU training uses it
-            when cupy is available; CPU training never does). Batches are always torch tensors (``to="torch"``).
-        :param split_by: Condition column(s) whose unique combinations are partitioned into train/val
-            (a subset of the compiled root columns). ``None`` = no held-out split / no validation.
-        :param split_ratios: Train/val fractions — a ``{"train": .., "val": ..}`` mapping or a
-            ``(train, val)`` sequence summing to 1.0. Defaults to ``(0.8, 0.2)``.
-        :param val_batch_size: Target cells sampled per held-out condition (controls are read in full).
-            Defaults to ``batch_size``.
-        :param n_val_conditions: How many condition batches to score per validation pass (control
-            populations are cycled, each drawing a held-out condition; seeded). Defaults to the number of
-            held-out condition combinations.
-        :param metrics: Names (in :data:`~sc_flow.core.metrics.METRICS_REGISTRY`) of the
-            distribution metrics to score on the held-out split.
-        :param val_num_steps: ODE integration steps for the validation translation.
-        :param val_max_source_cells: Cap on the control/source population size fed to prediction + metrics
-            per validation batch (random subsample; ``None`` disables the cap). binded's ``EvalLoader``
-            reads each held-out control population **in full** regardless of ``val_batch_size`` — with
-            ``match_context`` pooling controls across many plates/stores that population can reach tens of
-            thousands of cells, and both the ODE trajectory and the O(n^2) pairwise-distance metrics
-            (e.g. ``EnergyDistance``) scale with it, reliably OOMing at real multi-plate scale.
-        :param control_in_memory: Materialize the control (source) population in RAM. In-memory nodes are
-            exempt from the ``chunk_size`` run-length rule, so this lets ``chunk_size>1`` work even when the
-            controls are fragmented across stores (the target node is still governed by ``min_runs_per_leaf``).
-        :param callbacks: Extra Lightning ``Callback``\\s appended to the trainer (e.g. loss logging,
-            throughput timing, checkpointing). ``None`` adds none.
-        """
-        from binded import Loader, SamplerConfig
+        from scfit.data import Loader, SamplerConfig
 
         from sc_flow._optional import require
 
@@ -240,7 +185,7 @@ class FlowMatching:
 
         train_scheme, val_scheme = compiled.scheme, None
         if split_by is not None:
-            from binded import split_scheme
+            from scfit.data import split_scheme
 
             split_by_cols = [split_by] if isinstance(split_by, str) else list(split_by)
             ratios = self._resolve_split_ratios(split_ratios)
@@ -265,7 +210,7 @@ class FlowMatching:
 
         # 3. Objective selected by name (OT coupling in JAX, everything else torch) + shared harness.
         # Import from sc_flow.flow so the concrete objectives / predictor register before we build by name.
-        from sc_flow.core.training import TrainingModule
+        from scfit.training import TrainingModule
         from sc_flow.flow import build_objective, build_predictor
 
         self.objective = build_objective(
@@ -340,24 +285,12 @@ class FlowMatching:
 
     @staticmethod
     def _resolve_preload_to_gpu(device: str, preload_to_gpu: bool | None) -> bool | None:
-        """Whether the loader keeps its read window on-GPU. Explicit wins; else never on CPU, auto on GPU.
-
-        ``None`` on GPU lets binded auto-select from cupy availability (GPU-resident batches when cupy is
-        present, host otherwise). On CPU training force ``False`` so batches never land on a GPU the model
-        isn't on.
-        """
         if preload_to_gpu is not None:
             return preload_to_gpu
         return False if str(device) == "cpu" else None
 
     @staticmethod
     def _resolve_preload(batch_size: int, chunk_size: int, preload_nchunks: int | None) -> int:
-        """Prefetch-buffer size in chunks: explicit if given, else a batch (chunk 1) / ~32 batches (chunked).
-
-        The chunked buffer must hold *many* batches: when it drains the loader refills synchronously, and a
-        refill of a few chunks stalls training ~400ms (measured on Tahoe/Lustre). A 4-batch buffer stalls
-        every ~4 steps (~1.5 steps/s); ~32 batches amortizes refills so steady-state holds ~160 steps/s.
-        """
         if preload_nchunks is not None:
             return int(preload_nchunks)
         if chunk_size <= 1:
@@ -366,7 +299,6 @@ class FlowMatching:
 
     @staticmethod
     def _resolve_split_ratios(split_ratios: Mapping[str, float] | Sequence[float] | None) -> dict[str, float]:
-        """Normalize ``split_ratios`` to a ``{"train": .., "val": ..}`` mapping (default ``(0.8, 0.2)``)."""
         if split_ratios is None:
             return {"train": 0.8, "val": 0.2}
         if isinstance(split_ratios, Mapping):
@@ -391,10 +323,9 @@ class FlowMatching:
         metrics: Sequence[str],
         val_num_steps: int,
     ) -> tuple[dict[str, Any], Any]:
-        """Build the ``{name: Metric}`` dict + an eval DataLoader (one condition per validation batch)."""
-        from binded import EvalLoader, SamplerConfig, split_assignment
+        from scfit.data import EvalLoader, SamplerConfig, split_assignment
 
-        from sc_flow.core.metrics import METRICS_REGISTRY
+        from scfit.metrics import METRICS_REGISTRY
 
         unknown = [m for m in metrics if m not in METRICS_REGISTRY]
         if unknown:
@@ -434,14 +365,6 @@ class FlowMatching:
         return_trajectory: bool = False,
         seed: int | None = None,
     ) -> np.ndarray:
-        """Translate ``x`` under ``condition`` by integrating the torch velocity field with torchdiffeq.
-
-        For ``objective="otfm"`` the ODE integrates the cells ``x`` themselves (source → target). For
-        ``objective="genot"`` it integrates **from latent noise** (target space) with ``x`` held fixed as
-        the source-conditioning input (noise → target | source) — a *generative* translation, so it is
-        stochastic; ``seed`` (default :attr:`self.seed`) makes the noise draw reproducible. ``condition_mask``
-        is the optional explicit boolean ``(batch, set)`` valid-token mask for each condition realm.
-        """
         if self.vf is None:
             raise RuntimeError("Model must be fitted before predict() can be called.")
         from sc_flow.flow._predict import condition_mask_to_device, condition_to_device, integrate_translation
@@ -494,24 +417,6 @@ class FlowMatching:
     )
 
     def save(self, path: str | Path) -> None:
-        """Persist the fitted model so :meth:`predict` works again after :meth:`load`.
-
-        Writes ``path`` as a directory in two clearly separated tiers:
-
-        * **Portable model (pickle-free).** ``config.json`` — the bundle envelope: the objective name, the
-          JSON constructor knobs, and the **architecture spec** (:meth:`MLPVelocity.to_config`, the exact
-          velocity-field graph) — plus ``model.safetensors`` (the ``state_dict``). The architecture is
-          reconstructed from this saved config, not re-derived from constructor logic, so a later change to
-          ``_build_vf`` cannot silently alter a reloaded model.
-        * **Trusted data sidecar.** ``data_state.pkl`` — cloudpickle of :attr:`spec`, the compiled
-          :class:`~sc_flow.core.data.CompiledDims`, and the fitted ``condition_fn`` closure. This is the
-          non-portable, trusted-code tier; never load it from an untrusted source.
-          TODO(state.md §10): replace this sidecar with ``input_schema.json`` + ``assets.safetensors`` and a
-          deterministic condition-fn compiler, retiring the last pickle.
-
-        Does **not** persist optimizer/trainer state — this is for inference after reload, not resuming
-        ``fit()``.
-        """
         import json
 
         import cloudpickle
@@ -542,12 +447,6 @@ class FlowMatching:
 
     @classmethod
     def load(cls, path: str | Path) -> FlowMatching:
-        """Reconstruct a fitted model from :meth:`save`.
-
-        ``predict()`` works immediately; ``fit()`` would start a fresh run (no optimizer/trainer state
-        is restored). The velocity field is rebuilt from the saved ``config.json`` architecture spec (not
-        re-derived), with weights loaded strictly from ``model.safetensors``.
-        """
         import json
 
         import cloudpickle

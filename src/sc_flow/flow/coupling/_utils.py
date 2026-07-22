@@ -51,7 +51,6 @@ _SDE_SOLVER_REGISTRY = {
 
 
 def to_jax_array(x: ArrayLike | NumpyArray) -> ArrayLike:
-    """Convert a NumPy array to a JAX array if needed."""
     if isinstance(x, np.ndarray):
         return jnp.array(x)
     if x is not None and not isinstance(x, JaxArray):
@@ -64,21 +63,6 @@ def broadcast_to_target_shape(
     input_array: ArrayLike,
     target_shape: Sequence[int],
 ) -> ArrayLike:
-    """Broadcasts the input tensor to the target shape.
-
-    This is done according to the following reshaping policy:
-        * When the :param: `input_array` is of the correct shape, simply returns it.
-        * When the input tensor has more dimensions than the target shape, a :class: `ValueError` is raised.
-        * When the input tensor has at most the same number of dimensions as the target shape, they should be either
-            matching the respective dimension in the target shape or be singleton, in which case they will be
-            expanded to match the corresponding target dimension. In case of mismatch a :class: `ValueError` is raised.
-
-    :param input_array: The input tensor whose to broadcast.
-    :type input_array: :class:`~sc_flow.flow.coupling._types.ArrayLike`
-
-    :param target_shape: The target shape which we want to broadcast the input to.
-    :type target_shape: Sequence[int]
-    """
     # tensor already in the correct shape, do nothing
     if input_array.shape == target_shape:
         return input_array
@@ -117,7 +101,6 @@ def make_concatenation_possible(
     target_array: ArrayLike,
     concat_dims: int = -1,
 ) -> tuple[ArrayLike, ArrayLike]:
-    """"""  # noqa
 
     dims_to_match = list(target_array.shape[:concat_dims])
     dims_to_retain = list(input_array.shape[concat_dims:])
@@ -130,7 +113,6 @@ def make_concatenation_possible(
 def ensure_2d_tensor_with_singleton_trailing_dim(
     input_tensor: ArrayLike,
 ):
-    """"""  # noqa
 
     if len(input_tensor.shape) == 0:
         input_tensor = jnp.expand_dims(input_tensor, axis=0)
@@ -138,10 +120,6 @@ def ensure_2d_tensor_with_singleton_trailing_dim(
 
 
 def get_jax_device(dev: DeviceLike) -> JaxDevice:
-    """Validate the JAX device passed as input and return the corresponding jax.Device object.
-
-    If the requested device is not found, falls back to CPU with a warning.
-    """
     if isinstance(dev, str):
         candidates = [d for d in jax.devices() if d.platform == dev]
         if not candidates:
@@ -158,14 +136,6 @@ def get_jax_device(dev: DeviceLike) -> JaxDevice:
 
 
 def get_ode_solver(method: str | dfx.AbstractSolver | None) -> dfx.AbstractSolver:
-    """Retrieve the diffrax ODE solver corresponding to the given method name.
-
-    :param method: The name of the ODE solver method or a diffrax solver instance.
-    :type method: str | dfx.AbstractSolver | None
-
-    :returns: The corresponding diffrax ODE solver instance.
-    :rtype: dfx.AbstractSolver
-    """
     if method is None:
         return dfx.Euler()
     elif isinstance(method, dfx.AbstractSolver):
@@ -179,14 +149,6 @@ def get_ode_solver(method: str | dfx.AbstractSolver | None) -> dfx.AbstractSolve
 
 
 def get_sde_solver(method: str | dfx.AbstractSolver | None) -> dfx.AbstractSolver:
-    """Retrieve the diffrax SDE solver corresponding to the given method name.
-
-    :param method: The name of the SDE solver method or a diffrax solver instance.
-    :type method: str | dfx.AbstractSolver | None
-
-    :returns: The corresponding diffrax SDE solver instance.
-    :rtype: dfx.AbstractSolver
-    """
     if method is None:
         return dfx.Euler()
     elif isinstance(method, dfx.AbstractSolver):

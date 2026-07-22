@@ -4,10 +4,10 @@ from typing import Any
 
 import torch
 
-from sc_flow._utils import verify_fn_kwargs_dictionary
-from sc_flow.core._component import ComponentRegistry, ComponentSpec, JsonValue
-from sc_flow.core._torch_utils import make_concatenation_possible
-from sc_flow.core.nn._modules import BaseModule, Resnet1d
+from scfit._utils import verify_fn_kwargs_dictionary
+from scfit._component import ComponentRegistry, ComponentSpec, JsonValue
+from sc_flow.flow._torch_utils import make_concatenation_possible
+from scfit.nn._modules import BaseModule, Resnet1d
 
 __all__ = [
     "COMBINER_REGISTRY",
@@ -26,10 +26,6 @@ CombinerSpec = ComponentSpec
 
 @dataclass(frozen=True)
 class CombinerContext:
-    """Build context for a combiner: the latent widths the velocity field will feed it.
-
-    ``latent_condition_dim`` is ``None`` for an unconditional field (state + time only).
-    """
 
     latent_state_dim: int
     latent_time_dim: int
@@ -37,11 +33,6 @@ class CombinerContext:
 
 
 class BaseCombiner(BaseModule):
-    """Base class for combiners.
-
-    A combiner fuses the encoded state with the conditioning signals — the encoded time, and the
-    condition embedding when present — into the vector fed to the velocity-field decoder.
-    """
 
     def __init__(
         self,
@@ -49,20 +40,6 @@ class BaseCombiner(BaseModule):
         latent_time_dim: int,
         latent_condition_dim: int | None = None,
     ) -> None:
-        """Initializes the combiner.
-
-        :param latent_state_dim: The latent dimensionality of the input states.
-        :type latent_state_dim: class: `int`
-
-        :param latent_time_dim: The latent dimensionality of the input time index.
-        :type latent_time_dim: class: `int`
-
-        :param latent_condition_dim: (Optional) Dimensionality of the condition embedding fused with the
-            encoded state and time (the trailing dim of ``encoded_condition``, i.e. the condition-encoder
-            output, plus the source-encoder output when present). ``None`` for an unconditional combiner,
-            where only state and time are combined.
-        :type latent_condition_dim: class: `int | None`
-        """
         super().__init__()
         self._latent_state_dim = latent_state_dim
         self._latent_time_dim = latent_time_dim
@@ -73,7 +50,7 @@ class BaseCombiner(BaseModule):
     def output_dim(
         self,
     ) -> int:
-        """Returns the dimensionality of the combined output."""
+        ...
 
     @abc.abstractmethod
     def forward(
@@ -82,19 +59,7 @@ class BaseCombiner(BaseModule):
         encoded_state: torch.Tensor,
         encoded_condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """The combined representation fed to the velocity-field decoder.
-
-        :param encoded_t: The time index at which the velocity field is computed.
-        :type encoded_t: class: `torch.Tensor`
-
-        :param encoded_state: The state at which the velocity field is computed.
-        :type encoded_state: class: `torch.Tensor`
-
-        :param encoded_condition: (Optional) The condition embedding to fuse with the encoded state and time.
-            Its trailing dimension must match :attr: `self._latent_condition_dim`,
-            otherwise a :class: `RuntimeError` is raised.
-        :type encoded_condition: class: `torch.Tensor`
-        """
+        ...
 
     def _verify_inputs_shape(
         self,
@@ -102,7 +67,6 @@ class BaseCombiner(BaseModule):
         encoded_state: torch.Tensor,
         encoded_condition: torch.Tensor | None = None,
     ) -> None:
-        """Verifies that the inputs match their respective expected shapes."""
         # sanity checks
         if encoded_state.shape[-1] != self._latent_state_dim:
             msg = (
@@ -133,7 +97,6 @@ class BaseCombiner(BaseModule):
 
 
 class ConcatCombiner(BaseCombiner):
-    """Class for concatenation based combiner layers."""
 
     def __init__(
         self,
@@ -141,20 +104,6 @@ class ConcatCombiner(BaseCombiner):
         latent_time_dim: int,
         latent_condition_dim: int | None = None,
     ) -> None:
-        """Initializes the combiner.
-
-        :param latent_state_dim: The latent dimensionality of the input states.
-        :type latent_state_dim: class: `int`
-
-        :param latent_time_dim: The latent dimensionality of the input time index.
-        :type latent_time_dim: class: `int`
-
-        :param latent_condition_dim: (Optional) Dimensionality of the condition embedding fused with the
-            encoded state and time (the trailing dim of ``encoded_condition``, i.e. the condition-encoder
-            output, plus the source-encoder output when present). ``None`` for an unconditional combiner,
-            where only state and time are combined.
-        :type latent_condition_dim: class: `int | None`
-        """
         super().__init__(
             latent_state_dim,
             latent_time_dim,
@@ -166,14 +115,12 @@ class ConcatCombiner(BaseCombiner):
     def _make_modules(
         self,
     ) -> torch.nn.Module:
-        """Initializes the module."""
         return torch.nn.Identity()
 
     @property
     def output_dim(
         self,
     ) -> int:
-        """Return the dimensionality of the combined output."""
         out_dim = self._latent_state_dim + self._latent_time_dim
         if self._latent_condition_dim is not None:
             out_dim = out_dim + self._latent_condition_dim
@@ -185,23 +132,6 @@ class ConcatCombiner(BaseCombiner):
         encoded_state: torch.Tensor,
         encoded_condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Forward pass: combine the encoded state, time, and optional condition into the decoder input.
-
-        :param encoded_t: The encoded representation for the current time index.
-            Its trailing dimension should match what specified in the :attr: `self._latent_time_dim`
-            attribute, otherwise a :class: `RuntimeError` is raised.
-        :type encoded_t: class: `torch.Tensor`
-
-        :param encoded_state: The encoded representation for the current states.
-            Its trailing dimension should match what specified in the :attr: `self._latent_state_dim`
-            attribute, otherwise a :class: `RuntimeError` is raised.
-        :type encoded_state: class: `torch.Tensor`
-
-        :param encoded_condition: (Optional) The condition embedding to fuse with the encoded state and time.
-            Its trailing dimension must match :attr: `self._latent_condition_dim`,
-            otherwise a :class: `RuntimeError` is raised.
-        :type encoded_condition: class: `torch.Tensor`
-        """
         # sanity checks
         self._verify_inputs_shape(
             encoded_t,
@@ -218,12 +148,6 @@ class ConcatCombiner(BaseCombiner):
 
 
 class Resnet1dCombiner(BaseCombiner):
-    """Class for residual network based combiner layers.
-
-    ``num_resnet_layers`` (the residual depth) is a required, explicit hyperparameter — there is no hidden
-    default. Any other per-layer :class:`Resnet1d` knobs go in ``resnet_kwargs``; via a spec these are
-    ``{"type": "sc_flow.resnet1d", "version": 1, "config": {"num_resnet_layers": 3, "resnet_kwargs": {...}}}``.
-    """
 
     def __init__(
         self,
@@ -234,27 +158,6 @@ class Resnet1dCombiner(BaseCombiner):
         num_resnet_layers: int,
         resnet_kwargs: dict[str, Any] | None = None,
     ) -> None:
-        """Initializes the resnet based combiner.
-
-        :param latent_state_dim: The latent dimensionality of the input states.
-        :type latent_state_dim: class: `int`
-
-        :param latent_time_dim: The latent dimensionality of the input time index.
-        :type latent_time_dim: class: `int`
-
-        :param latent_condition_dim: (Optional) Dimensionality of the condition embedding fused with the
-            encoded state and time (the trailing dim of ``encoded_condition``, i.e. the condition-encoder
-            output, plus the source-encoder output when present). ``None`` for an unconditional combiner,
-            where only state and time are combined.
-        :type latent_condition_dim: class: `int | None`
-
-        :param num_resnet_layers: Residual depth (required, no default).
-        :type num_resnet_layers: class: `int`
-
-        :param resnet_kwargs: Additional (optional) key-word arguments used to initialize the
-            :class: `Resnet1d` object. Must not contain ``num_resnet_layers`` (a dedicated argument).
-        :type resnet_kwargs: class: `dict[str, Any]`
-        """
         super().__init__(
             latent_state_dim,
             latent_time_dim,
@@ -268,7 +171,6 @@ class Resnet1dCombiner(BaseCombiner):
     def _make_modules(
         self,
     ) -> torch.nn.Module:
-        """Initializes the module."""
         verify_fn_kwargs_dictionary(Resnet1d.__init__, self._resnet_kwargs)
         return Resnet1d(
             self._latent_state_dim,
@@ -283,23 +185,6 @@ class Resnet1dCombiner(BaseCombiner):
         encoded_state: torch.Tensor,
         encoded_condition: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Forward pass: combine the encoded state, time, and optional condition into the decoder input.
-
-        :param encoded_t: The encoded representation for the current time index.
-            Its trailing dimension should match what specified in the :attr: `self._latent_time_dim`
-            attribute, otherwise a :class: `RuntimeError` is raised.
-        :type encoded_t: class: `torch.Tensor`
-
-        :param encoded_state: The encoded representation for the current states.
-            Its trailing dimension should match what specified in the :attr: `self._latent_state_dim`
-            attribute, otherwise a :class: `RuntimeError` is raised.
-        :type encoded_state: class: `torch.Tensor`
-
-        :param encoded_condition: (Optional) The condition embedding to fuse with the encoded state and time.
-            Its trailing dimension must match :attr: `self._latent_condition_dim`,
-            otherwise a :class: `RuntimeError` is raised.
-        :type encoded_condition: class: `torch.Tensor`
-        """
         # sanity checks
         self._verify_inputs_shape(
             encoded_t,
@@ -319,14 +204,12 @@ class Resnet1dCombiner(BaseCombiner):
     def output_dim(
         self,
     ) -> int:
-        """Return the dimensionality of the combined output."""
         return self._resnet.output_dim
 
     @property
     def embedding_dim(
         self,
     ) -> int:
-        """Dimensionality of the conditioning embedding (encoded time, plus condition when present) fed to the resnet."""
         embedding_dim = self._latent_time_dim
         if self._latent_condition_dim is not None:
             embedding_dim = embedding_dim + self._latent_condition_dim
@@ -335,18 +218,11 @@ class Resnet1dCombiner(BaseCombiner):
 
 @dataclass(frozen=True)
 class ConcatCombinerConfig:
-    """Config for :class:`ConcatCombiner` (parameter-free concatenation)."""
+    ...
 
 
 @dataclass(frozen=True)
 class Resnet1dCombinerConfig:
-    """Config for :class:`Resnet1dCombiner`.
-
-    ``num_resnet_layers`` (residual depth) is an explicit, required field — no hidden default, so the width
-    is always recorded in a saved config. ``resnet_kwargs`` are the other JSON-only
-    :class:`~sc_flow.core.nn.Resnet1d` knobs (e.g. ``activation_cls`` as an activation *id* string,
-    ``dropout_p``); the velocity field supplies ``input_dim`` / ``embedding_dim``, so those must not appear.
-    """
 
     num_resnet_layers: int
     resnet_kwargs: dict[str, JsonValue] = field(default_factory=dict)
@@ -380,7 +256,6 @@ COMBINER_REGISTRY.register("sc_flow.resnet1d", config_type=Resnet1dCombinerConfi
 
 
 def validate_combiner_spec(spec: CombinerSpec | dict[str, Any]) -> CombinerSpec:
-    """Validate an explicit combiner spec without filling fields or resolving aliases."""
     return COMBINER_REGISTRY.validate(spec)
 
 
@@ -391,7 +266,6 @@ def build_combiner(
     latent_time_dim: int,
     latent_condition_dim: int | None = None,
 ) -> BaseCombiner:
-    """Build a combiner from the closed built-in combiner registry; the VF supplies the latent dims."""
     context = CombinerContext(
         latent_state_dim=latent_state_dim,
         latent_time_dim=latent_time_dim,

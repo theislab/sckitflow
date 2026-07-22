@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
-from sc_flow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
+from scfit._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
 
 __all__ = [
     "get_covariates_encoders_from_dict",
@@ -21,28 +21,6 @@ def get_covariates_encoders_from_dict(
     fn_dict: Mapping[str, Callable] | None = None,
     inverse_fn_dict: Mapping[str, Callable] | None = None,
 ) -> Mapping[str, TargetCovariatesEncoderCls]:
-    """Configures the covariates encoder from a dictionary of transforms per column and input data.
-
-    :param categorical_covs_dict: Dictionary mapping each categorical column to encode to the
-        corresponding identifier of the tranform to apply. Note that each key of this dictionary
-        should appear as column in :param: `covariate_df`.
-    :type categorical_covs_dict: class: `Mapping[str, TargetCovariatesEncodingId]`
-
-    :param covariates_df: The dataframe containing the data used to fit the tranformations
-    :type covariates_df: class:`pd.DataFrame`
-
-    :param fn_dict: Optional dictionary used to define the transormation for the functional tranform.
-        Its keys should appear in :param: `categorical_covs_dict` too.
-        Will only be considered for those keys whose corresponding value in
-        :param: `categorical_covs_dict` is `"functional"`, otherwise such keys are ignored.
-    :type fn_dict: class:`Mapping[str, Callable] | None = None`
-
-    :param inverse_fn_dict: Optional dictionary used to define the inverse transormation
-        for the functional tranform. Its keys should appear in :param: `categorical_covs_dict` too.
-        Will only be considered for those keys whose corresponding value in
-        :param: `categorical_covs_dict` is `"functional"`, otherwise such keys are ignored.
-    :type inverse_fn_dict: class:`Mapping[str, Callable] | None = None`
-    """
     encoder_dict = {}
     fn_dict = {} if fn_dict is None else fn_dict
     inverse_fn_dict = {} if inverse_fn_dict is None else inverse_fn_dict
@@ -60,24 +38,6 @@ def get_covariate_encoder(
     fn: Callable | None = None,
     inverse_fn: Callable | None = None,
 ) -> LabelEncoder | OneHotEncoder:
-    """Fits the provided encoders to the input data.
-
-    :param encoder_id: The string identifier for the encoder to be used.
-    :type encoder_id: class: `TargetCovariatesEncodingId`
-
-    :param data: The input data to fit the encoder on.
-    :type data: class: `np.ndarray`
-
-    :param fn: Optional function used to define the transormation for the functional tranform.
-        Will only be used when :param: `encoder_id` is `"functional"`, ignored otherwise.
-        Defaults to `None`, in which case it will fall back to identity function when used.
-    :type fn: class: `Callable | None`
-
-    :param inverse_fn: Optional function used to define the inverse transormation for the functional tranform.
-        Will only be used when :param: `encoder_id` is `"functional"`, ignored otherwise.
-        Defaults to `None`, in which case it will fall back to identity function when used.
-    :type inverse_fn: class: `Callable | None`
-    """
     if encoder_id == "label":
         return get_label_encoder(data)
     elif encoder_id == "one-hot":
@@ -90,24 +50,10 @@ def get_covariate_encoder(
 
 
 def get_functional_encoder(data: np.ndarray, func: Callable, inverse_func: Callable) -> FunctionTransformer:
-    """Fit a custom function on the provided data
-
-    :param data: Array contraining the input data to fit the custom function on
-        The input dimensions is whatever the custom function expects.
-    :type data: class: `np.ndarray`
-    """
     return FunctionTransformer(func=func, inverse_func=inverse_func, check_inverse=False).fit(data)
 
 
 def get_label_encoder(data: np.ndarray) -> LabelEncoder:
-    """Fits a label encoder on the provided data.
-
-    :param data: Array containing the input data to fit the label encoder on.
-        It should be either a one dimensional array or a two dimensional array
-        with singleton trailing dim, in which case the trailing dimension will be removed.
-        This is needed for compatibility with :class: `sklearn.preprocessing.LabelEncoder`.
-    :type data: class: `np.ndarray`
-    """
     if data.ndim == 2:
         if data.shape[1] != 1:
             msg = (
@@ -128,14 +74,6 @@ def get_label_encoder(data: np.ndarray) -> LabelEncoder:
 
 
 def get_one_hot_encoder(data: np.ndarray) -> OneHotEncoder:
-    """Fits a one hot encoder on the provided data.
-
-    :param data: Array containing the input data to fit the label encoder on.
-        It should be either a one dimensional array or a two dimensional array
-        with singleton trailing dim. In the former case, a singleton trailing dimension
-        will be added. This is needed for compatibility with :class: `sklearn.preprocessing.OneHotEncoder`.
-    :type data: class: `np.ndarray`
-    """
     if data.ndim == 1:
         data = data.reshape(-1, 1)
 
@@ -149,7 +87,6 @@ def get_one_hot_encoder(data: np.ndarray) -> OneHotEncoder:
 
 
 def convert_to_categorical_in_place(df: pd.DataFrame, cols: Collection[str] | None) -> None:
-    """Convert the given columns to categorical in place."""
     if cols is None:
         return
     for c in cols:

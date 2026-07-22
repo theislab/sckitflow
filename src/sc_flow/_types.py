@@ -1,6 +1,4 @@
-from typing import Any, Literal
-
-from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
+from typing import Literal
 
 ProbabilityPathId = Literal[
     "constant-noise-linear-gaussian",
@@ -13,11 +11,3 @@ ProbabilityPathId = Literal[
     "ld-pp",
 ]
 TimeFeaturesId = Literal["sinusoidal", "log-sinusoidal"]
-
-LayersDict = dict[str, Any]
-NestedLayersDict = dict[str, LayersDict]
-
-
-TargetCovariatesEncodingId = Literal["label", "one-hot", "functional"]
-
-TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder

@@ -24,12 +24,12 @@ classifiers = [
 dependencies = [
   # >=0.13 for the `anndata.acc` reference system (A.obsm[...] / adata[ref]) used by CouplingDataSchema.
   "anndata>=0.13",
-  # the data layer compiles labels into a binded Scheme and streams cells via binded.Loader.
-  # Pinned to an IMMUTABLE binded commit (theislab/binded main; not yet on PyPI) so `uv lock` resolves
-  # reproducibly from GitHub — and so downstream (cf-train) can rebuild its lock without a local checkout.
-  # binded transitively pins the annbatch BoundClassSampler fork (also an immutable commit). Requires
-  # `allow-direct-references` (see [tool.hatch.metadata]).
-  "binded @ git+https://github.com/theislab/binded@318dd6e423e135a5cc71b2e4d58c6c1e2f7f6a7e",
+  # scfit is the ML toolbox (nn / training / metrics / component-spec) AND the streaming data layer
+  # (scfit.data — the absorbed binded). sc-flow-tools no longer depends on binded directly. Resolved from a
+  # local editable path below while scfit is unpublished.
+  # TODO: pin to an immutable scfit commit once pushed; eventually register sc_flow as a scfit *plugin*
+  # (entry points) instead of a hard dependency.
+  "scfit",
   "cloudpickle",
   # Hub model sharing (save_pretrained / from_pretrained / push_to_hub) for every nn.Module via
   # core.nn.BaseModule's PyTorchModelHubMixin; safetensors is the mixin's weight-serialization backend.
@@ -137,9 +137,10 @@ envs.hatch-test.overrides.matrix.deps.env-vars = [
   { value = "allow", key = "UV_PRERELEASE", if = [ "pre" ] },
 ]
 
-# NB: no [tool.uv] `sources.binded` override — binded resolves from the immutable git commit pinned in
-# [project.dependencies] for everyone (dev, CI, and downstream lockers), not a relative `../binded` path.
-# For editable local-dev work on binded, add a personal (uncommitted) `sources.binded = { path = ... }`.
+# scfit is developed alongside this repo and not yet published, so it resolves from a local editable path.
+# TODO: replace with an immutable git pin once scfit is pushed (theislab/scfit).
+[tool.uv.sources]
+scfit = { path = "../scfit", editable = true }
 
 [tool.ruff]
 line-length = 120

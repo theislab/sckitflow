@@ -1,25 +1,14 @@
-"""sc_flow top-level package.
-
-Two sibling layers: :mod:`sc_flow.core` (the ML-toolbox base — data streaming, the Lightning harness,
-optimizer, generic nn + metrics; torch only) and :mod:`sc_flow.flow` (the flow-matching toolbox —
-velocity fields, probability paths, objectives, predict, and the optional JAX/OTT coupling bridge).
-``FlowMatching`` is the facade wiring them. ``core.data`` is imported eagerly; ``core`` / ``flow`` /
-``FlowMatching`` are exposed lazily so ``import sc_flow.core.data`` works without pulling torch/jax.
-Subsystems not on the train path have been moved out of the package to the repo-root ``legacy/``
-directory (archival reference only; not installed, not on any import path).
-"""
 
 from sc_flow._optional import require
-from sc_flow.core import data
+from sc_flow import data
 
 __all__ = [
     "FlowMatching",
-    "core",
     "data",
     "flow",
 ]
 
-_LAZY_SUBMODULES = frozenset({"core", "flow"})
+_LAZY_SUBMODULES = frozenset({"flow"})
 
 
 def __getattr__(name: str):

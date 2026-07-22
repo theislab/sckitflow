@@ -25,33 +25,6 @@ def _select_indices(
     size: int,
     rng: np.random.Generator | None = None,
 ) -> tuple[NumpyArray, NumpyArray]:
-    """Samples matching indices from a coupling matrix.
-
-    Draws index pairs from the provided coupling matrix according to the
-    normalized coupling probabilities and returns the corresponding source
-    and target indices.
-
-    :param coupling_matrix: Optimal transport coupling matrix encoding
-        matching probabilities between source and target samples.
-    :type coupling_matrix: class:`numpy.ndarray`
-
-    :param size: Number of index pairs to sample from the coupling matrix.
-    :type size: int
-
-    :param rng: (Optional) A :class:`numpy.random.Generator` for reproducible sampling.
-        When ``None``, the process-global ``numpy.random`` state is used (not reproducible).
-    :type rng: class:`numpy.random.Generator | None`
-
-    Returns
-    -------
-    tuple[numpy.ndarray, numpy.ndarray]
-        A tuple containing:
-
-        - An array of sampled source indices.
-        - An array of sampled target indices.
-
-        The two arrays have identical length equal to :param:`size`.
-    """
     # checking for numerical errors in the coupling matrix
     coupling_matrix = _sanitize_coupling_matrix(coupling_matrix=coupling_matrix)
 
@@ -74,20 +47,6 @@ def _sanitize_coupling_matrix(
     coupling_matrix: NumpyArray,
     eps: float = 1e-8,
 ) -> NumpyArray:
-    """Checks a coupling matrix for numerical issues and applies safe fallbacks.
-
-    :param coupling_matrix: Coupling matrix to be checked for numerical stability.
-    :type coupling_matrix: class:`jax.numpy.ndarray`
-
-    :param eps: Threshold below which the sum of the coupling matrix is considered
-        numerically zero.
-    :type eps: float
-
-    Returns
-    -------
-    jax.numpy.ndarray
-        A numerically stable coupling matrix.
-    """
     # Non-finite check (use NumPy for robustness with logging)
     if not np.all(np.isfinite(coupling_matrix)):
         msg = f"Non-finite values found in `coupling_matrix` {coupling_matrix=}\n"
@@ -106,33 +65,6 @@ def independent_coupling(
     target: ArrayLike,
     rng: np.random.Generator | None = None,
 ) -> tuple[NumpyArray, NumpyArray]:
-    """Randomly matches source and target samples independently.
-
-    Generates a random permutation of source and target indices independently
-    and returns paired indices without using any notion of distance or
-    optimal transport. This serves as a baseline or control coupling.
-
-    :param source: Array containing samples from the source distribution.
-    :type source: class:`ArrayLike`
-
-    :param target: Array containing samples from the target distribution.
-    :type target: class:`ArrayLike`
-
-    :param rng: (Optional) A :class:`numpy.random.Generator` for reproducible permutations.
-        When ``None``, the process-global ``numpy.random`` state is used (not reproducible).
-    :type rng: class:`numpy.random.Generator | None`
-
-    Returns
-    -------
-    tuple[numpy.ndarray, numpy.ndarray]
-        A tuple containing:
-
-        - Randomly permuted source indices.
-        - Randomly permuted target indices.
-
-        The length of both arrays is equal to
-        ``min(len(source), len(target))``.
-    """
     # randomly permuting the tensors (seeded Generator when provided, else global state)
     chooser = np.random if rng is None else rng
     src_random_perm_idx = chooser.choice(source.shape[0], size=source.shape[0], replace=False)
@@ -179,50 +111,6 @@ def ot_linear_coupling(
     rng: np.random.Generator | None = None,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray] | tuple[NumpyArray, NumpyArray, NumpyArray]:
-    """Computes a linear optimal transport coupling between source and target samples.
-
-    Solves a linear optimal transport problem between the source and target
-    distributions using the specified method (e.g. Sinkhorn or unbalanced
-    Sinkhorn), then samples index pairs from the resulting coupling matrix.
-
-    :param source: Array containing samples from the source distribution.
-    :type source: class:`ArrayLike`
-
-    :param target: Array containing samples from the target distribution.
-    :type target: class:`ArrayLike`
-
-    :param return_matrix: Whether to return the full coupling matrix in
-        addition to the sampled indices.
-    :type return_matrix: bool
-
-    :param cost_fn: Cost function used to compute pairwise distances between
-        source and target samples. If ``None``, squared Euclidean distance is used.
-    :type cost_fn: costs.CostFn | None
-
-    :param scale_cost: Method used to rescale the cost matrix (e.g. ``"mean"``).
-    :type scale_cost: ScaleMethod
-
-    :param method: Optimal transport solver to use. Supported values include
-        ``"sinkhorn"`` and ``"unbalanced"``.
-    :type method: LinCouplingMethod
-
-    :param ot_fn: Custom optimal transport solver. If provided, overrides
-        the solver implied by :param:`method`.
-    :type ot_fn: OTFn | None
-
-    :param kwargs: Additional keyword arguments forwarded to the OT solver.
-    :type kwargs: dict
-
-    Returns
-    -------
-    tuple[numpy.ndarray, numpy.ndarray] or tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
-        If ``return_matrix=False``, returns:
-
-        - Source indices
-        - Target indices
-
-        If ``return_matrix=True``, additionally returns the coupling matrix.
-    """
     source = to_jax_array(source)
     target = to_jax_array(target)
 
@@ -303,58 +191,6 @@ def ot_quadratic_coupling(
     rng: np.random.Generator | None = None,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray] | tuple[NumpyArray, NumpyArray, NumpyArray]:
-    """Computes a quadratic (Gromov-type) optimal transport coupling.
-
-    Solves a quadratic optimal transport problem based on pairwise relational
-    structures within the source and target domains. Optionally supports
-    fused Gromov-Wasserstein when cross-domain costs are provided.
-
-    :param source_quad: Source intra-domain structure (XX cost matrix
-        or feature representation).
-    :type source_quad: class:`ArrayLike`
-
-    :param target_quad: Target intra-domain structure (YY cost matrix
-        or feature representation).
-    :type target_quad: class:`ArrayLike`
-
-    :param return_matrix: Whether to return the full coupling matrix.
-    :type return_matrix: bool
-
-     :param source_lin: Optional source cross-domain features used
-        for fused Gromov-Wasserstein. Default `None`
-    :type source_lin: class:`ArrayLike`
-
-    :param target_lin: Optional target cross-domain features used
-        for fused Gromov-Wasserstein. Default `None`
-    :type target_lin: class:`ArrayLike`
-
-    :param cost_fn: Cost function used to compute pairwise distances.
-        If ``None``, squared Euclidean distance is used.
-    :type cost_fn: costs.CostFn | None
-
-    :param scale_cost: Method or factor used to rescale the cost matrices.
-    :type scale_cost: ScaleMethod
-
-    :param method: Quadratic OT method to use. Supported values include
-        ``"entropic_gromov_wasserstein"`` and
-        ``"entropic_fused_gromov_wasserstein"``.
-    :type method: QuadCouplingMethod
-
-    :param kwargs: Additional keyword arguments forwarded to the solver.
-    :type kwargs: dict
-
-
-    Returns
-    -------
-    tuple[numpy.ndarray, numpy.ndarray] or tuple[numpy.ndarray, numpy.ndarray, numpy.ndarray]
-        If ``return_matrix=False``, returns:
-
-        - Source indices
-        - Target indices
-
-        If ``return_matrix=True``, additionally returns the quadratic
-        coupling matrix.
-    """
     scale_cost = scale_cost or "mean"
 
     # moving arrays to jax arrays

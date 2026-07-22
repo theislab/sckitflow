@@ -5,11 +5,12 @@ from collections.abc import Callable
 
 import torch
 
-from sc_flow._types import LayersDict, TimeFeaturesId
-from sc_flow.core._torch_types import MappedTensor
-from sc_flow.core._torch_utils import make_concatenation_possible
-from sc_flow.core.nn._modules import BaseModule, FunctionalModule
-from sc_flow.core.nn._utils import init_module_from_dict
+from scfit._types import LayersDict
+from sc_flow._types import TimeFeaturesId
+from sc_flow.flow._torch_types import MappedTensor
+from sc_flow.flow._torch_utils import make_concatenation_possible
+from scfit.nn._modules import BaseModule, FunctionalModule
+from scfit.nn._utils import init_module_from_dict
 from sc_flow.flow._combiner import BaseCombiner, CombinerSpec, build_combiner, validate_combiner_spec
 from sc_flow.flow._config import MLPEmbedderConfig, MLPVelocityConfig
 from sc_flow.flow._set_encoder import SetEncoder
@@ -28,7 +29,6 @@ VelocityFieldFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
 
 class BaseVelocityField(BaseModule):
-    """Base class for neural velocity fields."""
 
     @abc.abstractmethod
     def forward(
@@ -38,17 +38,7 @@ class BaseVelocityField(BaseModule):
         *args,
         **kwargs,
     ) -> torch.Tensor:
-        """Performs a forward computation pass on the neural velocity field.
-
-        :param t: The current time index at which the velocity field is computed.
-        :type t: class: `torch.Tensor`
-
-        :param x: The current state at which the velocity field is computed.
-        :type x: class: `torch.Tensor`
-
-        :param args: Additional positional arguments used to compute the velocity field.
-        :type args: class: `tuple[torch.Tensor]`
-        """
+        ...
 
     @abc.abstractmethod
     def get_vf_fn(
@@ -56,25 +46,10 @@ class BaseVelocityField(BaseModule):
         *args,
         **kwargs,
     ) -> VelocityFieldFn:
-        """Compiles the velocity field function to be fed to external solvers."""
+        ...
 
 
 class MLPVelocity(BaseVelocityField):
-    """Class for MLP-base unconditional neural velocity fields.
-
-    Torch port of cellflow's ``ConditionalVelocityField`` / ``GENOTConditionalVelocityField`` (theislab/cellflow,
-    ``src/cellflow/networks/_velocity_field.py``, flax): same time / state / condition / source encoders,
-    combiner (concatenation / FiLM / resnet) and decoder; :meth:`condition_stats` mirrors cellflow's
-    ``get_condition_embedding``. Kept structurally aligned so the jax original and this torch port stay mutually
-    reviewable.
-
-    The architecture of unconditional velocity fields is defined as follows:
-        * (Optional) Time Featurization. An identity mapping is instantiated otherwise.
-        * (Optional) Time MLP Encoder. An identity mapping is instantiated otherwise.
-        * (Optional) State MLP Encoder. An identity mapping is instantiated otherwise.
-        * Combiner, whereby the state and time information are combined.
-        * Velocity Field Decoder ultimately computing the velocity field.
-    """
 
     def __init__(
         self,
@@ -89,65 +64,6 @@ class MLPVelocity(BaseVelocityField):
         combiner: CombinerSpec | BaseCombiner | None = None,
         condition_encoder: SetEncoder | None = None,
     ) -> None:
-        """Initializes the velocity field with the given settings.
-
-        :param state_dim: The dimensionality of the state space where the
-            dynamics is defined.
-        :type state_dim: class: `int`
-
-        :param state_embedder: (Optional) :class: `MLPEmbedderConfig` for the MLP that embeds the state
-            ``x`` into a latent width (its ``output_dim`` is required — no default). ``None`` passes the raw
-            state through.
-        :type state_embedder: class: `MLPEmbedderConfig | None`
-
-        :param time_embedder: (Optional) :class: `MLPEmbedderConfig` for the MLP that embeds the time
-            features into a latent width (its ``output_dim`` is required — no default). ``None`` passes the
-            raw time features through.
-        :type time_embedder: class: `MLPEmbedderConfig | None`
-
-        :param source_embedder: (Optional) :class: `MLPEmbedderConfig` for the MLP that embeds the source
-            state (used by GENOT to condition on the source cell; its ``output_dim`` is required — no
-            default). ``None`` (default) means no source embedder.
-        :type source_embedder: class: `MLPEmbedderConfig | None`
-
-        :param time_features_id: (Optional) The identifier for the chosen time features.
-            Could be set to any of the string identifiers for predefined time features,
-            specified in :class: `TimeFeaturesId` (``"sinusoidal"`` or ``"log-sinusoidal"``).
-            Defaults to `None`, in which case no time features are computed (i.e.: identity mapping).
-        :type time_features_id: class: `TimeFeaturesId | None`
-
-        :param num_time_features: Number of resulting time features (must be even). **Required** when
-            ``time_features_id`` is set (a :class: `ValueError` is raised if missing); ignored when it is
-            ``None`` (the identity featurizer). There is no default.
-        :type num_time_features: class: `int | None`
-
-        :param max_period: Sets the value of $M$, used for the log scaling of the time features. **Required**
-            when ``time_features_id`` is ``"log-sinusoidal"`` (a :class: `ValueError` is raised if missing);
-            ignored otherwise. There is no default.
-        :type max_period: class: `int | None`
-
-        :param vf_decoder_mlp_kwargs: (Optional) Keyword arguments used for initializing the velocity field decoder. Its key-value pairs
-            should match the signature of the `__init__` method of the :class: `MLP` class, raise :class: `TypeError` otherwise.
-            When `None` it will be set to an empty dictionary, hence falling back to the default configurations
-            defined directly in :class: `MLP`. Defaults to `None`.
-        :type vf_decoder_mlp_kwargs: class: `dict[str, Any] | None`
-
-        :param combiner: How state/time (and any condition) are combined. Either a portable
-            :class:`~sc_flow.flow._combiner.CombinerSpec` JSON mapping (``sc_flow.concat`` or
-            ``sc_flow.resnet1d``), saved to and restored from ``config.json``, or your own
-            :class:`~sc_flow.flow._combiner.BaseCombiner` subclass instance sized for this VF's latent dims
-            (the runtime-only research path — not saved, and portable export is disabled). This choice is
-            required explicitly: there is **no** hidden default combiner.
-        :type combiner: class: `CombinerSpec | BaseCombiner | None`
-
-        :param condition_encoder: (Optional) The perturbation-covariate condition encoder — a
-            :class: `SetEncoder` instance (built directly, since its dims come from the data, not from this
-            velocity field). ``None`` makes the field unconditional. This runtime object is not yet a nested
-            component spec, so portable ``save_pretrained`` export is disabled for a conditional velocity
-            field until the enclosing architecture config can reconstruct it. Trusted training checkpoints
-            remain available.
-        :type condition_encoder: class: `SetEncoder | None`
-        """
         super().__init__()
         self._state_dim = state_dim
         # Each stream embedder is presence-based: an MLPEmbedderConfig builds an MLP over that stream (with a
@@ -174,40 +90,31 @@ class MLPVelocity(BaseVelocityField):
     def _use_time_features(
         self,
     ) -> bool:
-        """Boolean flag indicating whether time featurization is used for the current velocity field.
-
-        This is the case when :param: `time_features_id` is passed during initialization.
-        """
         return self._time_features_id is not None
 
     @property
     def use_source_embedder(
         self,
     ) -> bool:
-        """Whether a source-state embedder is configured."""
         return self._source_embedder is not None
 
     @staticmethod
     def _embed_output_dim(config: MLPEmbedderConfig | None, raw_dim: int) -> int:
-        """Width of a stream after its optional embedder: the raw width when ``None``, else the config output."""
         return raw_dim if config is None else config.output_dim
 
     @property
     def _source_embedder_input_dim(self) -> int:
-        """Input width for the source embedder (``mlp_kwargs['input_dim']`` if given, else ``state_dim``)."""
         input_dim = self._source_embedder.mlp_kwargs.get("input_dim") if self._source_embedder is not None else None
         return self._state_dim if input_dim is None else input_dim
 
     @property
     def _source_embedder_output_dim(self) -> int:
-        """Output width of the source embedder."""
         return self._embed_output_dim(self._source_embedder, self._source_embedder_input_dim)
 
     @property
     def _combiner_dim(
         self,
     ) -> int | None:
-        """Latent width of the condition input fed to the combiner (condition embedding, plus source, or None)."""
         cond = self._condition_encoder.output_dim if self.is_conditional else None
         src = self._source_embedder_output_dim if self.use_source_embedder else None
         if cond is not None and src is not None:
@@ -217,11 +124,6 @@ class MLPVelocity(BaseVelocityField):
     def _get_num_time_features(
         self,
     ) -> int:
-        """Returns the number of time features.
-
-        If no time featurization is used, it will return simply 1 (i.e.: scalar time). Otherwise
-        ``num_time_features`` is **required** — a missing value raises, there is no default.
-        """
         if not self._use_time_features:
             return 1
         if self._num_time_features is None:
@@ -236,13 +138,6 @@ class MLPVelocity(BaseVelocityField):
         condition_dict: MappedTensor | None = None,
         condition_mask: MappedTensor | None = None,
     ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-        """The condition encoder outputs ``(mean, logvar)`` (``logvar`` is ``None`` when deterministic).
-
-        Returns ``(None, None)`` for an unconditional field. A training objective calls this **once** and
-        reuses the result for both the velocity (:meth:`velocity_from_embedding`) and the encoder
-        regularization — which is also what makes a stochastic encoder's reparameterization correct (a
-        single noise draw shared by the velocity and the KL term).
-        """
         if not self.is_conditional:
             return None, None
         if condition_dict is None:
@@ -254,7 +149,6 @@ class MLPVelocity(BaseVelocityField):
         self,
         source: torch.Tensor | None,
     ) -> torch.Tensor | None:
-        """Retrieves the encoded source states."""
         if self.use_source_embedder:
             if source is None:
                 msg = "When using a source embedder a source state should be passed, found `None`."
@@ -265,7 +159,6 @@ class MLPVelocity(BaseVelocityField):
     def _get_combiner_input(
         self, encoded_condition: torch.Tensor, encoded_source: torch.tensor
     ) -> torch.Tensor | None:
-        """Retrieves the condition input for the combiner layers."""
         if encoded_condition is not None and encoded_source is not None:
             return torch.concatenate(
                 (make_concatenation_possible(encoded_condition, encoded_source, -1), encoded_source), dim=-1
@@ -279,11 +172,6 @@ class MLPVelocity(BaseVelocityField):
     def _make_time_features(
         self,
     ) -> FunctionalModule:
-        """Initializes the time features.
-
-        Wraps a :class: `FunctionalModule` around the function used to compute the time features for
-        compatibility with `pytorch`'s `torch.nn.ModuleDict`.
-        """
         time_features_fn = get_time_features_fn(
             num_time_features=self._get_num_time_features(),
             time_features_id=self._time_features_id,
@@ -296,14 +184,12 @@ class MLPVelocity(BaseVelocityField):
         config: MLPEmbedderConfig | None,
         input_dim: int,
     ) -> BaseModule | torch.nn.Identity:
-        """Builds a stream embedder MLP from its config, or :class:`torch.nn.Identity` when the slot is ``None``."""
         if config is None:
             return torch.nn.Identity()
         return init_module_from_dict(dict(config.mlp_kwargs), input_dim=input_dim, output_dim=config.output_dim)
 
     @property
     def _combiner_dims(self) -> tuple[int, int, int | None]:
-        """The ``(latent_state, latent_time, latent_condition)`` dims the combiner layer must accept."""
         return (
             self._embed_output_dim(self._state_embedder, self._state_dim),
             self._embed_output_dim(self._time_embedder, self._get_num_time_features()),
@@ -313,11 +199,6 @@ class MLPVelocity(BaseVelocityField):
     def _make_combiner(
         self,
     ) -> BaseCombiner:
-        """Initializes the combiner layer.
-
-        Uses a custom :class:`BaseCombiner` instance directly (validating it was sized for this
-        VF's latent dims), otherwise builds a built-in layer from the name (defaulting when ``None``).
-        """
         latent_state_dim, latent_time_dim, latent_condition_dim = self._combiner_dims
         if isinstance(self._combiner, BaseCombiner):
             got = (
@@ -349,10 +230,6 @@ class MLPVelocity(BaseVelocityField):
         self,
         decoder_input_dim: int,
     ) -> BaseModule:
-        """Initializes the velocity field decoder.
-
-        It will initialize a :class: `MLP` with the configurations specified in :param: `vf_decoder_mlp_kwargs`.
-        """
         return init_module_from_dict(
             self._vf_decoder_mlp_kwargs,
             input_dim=decoder_input_dim,
@@ -362,10 +239,6 @@ class MLPVelocity(BaseVelocityField):
     def _make_modules(
         self,
     ) -> torch.nn.Module:
-        """Initializes the neural components of the velocity field.
-
-        This is done by calling the `self._make_*` methods defined above.
-        """
         modules = {
             "time_features": self._make_time_features(),
             "time_embedder": self._make_embedder(self._time_embedder, self._get_num_time_features()),
@@ -391,20 +264,6 @@ class MLPVelocity(BaseVelocityField):
         source: torch.Tensor | None = None,
         condition_mask: MappedTensor | None = None,
     ) -> torch.Tensor:
-        """Performs a forward computation pass on the neural velocity field.
-
-        :param t: The current time index at which the velocity field is computed.
-        :type t: class: `torch.Tensor`
-
-        :param x: The current state at which the velocity field is computed.
-        :type x: class: `torch.Tensor`
-
-        :param condition_dict: The input dictionary containing the data for
-            each perturbation covariate.
-        :type condition_dict: class: `MappedTensor`
-
-        :param condition_mask: Optional boolean valid-token mask per condition realm.
-        """
         # Inference/solver path: use the condition **mean** embedding (a stochastic encoder's inference
         # is its mean, i.e. encoder_noise = 0). Training reparameterizes upstream and calls
         # :meth:`velocity_from_embedding` directly.
@@ -418,13 +277,6 @@ class MLPVelocity(BaseVelocityField):
         cond_embedding: torch.Tensor | None = None,
         source: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Velocity from a **precomputed** condition embedding (skips condition encoding).
-
-        Lets a training objective encode the condition once (via :meth:`condition_stats`), reparameterize
-        if stochastic, and reuse the embedding here — avoiding a second encoder pass and keeping a
-        stochastic encoder's noise draw consistent between the velocity and its KL regularization.
-        :meth:`forward` is this composed with :meth:`condition_stats`.
-        """
         encoded_xt = self._vf["state_embedder"](x)
         encoded_t = self._vf["time_embedder"](self._vf["time_features"](t))
         encoded_source = self._get_encoded_source(source)
@@ -439,7 +291,6 @@ class MLPVelocity(BaseVelocityField):
         source: torch.Tensor | None = None,
         condition_mask: MappedTensor | None = None,
     ) -> VelocityFieldFn:
-        """Compiles the velocity field function to be fed to external solvers."""
 
         def _vf_fn(t: torch.Tensor, x: torch.Tensor):
             return self.forward(
@@ -456,22 +307,15 @@ class MLPVelocity(BaseVelocityField):
     def is_conditional(
         self,
     ) -> bool:
-        """Whether a condition encoder is associated to velocity field."""
         return self._condition_encoder is not None
 
     @property
     def is_stochastic(
         self,
     ) -> bool:
-        """Whether the condition encoder is variational (a stochastic :class:`SetEncoder`)."""
         return self.is_conditional and self._condition_encoder.is_stochastic
 
     def to_config(self) -> MLPVelocityConfig:
-        """The portable :class:`MLPVelocityConfig` describing this field (raises on a runtime-only slot).
-
-        A custom :class:`~sc_flow.flow._combiner.BaseCombiner` or :class:`~sc_flow.flow._pooling.BasePooling`
-        instance has no portable spec, so serialization fails here (before any weights are written).
-        """
         if self._combiner is None:
             raise ValueError("Velocity field has no combiner; nothing to serialize.")
         if isinstance(self._combiner, BaseCombiner):
@@ -495,7 +339,6 @@ class MLPVelocity(BaseVelocityField):
 
     @classmethod
     def from_config(cls, config: MLPVelocityConfig) -> MLPVelocity:
-        """Reconstruct an :class:`MLPVelocity` from its portable config (fresh, uninitialized weights)."""
         condition_encoder = (
             None if config.condition_encoder is None else SetEncoder.from_config(config.condition_encoder)
         )
@@ -513,12 +356,6 @@ class MLPVelocity(BaseVelocityField):
         )
 
     def save_pretrained(self, save_directory: str, **kwargs) -> None:
-        """Write a portable bundle: ``config.json`` (the architecture spec) + ``model.safetensors``.
-
-        Overrides the Hub mixin's constructor-capture path (which cannot represent the nested condition
-        encoder and would silently drop non-JSON args). :meth:`to_config` raises **before** anything is
-        written if a slot holds a runtime-only custom module — the §14 "fail before export" guarantee.
-        """
         import json
         from pathlib import Path
 
@@ -534,7 +371,6 @@ class MLPVelocity(BaseVelocityField):
 
     @classmethod
     def from_pretrained(cls, save_directory: str, **kwargs) -> MLPVelocity:
-        """Rebuild from a :meth:`save_pretrained` bundle: architecture from ``config.json``, weights strict."""
         import json
         from pathlib import Path
 

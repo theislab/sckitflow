@@ -1,10 +1,3 @@
-"""Torch set-pooling components and their portable discriminated specifications.
-
-The attention algorithms are ports of the Flax implementations in
-``theislab/cellflow`` (``cellflow.networks._utils``).  They live here rather
-than importing cellflow so sc-flow-tools keeps torch-native weights and does
-not acquire a cellflow/JAX runtime dependency.
-"""
 
 from __future__ import annotations
 
@@ -16,7 +9,7 @@ from typing import Any
 import torch
 from torch.nn import functional as F
 
-from sc_flow.core._component import ComponentRegistry, ComponentSpec
+from scfit._component import ComponentRegistry, ComponentSpec
 
 __all__ = [
     "BasePooling",
@@ -36,12 +29,12 @@ PoolingSpec = ComponentSpec
 
 @dataclass(frozen=True)
 class MeanPoolingConfig:
-    """Configuration for masked mean pooling."""
+    ...
 
 
 @dataclass(frozen=True)
 class SumPoolingConfig:
-    """Configuration for masked sum pooling."""
+    ...
 
 
 def _validate_attention_config(
@@ -69,7 +62,6 @@ def _validate_attention_config(
 
 @dataclass(frozen=True)
 class TokenAttentionPoolingConfig:
-    """Configuration for learned-token self-attention pooling."""
 
     num_heads: int
     qkv_dim: int
@@ -94,7 +86,6 @@ class TokenAttentionPoolingConfig:
 
 @dataclass(frozen=True)
 class SeedAttentionPoolingConfig:
-    """Configuration for learned-seed cross-attention pooling."""
 
     num_heads: int
     v_dim: int
@@ -122,19 +113,11 @@ PoolingConfig = MeanPoolingConfig | SumPoolingConfig | TokenAttentionPoolingConf
 
 @dataclass(frozen=True)
 class PoolingContext:
-    """Build context for pooling: the shared projection width the encoder pools over."""
 
     input_dim: int
 
 
 class BasePooling(abc.ABC, torch.nn.Module):
-    """Runtime interface for pooling a masked set ``(batch, set, features)``.
-
-    Custom research implementations may subclass this class and be injected
-    into :class:`~sc_flow.flow._set_encoder.SetEncoder`.  Doing so grants
-    runtime polymorphism only; portable serialization requires a registered
-    :class:`PoolingSpec`.
-    """
 
     def __init__(self, input_dim: int, output_dim: int) -> None:
         super().__init__()
@@ -145,12 +128,10 @@ class BasePooling(abc.ABC, torch.nn.Module):
 
     @property
     def input_dim(self) -> int:
-        """Required trailing input dimension."""
         return self._input_dim
 
     @property
     def output_dim(self) -> int:
-        """Trailing dimension produced by the pooling operation."""
         return self._output_dim
 
     def _valid_mask(self, x: torch.Tensor, mask: torch.Tensor | None) -> torch.Tensor | None:
@@ -174,11 +155,10 @@ class BasePooling(abc.ABC, torch.nn.Module):
 
     @abc.abstractmethod
     def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
-        """Pool valid set elements into one vector per batch example."""
+        ...
 
 
 class MeanPooling(BasePooling):
-    """Masked arithmetic mean pooling."""
 
     def __init__(self, input_dim: int) -> None:
         super().__init__(input_dim=input_dim, output_dim=input_dim)
@@ -192,7 +172,6 @@ class MeanPooling(BasePooling):
 
 
 class SumPooling(BasePooling):
-    """Masked sum pooling."""
 
     def __init__(self, input_dim: int) -> None:
         super().__init__(input_dim=input_dim, output_dim=input_dim)
@@ -214,7 +193,6 @@ def _multihead_attention(
     dropout: float,
     training: bool,
 ) -> torch.Tensor:
-    """Scaled dot-product attention with already-projected Q/K/V tensors."""
     batch, query_len, attention_dim = query.shape
     head_dim = attention_dim // num_heads
 
@@ -282,7 +260,6 @@ class _SelfAttentionLayer(torch.nn.Module):
 
 
 class TokenAttentionPooling(BasePooling):
-    """Permutation-invariant self-attention pooling through a learned CLS token."""
 
     def __init__(self, input_dim: int, config: TokenAttentionPoolingConfig) -> None:
         super().__init__(input_dim=input_dim, output_dim=input_dim)
@@ -317,7 +294,6 @@ class TokenAttentionPooling(BasePooling):
 
 
 class SeedAttentionPooling(BasePooling):
-    """Permutation-invariant cross-attention pooling through a learned seed."""
 
     def __init__(self, input_dim: int, config: SeedAttentionPoolingConfig) -> None:
         super().__init__(input_dim=input_dim, output_dim=config.v_dim)
@@ -385,10 +361,8 @@ POOLING_REGISTRY.register("sc_flow.attention_seed", config_type=SeedAttentionPoo
 
 
 def validate_pooling_spec(spec: PoolingSpec | Mapping[str, Any]) -> PoolingSpec:
-    """Validate an explicit pooling spec without filling fields or resolving aliases."""
     return POOLING_REGISTRY.validate(spec)
 
 
 def build_pooling(spec: PoolingSpec, *, input_dim: int) -> BasePooling:
-    """Build a torch pooling module from the closed built-in pooling registry."""
     return POOLING_REGISTRY.build(spec, PoolingContext(input_dim=input_dim))

@@ -1,18 +1,3 @@
-"""Portable, JSON-round-tripping configs for the velocity field and its condition encoder.
-
-These are the *persistent descriptions* of an :class:`~sc_flow.flow._vf.MLPVelocity` and its nested
-:class:`~sc_flow.flow._set_encoder.SetEncoder` — the composite "top-level exportable model" config of
-``docs/plans/state.md`` §10. They are plain dataclasses (not routed through the generic
-:class:`~sc_flow.core.ComponentRegistry`, which is for *leaf* polymorphic components with flat configs);
-the composite structure is reconstructed by explicit :meth:`from_dict` / :meth:`to_dict`, while the nested
-*leaf* choices — pooling and combiner — are validated through their own registries here.
-
-Everything reachable from :class:`MLPVelocityConfig` must be JSON: parameter-free choices are enum
-strings (activation ids, ``time_features_id``), polymorphic sub-modules are discriminated specs
-(``PoolingSpec`` / ``CombinerSpec``), and stream embedders are :class:`MLPEmbedderConfig`. A raw
-``torch.nn.Module`` *class* buried in a layer-kwargs dict is not JSON and makes :meth:`to_dict` fail early
-(the §14 "fail before writing" guarantee), pointing at the string-id alternative.
-"""
 
 from __future__ import annotations
 
@@ -21,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from sc_flow._types import TimeFeaturesId
-from sc_flow.core._component import JsonValue
+from scfit._component import JsonValue
 from sc_flow.flow._combiner import CombinerSpec, validate_combiner_spec
 from sc_flow.flow._pooling import PoolingSpec, validate_pooling_spec
 
@@ -42,11 +27,6 @@ ARCHITECTURE_VERSION = 1
 
 
 def _ensure_json(value: Any, where: str) -> Any:
-    """Return ``value`` if it is JSON-serializable, else raise an actionable error naming ``where``.
-
-    The common offender is a raw ``torch.nn.Module`` class (e.g. ``activation_cls=torch.nn.Tanh``) left in a
-    layer-kwargs dict; the fix is to pass the activation *id* string instead so the choice round-trips.
-    """
     try:
         json.dumps(value)
     except (TypeError, ValueError) as e:
@@ -59,14 +39,6 @@ def _ensure_json(value: Any, where: str) -> Any:
 
 @dataclass
 class MLPEmbedderConfig:
-    """Config for the optional MLP that embeds one vector stream into a latent width.
-
-    Used for the velocity field's ``state_embedder`` / ``time_embedder`` / ``source_embedder`` slots.
-    ``None`` in a slot skips the embedder and passes that stream through raw. When present, the embedder's
-    ``output_dim`` (the latent width) is **required** — there is no hidden default — while the velocity
-    field supplies the MLP ``input_dim`` (it knows each stream's width). ``mlp_kwargs`` carries any extra
-    :class:`~sc_flow.core.nn.MLP` kwargs.
-    """
 
     output_dim: int
     mlp_kwargs: dict[str, Any] = field(default_factory=dict)
@@ -97,12 +69,6 @@ def _embedder_from_dict(data: dict[str, Any] | None) -> MLPEmbedderConfig | None
 
 @dataclass
 class SetEncoderConfig:
-    """Portable description of a :class:`~sc_flow.flow._set_encoder.SetEncoder` (the condition encoder).
-
-    ``pooling`` is a :class:`~sc_flow.flow._pooling.PoolingSpec` (the polymorphic, weight-bearing leaf);
-    everything else is scalars, JSON layer-kwargs dicts, and the ``condition_mode`` enum. ``pooling_proj_dim``
-    stores the *resolved* projection width, so a reload never depends on the auto-sizing default.
-    """
 
     input_layers: dict[str, dict[str, Any]]
     output_dim: int
@@ -169,13 +135,6 @@ class SetEncoderConfig:
 
 @dataclass
 class MLPVelocityConfig:
-    """Portable, composite description of an :class:`~sc_flow.flow._vf.MLPVelocity`.
-
-    The one explicit, versioned config on the top-level exportable model. Parameter-free choices are enums
-    (``time_features_id``, activations inside layer kwargs), the polymorphic combiner is a
-    :class:`~sc_flow.flow._combiner.CombinerSpec`, and the nested condition encoder is a
-    :class:`SetEncoderConfig`. There is no hidden default combiner — it is required.
-    """
 
     state_dim: int
     combiner: CombinerSpec
@@ -242,12 +201,10 @@ class MLPVelocityConfig:
         )
 
     def to_spec(self) -> dict[str, JsonValue]:
-        """The architecture wrapped in the ``{type, version, config}`` envelope for the bundle."""
         return {"type": ARCHITECTURE_TYPE, "version": ARCHITECTURE_VERSION, "config": self.to_dict()}
 
     @classmethod
     def from_spec(cls, spec: dict[str, Any]) -> MLPVelocityConfig:
-        """Parse an architecture envelope, checking the discriminator and version."""
         if spec.get("type") != ARCHITECTURE_TYPE:
             raise ValueError(f"Expected architecture type {ARCHITECTURE_TYPE!r}, found {spec.get('type')!r}.")
         if spec.get("version") != ARCHITECTURE_VERSION:

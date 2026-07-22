@@ -1,34 +1,21 @@
 from collections import defaultdict
-from collections.abc import Collection, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 
 import numpy as np
 import pandas as pd
 
-from sc_flow._utils import check_sequence_query_against_reference
-from sc_flow.core.data._encoders import Encoder, one_hot
-from sc_flow.core.data._mixins import BatchMixin
-from sc_flow.core.data._utils import convert_to_categorical_in_place
-from sc_flow.core.data.containers._base import BaseData
+from sc_flow.data._encoders import Encoder, one_hot
+from sc_flow.data._mixins import BatchMixin
+from sc_flow.data._utils import convert_to_categorical_in_place
+from sc_flow.data.containers._base import BaseData
 
 __all__ = ["CategoricalData"]
 
 
 @dataclass(frozen=True)
 class CategoricalData(BaseData):
-    """Container for categorical data — columns plus one :class:`~sc_flow.core.data._encoders.Encoder` per realm.
-
-    Categorical data is a set of columns (a :class:`pandas.DataFrame`) together with, for each *realm*
-    (a group of columns sharing a representation, e.g. the combination slots ``drug1``/``drug2``), a
-    single fitted encoder. After schema-generalization Change 2 there is no ``reps`` vs ``encoding``
-    split: a ``.uns`` lookup is just a :class:`~sc_flow.core.data._encoders.Lookup` encoder, so every realm
-    has exactly one encoder regardless of whether its parameters came from ``.uns`` or from the data.
-
-    :param ann_df: The data frame storing the original categorical values.
-    :param encoders: Mapping ``{realm: Encoder}`` — one fitted encoder per realm.
-    :param categorical_reps_map: Mapping ``{column: realm}``.
-    """
 
     ann_df: pd.DataFrame
     encoders: Mapping[str, Encoder] = dc_field(default_factory=dict)
@@ -53,22 +40,7 @@ class CategoricalData(BaseData):
             f"encoder_realms={list(self.encoders)})"
         )
 
-    def __getitem__(
-        self,
-        idxs: np.ndarray | slice,
-    ) -> "CategoricalData":
-        ann_df = self.ann_df.iloc[idxs]
-        return self.__class__(
-            ann_df,
-            encoders=self.encoders,
-            categorical_reps_map=self.categorical_reps_map,
-        )
-
-    def __len__(self) -> int:
-        return self.ann_df.shape[0]
-
     def extract_reps(self) -> BatchMixin:
-        """Encode each column via its realm's encoder and stack per realm → ``{realm: (n, slots, dim)}``."""
         data_dict = defaultdict(list)
         for col in self.ann_df.columns:
             realm = self.categorical_reps_map[col]
@@ -85,11 +57,6 @@ class CategoricalData(BaseData):
         inplace: bool = False,
         categorical_reps_map: Mapping[str, str] | None = None,
     ) -> "CategoricalData":
-        """Create a CategoricalData from a DataFrame, defaulting any un-encoded realm to a fitted one-hot.
-
-        For better performance pass the data in place. Realms without an entry in ``encoders`` get a
-        :func:`~sc_flow.core.data._encoders.one_hot` fit on the union of that realm's columns' values.
-        """
         if not inplace:
             ann_df = ann_df.copy()
         convert_to_categorical_in_place(ann_df, ann_df.columns)
@@ -112,31 +79,4 @@ class CategoricalData(BaseData):
 
     @property
     def category_realms(self) -> list[str]:
-        """Returns the category realms associated to the object."""
         return list(set(self.categorical_reps_map.values()))
-
-    @classmethod
-    def concat_collection(
-        cls,
-        collection: "Collection[CategoricalData]",
-    ) -> "CategoricalData":
-        """Concatenates a collection of instances into a single object."""
-        ann_dfs_list = []
-        encoders = {}
-        categorical_reps_map = {}
-        ref_cols = None
-        for idx, element in enumerate(collection):
-            if idx == 0:
-                ref_cols = element.ann_df.columns
-            check_sequence_query_against_reference(
-                element.ann_df.columns,
-                ref_cols,
-                allow_missing_from_reference=False,
-                allow_missing_from_query=False,
-            )
-            ann_dfs_list.append(element.ann_df)
-            encoders.update(element.encoders)
-            categorical_reps_map.update(element.categorical_reps_map)
-
-        ann_df = pd.concat(ann_dfs_list, axis=0)
-        return cls(ann_df, encoders=encoders, categorical_reps_map=categorical_reps_map)

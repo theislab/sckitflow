@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import torch
 
-from sc_flow.core._torch_types import NumpyArray, ShapeLike, DeviceLike, TensorLike
+from sc_flow.flow._torch_types import NumpyArray, ShapeLike, DeviceLike, TensorLike
 
 __all__ = [
     "broadcast_to_target_shape",
@@ -15,7 +15,6 @@ __all__ = [
 
 
 def to_torch_tensor(x: TensorLike | NumpyArray) -> torch.Tensor:
-    """Convert a NumPy array to a JAX array if needed."""
     if isinstance(x, np.ndarray):
         return torch.from_numpy(x)
     if x is not None and not isinstance(x, TensorLike):
@@ -28,21 +27,6 @@ def broadcast_to_target_shape(
     input_tensor: torch.Tensor,
     target_shape: ShapeLike,
 ) -> torch.Tensor:
-    """Broadcasts the input tensor to the target shape.
-
-    This is done according to the following reshaping policy:
-        * When the :param: `input_tensor` is of the correct shape, simply returns it.
-        * When the input tensor has more dimensions than the target shape, a :class: `ValueError` is raised.
-        * When the input tensor has at most the same number of dimensions as the target shape, they should be either
-            matching the respective dimension in the target shape or be singleton, in which case they will be
-            expanded to match the corresponding target dimension. In case of mismatch a :class: `ValueError` is raised.
-
-    :param input_tensor: The input tensor whose to broadcast.
-    :type input_tensor: class: `torch.Tensor`
-
-    :param target_shape: The target shape which we want to broadcast the input to.
-    :type target_shape: class: `ShapeLike`
-    """
     # tensor already in the correct shape, do nothing
     if input_tensor.shape == target_shape:
         return input_tensor
@@ -77,7 +61,6 @@ def broadcast_to_target_shape(
 def ensure_2d_tensor_with_singleton_trailing_dim(
     input_tensor: torch.Tensor,
 ):
-    """"""  # noqa
 
     if len(input_tensor.shape) == 0:
         input_tensor = input_tensor.unsqueeze(0)
@@ -89,7 +72,6 @@ def make_concatenation_possible(
     target_tensor: torch.Tensor,
     concat_dims: int = -1,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """TODO."""  # noqa
 
     dims_to_match = list(target_tensor.shape[:concat_dims])
     dims_to_retain = list(input_tensor.shape[concat_dims:])
@@ -100,10 +82,6 @@ def make_concatenation_possible(
 
 
 def get_torch_device(dev: DeviceLike) -> torch.device:
-    """Validate the PyTorch device passed as input and return the corresponding torch.device object.
-
-    If the requested device is not found, falls back to CPU with a warning.
-    """
     if isinstance(dev, str):
         if dev.startswith("cuda"):
             if not torch.cuda.is_available():

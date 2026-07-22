@@ -1,11 +1,3 @@
-"""Shared inference: integrate the torch velocity field to translate cells.
-
-The one ODE-integration used by **both** :meth:`~sc_flow.FlowMatching.predict` and the validation loop
-(:class:`~sc_flow.core.training._harness.TrainingModule`), so a validation metric reflects
-exactly what ``predict`` does. It is objective-agnostic apart from a single ``is_genot`` switch on the flow
-endpoints (OTFM integrates the cells themselves; GENOT integrates from latent noise with the cell held as
-the source-conditioning input).
-"""
 
 from __future__ import annotations
 
@@ -14,29 +6,22 @@ from typing import Any
 import numpy as np
 import torch
 
-from sc_flow.core.training._predictor import Predictor, register_predictor
+from scfit.training._predictor import Predictor, register_predictor
 
 __all__ = ["integrate_translation", "condition_mask_to_device", "condition_to_device", "ODEPredictor"]
 
 
 def _as_f32(v: Any, device: Any) -> torch.Tensor:
-    """``float32`` torch tensor on ``device`` — accepts a numpy array OR a torch tensor already on a device.
-
-    In the validation loop Lightning has already moved batch values onto the GPU, so ``np.asarray`` on them
-    would raise ("can't convert cuda tensor to numpy"); handle the tensor case directly (no host round-trip).
-    """
     if isinstance(v, torch.Tensor):
         return v.to(device=device, dtype=torch.float32)
     return torch.as_tensor(np.asarray(v, dtype=np.float32), device=device)
 
 
 def condition_to_device(condition: dict[str, Any], device: Any) -> dict[str, torch.Tensor]:
-    """Coerce a resolved condition dict to ``float32`` torch tensors on ``device`` (broadcast as-is)."""
     return {k: _as_f32(v, device) for k, v in condition.items()}
 
 
 def condition_mask_to_device(condition_mask: dict[str, Any], device: Any) -> dict[str, torch.Tensor]:
-    """Coerce explicit per-realm valid-element masks to boolean tensors on ``device``."""
     return {k: torch.as_tensor(v, dtype=torch.bool, device=device) for k, v in condition_mask.items()}
 
 
@@ -53,14 +38,6 @@ def integrate_translation(
     device: Any = None,
     return_trajectory: bool = False,
 ) -> torch.Tensor:
-    """Euler-integrate ``vf`` to translate ``source`` under ``cond_t`` — returns a tensor on ``device``.
-
-    OTFM (``is_genot=False``): integrate the ODE from the cells ``source`` themselves (source → target),
-    with no source-conditioning. GENOT (``is_genot=True``): integrate from latent noise ``~ N(0, I)`` in the
-    target space (``state_dim``), with ``source`` held fixed as the velocity field's source input across the
-    integration (noise → target | source) — *stochastic*, made reproducible by ``seed``. Runs under
-    :func:`torch.no_grad`; the caller owns the model's train/eval mode and device placement.
-    """
     from torchdiffeq import odeint
 
     if device is None:
@@ -90,13 +67,6 @@ def integrate_translation(
 
 @register_predictor("ode")
 class ODEPredictor(Predictor):
-    """Flow-matching inference: Euler-integrate the velocity field to translate a batch's ``source``.
-
-    The one concrete :class:`~sc_flow.core.training._predictor.Predictor` for flow matching — wraps
-    :func:`integrate_translation`, so the validation loop and the public ``FlowMatching.predict`` produce
-    the same translation. OTFM integrates the cells themselves; GENOT integrates from latent noise with the
-    cells held as the source-conditioning input (``is_genot``).
-    """
 
     def __init__(self, *, is_genot: bool, state_dim: int, num_steps: int = 50, seed: int = 0) -> None:
         self._is_genot = is_genot

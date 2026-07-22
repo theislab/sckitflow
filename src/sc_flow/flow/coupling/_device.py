@@ -1,11 +1,3 @@
-"""Device-native minibatch OT coupling: torch reps ↔ JAX via zero-copy DLPack, ott on the same device.
-
-The batch lives where the model lives (GPU under CUDA). This keeps the reps **and** the transport plan
-on that device — torch tensor → JAX array via DLPack (zero-copy, same device) → ott sinkhorn / GW →
-``sample_joint`` → indices → back to torch via DLPack. Only the tiny integer index arrays are produced;
-no cell data or coupling matrix is copied to host. Keeps the proven ott kernel while operating on the
-GPU batch (needs a CUDA ``jaxlib`` for the JAX side to be on the GPU too).
-"""
 
 from __future__ import annotations
 
@@ -26,14 +18,12 @@ __all__ = ["couple_device", "torch_to_jax", "jax_to_torch"]
 
 
 def torch_to_jax(t: torch.Tensor) -> Any:
-    """Zero-copy view of a torch tensor as a JAX array on the **same** device (DLPack)."""
     import jax
 
     return jax.dlpack.from_dlpack(t.detach().contiguous())
 
 
 def jax_to_torch(a: Any) -> torch.Tensor:
-    """Zero-copy view of a JAX array as a torch tensor on the **same** device (DLPack)."""
     return torch.from_dlpack(a)
 
 
@@ -47,12 +37,6 @@ def jax_to_torch(a: Any) -> torch.Tensor:
 
 @functools.cache
 def _linear_coupler(epsilon: float, scale_cost: Any, tau_a: float, tau_b: float, threshold: float, extra: tuple):
-    """Return a jitted ``(src, tgt, key) -> (src_ixs, tgt_ixs)`` linear-sinkhorn coupler for this config.
-
-    ``extra`` is a ``tuple(sorted(match_kwargs.items()))`` of any *further* Sinkhorn kwargs (e.g.
-    ``max_iterations``, ``lse_mode``, ``inner_iterations``) — forwarded to the solver and part of the
-    cache key so distinct configs get distinct jitted programs (never silently collapsed).
-    """
     import jax
     from ott.geometry import costs, pointcloud
     from ott.problems.linear import linear_problem
@@ -73,11 +57,6 @@ def _linear_coupler(epsilon: float, scale_cost: Any, tau_a: float, tau_b: float,
 
 @functools.cache
 def _quadratic_coupler(scale_cost: Any, cost_fn: Any, fused: bool):
-    """Return a jitted quadratic/GW coupler; ``fused`` selects whether linear reps also condition the plan.
-
-    ``cost_fn`` (default ``None``) is forwarded to ``match_quadratic`` and keyed into the cache, so a
-    non-default GW cost is honored rather than silently dropped (it must be hashable to key the cache).
-    """
     import jax
     from ott.solvers.utils import match_quadratic, sample_joint
 
@@ -106,12 +85,6 @@ def couple_device(
     tgt_lin: torch.Tensor | None = None,
     match_kwargs: Mapping[str, Any] | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """OT plan on torch reps (on any device) → ``(src_ixs, tgt_ixs)`` torch long tensors on the same device.
-
-    Linear sinkhorn by default; quadratic/fused GW when ``quad`` (matching on ``src_rep``/``tgt_rep`` as the
-    quadratic terms, fused with ``src_lin``/``tgt_lin`` when given). ``key`` is a JAX ``PRNGKey`` for the
-    plan-sampling (deterministic given the seed).
-    """
     mk = dict(match_kwargs or {})
     src_j, tgt_j = torch_to_jax(src_rep), torch_to_jax(tgt_rep)
     if quad:

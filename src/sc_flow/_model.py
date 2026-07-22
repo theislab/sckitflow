@@ -82,7 +82,7 @@ class FlowMatching:
 
         vf_kwargs: dict[str, Any] = {
             "state_dim": int(dims.state),
-            "combiner": "concat",
+            "combiner": {"type": "sc_flow.concat", "version": 1, "config": {}},
             "state_embedder": MLPEmbedderConfig(mlp_kwargs={"hidden_dims": self.hidden_dims}),
             "time_embedder": MLPEmbedderConfig(
                 mlp_kwargs={"hidden_dims": self.time_encoder_dims} if self.time_encoder_dims is not None else {}
@@ -469,47 +469,76 @@ class FlowMatching:
     def save(self, path: str | Path) -> None:
         """Persist the fitted model so :meth:`predict` works again after :meth:`load`.
 
-        Writes ``path`` as a directory: ``weights.pt`` (the torch ``state_dict``, portable across
-        devices) and ``state.pkl`` (cloudpickle — the constructor config, :attr:`spec`, the compiled
-        :class:`~sc_flow.core.data.CompiledDims`, and the fitted ``condition_fn`` closure — the same
-        cloudpickle-of-a-closure pattern already used by :mod:`sc_flow.external`). Does **not** persist
-        optimizer/trainer state — this is for inference after reload, not resuming ``fit()``.
+        Writes ``path`` as a directory in two clearly separated tiers:
+
+        * **Portable model (pickle-free).** ``config.json`` — the bundle envelope: the objective name, the
+          JSON constructor knobs, and the **architecture spec** (:meth:`MLPVelocity.to_config`, the exact
+          velocity-field graph) — plus ``model.safetensors`` (the ``state_dict``). The architecture is
+          reconstructed from this saved config, not re-derived from constructor logic, so a later change to
+          ``_build_vf`` cannot silently alter a reloaded model.
+        * **Trusted data sidecar.** ``data_state.pkl`` — cloudpickle of :attr:`spec`, the compiled
+          :class:`~sc_flow.core.data.CompiledDims`, and the fitted ``condition_fn`` closure. This is the
+          non-portable, trusted-code tier; never load it from an untrusted source.
+          TODO(state.md §10): replace this sidecar with ``input_schema.json`` + ``assets.safetensors`` and a
+          deterministic condition-fn compiler, retiring the last pickle.
+
+        Does **not** persist optimizer/trainer state — this is for inference after reload, not resuming
+        ``fit()``.
         """
+        import json
+
         import cloudpickle
+        from safetensors.torch import save_model
+
+        from sc_flow.flow._config import FORMAT_VERSION
 
         if self.vf is None:
             raise RuntimeError("Model must be fitted before save().")
         path = Path(path)
         path.mkdir(parents=True, exist_ok=True)
-        torch.save(self.vf.state_dict(), path / "weights.pt")
-        state = {
+
+        # Portable model: config.json (envelope) + model.safetensors. to_config() raises before any write
+        # if the VF holds a runtime-only custom module. save_model dedupes the condition encoder's shared
+        # (double-registered) tensors.
+        config = {
+            "format_version": FORMAT_VERSION,
             "objective": self.objective_name,
-            "ctor_kwargs": {name: getattr(self, name) for name in self._CTOR_FIELDS},
-            "spec": self.spec,
-            "dims": self._dims,
-            "condition_fn": self._condition_fn,
+            "flow_matching": {name: getattr(self, name) for name in self._CTOR_FIELDS},
+            "architecture": self.vf.to_config().to_spec(),
         }
-        with open(path / "state.pkl", "wb") as f:
-            cloudpickle.dump(state, f)
+        (path / "config.json").write_text(json.dumps(config, indent=2))
+        save_model(self.vf, str(path / "model.safetensors"))
+
+        # Trusted data sidecar (spec / dims / condition_fn) — cloudpickle, isolated and documented.
+        with open(path / "data_state.pkl", "wb") as f:
+            cloudpickle.dump({"spec": self.spec, "dims": self._dims, "condition_fn": self._condition_fn}, f)
 
     @classmethod
     def load(cls, path: str | Path) -> FlowMatching:
         """Reconstruct a fitted model from :meth:`save`.
 
         ``predict()`` works immediately; ``fit()`` would start a fresh run (no optimizer/trainer state
-        is restored).
+        is restored). The velocity field is rebuilt from the saved ``config.json`` architecture spec (not
+        re-derived), with weights loaded strictly from ``model.safetensors``.
         """
+        import json
+
         import cloudpickle
+        from safetensors.torch import load_model
+
+        from sc_flow.flow._config import MLPVelocityConfig
+        from sc_flow.flow._vf import MLPVelocity
 
         path = Path(path)
-        with open(path / "state.pkl", "rb") as f:
-            state = cloudpickle.load(f)
+        config = json.loads((path / "config.json").read_text())
+        with open(path / "data_state.pkl", "rb") as f:
+            data_state = cloudpickle.load(f)
 
-        model = cls(spec=state["spec"], objective=state["objective"], **state["ctor_kwargs"])
-        model._dims = state["dims"]
-        model._condition_fn = state["condition_fn"]
-        model.vf = model._build_vf(model._dims)
-        model.vf.load_state_dict(torch.load(path / "weights.pt", map_location="cpu"))
+        model = cls(spec=data_state["spec"], objective=config["objective"], **config["flow_matching"])
+        model._dims = data_state["dims"]
+        model._condition_fn = data_state["condition_fn"]
+        model.vf = MLPVelocity.from_config(MLPVelocityConfig.from_spec(config["architecture"]))
+        load_model(model.vf, str(path / "model.safetensors"), strict=True)
         model.model = model.vf
         model.probability_path = model._build_probability_path()
         return model

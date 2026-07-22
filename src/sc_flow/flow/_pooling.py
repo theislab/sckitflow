@@ -9,17 +9,19 @@ not acquire a cellflow/JAX runtime dependency.
 from __future__ import annotations
 
 import abc
-import json
-from collections.abc import Callable, Mapping
-from dataclasses import asdict, dataclass
-from typing import Any, TypedDict
+from collections.abc import Mapping
+from dataclasses import dataclass
+from typing import Any
 
 import torch
 from torch.nn import functional as F
 
+from sc_flow.core._component import ComponentRegistry, ComponentSpec
+
 __all__ = [
     "BasePooling",
     "MeanPooling",
+    "PoolingContext",
     "PoolingSpec",
     "SeedAttentionPooling",
     "SumPooling",
@@ -27,6 +29,9 @@ __all__ = [
     "build_pooling",
     "validate_pooling_spec",
 ]
+
+#: A pooling spec is a :class:`~sc_flow.core.ComponentSpec` — the slot (``pooling``) fixes the family.
+PoolingSpec = ComponentSpec
 
 
 @dataclass(frozen=True)
@@ -115,21 +120,11 @@ class SeedAttentionPoolingConfig:
 PoolingConfig = MeanPoolingConfig | SumPoolingConfig | TokenAttentionPoolingConfig | SeedAttentionPoolingConfig
 
 
-type JsonValue = None | bool | int | float | str | list["JsonValue"] | dict[str, "JsonValue"]
+@dataclass(frozen=True)
+class PoolingContext:
+    """Build context for pooling: the shared projection width the encoder pools over."""
 
-
-class PoolingSpec(TypedDict):
-    """The JSON wire representation of a pooling component.
-
-    ``type`` is the stable namespaced discriminator, ``version`` versions that
-    component's config schema, and ``config`` contains JSON values only. Every
-    field is required, and attention configs must include every version-1
-    field. Runtime validation belongs to :func:`validate_pooling_spec`.
-    """
-
-    type: str
-    version: int
-    config: dict[str, JsonValue]
+    input_dim: int
 
 
 class BasePooling(abc.ABC, torch.nn.Module):
@@ -363,87 +358,37 @@ class SeedAttentionPooling(BasePooling):
         return attended.squeeze(1)
 
 
-@dataclass(frozen=True)
-class _PoolingRegistration:
-    config_type: type[PoolingConfig]
-    factory: Callable[[int, PoolingConfig], BasePooling]
+def _mean_factory(config: MeanPoolingConfig, context: PoolingContext) -> BasePooling:
+    return MeanPooling(context.input_dim)
 
 
-def _mean_factory(input_dim: int, config: PoolingConfig) -> BasePooling:
-    return MeanPooling(input_dim)
+def _sum_factory(config: SumPoolingConfig, context: PoolingContext) -> BasePooling:
+    return SumPooling(context.input_dim)
 
 
-def _sum_factory(input_dim: int, config: PoolingConfig) -> BasePooling:
-    return SumPooling(input_dim)
+def _token_factory(config: TokenAttentionPoolingConfig, context: PoolingContext) -> BasePooling:
+    return TokenAttentionPooling(context.input_dim, config)
 
 
-def _token_factory(input_dim: int, config: PoolingConfig) -> BasePooling:
-    if not isinstance(config, TokenAttentionPoolingConfig):
-        raise TypeError("Internal pooling registry mismatch for token attention.")
-    return TokenAttentionPooling(input_dim, config)
+def _seed_factory(config: SeedAttentionPoolingConfig, context: PoolingContext) -> BasePooling:
+    return SeedAttentionPooling(context.input_dim, config)
 
 
-def _seed_factory(input_dim: int, config: PoolingConfig) -> BasePooling:
-    if not isinstance(config, SeedAttentionPoolingConfig):
-        raise TypeError("Internal pooling registry mismatch for seed attention.")
-    return SeedAttentionPooling(input_dim, config)
-
-
-_POOLING_REGISTRY: dict[str, _PoolingRegistration] = {
-    "sc_flow.mean": _PoolingRegistration(MeanPoolingConfig, _mean_factory),
-    "sc_flow.sum": _PoolingRegistration(SumPoolingConfig, _sum_factory),
-    "sc_flow.attention_token": _PoolingRegistration(TokenAttentionPoolingConfig, _token_factory),
-    "sc_flow.attention_seed": _PoolingRegistration(SeedAttentionPoolingConfig, _seed_factory),
-}
-
-
-def _parse_pooling_config(spec: PoolingSpec) -> PoolingConfig:
-    try:
-        registration = _POOLING_REGISTRY[spec["type"]]
-    except KeyError:
-        raise ValueError(
-            f"Unknown pooling type {spec['type']!r}; built-in types are {sorted(_POOLING_REGISTRY)}."
-        ) from None
-    if spec["version"] != 1:
-        raise ValueError(f"Unsupported {spec['type']!r} config version {spec['version']}; supported versions: [1].")
-    try:
-        return registration.config_type(**spec["config"])
-    except TypeError as e:
-        raise ValueError(f"Invalid config for pooling type {spec['type']!r}: {e}") from e
+#: Closed built-in pooling family on the shared registry machinery. ``mean``/``sum`` are parameter-free;
+#: token/seed attention carry weights and differing output-dim contracts, which is exactly why pooling is a
+#: discriminated spec rather than a flat enum. Not (yet) opened to third-party providers.
+POOLING_REGISTRY: ComponentRegistry[PoolingContext] = ComponentRegistry("pooling")
+POOLING_REGISTRY.register("sc_flow.mean", config_type=MeanPoolingConfig, build=_mean_factory)
+POOLING_REGISTRY.register("sc_flow.sum", config_type=SumPoolingConfig, build=_sum_factory)
+POOLING_REGISTRY.register("sc_flow.attention_token", config_type=TokenAttentionPoolingConfig, build=_token_factory)
+POOLING_REGISTRY.register("sc_flow.attention_seed", config_type=SeedAttentionPoolingConfig, build=_seed_factory)
 
 
 def validate_pooling_spec(spec: PoolingSpec | Mapping[str, Any]) -> PoolingSpec:
-    """Validate an explicit spec without filling fields or resolving aliases."""
-    if not isinstance(spec, Mapping):
-        raise TypeError(f"Expected PoolingSpec or mapping; found {type(spec).__name__}.")
-    required = {"type", "version", "config"}
-    unknown = set(spec) - required
-    if unknown:
-        raise ValueError(f"Unknown PoolingSpec field(s): {sorted(unknown)}.")
-    missing = required - set(spec)
-    if missing:
-        raise ValueError(f"Missing PoolingSpec field(s): {sorted(missing)}.")
-    type_id = spec["type"]
-    version = spec["version"]
-    raw_config = spec["config"]
-    if not isinstance(type_id, str) or not type_id:
-        raise TypeError("PoolingSpec['type'] must be a non-empty string.")
-    if not isinstance(version, int) or isinstance(version, bool) or version <= 0:
-        raise TypeError("PoolingSpec['version'] must be a positive integer.")
-    if not isinstance(raw_config, Mapping):
-        raise TypeError("PoolingSpec['config'] must be a mapping of JSON values.")
-    config_dict = dict(raw_config)
-    try:
-        json.dumps(config_dict)
-    except (TypeError, ValueError) as e:
-        raise TypeError("PoolingSpec['config'] must contain JSON-serializable values only.") from e
-    copied = PoolingSpec(type=type_id, version=version, config=config_dict)
-    config = _parse_pooling_config(copied)
-    return PoolingSpec(type=type_id, version=version, config=asdict(config))
+    """Validate an explicit pooling spec without filling fields or resolving aliases."""
+    return POOLING_REGISTRY.validate(spec)
 
 
 def build_pooling(spec: PoolingSpec, *, input_dim: int) -> BasePooling:
-    """Build a torch pooling module from a closed built-in spec registry."""
-    validated = validate_pooling_spec(spec)
-    config = _parse_pooling_config(validated)
-    return _POOLING_REGISTRY[validated["type"]].factory(input_dim, config)
+    """Build a torch pooling module from the closed built-in pooling registry."""
+    return POOLING_REGISTRY.build(spec, PoolingContext(input_dim=input_dim))

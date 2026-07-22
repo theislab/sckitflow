@@ -8,6 +8,7 @@ import torch
 from huggingface_hub import PyTorchModelHubMixin
 
 from sc_flow._constants import DEFAULT_NUM_RESNET_LAYERS
+from sc_flow.core.nn._activation import ActivationId, resolve_activation
 
 __all__ = [
     "BaseModule",
@@ -163,8 +164,8 @@ class MLP(BaseModule):
         input_dim: int,
         output_dim: int,
         hidden_dims: Sequence[int] | None = None,
-        activation_cls: type[torch.nn.Module] | None = None,
-        final_activation_cls: type[torch.nn.Module] = None,
+        activation_cls: ActivationId | type[torch.nn.Module] | None = None,
+        final_activation_cls: ActivationId | type[torch.nn.Module] | None = None,
         use_batchnorm: bool = False,
         batchnorm_eps: float = 1e-3,
         batchnorm_momentum: float = 1e-2,
@@ -264,8 +265,9 @@ class MLP(BaseModule):
         self._input_dim = input_dim
         self._output_dim = output_dim
         self._hidden_dims = () if hidden_dims is None else hidden_dims
-        self._activation_cls = torch.nn.ReLU if activation_cls is None else activation_cls
-        self._final_activation_cls = torch.nn.Identity if final_activation_cls is None else final_activation_cls
+        # An activation is a serializable enum choice: accept a string id (portable) or a class (runtime-only).
+        self._activation_cls = resolve_activation(activation_cls, "relu")
+        self._final_activation_cls = resolve_activation(final_activation_cls, "identity")
         self._use_batchnorm = use_batchnorm
         self._use_layernorm = use_layernorm
         self._batchnorm_eps = batchnorm_eps
@@ -445,7 +447,7 @@ class Resnet1d(BaseModule):
         embedding_dim: int,
         num_resnet_layers: int | None = None,
         output_dim: int | None = None,
-        activation_cls: type[torch.nn.Module] | None = None,
+        activation_cls: ActivationId | type[torch.nn.Module] | None = None,
         use_batchnorm: bool = False,
         batchnorm_eps: float = 1e-3,
         batchnorm_momentum: float = 1e-2,
@@ -541,7 +543,7 @@ class Resnet1d(BaseModule):
         self._embedding_dim = embedding_dim
         self._num_resnet_layers = DEFAULT_NUM_RESNET_LAYERS if num_resnet_layers is None else num_resnet_layers
         self._output_dim = input_dim if output_dim is None else output_dim
-        self._activation_cls = torch.nn.SiLU if activation_cls is None else activation_cls
+        self._activation_cls = resolve_activation(activation_cls, "silu")
         self._use_batchnorm = use_batchnorm
         self._use_layernorm = use_layernorm
         self._batchnorm_eps = batchnorm_eps

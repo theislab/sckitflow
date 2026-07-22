@@ -2,7 +2,7 @@ from sc_flow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS, MAX_ITER_ST
 from sc_flow.data._abc import DataT, DataTreeT, MatchedDistributionsT
 from sc_flow.data.samplers._base import FSampler, Sampler
 
-__all__ = ["TrainSampler", "FTrainSampler"]
+__all__ = ["TrainSampler", "FTrainSampler", "MultiTransitionSampler"]
 
 
 class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
@@ -88,3 +88,21 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
 
 class FTrainSampler(TrainSampler, FSampler):
     """Concrete train sampler using an input callable to process the batch."""
+
+class MultiTransitionSampler(TrainSampler):
+    """Train sampler for multi-transition data.
+
+    Returns one sampled batch per transition in the order defined by ``matched_keys``,
+    """
+
+    def _dispatch_node(self, node: MatchedDistributionsT) -> MatchedDistributionsT:
+        return node
+
+    def sample(self) -> tuple[MatchedDistributionsT]:
+        """Samples one batch per transition in insertion order."""
+        return tuple(self._sample_observations(node, self._batch_size) for node in self.flattened_data)
+
+    @property
+    def n_transitions(self) -> int:
+        """Returns the number of transitions in the tree."""
+        return len(self.flattened_data)

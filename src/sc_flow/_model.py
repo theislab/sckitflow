@@ -74,16 +74,9 @@ class FlowMatching:
 
     def _build_vf(self, dims: CompiledDims) -> torch.nn.Module:
         """Size an ``MLPVelocity`` from :class:`~sc_flow.core.data.CompiledDims` (no batch pulled)."""
+        from sc_flow.flow._set_encoder import SetEncoder
         from sc_flow.flow._vf import MLPVelocity
 
-        cond_input_layers = (
-            {
-                realm: {"input_dim": int(dim), "output_dim": int(self.condition_embedding_dim)}
-                for realm, dim in dims.condition.items()
-            }
-            if dims.condition
-            else None
-        )
         vf_kwargs: dict[str, Any] = {
             "state_dim": int(dims.state),
             "combiner": "concat",
@@ -93,11 +86,14 @@ class FlowMatching:
             vf_kwargs["vf_decoder_mlp_kwargs"] = {"hidden_dims": self.decoder_dims}
         if self.time_encoder_dims is not None:
             vf_kwargs["time_encoder_mlp_kwargs"] = {"hidden_dims": self.time_encoder_dims}
-        if cond_input_layers is not None:
-            vf_kwargs.update(
-                condition_encoder_input_layers=cond_input_layers,
-                condition_encoder_output_dim=int(self.condition_embedding_dim),
-                condition_encoder_pooling_mode=self.pooling,
+        if dims.condition:
+            vf_kwargs["condition_encoder"] = SetEncoder(
+                input_layers={
+                    realm: {"input_dim": int(dim), "output_dim": int(self.condition_embedding_dim)}
+                    for realm, dim in dims.condition.items()
+                },
+                output_dim=int(self.condition_embedding_dim),
+                pooling_mode=self.pooling,
                 condition_mode=self.condition_mode,
             )
         if self.objective_name == "genot":

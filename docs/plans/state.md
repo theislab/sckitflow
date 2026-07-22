@@ -218,7 +218,7 @@ stable public API).
 
 ## 10. Serialization + extensibility — explicit component specs (decision accepted)
 
-**Decision (accepted, 2026-07-22; implementation pending):** portable models use an explicit,
+**Decision (accepted, 2026-07-22; implementation incremental):** portable models use an explicit,
 versioned **component discriminator**. A runtime object and its persistent description are different
 things: the object is an `nn.Module`/`Objective`/`Predictor`; the description is immutable, JSON-safe data.
 We will not rely on HF constructor auto-capture, pickle a Python object graph, or store arbitrary importable
@@ -227,12 +227,19 @@ class paths in a portable model.
 The deliberately small wire contract is:
 
 ```python
-@dataclass(frozen=True)
-class ComponentSpec:
+class ComponentSpec(TypedDict):
     type: str                  # stable, namespaced id, e.g. "sc_flow.concat"
     version: int              # config schema version for this component
     config: dict[str, JsonValue]
 ```
+
+Terminology: **config** is any JSON configuration data, and is unfortunately also the conventional name
+for a whole model's configuration file. A **spec** is specifically a self-identifying component config:
+the `{type, version, config}` envelope. The inner `config` contains only parameters understood by that
+`type` at that `version`; it cannot select an implementation by itself. In Python, `ComponentSpec` /
+`PoolingSpec` are `TypedDict`s because they describe that JSON mapping directly. The factory may parse the
+inner mapping into a private frozen dataclass for validation and convenient typed access, but that parsed
+object is not an additional artifact representation.
 
 The **slot determines the family** (`combiner`, `architecture`, `objective`, `predictor`, `encoder`, …), so
 the wire object does not repeat it. Each stable family uses the same generic registry implementation:
@@ -313,6 +320,28 @@ contains a built-in discriminated `PoolingSpec` from the first implementation sl
 Built-in variants are `sc_flow.mean`, `sc_flow.sum`, `sc_flow.attention_token`, and
 `sc_flow.attention_seed`. This is a closed built-in family initially; it can use the same registry
 machinery without promising third-party pooling compatibility forever.
+
+**Implemented decision (July 2026):** `PoolingSpec` is a `TypedDict` describing the JSON object itself—not a
+second dataclass wrapper around the wire representation. Its factory performs runtime validation, parses the
+component-specific config into internal typed dataclasses, and builds the torch module from the closed
+built-in registry. There are **no hidden architecture defaults**: `type`, `version`, and `config` are
+required, attention configs must contain every
+v1 field (including explicit `false`, `0.0`, and `null` values), and no string alias or omitted pooling choice
+is accepted. `BasePooling.forward(x, mask=None) -> Tensor` is the runtime interface over
+`x: (batch, set, features)` and an explicit boolean `mask: (batch, set)`; every implementation exposes
+`input_dim` and `output_dim`. `SetEncoder(pooling=PoolingSpec)` is portable, while
+`SetEncoder(pooling=BasePooling(...))` is the experimental polymorphic path. The latter trains normally but
+`save_pretrained` fails before writing because subclassing establishes tensor compatibility, **not** a
+reconstruction contract. Promotion to a portable component later means assigning a stable namespaced type,
+JSON config schema/version, factory registration, and tests; it does not require changing checkpoint JSON.
+
+The export guard is centralized in `BaseModule`, not opt-in per injectable subclass. `BaseModule.__new__`
+records every `torch.nn.Module` instance supplied as a constructor argument (also inside mappings and
+sequences), and `save_pretrained` reports the qualified argument paths before writing. Subclasses must not
+implement `_injected_submodule_slots`-style reporting hooks: forgetting an override would make the safety
+property fail open. This guard is a transitional backstop, not the serialization design itself. In the
+completed design, the portable construction path accepts a spec and constructs its runtime module inside
+the factory; passing an already-built module unambiguously selects the runtime-only research path.
 
 Lineage/reuse decision: `cellflow` owns working JAX `TokenAttentionPooling` and
 `SeedAttentionPooling` implementations. `CellFlow2` on `dedup/reexport-cellflow` already imports/re-exports
@@ -398,10 +427,22 @@ Target: `cf-train → sc-flow-tools → binded → annbatch(fork)`; **remove `ce
   First slice: generic `ComponentRegistry`, `ComponentSpec`, `BuildContext`, and a fully round-tripping
   `MLPVelocityConfig` containing `SetEncoderConfig` + built-in `PoolingSpec` + `CombinerSpec`. Then replace
   `FlowMatching.save/load` (`state.pkl`) with the portable bundle and add entry-point discovery.
-- **`MLPVelocity` ctor** — replace the ~25 flat kwargs and nested runtime objects with composable typed
-  sub-configs. Construction from both training and loading must go through the same factory.
-- **Gaps to close:** explicit variable-length covariate-set masks, then the attributed torch ports of
-  token/seed attention pooling in `SetEncoder` (currently `NotImplementedError`); **CFG** (see §12).
+- **`MLPVelocity` ctor — stream embedders DONE; full bundle pending.** The three MLP stream maps are now
+  presence-based `MLPEmbedderConfig | None` slots (`state_embedder` / `time_embedder` / `source_embedder`;
+  `None` = raw stream, a config = MLP), replacing the inconsistent `encode_*` bool vs kwargs-presence
+  toggles. Renamed `*_encoder → *_embedder` (DiT `x_embedder`/`t_embedder` precedent; `proj` was rejected —
+  it connotes a single Linear, these are multi-layer — and it disambiguates the Deep-Sets
+  `condition_encoder`). `MLPEmbedderConfig` is a plain dataclass that round-trips via the HF mixin. Still to
+  do: fold these + `SetEncoderConfig` / `PoolingSpec` / `CombinerSpec` into the single `MLPVelocityConfig`
+  bundle so training and loading share one factory (per the component-spec slice above).
+- **Attention pooling DONE:** explicit per-realm, per-example masks now flow through `SetEncoder`,
+  `MLPVelocity`, objectives, and prediction; the attributed torch token/seed ports plus mean/sum use the
+  closed `PoolingSpec` registry. Today's compiled condition schemas have fixed, dense slot counts, so an
+  omitted mask explicitly means "dense/unpadded" and takes a genuinely mask-free fast path: no all-ones
+  tensor, mask concatenation, or attention-mask operation is performed. If any realm is masked, masks for
+  every pooled realm are required. If/when the compiler accepts genuinely ragged biological sets, it must
+  emit `batch["condition_mask"]` rather than infer validity from zero embeddings. **CFG** remains open
+  (see §12).
 - Wire `OptimConfig` into `configure_optimizers` + `fit` (optimizer is currently inline).
 - Drop the current dead, training-only `ARCHITECTURE_REGISTRY`; the new generic component registry owns
   artifact reconstruction. Move the identity-baseline + debug logging out of

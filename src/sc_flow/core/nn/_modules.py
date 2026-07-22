@@ -1,6 +1,7 @@
 import abc
+import inspect
 from collections import OrderedDict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from typing import Any
 
 import torch
@@ -24,14 +25,47 @@ class BaseModule(abc.ABC, torch.nn.Module, PyTorchModelHubMixin):
     kwargs auto-captured to ``config.json``). Config auto-capture needs JSON-serializable ``__init__``
     args.
 
-    **Custom sub-modules.** A configurable slot (for example a velocity field's ``combiner``) takes
-    either one of the built-in choices by name — a string id, which is saved to and restored from
-    ``config.json`` — or your own subclass instance for that slot. A custom instance is not
-    JSON-serializable, so it is not saved to ``config.json`` and is therefore not rebuilt on load: pass it
-    again when loading, e.g. ``Model.from_pretrained(path, combiner=MyLayer(...))``. If you forget, the
-    rebuilt model will not match the saved weights; weights are loaded strictly, so that mismatch raises a
-    clear error rather than silently loading a wrong model.
+    **Custom sub-modules.** A configurable slot may take a portable registered specification or a custom
+    subclass instance for experimentation. :class:`BaseModule` centrally records module-valued constructor
+    arguments, so a custom instance cannot be silently omitted from ``config.json`` even when a subclass
+    forgets to implement an export check. Portable ``save_pretrained`` export then fails early. Trusted
+    training-resume checkpoints may still use the exact Python environment and normal PyTorch/Lightning
+    state serialization.
     """
+
+    def __new__(cls, *args, **kwargs):
+        """Create the module and remember constructor arguments that contain runtime modules.
+
+        ``PyTorchModelHubMixin`` captures only JSON-compatible constructor arguments. A passed-in
+        :class:`torch.nn.Module` therefore needs an explicit component spec to be portable. Detecting that
+        here makes the guard fail closed for every :class:`BaseModule` subclass instead of relying on each
+        injectable subclass to report its own slots.
+        """
+        instance = super().__new__(cls, *args, **kwargs)
+        signature = inspect.signature(cls.__init__)
+        bound = signature.bind_partial(None, *args, **kwargs)
+        bound.apply_defaults()
+
+        runtime_modules: dict[str, str] = {}
+        for name, value in bound.arguments.items():
+            if name != "self":
+                BaseModule._collect_runtime_modules(value, path=name, output=runtime_modules)
+        object.__setattr__(instance, "_runtime_module_constructor_args", runtime_modules)
+        return instance
+
+    @staticmethod
+    def _collect_runtime_modules(value: Any, *, path: str, output: dict[str, str]) -> None:
+        """Collect module instances from a constructor value, including containers."""
+        if isinstance(value, torch.nn.Module):
+            output[path] = type(value).__name__
+            return
+        if isinstance(value, Mapping):
+            for key, item in value.items():
+                BaseModule._collect_runtime_modules(item, path=f"{path}[{key!r}]", output=output)
+            return
+        if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
+            for index, item in enumerate(value):
+                BaseModule._collect_runtime_modules(item, path=f"{path}[{index}]", output=output)
 
     @classmethod
     def _load_as_safetensor(cls, model, model_file: str, map_location: str, strict: bool):
@@ -51,30 +85,26 @@ class BaseModule(abc.ABC, torch.nn.Module, PyTorchModelHubMixin):
             )
             raise ValueError(msg) from e
 
-    def _injected_submodule_slots(self) -> dict[str, str]:
-        """``{slot name -> class name}`` for slots built from a passed-in module **instance**.
-
-        Empty by default; overridden by models with injectable slots (e.g. a velocity field's ``combiner``)
-        to report which slots currently hold a custom instance rather than a registered string id. Such
-        instances can't be serialized, so :meth:`save_pretrained` refuses to save them.
-        """
-        return {}
-
     def save_pretrained(self, *args, **kwargs):
-        """As the mixin's, but **refuses to save** a model built with a custom sub-module instance.
+        """As the mixin's, but refuse export when a runtime module lacks a component spec.
 
-        A custom instance in an injectable slot isn't serializable to ``config.json``; saving would produce
-        a checkpoint that silently rebuilds the default on load. Register the sub-module under a string id
-        to make it saveable, or keep the model in-memory only.
+        Such an injectable slot isn't reconstructible from ``config.json``; saving would produce a checkpoint
+        that silently rebuilds the default or omits a required component on load.
         """
-        injected = self._injected_submodule_slots()
+        injected: dict[str, str] = {}
+        for module_path, module in self.named_modules():
+            if not isinstance(module, BaseModule):
+                continue
+            for slot, class_name in module._runtime_module_constructor_args.items():
+                qualified_slot = f"{module_path}.{slot}" if module_path else slot
+                injected[qualified_slot] = class_name
         if injected:
             pairs = ", ".join(f"{slot}={cls}(...)" for slot, cls in injected.items())
             msg = (
-                f"{type(self).__name__} was built with a custom module instance in slot(s) "
+                f"{type(self).__name__} was built with a non-portable runtime module in slot(s) "
                 f"{list(injected)} ({pairs}) — this cannot be serialized, so saving is disabled. Use a "
-                f"registered string id (e.g. combiner='resnet1d') so the choice is saved to config.json, "
-                f"or keep this model in-memory only."
+                f"registered component spec so the choice is saved to config.json, or use a trusted "
+                f"training-resume checkpoint that retains the original Python environment."
             )
             raise ValueError(msg)
         return super().save_pretrained(*args, **kwargs)

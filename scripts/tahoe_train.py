@@ -86,7 +86,8 @@ def main() -> int:
     )
     model = FlowMatching(
         spec=spec, objective=args.objective, condition_embedding_dim=args.condition_embedding_dim,
-        hidden_dims=hidden, regularization=args.regularization, seed=args.seed,
+        hidden_dims=hidden, pooling={"type": "sc_flow.mean", "version": 1, "config": {}},
+        regularization=args.regularization, seed=args.seed,
     )
 
     class LossLogger(pl.Callback):

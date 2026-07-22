@@ -1,13 +1,14 @@
-from collections.abc import Collection
-from typing import Any, Literal
+from collections.abc import Collection, Mapping
+from typing import Literal
 
 import torch
 
 from sc_flow._types import LayersDict, NestedLayersDict
 from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.core._torch_types import MappedTensor
-from sc_flow.core.nn._modules import BaseModule, FunctionalModule
+from sc_flow.core.nn._modules import BaseModule
 from sc_flow.core.nn._utils import init_module_from_dict
+from sc_flow.flow._pooling import BasePooling, PoolingSpec, build_pooling, validate_pooling_spec
 
 __all__ = ["SetEncoder"]
 
@@ -17,17 +18,19 @@ class SetEncoder(BaseModule):
 
     Torch port of cellflow's ``ConditionEncoder`` (theislab/cellflow, ``src/cellflow/networks/_set_encoders.py``,
     flax) — kept structurally aligned so the jax original and this port stay mutually reviewable. Same shape: a
-    per-covariate input layer, a shared projection + pooling (``mean``/``sum``; the ``attention-*`` modes cellflow
-    adds are stubbed here), covariates that bypass pooling (``covariates_not_pooled``), an output layer, and a
-    deterministic or stochastic (mean + log-variance) head.
+    per-covariate input layer, a shared projection + pooling, covariates that bypass pooling
+    (``covariates_not_pooled``), an output layer, and a deterministic or stochastic (mean + log-variance) head.
+
+    A :class:`~sc_flow.flow._pooling.PoolingSpec` JSON mapping selects a portable built-in pooling implementation. A custom
+    :class:`~sc_flow.flow._pooling.BasePooling` instance is an explicitly runtime-only research escape hatch:
+    it can train and participate in trusted checkpoints, but :meth:`save_pretrained` refuses portable export.
     """
 
     def __init__(
         self,
         input_layers: NestedLayersDict,
         output_dim: int,
-        pooling_mode: Literal["mean", "sum", "attention-token", "attention-seed"] = "mean",
-        pooling_kwargs: dict[str, Any] | None = None,
+        pooling: PoolingSpec | BasePooling,
         pooling_proj_dim: int | None = None,
         pooling_proj_bias: bool = True,
         covariates_not_pooled: Collection[str] | None = None,
@@ -43,13 +46,8 @@ class SetEncoder(BaseModule):
         :param output_dim: The output dimensionality of the set encoder.
         :type output_dim: class: `int`
 
-        :param pooling_mode: Identifier for the pooling strategy of conditioning covariates.
-            Defaults to `"mean"`.
-        :type pooling_mode: class: `Literal["mean", "sum"]`
-
-        :param pooling_kwargs: Optional keyword arguments for pooling layer.
-            Ignored when pooling is `"mean"` or `"sum"`, defaults to `None`.
-        :type pooling_kwargs: class: `dict[str, Any]`
+        :param pooling: Portable built-in :class:`PoolingSpec` JSON mapping, or a custom
+            :class:`BasePooling` instance for runtime experimentation. This choice is required explicitly.
 
         :param pooling_proj_dim: Shared projection dimension for the covariates to pool,
             defaults to `None`, in which case it will be set to the minimum output
@@ -71,13 +69,43 @@ class SetEncoder(BaseModule):
         super().__init__()
         self._input_layers = input_layers
         self._output_dim = output_dim
-        self._pooling_mode = pooling_mode
-        self._pooling_kwargs = {} if pooling_kwargs is None else pooling_kwargs
         self._pooling_proj_bias = pooling_proj_bias
-        self._covariates_not_pooled = [] if covariates_not_pooled is None else covariates_not_pooled
+        self._covariates_not_pooled = tuple(() if covariates_not_pooled is None else covariates_not_pooled)
         self._output_layers_kwargs = {} if output_layers_kwargs is None else output_layers_kwargs
-        self._pooling_proj_dim = pooling_proj_dim if pooling_proj_dim else self._min_pooled_dims
         self._condition_mode = condition_mode
+
+        check_sequence_query_against_reference(
+            self._covariates_not_pooled,
+            self._input_layers.keys(),
+            allow_missing_from_query=True,
+            allow_missing_from_reference=False,
+        )
+        self._pooling_proj_dim = pooling_proj_dim if pooling_proj_dim is not None else self._min_pooled_dims
+        if self.covariates_pooled and (self._pooling_proj_dim is None or self._pooling_proj_dim <= 0):
+            raise ValueError(f"pooling_proj_dim must be positive when covariates are pooled, found {pooling_proj_dim}.")
+
+        self._custom_pooling = isinstance(pooling, BasePooling)
+        if self._custom_pooling:
+            if not self.covariates_pooled:
+                raise ValueError(
+                    "A custom pooling instance was supplied, but no covariates are configured for pooling."
+                )
+            if pooling.input_dim != self._pooling_proj_dim:
+                raise ValueError(
+                    f"Custom pooling expects input_dim={pooling.input_dim}, but SetEncoder projects to "
+                    f"pooling_proj_dim={self._pooling_proj_dim}."
+                )
+            # The module is registered exactly once below, inside ``pooling_layer``. A normal assignment
+            # here would register the same parameters both as ``_pooling.*`` and under the ModuleDict.
+            object.__setattr__(self, "_pooling", pooling)
+        else:
+            self._pooling = validate_pooling_spec(pooling)
+
+        # PyTorchModelHubMixin captures constructor arguments before __init__. Replace the caller's mapping
+        # with the validated copy so the persisted config exactly matches the module that was built.
+        if not self._custom_pooling and isinstance(self._hub_mixin_config, dict):
+            self._hub_mixin_config["pooling"] = self.pooling_spec
+            self._hub_mixin_config["covariates_not_pooled"] = list(self._covariates_not_pooled)
 
         self._condition_encoder = self._make_modules()
 
@@ -128,19 +156,11 @@ class SetEncoder(BaseModule):
         self,
     ) -> torch.nn.Module:
         """Initializes the pooling layer."""
-        if self._pooling_mode == "mean":
-            pooling_fn = lambda x: torch.mean(x, dim=-2)
-            return FunctionalModule(pooling_fn)
-        elif self._pooling_mode == "sum":
-            pooling_fn = lambda x: torch.sum(x, dim=-2)
-            return FunctionalModule(pooling_fn)
-        elif self._pooling_mode == "attention-token":
-            raise NotImplementedError
-        elif self._pooling_mode == "attention-seed":
-            raise NotImplementedError
-        else:
-            msg = f'Pooling mode {self._pooling_mode} is not supported, possible options are `["mean", "sum", "attention-token", "attention-seed"]`'
-            raise ValueError(msg)
+        if not self.covariates_pooled:
+            return torch.nn.Identity()
+        if isinstance(self._pooling, BasePooling):
+            return self._pooling
+        return build_pooling(self._pooling, input_dim=self._pooling_proj_dim)
 
     def _make_output_layer(
         self,
@@ -176,6 +196,7 @@ class SetEncoder(BaseModule):
     def forward(
         self,
         condition_dict: MappedTensor,
+        condition_mask: Mapping[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor, torch.Tensor | None]:
         """Forward computation pass on the set encoder.
 
@@ -185,7 +206,15 @@ class SetEncoder(BaseModule):
         :param condition_dict: The input dictionary containing the data for
             each perturbation covariate.
         :type condition_dict: class: `MappedTensor`
+
+        :param condition_mask: Optional boolean valid-element mask per pooled covariate, each with shape
+            ``(batch, set)``. ``None`` declares a dense, unpadded input and takes a mask-free fast path.
+            When supplied, every pooled covariate must have a mask; partial mappings and masks for bypassed
+            covariates are rejected.
         """
+        if not condition_dict:
+            raise ValueError("No condition covariate found.")
+
         # check that the right keys are present
         check_sequence_query_against_reference(
             condition_dict.keys(),
@@ -193,10 +222,21 @@ class SetEncoder(BaseModule):
             allow_missing_from_reference=False,
             allow_missing_from_query=False,
         )
+        if condition_mask is not None:
+            expected_masks = set(self.covariates_pooled)
+            supplied_masks = set(condition_mask)
+            if supplied_masks != expected_masks:
+                missing = sorted(expected_masks - supplied_masks)
+                unexpected = sorted(supplied_masks - expected_masks)
+                raise ValueError(
+                    "An explicit condition_mask must contain every pooled covariate and no others; "
+                    f"missing={missing}, unexpected={unexpected}."
+                )
 
         # prepare dictionary to store encoded covariates
         encoded_covariates_to_pool = {}
         encoded_covariates_not_pooled = {}
+        pooled_masks = None if condition_mask is None else []
 
         # iterating over perturbation covariates
         for covariate_id, covariate_data in condition_dict.items():
@@ -211,6 +251,11 @@ class SetEncoder(BaseModule):
 
             # update dictionaries
             if covariate_id in self._covariates_not_pooled:
+                if z_cov.ndim != 2:
+                    raise ValueError(
+                        f"Bypassed covariate {covariate_id!r} must encode to (batch, features), "
+                        f"found {tuple(z_cov.shape)}."
+                    )
                 encoded_covariates_not_pooled[covariate_id] = z_cov
 
             else:
@@ -219,12 +264,26 @@ class SetEncoder(BaseModule):
 
                 # apply projection and update dict
                 z_cov = cov_proj(z_cov)
+                if z_cov.ndim != 3:
+                    raise ValueError(
+                        f"Pooled covariate {covariate_id!r} must encode to (batch, set, features), "
+                        f"found {tuple(z_cov.shape)}."
+                    )
                 encoded_covariates_to_pool[covariate_id] = z_cov
+                if pooled_masks is not None:
+                    mask = condition_mask[covariate_id]
+                    if mask.shape != z_cov.shape[:2]:
+                        raise ValueError(
+                            f"Mask for {covariate_id!r} must have shape {tuple(z_cov.shape[:2])}, "
+                            f"found {tuple(mask.shape)}."
+                        )
+                    pooled_masks.append(mask)
 
         # pooled covariates
         if len(encoded_covariates_to_pool) > 0:
             pooled_covariates = torch.concatenate(tuple(encoded_covariates_to_pool.values()), dim=-2)
-            pooled_covariates = self._condition_encoder["pooling_layer"](pooled_covariates)
+            combined_mask = None if pooled_masks is None else torch.concatenate(pooled_masks, dim=-1)
+            pooled_covariates = self._condition_encoder["pooling_layer"](pooled_covariates, combined_mask)
         else:
             pooled_covariates = None
 
@@ -240,9 +299,6 @@ class SetEncoder(BaseModule):
             to_concat.append(pooled_covariates)
         if covariates_not_pooled is not None:
             to_concat.append(covariates_not_pooled)
-        if len(to_concat) == 0:
-            msg = "No condition covariate found."
-            raise ValueError(msg)
         latent_cond = torch.concatenate(to_concat, dim=-1)
 
         mean = self._condition_encoder["output_layer"](latent_cond)
@@ -264,17 +320,39 @@ class SetEncoder(BaseModule):
                 output_dim = cov_dict["output_dim"]
                 not_pooled_input_dims.append(output_dim)
 
-        # get pooling projection dim if pooled covariates are present
+        # get the pooling output dim if pooled covariates are present (seed attention can change it)
         if len(self.covariates_pooled) > 0:
-            pooling_proj_dim = self._pooling_proj_dim
+            pooling_output_dim = self.pooling_output_dim
         else:
-            pooling_proj_dim = 0
+            pooling_output_dim = 0
 
         # construct decoder input dim
-        decoder_input_dim = pooling_proj_dim + sum(not_pooled_input_dims)
+        decoder_input_dim = pooling_output_dim + sum(not_pooled_input_dims)
         return decoder_input_dim
 
     @property
     def covariates_pooled(self) -> list[str]:
         """Returns the list of covariates that need to be pooled together."""
         return [cov for cov in self._input_layers.keys() if cov not in self._covariates_not_pooled]
+
+    @property
+    def pooling_spec(self) -> PoolingSpec | None:
+        """Canonical portable pooling spec, or ``None`` for a runtime-only custom instance."""
+        if isinstance(self._pooling, BasePooling):
+            return None
+        return PoolingSpec(
+            type=self._pooling["type"],
+            version=self._pooling["version"],
+            config=dict(self._pooling["config"]),
+        )
+
+    @property
+    def pooling_output_dim(self) -> int:
+        """Dimensionality produced by the configured pooling component."""
+        if not self.covariates_pooled:
+            return 0
+        if isinstance(self._pooling, BasePooling):
+            return self._pooling.output_dim
+        if self._pooling["type"] == "sc_flow.attention_seed":
+            return self._pooling["config"]["v_dim"]
+        return self._pooling_proj_dim

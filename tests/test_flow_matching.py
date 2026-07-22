@@ -9,6 +9,8 @@ from sc_flow.core.data import FlowSpec
 from sc_flow.core.data._encoders import lookup
 from sc_flow.core.data.schemas import ConditionDataSchema, CouplingDataSchema, StateDataSchema
 
+MEAN_POOLING = {"type": "sc_flow.mean", "version": 1, "config": {}}
+
 
 def _toy_adata(n=64, d=5, cond_dim=4, pca=None, seed=0):
     """Toy adata: X + a categorical drug (with an uns embedding table) + control flag."""
@@ -67,6 +69,7 @@ def test_flow_matching_fit_and_predict():
         condition_embedding_dim=8,
         hidden_dims=(16, 16),
         condition_mode="deterministic",
+        pooling=MEAN_POOLING,
     )
 
     # Fit model for 5 steps
@@ -114,7 +117,13 @@ def test_flow_matching_coupling_rep_and_baselines(match_method):
     assert dims.condition == {"drug": 3}
     assert dims.coupling == {"src_lin": pca, "tgt_lin": pca}
 
-    model = FlowMatching(spec=spec, condition_embedding_dim=8, hidden_dims=(16, 16), match_method=match_method)
+    model = FlowMatching(
+        spec=spec,
+        condition_embedding_dim=8,
+        hidden_dims=(16, 16),
+        pooling=MEAN_POOLING,
+        match_method=match_method,
+    )
     model.fit(adata, rep_tables=adata.uns, batch_size=8, n_train_steps=4, device="cpu")
 
     x_pred = model.predict(rng.random((7, d)).astype(np.float32), ("cl_a", "drug_a"), device="cpu", num_steps=5)
@@ -139,7 +148,9 @@ def test_flow_matching_bit_reproducible():
     x_probe = np.arange(6 * d, dtype=np.float32).reshape(6, d)  # fixed probe input
 
     def run(seed):
-        model = FlowMatching(spec=spec, condition_embedding_dim=8, hidden_dims=(16, 16), seed=seed)
+        model = FlowMatching(
+            spec=spec, condition_embedding_dim=8, hidden_dims=(16, 16), pooling=MEAN_POOLING, seed=seed
+        )
         model.fit(adata, rep_tables=adata.uns, batch_size=8, n_train_steps=6, device="cpu")
         return model.vf.state_dict(), model.predict(x_probe, ("cl_a", "drug_a"), device="cpu", num_steps=5)
 
@@ -191,9 +202,15 @@ def test_genot_fit_and_predict(with_coupling):
         match_context=["cell_type"],
         coupling=coupling,
     )
-    model = FlowMatching(spec=spec, objective="genot", condition_embedding_dim=8, hidden_dims=(16, 16))
+    model = FlowMatching(
+        spec=spec,
+        objective="genot",
+        condition_embedding_dim=8,
+        hidden_dims=(16, 16),
+        pooling=MEAN_POOLING,
+    )
     model.fit(adata, rep_tables=adata.uns, batch_size=8, n_train_steps=4, device="cpu")
-    assert model.vf.use_source_encoder  # GENOT built the source-conditioning encoder
+    assert model.vf.use_source_embedder  # GENOT built the source-conditioning embedder
 
     x = rng.random((7, d)).astype(np.float32)
     p0 = model.predict(x, ("cl_a", "drug_a"), device="cpu", num_steps=5, seed=0)
@@ -253,7 +270,13 @@ def test_model_learns_conditional_translation(objective):
         control_key="control",
         match_context=["cell_type"],
     )
-    model = FlowMatching(spec=spec, objective=objective, condition_embedding_dim=16, hidden_dims=(64, 64))
+    model = FlowMatching(
+        spec=spec,
+        objective=objective,
+        condition_embedding_dim=16,
+        hidden_dims=(64, 64),
+        pooling=MEAN_POOLING,
+    )
     model.fit(adata, rep_tables=adata.uns, batch_size=64, n_train_steps=200, lr=1e-2, device="cpu")
 
     x_ctrl = controls["cl_a"]
@@ -282,10 +305,16 @@ def test_genot_quadratic_coupling_fit_predict():
     assert compiled.dims.coupling == {"src_quad": pca, "tgt_quad": pca}
     assert spec.coupling.is_quadratic
 
-    model = FlowMatching(spec=spec, objective="genot", condition_embedding_dim=8, hidden_dims=(16, 16))
+    model = FlowMatching(
+        spec=spec,
+        objective="genot",
+        condition_embedding_dim=8,
+        hidden_dims=(16, 16),
+        pooling=MEAN_POOLING,
+    )
     model.fit(adata, rep_tables=adata.uns, batch_size=8, n_train_steps=4, device="cpu")
     assert model.objective._quad  # took the quadratic/GW coupling branch
-    assert model.vf.use_source_encoder
+    assert model.vf.use_source_embedder
 
     x = rng.random((7, d)).astype(np.float32)
     p0 = model.predict(x, ("cl_a", "drug_a"), device="cpu", num_steps=5, seed=0)
@@ -313,7 +342,12 @@ def test_stochastic_condition_encoder_learns():
     d, delta = 6, 5.0
     adata, controls, _ = _conditional_shift_adata(n_per=128, d=d, delta=delta, seed=3)
     model = FlowMatching(
-        spec=_shift_spec(), objective="otfm", condition_mode="stochastic", condition_embedding_dim=16, hidden_dims=(64, 64)
+        spec=_shift_spec(),
+        objective="otfm",
+        condition_mode="stochastic",
+        condition_embedding_dim=16,
+        hidden_dims=(64, 64),
+        pooling=MEAN_POOLING,
     )
     model.fit(adata, rep_tables=adata.uns, batch_size=64, n_train_steps=200, lr=1e-2, device="cpu")
     assert model.vf.is_stochastic  # the encoder is variational (has the logvar head)
@@ -331,7 +365,13 @@ def test_stochastic_condition_encoder_reproducible():
     adata, _, _ = _conditional_shift_adata(n_per=32, d=5, seed=4)
 
     def run():
-        m = FlowMatching(spec=_shift_spec(), condition_mode="stochastic", condition_embedding_dim=8, hidden_dims=(16, 16))
+        m = FlowMatching(
+            spec=_shift_spec(),
+            condition_mode="stochastic",
+            condition_embedding_dim=8,
+            hidden_dims=(16, 16),
+            pooling=MEAN_POOLING,
+        )
         m.fit(adata, rep_tables=adata.uns, batch_size=16, n_train_steps=8, device="cpu")
         return m.vf.state_dict()
 
@@ -351,7 +391,13 @@ def test_save_load_roundtrip(tmp_path, objective):
         control_key="control",
         match_context=["cell_type"],
     )
-    model = FlowMatching(spec=spec, objective=objective, condition_embedding_dim=8, hidden_dims=(16, 16))
+    model = FlowMatching(
+        spec=spec,
+        objective=objective,
+        condition_embedding_dim=8,
+        hidden_dims=(16, 16),
+        pooling=MEAN_POOLING,
+    )
     model.fit(adata, rep_tables=adata.uns, batch_size=8, n_train_steps=5, device="cpu")
 
     x = rng.random((6, d)).astype(np.float32)
@@ -386,7 +432,7 @@ def test_save_before_fit_raises(tmp_path):
         control_key="control",
         match_context=["cell_type"],
     )
-    model = FlowMatching(spec=spec)
+    model = FlowMatching(spec=spec, pooling=MEAN_POOLING)
     with pytest.raises(RuntimeError, match="fitted"):
         model.save(tmp_path / "model")
 
@@ -458,7 +504,14 @@ def test_fit_validation_loop(objective):
     }
 
     def run():
-        m = FlowMatching(spec=spec, objective=objective, condition_embedding_dim=8, hidden_dims=(32, 32), seed=0)
+        m = FlowMatching(
+            spec=spec,
+            objective=objective,
+            condition_embedding_dim=8,
+            hidden_dims=(32, 32),
+            pooling=MEAN_POOLING,
+            seed=0,
+        )
         m.fit(adata, **kw)
         return m
 
@@ -511,7 +564,9 @@ def test_fit_chunked_reads_train_and_predict(chunk_size):
     order, so weights differ from the scattered path).
     """
     adata = _multi_drug_adata(n_per=96, d=6)
-    model = FlowMatching(spec=_shift_spec(), condition_embedding_dim=8, hidden_dims=(16, 16))
+    model = FlowMatching(
+        spec=_shift_spec(), condition_embedding_dim=8, hidden_dims=(16, 16), pooling=MEAN_POOLING
+    )
     model.fit(
         adata, rep_tables=adata.uns, batch_size=32, chunk_size=chunk_size, n_train_steps=6, device="cpu"
     )
@@ -538,7 +593,9 @@ def test_fit_resolve_preload_to_gpu():
 def test_fit_unknown_metric_raises():
     """A validation metric name not in METRICS_REGISTRY fails fast (before training)."""
     adata = _multi_drug_adata()
-    model = FlowMatching(spec=_shift_spec(), condition_embedding_dim=8, hidden_dims=(16, 16))
+    model = FlowMatching(
+        spec=_shift_spec(), condition_embedding_dim=8, hidden_dims=(16, 16), pooling=MEAN_POOLING
+    )
     with pytest.raises(KeyError, match="not-a-metric"):
         model.fit(
             adata, rep_tables=adata.uns, batch_size=16, n_train_steps=2,

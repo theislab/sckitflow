@@ -94,6 +94,7 @@ def main() -> int:
         condition_mode=args.condition_mode,
         condition_embedding_dim=16,
         hidden_dims=(64, 64),
+        pooling={"type": "sc_flow.mean", "version": 1, "config": {}},
         seed=args.seed,
     )
 

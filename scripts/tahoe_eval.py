@@ -91,7 +91,8 @@ def main() -> int:
         control_key="is_control", match_context=args.match_context.split(","),
     )
     model = FlowMatching(spec=spec, objective=args.objective, condition_embedding_dim=args.condition_embedding_dim,
-                         hidden_dims=hidden, regularization=args.regularization, seed=args.seed)
+                         hidden_dims=hidden, pooling={"type": "sc_flow.mean", "version": 1, "config": {}},
+                         regularization=args.regularization, seed=args.seed)
     t0 = time.perf_counter()
     model.fit(plates, rep_tables=None, batch_size=args.batch_size, chunk_size=chunk, min_runs_per_leaf=min_runs,
               control_in_memory=args.control_in_memory, n_train_steps=args.n_train_steps, device=args.device, lr=args.lr)

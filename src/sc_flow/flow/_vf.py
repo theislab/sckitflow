@@ -156,9 +156,10 @@ class MLPVelocity(BaseVelocityField):
 
         :param condition_encoder: (Optional) The perturbation-covariate condition encoder — a
             :class: `SetEncoder` instance (built directly, since its dims come from the data, not from this
-            velocity field). ``None`` makes the field unconditional. As an injected module it is not stored
-            in ``config.json`` and must be re-supplied at ``from_pretrained`` (or re-instantiated from the
-            experiment config).
+            velocity field). ``None`` makes the field unconditional. This runtime object is not yet a nested
+            component spec, so portable ``save_pretrained`` export is disabled for a conditional velocity
+            field until the enclosing architecture config can reconstruct it. Trusted training checkpoints
+            remain available.
         :type condition_encoder: class: `SetEncoder | None`
         """
         super().__init__()
@@ -247,6 +248,7 @@ class MLPVelocity(BaseVelocityField):
     def condition_stats(
         self,
         condition_dict: MappedTensor | None = None,
+        condition_mask: MappedTensor | None = None,
     ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
         """The condition encoder outputs ``(mean, logvar)`` (``logvar`` is ``None`` when deterministic).
 
@@ -260,7 +262,7 @@ class MLPVelocity(BaseVelocityField):
         if condition_dict is None:
             msg = "Conditional VFs should take a condition as input, found `None`."
             raise TypeError(msg)
-        return self._vf["condition_encoder"](condition_dict)
+        return self._vf["condition_encoder"](condition_dict, condition_mask=condition_mask)
 
     def _get_encoded_source(
         self,
@@ -314,12 +316,6 @@ class MLPVelocity(BaseVelocityField):
             return torch.nn.Identity()
         output_dim = default_output_dim if config.output_dim is None else config.output_dim
         return init_module_from_dict(dict(config.mlp_kwargs), input_dim=input_dim, output_dim=output_dim)
-
-    def _injected_submodule_slots(self) -> dict[str, str]:
-        """Reports the ``combiner`` slot when it holds a custom instance (see :meth:`BaseModule.save_pretrained`)."""
-        if isinstance(self._combiner, BaseCombiner):
-            return {"combiner": type(self._combiner).__name__}
-        return {}
 
     @property
     def _combiner_dims(self) -> tuple[int, int, int | None]:
@@ -405,6 +401,7 @@ class MLPVelocity(BaseVelocityField):
         x: torch.Tensor,
         condition_dict: MappedTensor | None = None,
         source: torch.Tensor | None = None,
+        condition_mask: MappedTensor | None = None,
     ) -> torch.Tensor:
         """Performs a forward computation pass on the neural velocity field.
 
@@ -417,11 +414,13 @@ class MLPVelocity(BaseVelocityField):
         :param condition_dict: The input dictionary containing the data for
             each perturbation covariate.
         :type condition_dict: class: `MappedTensor`
+
+        :param condition_mask: Optional boolean valid-token mask per condition realm.
         """
         # Inference/solver path: use the condition **mean** embedding (a stochastic encoder's inference
         # is its mean, i.e. encoder_noise = 0). Training reparameterizes upstream and calls
         # :meth:`velocity_from_embedding` directly.
-        mean, _ = self.condition_stats(condition_dict)
+        mean, _ = self.condition_stats(condition_dict, condition_mask=condition_mask)
         return self.velocity_from_embedding(t, x, mean, source=source)
 
     def velocity_from_embedding(
@@ -450,11 +449,18 @@ class MLPVelocity(BaseVelocityField):
         self,
         condition_dict: MappedTensor | None = None,
         source: torch.Tensor | None = None,
+        condition_mask: MappedTensor | None = None,
     ) -> VelocityFieldFn:
         """Compiles the velocity field function to be fed to external solvers."""
 
         def _vf_fn(t: torch.Tensor, x: torch.Tensor):
-            return self.forward(t, x, condition_dict=condition_dict, source=source)
+            return self.forward(
+                t,
+                x,
+                condition_dict=condition_dict,
+                source=source,
+                condition_mask=condition_mask,
+            )
 
         return _vf_fn
 

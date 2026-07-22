@@ -16,7 +16,7 @@ import torch
 
 from sc_flow.core.training._predictor import Predictor, register_predictor
 
-__all__ = ["integrate_translation", "condition_to_device", "ODEPredictor"]
+__all__ = ["integrate_translation", "condition_mask_to_device", "condition_to_device", "ODEPredictor"]
 
 
 def _as_f32(v: Any, device: Any) -> torch.Tensor:
@@ -35,11 +35,17 @@ def condition_to_device(condition: dict[str, Any], device: Any) -> dict[str, tor
     return {k: _as_f32(v, device) for k, v in condition.items()}
 
 
+def condition_mask_to_device(condition_mask: dict[str, Any], device: Any) -> dict[str, torch.Tensor]:
+    """Coerce explicit per-realm valid-element masks to boolean tensors on ``device``."""
+    return {k: torch.as_tensor(v, dtype=torch.bool, device=device) for k, v in condition_mask.items()}
+
+
 def integrate_translation(
     vf: torch.nn.Module,
     source: Any,
     cond_t: dict[str, torch.Tensor] | None,
     *,
+    condition_mask: dict[str, torch.Tensor] | None = None,
     is_genot: bool,
     state_dim: int,
     num_steps: int = 50,
@@ -74,7 +80,7 @@ def integrate_translation(
 
     def f(t: torch.Tensor, y: torch.Tensor) -> torch.Tensor:
         t_exp = t.reshape(1, 1).expand(y.shape[0], 1)
-        return vf(t_exp, y, cond_t, source_cells)
+        return vf(t_exp, y, cond_t, source_cells, condition_mask=condition_mask)
 
     with torch.no_grad():
         trajectory = odeint(f, y0, t_grid, method="euler")
@@ -102,10 +108,13 @@ class ODEPredictor(Predictor):
         device = next(model.parameters()).device
         cond = batch.get("condition")
         cond_t = condition_to_device(cond, device) if cond is not None else None
+        mask = batch.get("condition_mask")
+        condition_mask = condition_mask_to_device(mask, device) if mask is not None else None
         return integrate_translation(
             model,
             batch["source"],
             cond_t,
+            condition_mask=condition_mask,
             is_genot=self._is_genot,
             state_dim=self._state_dim,
             num_steps=self._num_steps,

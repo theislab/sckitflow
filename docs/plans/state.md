@@ -1,4 +1,4 @@
-# ML Toolbox & Flow-Matching Toolbox — Handoff
+# sc-flow-tools — State
 
 > **Audience.** Contributors joining the shared single-cell ML training stack (flow-matching, pan-cellflow,
 > inverse-problem, foundation-model fine-tuning, and the HPC pipeline). Read this before touching
@@ -122,7 +122,7 @@ Layout:
 sc_flow/
   core/   {data, nn, metrics, training}      ML toolbox (torch only, no jax)
   flow/   _vf, probability_paths/, _objectives, _predict, _set_encoder,
-          _conditioning_layers, _time_features, coupling/ (jax-OT bridge)
+          _combiner, _time_features, coupling/ (jax-OT bridge)
   legacy/ config, dataset, external, methods, preprocessing, trainer,
           jax_*/ torch_*/                    quarantined; not on the train path
   _model.py   FlowMatching (facade wiring core + flow)
@@ -212,20 +212,42 @@ live sources:
 Exception that *did* earn its place: `huggingface-hub` + `safetensors` (real capability = sharing; light;
 stable public API).
 
-## 10. The Component contract (injectable, serializable, swappable sub-modules)
+## 10. Swappable slots — `id (registry) | instance (in-memory)` (Component contract dropped)
 
-We want swappable sub-pieces (time featurizer, pooling, conditioning) injected as **serializable objects**,
-not string-ids and not raw callables. Verified constraint: the HF `PyTorchModelHubMixin` serializes a
-dataclass arg **by its annotation with no type tag**, so injecting a *subclass* under a base annotation
-**loses the subclass and drops its fields** — i.e. it can't do polymorphism.
+**Decision (locked, 2026-07-22):** we did **not** build the registry/discriminator "Component contract"
+(base + on-disk `{type, config}` discriminator + HF `coders`) originally sketched here — its only unique
+win, a *generic* loader rebuilding a third-party class from a bare checkpoint, still needs that class
+installed and isn't worth the "components can't be dataclasses" + on-disk-format tax. Instead a swappable
+slot is typed `CombinerId | <BaseFamily instance> | None`, with **two** paths:
 
-How mature libs solve it (tagged union): store a **discriminator + config** and resolve on load —
-diffusers `_class_name` (+ version), transformers `model_type` (registry) / `auto_map` (class path). So the
-plan is a small **Component contract**: a base per family + a **registry** (the key is the on-disk
-discriminator, **not** a user-facing string-id) + `{type, config}` (de)serialization wired through the
-mixin's encode/decode hooks. Injected as instances (`time_features=Sinusoidal(num=128)`), swappable, and
-Hub-round-trippable with the true class. **Use registry-key discriminators, not class paths** — we move
-modules often, and class paths would break exactly the way we're trying to escape.
+- **string id → per-family registry** (`combiner="concat"` / `"resnet1d"` / an extension's id). A small
+  `{id → class}` registry per family (`COMBINER_REGISTRY` + `@register_combiner("id")`) replaces the old
+  `if/elif` and is the **extension point**: an extension registers its own id from its own package (no PR
+  to sc-flow). Serialization is **free** — the id string (+ a JSON `combiner_kwargs`) round-trips through
+  `config.json`; on load the id is looked up and the class rebuilt. The **VF supplies the dims** (registered
+  combiners take `(latent_state_dim, latent_time_dim, latent_condition_dim=None, **combiner_kwargs)`), so
+  the user never sizes anything. An unregistered id raises a clear *"not registered — import the extension"*
+  error (fine, and better than a silent default).
+- **custom instance** (`combiner=MyCombiner(...)`) — the escape hatch for a throwaway class or one whose
+  init needs **non-JSON** args. Usable in-memory (train/predict this session), but **`save_pretrained` is
+  disabled** for it: `BaseModule.save_pretrained` raises if any slot holds a custom instance (detected via
+  `_injected_submodule_slots()`), telling you to register it under an id to make it saveable. So instances
+  never reach a checkpoint — no silent-drop, no re-supply dance.
+
+The decision rule for an author: **JSON-serializable config → register it (round-trips, shareable); non-JSON
+or throwaway → inject the instance (in-memory only, can't save).**
+
+Belt-and-braces: `BaseModule._load_as_safetensor` still forces **`strict=True`** (the mixin default is
+`False`, which would silently load a mismatched checkpoint) as a general safety net for any weight/arch
+mismatch.
+
+**Built and removed** (do not re-add without cause): the `Injectable` marker base, the
+`{"__injected__": ...}` coder/marker + `save_pretrained` warning + `resolve_injected` ctor guard (the
+"mark/warn/raise on load" variant), and the object-discriminator Component contract. **No discriminator, no
+`{type, config}`, no class-path, no marker.** Reference impl: the `combiner` slot on `MLPVelocity`
+(`CombinerId | BaseCombiner | None`) — verified: built-in id saves+loads; extension id round-trips via the
+registry (id + kwargs in config, class rebuilt); custom instance works in-memory and `save_pretrained`
+raises. Pooling and time-features stay on plain string-ids until given the same registry treatment.
 
 ## 11. cf-train migration (drop cellflow)
 
@@ -256,9 +278,14 @@ Target: `cf-train → sc-flow-tools → binded → annbatch(fork)`; **remove `ce
 ## 13. Open decisions & roadmap
 
 **In progress / next (Stage 3):**
-- **`MLPVelocity` ctor refactor** — replace the ~25 flat kwargs with composable sub-configs, and move the
-  polymorphic slots (time features / pooling / conditioning) to the **Component contract** (§10). *Paused
-  pending sign-off on the Component approach.*
+- **Swappable slots — DONE (reference) / rolling out.** The Component contract was dropped in favour of
+  `id (per-family registry) | instance (in-memory, save disabled) | None` (§10). Landed on the `combiner`
+  slot of `MLPVelocity` (`COMBINER_REGISTRY` + `@register_combiner`; `save_pretrained` raises on a custom
+  instance; strict-load net). Round-trips verified. *Next:* give
+  **pooling** and **time-features** the same treatment when wanted. (Time-features rename to
+  `sinusoidal`/`log-sinusoidal` — crediting ott-jax/torchcfm in comments only — is already done.)
+- **`MLPVelocity` ctor** — still ~25 flat kwargs; the composable-sub-config cleanup is deferred (the slot
+  polymorphism, which drove it, is now handled by injection, so this is lower priority).
 - **Gaps to close:** attention pooling in `SetEncoder` (currently `NotImplementedError`); variable-length
   covariate-set masking; **CFG** (see §12).
 - Wire `OptimConfig` into `configure_optimizers` + `fit` (optimizer is currently inline).
@@ -277,10 +304,13 @@ Target: `cf-train → sc-flow-tools → binded → annbatch(fork)`; **remove `ce
 
 ## 14. Gotchas / footguns
 
-- **HF mixin drops non-JSON `__init__` args silently** (e.g. a raw callable) → `from_pretrained` rebuilds
-  with the default, a silent behavior change. Keep model `__init__` args JSON-serializable (or use the
-  Component contract). Tuples come back as **lists** on round-trip — normalize if you rely on tuple-ness.
-- **Polymorphism is not preserved** by the bare mixin (§10) — needs the registry/discriminator.
+- **HF mixin drops non-JSON `__init__` args silently** and loads weights **`strict=False`** by default, so
+  a mismatch would load *silently* — a wrong model, no error. `BaseModule._load_as_safetensor` forces
+  `strict=True` so this raises instead (§10). Tuples come back as **lists** on round-trip — normalize if you
+  rely on tuple-ness.
+- **Custom sub-module instances can't be saved** (§10). Slots take a registered string id *or* a custom
+  instance; an instance isn't serializable, so `save_pretrained` **raises** (register it under an id to make
+  it saveable). To carry hyperparameters through a registered id, they must be JSON (in `combiner_kwargs`).
 - **Stringly-typed jax import**: `flow/_objectives.py` reaches the coupler via
   `require("sc_flow.flow.coupling._device")` — a string literal that refactors won't catch. Update it by
   hand on any move, and smoke-test (it only fires on the first OT step, deep into a run).

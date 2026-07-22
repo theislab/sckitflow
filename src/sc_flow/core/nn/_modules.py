@@ -22,9 +22,62 @@ class BaseModule(abc.ABC, torch.nn.Module, PyTorchModelHubMixin):
     Mixes in :class:`~huggingface_hub.PyTorchModelHubMixin` so every toolbox model is Hub-shareable —
     ``save_pretrained`` / ``from_pretrained`` / ``push_to_hub`` (weights as **safetensors**, ``__init__``
     kwargs auto-captured to ``config.json``). Config auto-capture needs JSON-serializable ``__init__``
-    args; a model with a non-serializable arg (e.g. a passed-in callable) simply can't round-trip its
-    config, but never errors at construction.
+    args.
+
+    **Custom sub-modules.** A configurable slot (for example a velocity field's ``combiner``) takes
+    either one of the built-in choices by name — a string id, which is saved to and restored from
+    ``config.json`` — or your own subclass instance for that slot. A custom instance is not
+    JSON-serializable, so it is not saved to ``config.json`` and is therefore not rebuilt on load: pass it
+    again when loading, e.g. ``Model.from_pretrained(path, combiner=MyLayer(...))``. If you forget, the
+    rebuilt model will not match the saved weights; weights are loaded strictly, so that mismatch raises a
+    clear error rather than silently loading a wrong model.
     """
+
+    @classmethod
+    def _load_as_safetensor(cls, model, model_file: str, map_location: str, strict: bool):
+        """Load safetensors weights strictly, turning a mismatch into an actionable error.
+
+        Forces ``strict=True`` (the mixin default is ``False``) so a checkpoint whose weights don't match
+        the built model fails loudly rather than silently loading a partial/wrong model — e.g. when the
+        loading config differs from the one the checkpoint was trained with.
+        """
+        try:
+            return super()._load_as_safetensor(model, model_file, map_location, strict=True)
+        except Exception as e:
+            msg = (
+                f"{cls.__name__}: checkpoint weights do not match the built model — the loading "
+                f"configuration likely differs from the one used to train it.\n"
+                f"(underlying load error: {e})"
+            )
+            raise ValueError(msg) from e
+
+    def _injected_submodule_slots(self) -> dict[str, str]:
+        """``{slot name -> class name}`` for slots built from a passed-in module **instance**.
+
+        Empty by default; overridden by models with injectable slots (e.g. a velocity field's ``combiner``)
+        to report which slots currently hold a custom instance rather than a registered string id. Such
+        instances can't be serialized, so :meth:`save_pretrained` refuses to save them.
+        """
+        return {}
+
+    def save_pretrained(self, *args, **kwargs):
+        """As the mixin's, but **refuses to save** a model built with a custom sub-module instance.
+
+        A custom instance in an injectable slot isn't serializable to ``config.json``; saving would produce
+        a checkpoint that silently rebuilds the default on load. Register the sub-module under a string id
+        to make it saveable, or keep the model in-memory only.
+        """
+        injected = self._injected_submodule_slots()
+        if injected:
+            pairs = ", ".join(f"{slot}={cls}(...)" for slot, cls in injected.items())
+            msg = (
+                f"{type(self).__name__} was built with a custom module instance in slot(s) "
+                f"{list(injected)} ({pairs}) — this cannot be serialized, so saving is disabled. Use a "
+                f"registered string id (e.g. combiner='resnet1d') so the choice is saved to config.json, "
+                f"or keep this model in-memory only."
+            )
+            raise ValueError(msg)
+        return super().save_pretrained(*args, **kwargs)
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__()

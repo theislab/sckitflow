@@ -22,25 +22,25 @@ ArrayLike = NumpyArray | JaxArray
 
 MappedArray = dict[str, ArrayLike]
 
-TTimeFeaturesFn = Callable[[ArrayLike, int], ArrayLike]
+TimeFeaturesFn = Callable[[ArrayLike, int], ArrayLike]
 
-TMeanFn = Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]
-TDriftFn = Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], ArrayLike]
-TSigmaFn = Callable[[ArrayLike], ArrayLike]
+MeanFn = Callable[[ArrayLike, ArrayLike, ArrayLike], ArrayLike]
+DriftFn = Callable[[ArrayLike, ArrayLike, ArrayLike, ArrayLike], ArrayLike]
+SigmaFn = Callable[[ArrayLike], ArrayLike]
 ScaleMethod = Literal["mean", "max", "median"] | float
 LinCouplingMethod = Literal["exact", "sinkhorn", "partial", "unbalanced"]
 QuadCouplingMethod = Literal["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"]
 
-TVfFn = Callable[[ArrayLike, ArrayLike], ArrayLike]
+VelocityFieldFn = Callable[[ArrayLike, ArrayLike], ArrayLike]
 
 MatchFnOut = tuple[ArrayLike, ArrayLike] | tuple[ArrayLike, ArrayLike, ArrayLike]
-TMatchFn = Callable[[ArrayLike, ArrayLike], MatchFnOut]
+MatchFn = Callable[[ArrayLike, ArrayLike], MatchFnOut]
 
-TTimeSamplerFn = Callable[[tuple[int, ...]], ArrayLike] | Callable[[tuple[int, ...]], tuple[ArrayLike, ArrayLike]]
-TNoiseSamplerFn = Callable[[tuple[int, ...]], ArrayLike]
+TimeSamplerFn = Callable[[tuple[int, ...]], ArrayLike] | Callable[[tuple[int, ...]], tuple[ArrayLike, ArrayLike]]
+NoiseSamplerFn = Callable[[tuple[int, ...]], ArrayLike]
 
 
-class TConditioningFn(Protocol):
+class CombinerFn(Protocol):
     def __call__(
         self,
         encoded_t: ArrayLike,
@@ -50,16 +50,16 @@ class TConditioningFn(Protocol):
 
 
 JaxDevice = type[Device]
-TDevice = str | JaxDevice
+DeviceLike = str | JaxDevice
 
-TTimeStateDiffusion = Callable[[ArrayLike, ArrayLike, Any], ArrayLike]
-TTimeDiffusion = Callable[[ArrayLike, Any], ArrayLike]
-TDiffusion = TTimeDiffusion | TTimeStateDiffusion
+TimeStateDiffusion = Callable[[ArrayLike, ArrayLike, Any], ArrayLike]
+TimeDiffusion = Callable[[ArrayLike, Any], ArrayLike]
+Diffusion = TimeDiffusion | TimeStateDiffusion
 
 
-TODEDynamics = TypeVar("TODEDynamics", bound="BaseVelocityField")
-TSDEDynamics = tuple[TODEDynamics, TDiffusion]
-TSolverDynamics = TypeVar("TSolverDynamics", TODEDynamics, TSDEDynamics)
+ODEDynamics = TypeVar("ODEDynamics", bound="BaseVelocityField")
+SDEDynamics = tuple[ODEDynamics, Diffusion]
+SolverDynamics = TypeVar("SolverDynamics", ODEDynamics, SDEDynamics)
 
 
 class SolverConfig(NamedTuple):

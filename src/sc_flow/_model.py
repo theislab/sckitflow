@@ -21,6 +21,7 @@ from sc_flow.core.data import FlowSpec
 
 if TYPE_CHECKING:
     from sc_flow.core.data._compile_obs import CompiledDims, DataInput
+    from sc_flow.flow._pooling import PoolingSpec
 
 __all__ = ["FlowMatching"]
 
@@ -42,11 +43,13 @@ class FlowMatching:
         condition_mode: str = "deterministic",
         regularization: float = 1.0,
         sigma: float = 0.0,
-        pooling: str = "mean",
+        pooling: PoolingSpec,
         match_method: str = "sinkhorn",
         match_kwargs: Mapping[str, Any] | None = None,
         seed: int = 0,
     ):
+        from sc_flow.flow._pooling import validate_pooling_spec
+
         self.spec = spec
         self.objective_name = objective
         self.hidden_dims = tuple(hidden_dims)
@@ -56,7 +59,7 @@ class FlowMatching:
         self.condition_mode = condition_mode
         self.regularization = regularization
         self.sigma = sigma
-        self.pooling = pooling
+        self.pooling = validate_pooling_spec(pooling)
         self.match_method = match_method
         self.match_kwargs = dict(match_kwargs) if match_kwargs else {}
         self.seed = seed
@@ -94,7 +97,7 @@ class FlowMatching:
                     for realm, dim in dims.condition.items()
                 },
                 output_dim=int(self.condition_embedding_dim),
-                pooling_mode=self.pooling,
+                pooling=self.pooling,
                 condition_mode=self.condition_mode,
             )
         if self.objective_name == "genot":
@@ -404,6 +407,7 @@ class FlowMatching:
         x: np.ndarray,
         condition: dict[str, np.ndarray] | tuple[Any, ...],
         *,
+        condition_mask: Mapping[str, np.ndarray] | None = None,
         device: str = "cpu",
         num_steps: int = 50,
         return_trajectory: bool = False,
@@ -414,11 +418,12 @@ class FlowMatching:
         For ``objective="otfm"`` the ODE integrates the cells ``x`` themselves (source → target). For
         ``objective="genot"`` it integrates **from latent noise** (target space) with ``x`` held fixed as
         the source-conditioning input (noise → target | source) — a *generative* translation, so it is
-        stochastic; ``seed`` (default :attr:`self.seed`) makes the noise draw reproducible.
+        stochastic; ``seed`` (default :attr:`self.seed`) makes the noise draw reproducible. ``condition_mask``
+        is the optional explicit boolean ``(batch, set)`` valid-token mask for each condition realm.
         """
         if self.vf is None:
             raise RuntimeError("Model must be fitted before predict() can be called.")
-        from sc_flow.flow._predict import condition_to_device, integrate_translation
+        from sc_flow.flow._predict import condition_mask_to_device, condition_to_device, integrate_translation
 
         self.vf.to(device)
         self.vf.eval()
@@ -429,11 +434,13 @@ class FlowMatching:
                 raise RuntimeError("Model must be fitted to resolve leaf conditions.")
             condition = self._condition_fn(condition)
         cond_t = condition_to_device(condition, device)
+        cond_mask = condition_mask_to_device(dict(condition_mask), device) if condition_mask is not None else None
 
         trajectory = integrate_translation(
             self.vf,
             np.asarray(x, dtype=np.float32),
             cond_t,
+            condition_mask=cond_mask,
             is_genot=self.objective_name == "genot",
             state_dim=int(self._dims.state),
             num_steps=num_steps,

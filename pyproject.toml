@@ -181,6 +181,8 @@ lint.pydocstyle.convention = "numpy"
 
 [tool.pytest]
 ini_options.testpaths = [
+  "tests/backends/torch/nn/test_pooling.py",
+  "tests/backends/torch/nn/test_set_encoder.py",
   "tests/backends/torch/training/test_harness.py",
   "tests/data/test_compile_obs_binded.py",
   "tests/data/test_compile_obs_parity.py",

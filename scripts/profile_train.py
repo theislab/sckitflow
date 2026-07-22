@@ -76,6 +76,7 @@ def _build(args):
         data, rep_tables = adata, adata.uns
     model = FlowMatching(
         spec=spec, objective=args.objective, condition_embedding_dim=args.emb_dim, hidden_dims=tuple(args.hidden),
+        pooling={"type": "sc_flow.mean", "version": 1, "config": {}},
     )
     return model, data, rep_tables
 

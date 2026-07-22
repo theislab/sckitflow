@@ -78,6 +78,24 @@ def _condition_tensors(
     return out
 
 
+def _condition_masks(
+    masks: Mapping[str, Any] | None,
+    tgt_ixs: torch.Tensor,
+    n_target: int,
+    device: Any,
+) -> dict[str, torch.Tensor] | None:
+    """Boolean condition masks aligned with the same target reorder as condition tensors."""
+    if masks is None:
+        return None
+    out: dict[str, torch.Tensor] = {}
+    for realm, arr in masks.items():
+        mask = torch.as_tensor(arr, dtype=torch.bool, device=device)
+        if mask.shape[0] == n_target:
+            mask = mask[tgt_ixs]
+        out[realm] = mask
+    return out
+
+
 def _encoder_reg(mean: torch.Tensor | None, logvar: torch.Tensor | None, regularization: float) -> torch.Tensor | None:
     """Condition-encoder regularization (cellflow's) from the precomputed encoder stats.
 
@@ -173,7 +191,10 @@ class _OTObjective(Objective):
         self._coupling_key: Any = None
 
     def _encode(
-        self, model: torch.nn.Module, cond_t: dict[str, torch.Tensor] | None
+        self,
+        model: torch.nn.Module,
+        cond_t: dict[str, torch.Tensor] | None,
+        cond_mask: dict[str, torch.Tensor] | None = None,
     ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
         """Encode the condition **once** -> ``(embedding, mean, logvar)``.
 
@@ -184,7 +205,10 @@ class _OTObjective(Objective):
         """
         if cond_t is None or not getattr(model, "is_conditional", False):
             return None, None, None
-        mean, logvar = model.condition_stats(cond_t)
+        if cond_mask is None:
+            mean, logvar = model.condition_stats(cond_t)
+        else:
+            mean, logvar = model.condition_stats(cond_t, condition_mask=cond_mask)
         if logvar is None:
             return mean, mean, None
         eps = torch.randn(mean.shape, generator=self._enc_gen).to(device=mean.device, dtype=mean.dtype)
@@ -256,7 +280,8 @@ class OTFMObjective(_OTObjective):
         x0 = source[src_ixs].to(dtype)  # OTFM flows source -> target
         x1 = target[tgt_ixs].to(dtype)
         cond_t = _condition_tensors(batch.get("condition"), tgt_ixs, target.shape[0], device, dtype)
-        emb, mean, logvar = self._encode(model, cond_t)  # encode once (reparam if stochastic)
+        cond_mask = _condition_masks(batch.get("condition_mask"), tgt_ixs, target.shape[0], device)
+        emb, mean, logvar = self._encode(model, cond_t, cond_mask)  # encode once (reparam if stochastic)
 
         # t drawn on CPU with the seeded generator (device-agnostic), then moved to the model's device.
         t = torch.rand(x0.shape[0], 1, generator=self._t_gen).to(device=device, dtype=dtype)
@@ -295,7 +320,8 @@ class GENOTObjective(_OTObjective):
         x0_source = source[src_ixs].to(dtype)  # conditions the VF
         target_r = target[tgt_ixs].to(dtype)
         cond_t = _condition_tensors(batch.get("condition"), tgt_ixs, target.shape[0], device, dtype)
-        emb, mean, logvar = self._encode(model, cond_t)  # encode once (reparam if stochastic)
+        cond_mask = _condition_masks(batch.get("condition_mask"), tgt_ixs, target.shape[0], device)
+        emb, mean, logvar = self._encode(model, cond_t, cond_mask)  # encode once (reparam if stochastic)
 
         # latent ~ N(0, I) in target space, drawn on CPU (seeded), then moved to the model's device.
         latent = torch.randn(target_r.shape, generator=self._latent_gen).to(device=device, dtype=dtype)

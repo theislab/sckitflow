@@ -1,154 +1,266 @@
+import json
+import os
+import subprocess
+import sys
+
 import pytest
 import torch
 
-from sc_flow._types import LayersDict, NestedLayersDict
+from sc_flow.core.nn import BaseModule
+from sc_flow.flow._pooling import BasePooling, PoolingSpec
+from sc_flow.flow._set_encoder import SetEncoder
+from sc_flow.flow._vf import MLPVelocity
+
+INPUT_LAYERS = {
+    "drug": {"input_dim": 4, "output_dim": 6},
+    "dose": {"input_dim": 2, "output_dim": 3},
+}
+MEAN_POOLING = PoolingSpec(type="sc_flow.mean", version=1, config={})
+
+
+def token_pooling(**changes) -> PoolingSpec:
+    config = {
+        "num_heads": 2,
+        "qkv_dim": 8,
+        "dropout": 0.0,
+        "num_layers": 1,
+        "transformer_block": False,
+        "layer_norm": False,
+        "ff_dim": None,
+        **changes,
+    }
+    return PoolingSpec(type="sc_flow.attention_token", version=1, config=config)
+
+
+@pytest.mark.parametrize("pooling_type", ["sc_flow.mean", "sc_flow.sum"])
+def test_set_encoder_builtin_pooling(pooling_type: str) -> None:
+    encoder = SetEncoder(
+        input_layers=INPUT_LAYERS,
+        output_dim=7,
+        pooling=PoolingSpec(type=pooling_type, version=1, config={}),
+        pooling_proj_dim=5,
+    )
+    condition = {
+        "drug": torch.randn(4, 3, 4),
+        "dose": torch.randn(4, 2, 2),
+    }
+
+    mean, logvar = encoder(condition)
+
+    assert mean.shape == (4, 7)
+    assert logvar is None
+    assert encoder.decoder_input_dim == 5
+    assert set(encoder._condition_encoder["proj_layers"]) == set(INPUT_LAYERS)
+
+
+def test_set_encoder_mixed_pooled_and_bypassed_covariates() -> None:
+    encoder = SetEncoder(
+        input_layers=INPUT_LAYERS,
+        output_dim=7,
+        pooling=MEAN_POOLING,
+        pooling_proj_dim=5,
+        covariates_not_pooled=["dose"],
+    )
+
+    mean, _ = encoder({"drug": torch.randn(4, 3, 4), "dose": torch.randn(4, 2)})
+
+    assert mean.shape == (4, 7)
+    assert encoder.decoder_input_dim == 8
+    assert set(encoder._condition_encoder["proj_layers"]) == {"drug"}
+
+
+def test_attention_seed_controls_decoder_input_dim() -> None:
+    encoder = SetEncoder(
+        input_layers={"drug": INPUT_LAYERS["drug"]},
+        output_dim=7,
+        pooling=PoolingSpec(
+            type="sc_flow.attention_seed",
+            version=1,
+            config={
+                "num_heads": 4,
+                "v_dim": 12,
+                "seed_dim": 9,
+                "dropout": 0.0,
+                "transformer_block": False,
+                "layer_norm": False,
+                "ff_dim": None,
+            },
+        ),
+        pooling_proj_dim=5,
+    )
+
+    mean, _ = encoder({"drug": torch.randn(4, 3, 4)})
+
+    assert mean.shape == (4, 7)
+    assert encoder.pooling_output_dim == 12
+    assert encoder.decoder_input_dim == 12
+
+
+def test_set_encoder_combines_per_realm_masks() -> None:
+    encoder = SetEncoder(
+        input_layers=INPUT_LAYERS,
+        output_dim=7,
+        pooling=token_pooling(),
+        pooling_proj_dim=5,
+    ).eval()
+    condition = {
+        "drug": torch.randn(2, 3, 4),
+        "dose": torch.randn(2, 2, 2),
+    }
+    masks = {
+        "drug": torch.tensor([[True, True, False], [True, False, False]]),
+        "dose": torch.tensor([[True, False], [True, True]]),
+    }
+
+    expected, _ = encoder(condition, condition_mask=masks)
+    condition = {realm: values.masked_fill(~masks[realm].unsqueeze(-1), 100_000) for realm, values in condition.items()}
+    actual, _ = encoder(condition, condition_mask=masks)
+
+    torch.testing.assert_close(actual, expected)
+
+    with pytest.raises(ValueError, match=r"must contain every pooled covariate.*missing=\['dose'\]"):
+        encoder(condition, condition_mask={"drug": masks["drug"]})
+
+
+class MaxPooling(BasePooling):
+    def __init__(self, input_dim: int) -> None:
+        super().__init__(input_dim=input_dim, output_dim=input_dim)
+
+    def forward(self, x: torch.Tensor, mask: torch.Tensor | None = None) -> torch.Tensor:
+        mask = self._valid_mask(x, mask)
+        if mask is None:
+            return x.amax(dim=-2)
+        return x.masked_fill(~mask.unsqueeze(-1), -torch.inf).amax(dim=-2)
+
+
+def test_custom_pooling_runs_but_disables_portable_export(tmp_path) -> None:
+    encoder = SetEncoder(
+        input_layers={"drug": INPUT_LAYERS["drug"]},
+        output_dim=7,
+        pooling=MaxPooling(input_dim=5),
+        pooling_proj_dim=5,
+    )
+
+    mean, _ = encoder({"drug": torch.randn(2, 3, 4)})
+
+    assert mean.shape == (2, 7)
+    assert encoder.pooling_spec is None
+    assert encoder._runtime_module_constructor_args == {"pooling": "MaxPooling"}
+    assert not any(key.startswith("_pooling.") for key in encoder.state_dict())
+    with pytest.raises(ValueError, match=r"pooling=MaxPooling.*cannot be serialized"):
+        encoder.save_pretrained(tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_builtin_pooling_config_and_weights_round_trip(tmp_path) -> None:
+    spec = token_pooling()
+    encoder = SetEncoder(
+        input_layers={"drug": INPUT_LAYERS["drug"]},
+        output_dim=7,
+        pooling=spec,
+        pooling_proj_dim=5,
+    ).eval()
+    condition = {"drug": torch.randn(2, 3, 4)}
+    expected, _ = encoder(condition)
+
+    encoder.save_pretrained(tmp_path)
+    restored = SetEncoder.from_pretrained(tmp_path).eval()
+    actual, _ = restored(condition)
+
+    torch.testing.assert_close(actual, expected)
+    config = json.loads((tmp_path / "config.json").read_text())
+    assert config["pooling"] == spec
+
+
+def test_builtin_pooling_round_trip_in_fresh_process(tmp_path) -> None:
+    spec = token_pooling()
+    encoder = SetEncoder(
+        input_layers={"drug": INPUT_LAYERS["drug"]},
+        output_dim=7,
+        pooling=spec,
+        pooling_proj_dim=5,
+    ).eval()
+    condition = {"drug": torch.arange(24, dtype=torch.float32).reshape(2, 3, 4) / 10}
+    expected, _ = encoder(condition)
+    encoder.save_pretrained(tmp_path)
+
+    script = """
+import json
+import sys
+import torch
 from sc_flow.flow._set_encoder import SetEncoder
 
-# dimensions
-batch_size = 32
-n_combs = 3
-output_dim = 16
-condition0_input_dim = 4
-condition0_output_dim = 2
-condition1_input_dim = 8
-condition1_output_dim = 4
-pooling_proj_dim = 5
-
-# dictionaries
-input_layers_single_condition = {
-    "condition0": {
-        "input_dim": condition0_input_dim,
-        "output_dim": condition0_output_dim,
-    },
-}
-input_layers_double_condition = {
-    "condition0": {
-        "input_dim": condition0_input_dim,
-        "output_dim": condition0_output_dim,
-    },
-    "condition1": {
-        "input_dim": condition1_input_dim,
-        "output_dim": condition1_output_dim,
-    },
-}
-
-
-class TestSetEncoder:
-    @pytest.mark.parametrize(
-        "input_layers, covariates_not_pooled, expected_decoder_input_dim",
-        [
-            (input_layers_single_condition, [], pooling_proj_dim),  # one pooled covariate
-            (input_layers_single_condition, ["condition0"], condition0_output_dim),  # one not pooled
-            (
-                input_layers_double_condition,
-                [],
-                pooling_proj_dim,
-            ),  # two pooled -> concat along set dim, projected to pooling_proj_dim
-            (
-                input_layers_double_condition,
-                ["condition0"],
-                pooling_proj_dim + condition0_output_dim,
-            ),  # condition0 not pooled, condition1 pooled
-            (
-                input_layers_double_condition,
-                ["condition0", "condition1"],
-                condition0_output_dim + condition1_output_dim,
-            ),  # both not pooled
-        ],
+encoder = SetEncoder.from_pretrained(sys.argv[1]).eval()
+condition = {"drug": torch.arange(24, dtype=torch.float32).reshape(2, 3, 4) / 10}
+output, _ = encoder(condition)
+print("SC_FLOW_RESULT=" + json.dumps(output.tolist()))
+"""
+    env = dict(os.environ)
+    env["MPLCONFIGDIR"] = "/tmp/sc-flow-tools-matplotlib"
+    result = subprocess.run(
+        [sys.executable, "-c", script, str(tmp_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+        env=env,
     )
-    @pytest.mark.parametrize("pooling_mode", ["mean", "sum"])
-    @pytest.mark.parametrize("output_layers_kwargs", [{}])
-    def test_set_encoder_forward_and_properties(
-        self,
-        input_layers: NestedLayersDict,
-        covariates_not_pooled: list[str],
-        expected_decoder_input_dim: int,
-        pooling_mode: str,
-        output_layers_kwargs: LayersDict,
-    ) -> None:
-        """Test forward pass shape, decoder_input_dim property, and internal concatenation logic."""
-        encoder = SetEncoder(
-            input_layers=input_layers,
-            output_dim=output_dim,
-            pooling_mode=pooling_mode,
-            pooling_kwargs=None,
-            pooling_proj_dim=pooling_proj_dim,
-            pooling_proj_bias=True,
-            covariates_not_pooled=covariates_not_pooled,
-            output_layers_kwargs=output_layers_kwargs,
+    result_line = next(line for line in result.stdout.splitlines() if line.startswith("SC_FLOW_RESULT="))
+    actual = torch.tensor(json.loads(result_line.removeprefix("SC_FLOW_RESULT=")))
+
+    torch.testing.assert_close(actual, expected)
+
+
+def test_conditional_velocity_export_waits_for_enclosing_component_spec(tmp_path) -> None:
+    encoder = SetEncoder(
+        input_layers={"drug": INPUT_LAYERS["drug"]},
+        output_dim=7,
+        pooling=MEAN_POOLING,
+    )
+    vf = MLPVelocity(state_dim=4, condition_encoder=encoder)
+
+    assert vf._runtime_module_constructor_args == {"condition_encoder": "SetEncoder"}
+    with pytest.raises(ValueError, match=r"condition_encoder=SetEncoder.*cannot be serialized"):
+        vf.save_pretrained(tmp_path)
+
+
+def test_runtime_module_guard_finds_modules_nested_in_constructor_containers(tmp_path) -> None:
+    class ContainerModule(BaseModule):
+        def __init__(self, components: dict[str, list[torch.nn.Module]]) -> None:
+            super().__init__()
+            self.components = torch.nn.ModuleList(components["items"])
+
+        def _make_modules(self) -> torch.nn.Module:
+            return self.components
+
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            for component in self.components:
+                x = component(x)
+            return x
+
+    module = ContainerModule({"items": [torch.nn.Identity()]})
+
+    assert module._runtime_module_constructor_args == {"components['items'][0]": "Identity"}
+    with pytest.raises(ValueError, match=r"components\['items'\]\[0\]=Identity.*cannot be serialized"):
+        module.save_pretrained(tmp_path)
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_set_encoder_rejects_missing_and_extra_covariates() -> None:
+    encoder = SetEncoder(input_layers=INPUT_LAYERS, output_dim=7, pooling=MEAN_POOLING)
+
+    with pytest.raises(ValueError, match="missing from the query"):
+        encoder({"drug": torch.randn(2, 3, 4)})
+    with pytest.raises(ValueError, match="dont appear in the reference"):
+        encoder(
+            {
+                "drug": torch.randn(2, 3, 4),
+                "dose": torch.randn(2, 2, 2),
+                "unknown": torch.randn(2, 1, 1),
+            }
         )
 
-        # Check decoder_input_dim property
-        assert encoder.decoder_input_dim == expected_decoder_input_dim
 
-        # Build condition dictionary with all covariates present
-        condition_dict = {}
-        for cov_id, cfg in input_layers.items():
-            input_dim = cfg["input_dim"]
-            condition_dict[cov_id] = torch.randn(batch_size, n_combs, input_dim)
-
-        # Forward pass
-        encoded = encoder(condition_dict)
-        assert encoded.shape == (batch_size, output_dim)
-
-        # Also check that the internal modules exist as expected
-        pooled_covs = encoder.covariates_pooled
-        not_pooled_covs = [c for c in input_layers.keys() if c not in covariates_not_pooled]
-        assert set(pooled_covs) == set(input_layers.keys()) - set(covariates_not_pooled)
-
-        # Verify projection layers exist for pooled covariates
-        for cov in pooled_covs:
-            assert f"{cov}_proj" in encoder._condition_encoder
-            proj_layer = encoder._condition_encoder[f"{cov}_proj"]
-            assert isinstance(proj_layer, torch.nn.Linear)
-            assert proj_layer.in_features == input_layers[cov]["output_dim"]
-            assert proj_layer.out_features == pooling_proj_dim
-
-        # Verify no projection layers for non-pooled covariates
-        for cov in not_pooled_covs:
-            assert f"{cov}_proj" not in encoder._condition_encoder
-
-    def test_set_encoder_no_covariates_error(self) -> None:
-        """Test that providing an empty condition dict raises ValueError."""
-        encoder = SetEncoder(
-            input_layers=input_layers_single_condition,
-            output_dim=output_dim,
-            pooling_mode="mean",
-        )
-        with pytest.raises(ValueError, match="No condition covariate found"):
-            encoder({})
-
-    def test_set_encoder_missing_covariate_error(self) -> None:
-        """Test that missing a required covariate raises KeyError."""
-        encoder = SetEncoder(
-            input_layers=input_layers_double_condition,
-            output_dim=output_dim,
-            pooling_mode="mean",
-        )
-        condition_dict = {"condition0": torch.randn(batch_size, n_combs, condition0_input_dim)}
-        with pytest.raises(KeyError, match="Input encoder not found for covariate condition1"):
-            encoder(condition_dict)
-
-    def test_set_encoder_extra_covariate_error(self) -> None:
-        """Test that providing an extra covariate not in input_layers raises KeyError."""
-        encoder = SetEncoder(
-            input_layers=input_layers_single_condition,
-            output_dim=output_dim,
-            pooling_mode="mean",
-        )
-        condition_dict = {
-            "condition0": torch.randn(batch_size, n_combs, condition0_input_dim),
-            "condition1": torch.randn(batch_size, n_combs, condition1_input_dim),
-        }
-        with pytest.raises(KeyError, match="Input encoder not found for covariate condition1"):
-            encoder(condition_dict)
-
-    @pytest.mark.parametrize("pooling_mode", ["attention-token", "attention-seed"])
-    def test_attention_pooling_not_implemented(self, pooling_mode: str) -> None:
-        """Test that attention-based pooling modes raise NotImplementedError."""
-        with pytest.raises(NotImplementedError):
-            SetEncoder(
-                input_layers=input_layers_single_condition,
-                output_dim=output_dim,
-                pooling_mode=pooling_mode,
-            )
+def test_set_encoder_rejects_empty_condition() -> None:
+    encoder = SetEncoder(input_layers={"drug": INPUT_LAYERS["drug"]}, output_dim=7, pooling=MEAN_POOLING)
+    with pytest.raises(ValueError, match="No condition covariate found"):
+        encoder({})

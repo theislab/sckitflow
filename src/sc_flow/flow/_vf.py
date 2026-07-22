@@ -4,13 +4,6 @@ import abc
 
 import torch
 
-from sc_flow._constants import (
-    DEFAULT_NUM_TIME_FEATURES,
-    DEFAULT_SOURCE_ENCODER_OUTPUT_DIM,
-    DEFAULT_TIME_FEATURES_MAX_PERIOD,
-    DEFAULT_VF_LATENT_STATE_DIM,
-    DEFAULT_VF_LATENT_TIME_DIM,
-)
 from sc_flow._types import LayersDict, TimeFeaturesId
 from sc_flow.core._torch_types import MappedTensor, VelocityFieldFn
 from sc_flow.core._torch_utils import make_concatenation_possible
@@ -97,18 +90,18 @@ class MLPVelocity(BaseVelocityField):
         :type state_dim: class: `int`
 
         :param state_embedder: (Optional) :class: `MLPEmbedderConfig` for the MLP that embeds the state
-            ``x`` into a latent width (default output dim :constant: `DEFAULT_VF_LATENT_STATE_DIM`).
-            ``None`` passes the raw state through.
+            ``x`` into a latent width (its ``output_dim`` is required — no default). ``None`` passes the raw
+            state through.
         :type state_embedder: class: `MLPEmbedderConfig | None`
 
         :param time_embedder: (Optional) :class: `MLPEmbedderConfig` for the MLP that embeds the time
-            features into a latent width (default output dim :constant: `DEFAULT_VF_LATENT_TIME_DIM`).
-            ``None`` passes the raw time features through.
+            features into a latent width (its ``output_dim`` is required — no default). ``None`` passes the
+            raw time features through.
         :type time_embedder: class: `MLPEmbedderConfig | None`
 
         :param source_embedder: (Optional) :class: `MLPEmbedderConfig` for the MLP that embeds the source
-            state (used by GENOT to condition on the source cell; default output dim
-            :constant: `DEFAULT_SOURCE_ENCODER_OUTPUT_DIM`). ``None`` (default) means no source embedder.
+            state (used by GENOT to condition on the source cell; its ``output_dim`` is required — no
+            default). ``None`` (default) means no source embedder.
         :type source_embedder: class: `MLPEmbedderConfig | None`
 
         :param time_features_id: (Optional) The identifier for the chosen time features.
@@ -117,14 +110,14 @@ class MLPVelocity(BaseVelocityField):
             Defaults to `None`, in which case no time features are computed (i.e.: identity mapping).
         :type time_features_id: class: `TimeFeaturesId | None`
 
-        :param num_time_features: (Optional) Sets the number of resulting time features, hence it must be even.
-            Raises a :class: `ValueError` otherwise. When not provided, it will be set to
-            :constant: `sc_flow._constants.DEFAULT_NUM_TIME_FEATURES`. Defaults to `None`.
+        :param num_time_features: Number of resulting time features (must be even). **Required** when
+            ``time_features_id`` is set (a :class: `ValueError` is raised if missing); ignored when it is
+            ``None`` (the identity featurizer). There is no default.
         :type num_time_features: class: `int | None`
 
-        :param max_period: (Optional) Sets the value of $M$, used for the log scaling of the time features.
-            Only used when :param: `time_features_id` is set to `"log-sinusoidal"`, ignored otherwise.
-            When not provided, it will be set to :constant: `sc_flow._constants.DEFAULT_TIME_FEATURES_MAX_PERIOD`. Defaults to `None`.
+        :param max_period: Sets the value of $M$, used for the log scaling of the time features. **Required**
+            when ``time_features_id`` is ``"log-sinusoidal"`` (a :class: `ValueError` is raised if missing);
+            ignored otherwise. There is no default.
         :type max_period: class: `int | None`
 
         :param vf_decoder_mlp_kwargs: (Optional) Keyword arguments used for initializing the velocity field decoder. Its key-value pairs
@@ -151,14 +144,14 @@ class MLPVelocity(BaseVelocityField):
         """
         super().__init__()
         self._state_dim = state_dim
-        # Each stream embedder is presence-based: an MLPEmbedderConfig builds an MLP over that stream, None
-        # passes the raw stream through. state/time default off here; the FlowMatching facade turns them on.
+        # Each stream embedder is presence-based: an MLPEmbedderConfig builds an MLP over that stream (with a
+        # required, explicit output width), None passes the raw stream through.
         self._state_embedder = state_embedder
         self._time_embedder = time_embedder
         self._source_embedder = source_embedder
         self._time_features_id = time_features_id
         self._num_time_features = num_time_features
-        self._max_period = DEFAULT_TIME_FEATURES_MAX_PERIOD if max_period is None else max_period
+        self._max_period = max_period
         self._vf_decoder_mlp_kwargs = {} if vf_decoder_mlp_kwargs is None else vf_decoder_mlp_kwargs
         # A CombinerSpec (mapping) is validated/canonicalized now and saved/restored via config.json; a
         # custom BaseCombiner instance is not saved (see BaseModule) and must be passed again to
@@ -189,11 +182,9 @@ class MLPVelocity(BaseVelocityField):
         return self._source_embedder is not None
 
     @staticmethod
-    def _embed_output_dim(config: MLPEmbedderConfig | None, raw_dim: int, default_output_dim: int) -> int:
+    def _embed_output_dim(config: MLPEmbedderConfig | None, raw_dim: int) -> int:
         """Width of a stream after its optional embedder: the raw width when ``None``, else the config output."""
-        if config is None:
-            return raw_dim
-        return default_output_dim if config.output_dim is None else config.output_dim
+        return raw_dim if config is None else config.output_dim
 
     @property
     def _source_embedder_input_dim(self) -> int:
@@ -204,9 +195,7 @@ class MLPVelocity(BaseVelocityField):
     @property
     def _source_embedder_output_dim(self) -> int:
         """Output width of the source embedder."""
-        return self._embed_output_dim(
-            self._source_embedder, self._source_embedder_input_dim, DEFAULT_SOURCE_ENCODER_OUTPUT_DIM
-        )
+        return self._embed_output_dim(self._source_embedder, self._source_embedder_input_dim)
 
     @property
     def _combiner_dim(
@@ -224,16 +213,17 @@ class MLPVelocity(BaseVelocityField):
     ) -> int:
         """Returns the number of time features.
 
-        If no time featurization is used, it will return simply 1 (i.e.: scalar time)
-        Otherwise, when the number of time feature is not provided, it will fall back to the default defined in
-        :constant: `sc_flow._constants.DEFAULT_NUM_TIME_FEATURES`.
+        If no time featurization is used, it will return simply 1 (i.e.: scalar time). Otherwise
+        ``num_time_features`` is **required** — a missing value raises, there is no default.
         """
         if not self._use_time_features:
             return 1
-        else:
-            if self._num_time_features is None:
-                return DEFAULT_NUM_TIME_FEATURES
-            return self._num_time_features
+        if self._num_time_features is None:
+            raise ValueError(
+                "num_time_features is required when time_features_id is set "
+                f"(got time_features_id={self._time_features_id!r}, num_time_features=None)."
+            )
+        return self._num_time_features
 
     def condition_stats(
         self,
@@ -299,20 +289,18 @@ class MLPVelocity(BaseVelocityField):
         self,
         config: MLPEmbedderConfig | None,
         input_dim: int,
-        default_output_dim: int,
     ) -> BaseModule | torch.nn.Identity:
         """Builds a stream embedder MLP from its config, or :class:`torch.nn.Identity` when the slot is ``None``."""
         if config is None:
             return torch.nn.Identity()
-        output_dim = default_output_dim if config.output_dim is None else config.output_dim
-        return init_module_from_dict(dict(config.mlp_kwargs), input_dim=input_dim, output_dim=output_dim)
+        return init_module_from_dict(dict(config.mlp_kwargs), input_dim=input_dim, output_dim=config.output_dim)
 
     @property
     def _combiner_dims(self) -> tuple[int, int, int | None]:
         """The ``(latent_state, latent_time, latent_condition)`` dims the combiner layer must accept."""
         return (
-            self._embed_output_dim(self._state_embedder, self._state_dim, DEFAULT_VF_LATENT_STATE_DIM),
-            self._embed_output_dim(self._time_embedder, self._get_num_time_features(), DEFAULT_VF_LATENT_TIME_DIM),
+            self._embed_output_dim(self._state_embedder, self._state_dim),
+            self._embed_output_dim(self._time_embedder, self._get_num_time_features()),
             self._combiner_dim,
         )
 
@@ -374,17 +362,15 @@ class MLPVelocity(BaseVelocityField):
         """
         modules = {
             "time_features": self._make_time_features(),
-            "time_embedder": self._make_embedder(
-                self._time_embedder, self._get_num_time_features(), DEFAULT_VF_LATENT_TIME_DIM
-            ),
-            "state_embedder": self._make_embedder(self._state_embedder, self._state_dim, DEFAULT_VF_LATENT_STATE_DIM),
+            "time_embedder": self._make_embedder(self._time_embedder, self._get_num_time_features()),
+            "state_embedder": self._make_embedder(self._state_embedder, self._state_dim),
             "combiner": self._make_combiner(),
         }
         if self.is_conditional:
             modules["condition_encoder"] = self._condition_encoder
         if self.use_source_embedder:
             modules["source_embedder"] = self._make_embedder(
-                self._source_embedder, self._source_embedder_input_dim, DEFAULT_SOURCE_ENCODER_OUTPUT_DIM
+                self._source_embedder, self._source_embedder_input_dim
             )
         modules["vf_decoder"] = self._make_vf_decoder(
             modules["combiner"].output_dim,

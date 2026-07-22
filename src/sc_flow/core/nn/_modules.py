@@ -7,7 +7,6 @@ from typing import Any
 import torch
 from huggingface_hub import PyTorchModelHubMixin
 
-from sc_flow._constants import DEFAULT_NUM_RESNET_LAYERS
 from sc_flow.core.nn._activation import ActivationId, resolve_activation
 
 __all__ = [
@@ -445,7 +444,7 @@ class Resnet1d(BaseModule):
         self,
         input_dim: int,
         embedding_dim: int,
-        num_resnet_layers: int | None = None,
+        num_resnet_layers: int,
         output_dim: int | None = None,
         activation_cls: ActivationId | type[torch.nn.Module] | None = None,
         use_batchnorm: bool = False,
@@ -541,7 +540,7 @@ class Resnet1d(BaseModule):
         super().__init__()
         self._input_dim = input_dim
         self._embedding_dim = embedding_dim
-        self._num_resnet_layers = DEFAULT_NUM_RESNET_LAYERS if num_resnet_layers is None else num_resnet_layers
+        self._num_resnet_layers = num_resnet_layers
         self._output_dim = input_dim if output_dim is None else output_dim
         self._activation_cls = resolve_activation(activation_cls, "silu")
         self._use_batchnorm = use_batchnorm

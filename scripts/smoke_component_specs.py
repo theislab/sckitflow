@@ -39,7 +39,7 @@ TOKEN = {
     },
 }
 CONCAT = {"type": "sc_flow.concat", "version": 1, "config": {}}
-RESNET = {"type": "sc_flow.resnet1d", "version": 1, "config": {"resnet_kwargs": {"num_resnet_layers": 2}}}
+RESNET = {"type": "sc_flow.resnet1d", "version": 1, "config": {"num_resnet_layers": 2}}
 
 
 def check(name: str, cond: bool) -> None:
@@ -150,7 +150,7 @@ def _build_conditional_vf(combiner, mode="stochastic") -> MLPVelocity:
         state_dim=12,
         combiner=combiner,
         state_embedder=MLPEmbedderConfig(output_dim=32, mlp_kwargs={"hidden_dims": [16], "activation_cls": "tanh"}),
-        time_embedder=MLPEmbedderConfig(),
+        time_embedder=MLPEmbedderConfig(output_dim=16),
         time_features_id="sinusoidal",
         num_time_features=8,
         condition_encoder=SetEncoder(
@@ -202,15 +202,44 @@ def test_bundle() -> None:
         input_layers={"drug": {"input_dim": 5, "output_dim": 16}}, output_dim=16, pooling=MeanPooling(16)
     )
     vf_custom_pool = MLPVelocity(
-        state_dim=12, combiner=CONCAT, state_embedder=MLPEmbedderConfig(), time_embedder=MLPEmbedderConfig(),
-        condition_encoder=se_custom,
+        state_dim=12, combiner=CONCAT, state_embedder=MLPEmbedderConfig(output_dim=16),
+        time_embedder=MLPEmbedderConfig(output_dim=8), condition_encoder=se_custom,
     )
     expect_error("custom pooling refuses export", vf_custom_pool.to_config)
 
 
+def test_no_hidden_defaults() -> None:
+    """Architecture dims/counts have no hidden defaults: omitting a required one raises."""
+    print("[no hidden defaults]")
+    # embedder output width is required
+    expect_error("MLPEmbedderConfig requires output_dim", lambda: MLPEmbedderConfig())
+    # num_time_features is required when a featurizer is selected
+    expect_error(
+        "num_time_features required when featurizing",
+        lambda: MLPVelocity(
+            state_dim=8, combiner=CONCAT, state_embedder=MLPEmbedderConfig(output_dim=8),
+            time_embedder=MLPEmbedderConfig(output_dim=8), time_features_id="sinusoidal", num_time_features=None,
+        ),
+    )
+    # resnet combiner depth is a required, explicit config field (not a hidden default)
+    expect_error(
+        "resnet combiner requires num_resnet_layers",
+        lambda: validate_combiner_spec({"type": "sc_flow.resnet1d", "version": 1, "config": {}}),
+    )
+
+
 def main() -> int:
     """Run every check group; return 0 on success."""
-    for fn in (test_generic_registry, test_pooling, test_combiner, test_activation, test_config_roundtrip, test_bundle):
+    groups = (
+        test_generic_registry,
+        test_pooling,
+        test_combiner,
+        test_activation,
+        test_config_roundtrip,
+        test_bundle,
+        test_no_hidden_defaults,
+    )
+    for fn in groups:
         fn()
     print("\nPASS: component-spec design verified end-to-end.")
     return 0

@@ -1,18 +1,16 @@
 import abc
-from collections.abc import Collection
-from typing import Any, Literal
+from typing import Any
 
 import torch
 
 from sc_flow._constants import (
-    DEFAULT_CONDITION_ENCODER_OUTPUT_DIM,
     DEFAULT_NUM_TIME_FEATURES,
     DEFAULT_SOURCE_ENCODER_OUTPUT_DIM,
     DEFAULT_TIME_FEATURES_MAX_PERIOD,
     DEFAULT_VF_LATENT_STATE_DIM,
     DEFAULT_VF_LATENT_TIME_DIM,
 )
-from sc_flow._types import CombinerId, LayersDict, NestedLayersDict, TimeFeaturesId
+from sc_flow._types import CombinerId, LayersDict, TimeFeaturesId
 from sc_flow.core._torch_types import MappedTensor, VelocityFieldFn
 from sc_flow.core._torch_utils import make_concatenation_possible
 from sc_flow.core.nn._modules import BaseModule, FunctionalModule
@@ -90,16 +88,7 @@ class MLPVelocity(BaseVelocityField):
         time_encoder_mlp_kwargs: LayersDict | None = None,
         vf_decoder_mlp_kwargs: LayersDict | None = None,
         combiner: CombinerId | BaseCombiner | None = None,
-        combiner_kwargs: dict[str, Any] | None = None,
-        condition_encoder_input_layers: NestedLayersDict | None = None,
-        condition_encoder_output_dim: int | None = None,
-        condition_encoder_pooling_mode: Literal["mean", "sum"] = "mean",
-        condition_encoder_pooling_kwargs: dict[str, Any] | None = None,
-        condition_encoder_pooling_proj_dim: int | None = None,
-        condition_encoder_pooling_proj_bias: bool = True,
-        condition_encoder_covariates_not_pooled: Collection[str] | None = None,
-        condition_encoder_output_layers_kwargs: LayersDict | None = None,
-        condition_mode: Literal["deterministic", "stochastic"] = "deterministic",
+        condition_encoder: SetEncoder | None = None,
         source_encoder_mlp_kwargs: LayersDict | None = None,
         source_encoder_output_dim: int | None = None,
     ) -> None:
@@ -169,43 +158,12 @@ class MLPVelocity(BaseVelocityField):
             :constant: `sc_flow._constants.DEFAULT_COMBINER`.
         :type combiner: class: `CombinerId | BaseCombiner | None`
 
-        :param combiner_kwargs: (Optional) Keyword arguments used to initialize the combiner layer.
-            Ignored for concatenation and for a custom instance. When setting :param: `combiner`
-            to `"resnet1d"`, it should match the signatures of the `__init__` method of the :class: `Resnet1d` class,
-            raise :class: `TypeError` otherwise. Defaults to `None`.
-        :type combiner_kwargs: class: `dict[str, Any]`
-
-        :param condition_encoder_input_layers: Dictionary mapping each perturbation covariate
-            identifier to the configurations for their respective input layer.
-        :type condition_encoder_input_layers: class: `NestedLayersDict`
-
-        :param condition_encoder_output_dim: The output dimensionality of the set encoder.
-        :type condition_encoder_output_dim: class: `int`
-
-        :param condition_encoder_pooling_mode: Identifier for the pooling strategy of conditioning covariates.
-            Defaults to `"mean"`.
-        :type condition_encoder_pooling_mode: class: `Literal["mean", "sum"]`
-
-        :param condition_encoder_pooling_kwargs: Optional keyword arguments for pooling layer.
-            Ignored when pooling is `"mean"` or `"sum"`, defaults to `None`.
-        :type condition_encoder_pooling_kwargs: class: `dict[str, Any]`
-
-        :param condition_encoder_pooling_proj_dim: Shared projection dimension for the covariates to pool,
-            defaults to `None`, in which case it will be set to the minimum output
-            dimensionality of the input encoder for pooled covariates.
-        :type condition_encoder_pooling_proj_dim: class: `int | None`
-
-        :param condition_encoder_pooling_proj_bias: Whether to use bias term for linear projection of
-            covariates to pool, defaults to `True`.
-        :type condition_encoder_pooling_proj_bias: class: `bool`
-
-        :param condition_encoder_covariates_not_pooled: Collection of string identifiers for the covariates not to pool,
-            defaults to `None`.
-        :type condition_encoder_covariates_not_pooled: class: `Collection[str] | None`
-
-        :param condition_encoder_output_layers_kwargs: Dictionary containing the configurations for the output layer.
-            Defaults to `None`.
-        :type condition_encoder_output_layers_kwargs: class: `LayersDict | None`
+        :param condition_encoder: (Optional) The perturbation-covariate condition encoder — a
+            :class: `SetEncoder` instance (built directly, since its dims come from the data, not from this
+            velocity field). ``None`` makes the field unconditional. As an injected module it is not stored
+            in ``config.json`` and must be re-supplied at ``from_pretrained`` (or re-instantiated from the
+            experiment config).
+        :type condition_encoder: class: `SetEncoder | None`
 
         :param source_encoder_mlp_kwargs: (Optional) Keyword arguments used to initialize
             source state encoders when provided. This is needed to retain the information about the
@@ -237,20 +195,7 @@ class MLPVelocity(BaseVelocityField):
         # is not saved (see BaseModule) and must be passed again to from_pretrained — otherwise the strict
         # weight load raises a clear mismatch error.
         self._combiner = combiner
-        self._combiner_kwargs = {} if combiner_kwargs is None else combiner_kwargs
-        self._condition_encoder_input_layers = condition_encoder_input_layers
-        self._condition_encoder_output_dim = (
-            DEFAULT_CONDITION_ENCODER_OUTPUT_DIM
-            if condition_encoder_output_dim is None
-            else condition_encoder_output_dim
-        )
-        self._condition_encoder_pooling_mode = condition_encoder_pooling_mode
-        self._condition_encoder_pooling_kwargs = condition_encoder_pooling_kwargs
-        self._condition_encoder_pooling_proj_dim = condition_encoder_pooling_proj_dim
-        self._condition_encoder_pooling_proj_bias = condition_encoder_pooling_proj_bias
-        self._condition_encoder_covariates_not_pooled = condition_encoder_covariates_not_pooled
-        self._condition_encoder_output_layers_kwargs = condition_encoder_output_layers_kwargs
-        self._condition_mode = condition_mode
+        self._condition_encoder = condition_encoder
         self._source_encoder_mlp_kwargs = source_encoder_mlp_kwargs
         self._source_encoder_output_dim = (
             DEFAULT_SOURCE_ENCODER_OUTPUT_DIM if source_encoder_output_dim is None else source_encoder_output_dim
@@ -293,9 +238,9 @@ class MLPVelocity(BaseVelocityField):
     ) -> int | None:
         """Returns the dimensionality for the condition input of the combiner layers."""
         if self.is_conditional and self.use_source_encoder:
-            return self._condition_encoder_output_dim + self._source_encoder_output_dim
+            return self._condition_encoder.output_dim + self._source_encoder_output_dim
         elif self.is_conditional and (not self.use_source_encoder):
-            return self._condition_encoder_output_dim
+            return self._condition_encoder.output_dim
         elif self.use_source_encoder:
             return self._source_encoder_output_dim
         return None
@@ -449,30 +394,16 @@ class MLPVelocity(BaseVelocityField):
             latent_time_dim,
             latent_condition_dim=latent_condition_dim,
             combiner_id=self._combiner,
-            combiner_kwargs=self._combiner_kwargs,
         )
 
     def _make_condition_encoder(
         self,
     ) -> BaseModule:
-        """Initializes the condition encoder when the required settings are specified."""
+        """Returns the injected condition encoder (a :class:`SetEncoder`) for a conditional field."""
         if not self.is_conditional:
-            msg = (
-                "To initialize the condition encoder you have to pass"
-                "the `condition_encoder_input_layers` argument, `None` found."
-            )
+            msg = "To initialize the condition encoder you have to pass the `condition_encoder` argument, `None` found."
             raise TypeError(msg)
-        return SetEncoder(
-            self._condition_encoder_input_layers,
-            self._condition_encoder_output_dim,
-            pooling_mode=self._condition_encoder_pooling_mode,
-            pooling_kwargs=self._condition_encoder_pooling_kwargs,
-            pooling_proj_dim=self._condition_encoder_pooling_proj_dim,
-            pooling_proj_bias=self._condition_encoder_pooling_proj_bias,
-            covariates_not_pooled=self._condition_encoder_covariates_not_pooled,
-            output_layers_kwargs=self._condition_encoder_output_layers_kwargs,
-            condition_mode=self._condition_mode,
-        )
+        return self._condition_encoder
 
     def _make_vf_decoder(
         self,
@@ -591,11 +522,11 @@ class MLPVelocity(BaseVelocityField):
         self,
     ) -> bool:
         """Whether a condition encoder is associated to velocity field."""
-        return self._condition_encoder_input_layers is not None
+        return self._condition_encoder is not None
 
     @property
     def is_stochastic(
         self,
     ) -> bool:
-        """Whether the condition encoder is variational (``condition_mode='stochastic'``)."""
-        return self.is_conditional and self._condition_mode == "stochastic"
+        """Whether the condition encoder is variational (a stochastic :class:`SetEncoder`)."""
+        return self.is_conditional and self._condition_encoder.is_stochastic

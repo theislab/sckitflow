@@ -82,6 +82,11 @@ class SetEncoder(BaseModule):
         self._condition_encoder = self._make_modules()
 
     @property
+    def output_dim(self) -> int:
+        """The output dimensionality of the condition embedding."""
+        return self._output_dim
+
+    @property
     def is_stochastic(self) -> bool:
         """Whether the encoder is variational (outputs a mean **and** a log-variance head)."""
         return self._condition_mode == "stochastic"

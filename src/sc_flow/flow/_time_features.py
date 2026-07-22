@@ -4,7 +4,7 @@ from functools import partial
 
 import torch
 
-from sc_flow._constants import DEFAULT_NUM_TIME_FEATURES, DEFAULT_TIME_FEATURES_MAX_PERIOD, PI
+from sc_flow._constants import PI
 from sc_flow._types import TimeFeaturesId
 from sc_flow.core._torch_utils import ensure_2d_tensor_with_singleton_trailing_dim
 
@@ -105,9 +105,10 @@ def get_time_features_fn(
     When ``time_features_id`` is ``None`` (the default) the identity featurizer is returned — the scalar
     time is passed through as a trailing-singleton feature.
 
-    :param num_time_features: (Optional) Sets the value of $2K$, the number of resulting time features, hence it must be even.
-        Raises a :class: `ValueError` otherwise. When not provided, it will be set to
-        :constant: `sc_flow._constants.DEFAULT_NUM_TIME_FEATURES`. Defaults to `None`.
+    :param num_time_features: Sets the value of $2K$, the number of resulting time features, hence it must be
+        even. **Required** for ``"sinusoidal"`` / ``"log-sinusoidal"`` — there is no default; a
+        :class: `ValueError` is raised if it is missing (or odd/non-positive). Ignored when
+        ``time_features_id`` is ``None``.
     :type num_time_features: class: `int | None`
 
     :param time_features_id: (Optional) String identifier indicating which of the predefined time features to retrieve.
@@ -115,9 +116,8 @@ def get_time_features_fn(
         identifier is specified. Defaults to `None`.
     :type time_features_id: class:`TimeFeaturesId | None`
 
-    :param max_period: Sets the value of $M$, used for the log scaling of the time features.
-        Only used when :param: `time_features_id` is set to `"log-sinusoidal"`, ignored otherwise.
-        When not provided, it will be set to :constant: `sc_flow._constants.DEFAULT_TIME_FEATURES_MAX_PERIOD`. Defaults to `None`.
+    :param max_period: Sets the value of $M$, used for the log scaling of the time features. **Required**
+        for ``"log-sinusoidal"`` (no default; a :class: `ValueError` is raised if missing); ignored otherwise.
     :type max_period: class: `int | None`
     """
     if time_features_id is None:
@@ -126,15 +126,16 @@ def get_time_features_fn(
             return ensure_2d_tensor_with_singleton_trailing_dim(t)
 
         return _identity_time_features
+    if time_features_id not in ("sinusoidal", "log-sinusoidal"):
+        msg = (
+            f"Time features identifier {time_features_id} is not supported."
+            ' Possible options are `["sinusoidal", "log-sinusoidal"]`'
+        )
+        raise ValueError(msg)
+    if num_time_features is None:
+        raise ValueError(f"num_time_features is required for time_features_id={time_features_id!r} (no default).")
     if time_features_id == "sinusoidal":
-        num_time_features = DEFAULT_NUM_TIME_FEATURES if num_time_features is None else num_time_features
         return partial(sinusoidal_time_features, num_time_features=num_time_features)
-    if time_features_id == "log-sinusoidal":
-        num_time_features = DEFAULT_NUM_TIME_FEATURES if num_time_features is None else num_time_features
-        max_period = DEFAULT_TIME_FEATURES_MAX_PERIOD if max_period is None else max_period
-        return partial(log_sinusoidal_time_features, num_time_features=num_time_features, max_period=max_period)
-    msg = (
-        f"Time features identifier {time_features_id} is not supported."
-        ' Possible options are `["sinusoidal", "log-sinusoidal"]`'
-    )
-    raise ValueError(msg)
+    if max_period is None:
+        raise ValueError("max_period is required for time_features_id='log-sinusoidal' (no default).")
+    return partial(log_sinusoidal_time_features, num_time_features=num_time_features, max_period=max_period)

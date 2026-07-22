@@ -1,14 +1,11 @@
 import numpy as np
 
-PI = np.pi
+# Architecture dimensions/counts carry NO module-level defaults on purpose: the low-level velocity field,
+# embedders, time featurizer, and resnet require them explicitly (a `None`-to-magic-constant fallback would
+# silently bake a hidden width into a saved model — the §14 footgun). Ergonomic defaults live on the
+# ``FlowMatching`` facade, which passes concrete values down.
 
-DEFAULT_VF_LATENT_STATE_DIM = 32
-DEFAULT_VF_LATENT_TIME_DIM = 16
-DEFAULT_CONDITION_ENCODER_OUTPUT_DIM = 32
-DEFAULT_SOURCE_ENCODER_OUTPUT_DIM = 16
-DEFAULT_NUM_RESNET_LAYERS = 3
-DEFAULT_NUM_TIME_FEATURES = 256
-DEFAULT_TIME_FEATURES_MAX_PERIOD = 1_000
+PI = np.pi
 
 
 BASE_LEVEL_NAME = "base"

@@ -62,12 +62,13 @@ class MLPEmbedderConfig:
     """Config for the optional MLP that embeds one vector stream into a latent width.
 
     Used for the velocity field's ``state_embedder`` / ``time_embedder`` / ``source_embedder`` slots.
-    ``None`` in a slot skips the embedder and passes that stream through raw. The velocity field supplies
-    the MLP ``input_dim`` (it knows each stream's width), so this config only carries the target
-    ``output_dim`` (``None`` → a per-stream default) and any extra :class:`~sc_flow.core.nn.MLP` kwargs.
+    ``None`` in a slot skips the embedder and passes that stream through raw. When present, the embedder's
+    ``output_dim`` (the latent width) is **required** — there is no hidden default — while the velocity
+    field supplies the MLP ``input_dim`` (it knows each stream's width). ``mlp_kwargs`` carries any extra
+    :class:`~sc_flow.core.nn.MLP` kwargs.
     """
 
-    output_dim: int | None = None
+    output_dim: int
     mlp_kwargs: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, JsonValue]:
@@ -81,7 +82,9 @@ class MLPEmbedderConfig:
         unknown = set(data) - {"output_dim", "mlp_kwargs"}
         if unknown:
             raise ValueError(f"Unknown MLPEmbedderConfig field(s): {sorted(unknown)}.")
-        return cls(output_dim=data.get("output_dim"), mlp_kwargs=dict(data.get("mlp_kwargs", {})))
+        if "output_dim" not in data:
+            raise ValueError("MLPEmbedderConfig requires an explicit 'output_dim'.")
+        return cls(output_dim=data["output_dim"], mlp_kwargs=dict(data.get("mlp_kwargs", {})))
 
 
 def _embedder_to_dict(embedder: MLPEmbedderConfig | None) -> dict[str, JsonValue] | None:

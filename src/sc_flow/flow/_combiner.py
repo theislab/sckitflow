@@ -220,8 +220,9 @@ class ConcatCombiner(BaseCombiner):
 class Resnet1dCombiner(BaseCombiner):
     """Class for residual network based combiner layers.
 
-    Its per-layer hyperparameters go in the ``resnet_kwargs`` dict; via a spec they are passed as
-    ``{"type": "sc_flow.resnet1d", "version": 1, "config": {"resnet_kwargs": {...}}}``.
+    ``num_resnet_layers`` (the residual depth) is a required, explicit hyperparameter — there is no hidden
+    default. Any other per-layer :class:`Resnet1d` knobs go in ``resnet_kwargs``; via a spec these are
+    ``{"type": "sc_flow.resnet1d", "version": 1, "config": {"num_resnet_layers": 3, "resnet_kwargs": {...}}}``.
     """
 
     def __init__(
@@ -229,6 +230,8 @@ class Resnet1dCombiner(BaseCombiner):
         latent_state_dim: int,
         latent_time_dim: int,
         latent_condition_dim: int | None = None,
+        *,
+        num_resnet_layers: int,
         resnet_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Initializes the resnet based combiner.
@@ -245,7 +248,11 @@ class Resnet1dCombiner(BaseCombiner):
             where only state and time are combined.
         :type latent_condition_dim: class: `int | None`
 
-        :param resnet_kwargs: Additional key-word arguments used to initialize the :class: `Resnet1d` object.
+        :param num_resnet_layers: Residual depth (required, no default).
+        :type num_resnet_layers: class: `int`
+
+        :param resnet_kwargs: Additional (optional) key-word arguments used to initialize the
+            :class: `Resnet1d` object. Must not contain ``num_resnet_layers`` (a dedicated argument).
         :type resnet_kwargs: class: `dict[str, Any]`
         """
         super().__init__(
@@ -253,6 +260,7 @@ class Resnet1dCombiner(BaseCombiner):
             latent_time_dim,
             latent_condition_dim,
         )
+        self._num_resnet_layers = num_resnet_layers
         self._resnet_kwargs = {} if resnet_kwargs is None else resnet_kwargs
 
         self._resnet = self._make_modules()
@@ -265,6 +273,7 @@ class Resnet1dCombiner(BaseCombiner):
         return Resnet1d(
             self._latent_state_dim,
             self.embedding_dim,
+            self._num_resnet_layers,
             **self._resnet_kwargs,
         )
 
@@ -333,11 +342,13 @@ class ConcatCombinerConfig:
 class Resnet1dCombinerConfig:
     """Config for :class:`Resnet1dCombiner`.
 
-    ``resnet_kwargs`` are the JSON-only :class:`~sc_flow.core.nn.Resnet1d` hyperparameters (e.g.
-    ``num_resnet_layers``, ``activation_cls`` as an activation *id* string, ``dropout_p``). The velocity
-    field supplies the ``input_dim`` / ``embedding_dim``, so those must not appear here.
+    ``num_resnet_layers`` (residual depth) is an explicit, required field — no hidden default, so the width
+    is always recorded in a saved config. ``resnet_kwargs`` are the other JSON-only
+    :class:`~sc_flow.core.nn.Resnet1d` knobs (e.g. ``activation_cls`` as an activation *id* string,
+    ``dropout_p``); the velocity field supplies ``input_dim`` / ``embedding_dim``, so those must not appear.
     """
 
+    num_resnet_layers: int
     resnet_kwargs: dict[str, JsonValue] = field(default_factory=dict)
 
 
@@ -354,6 +365,7 @@ def _resnet1d_factory(config: Resnet1dCombinerConfig, context: CombinerContext) 
         context.latent_state_dim,
         context.latent_time_dim,
         latent_condition_dim=context.latent_condition_dim,
+        num_resnet_layers=config.num_resnet_layers,
         resnet_kwargs=dict(config.resnet_kwargs),
     )
 

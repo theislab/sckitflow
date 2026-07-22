@@ -41,6 +41,12 @@ class FlowMatching:
         time_encoder_dims: Sequence[int] | None = None,
         condition_embedding_dim: int = 64,
         condition_mode: str = "deterministic",
+        state_latent_dim: int = 32,
+        time_latent_dim: int = 16,
+        source_latent_dim: int = 16,
+        time_features_id: str | None = None,
+        num_time_features: int = 256,
+        max_period: int = 1_000,
         regularization: float = 1.0,
         sigma: float = 0.0,
         pooling: PoolingSpec,
@@ -57,6 +63,14 @@ class FlowMatching:
         self.time_encoder_dims = None if time_encoder_dims is None else tuple(time_encoder_dims)
         self.condition_embedding_dim = condition_embedding_dim
         self.condition_mode = condition_mode
+        # Latent widths + time-feature knobs the facade passes EXPLICITLY to the velocity field. The
+        # low-level VF has no hidden defaults for these; these facade-level values are the only defaults.
+        self.state_latent_dim = state_latent_dim
+        self.time_latent_dim = time_latent_dim
+        self.source_latent_dim = source_latent_dim
+        self.time_features_id = time_features_id
+        self.num_time_features = num_time_features
+        self.max_period = max_period
         self.regularization = regularization
         self.sigma = sigma
         self.pooling = validate_pooling_spec(pooling)
@@ -83,10 +97,16 @@ class FlowMatching:
         vf_kwargs: dict[str, Any] = {
             "state_dim": int(dims.state),
             "combiner": {"type": "sc_flow.concat", "version": 1, "config": {}},
-            "state_embedder": MLPEmbedderConfig(mlp_kwargs={"hidden_dims": self.hidden_dims}),
-            "time_embedder": MLPEmbedderConfig(
-                mlp_kwargs={"hidden_dims": self.time_encoder_dims} if self.time_encoder_dims is not None else {}
+            "state_embedder": MLPEmbedderConfig(
+                output_dim=int(self.state_latent_dim), mlp_kwargs={"hidden_dims": self.hidden_dims}
             ),
+            "time_embedder": MLPEmbedderConfig(
+                output_dim=int(self.time_latent_dim),
+                mlp_kwargs={"hidden_dims": self.time_encoder_dims} if self.time_encoder_dims is not None else {},
+            ),
+            "time_features_id": self.time_features_id,
+            "num_time_features": self.num_time_features,
+            "max_period": self.max_period,
         }
         if self.decoder_dims is not None:
             vf_kwargs["vf_decoder_mlp_kwargs"] = {"hidden_dims": self.decoder_dims}
@@ -105,6 +125,7 @@ class FlowMatching:
             # the source encoder. G1 is same-space — the source cell is the state source, so it is sized by
             # the state dim; the coupling reps (if any) only drive the OT plan. (Cross-space source is G2.)
             vf_kwargs["source_embedder"] = MLPEmbedderConfig(
+                output_dim=int(self.source_latent_dim),
                 mlp_kwargs={"input_dim": int(dims.state), "hidden_dims": self.hidden_dims}
             )
         return MLPVelocity(**vf_kwargs)
@@ -458,6 +479,12 @@ class FlowMatching:
         "time_encoder_dims",
         "condition_embedding_dim",
         "condition_mode",
+        "state_latent_dim",
+        "time_latent_dim",
+        "source_latent_dim",
+        "time_features_id",
+        "num_time_features",
+        "max_period",
         "regularization",
         "sigma",
         "pooling",

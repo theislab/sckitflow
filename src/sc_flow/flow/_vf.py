@@ -1,4 +1,5 @@
 import abc
+from dataclasses import dataclass, field
 from typing import Any
 
 import torch
@@ -21,8 +22,23 @@ from sc_flow.flow._time_features import get_time_features_fn
 
 __all__ = [
     "BaseVelocityField",
+    "MLPEmbedderConfig",
     "MLPVelocity",
 ]
+
+
+@dataclass
+class MLPEmbedderConfig:
+    """Config for the optional MLP that embeds one vector stream into a latent width.
+
+    Used for the velocity field's ``state_embedder`` / ``time_embedder`` / ``source_embedder`` slots.
+    ``None`` in a slot skips the embedder and passes that stream through raw. The velocity field supplies
+    the MLP ``input_dim`` (it knows each stream's width), so this config only carries the target
+    ``output_dim`` (``None`` → a per-stream default) and any extra :class:`~sc_flow.core.nn.MLP` kwargs.
+    """
+
+    output_dim: int | None = None
+    mlp_kwargs: dict[str, Any] = field(default_factory=dict)
 
 
 class BaseVelocityField(BaseModule):
@@ -77,20 +93,15 @@ class MLPVelocity(BaseVelocityField):
     def __init__(
         self,
         state_dim: int,
-        encode_state: bool = True,
-        encode_time: bool = True,
+        state_embedder: MLPEmbedderConfig | None = None,
+        time_embedder: MLPEmbedderConfig | None = None,
+        source_embedder: MLPEmbedderConfig | None = None,
         time_features_id: TimeFeaturesId | None = None,
         num_time_features: int | None = None,
         max_period: int | None = None,
-        state_encoder_output_dim: int | None = None,
-        time_encoder_output_dim: int | None = None,
-        state_encoder_mlp_kwargs: LayersDict | None = None,
-        time_encoder_mlp_kwargs: LayersDict | None = None,
         vf_decoder_mlp_kwargs: LayersDict | None = None,
         combiner: CombinerId | BaseCombiner | None = None,
         condition_encoder: SetEncoder | None = None,
-        source_encoder_mlp_kwargs: LayersDict | None = None,
-        source_encoder_output_dim: int | None = None,
     ) -> None:
         """Initializes the velocity field with the given settings.
 
@@ -98,13 +109,20 @@ class MLPVelocity(BaseVelocityField):
             dynamics is defined.
         :type state_dim: class: `int`
 
-        :param encode_state: (Optional) Whether to initilize an :class: `MLP` for
-            encoding the states. Defaults to `True`.
-        :type encode_state: class: `bool`
+        :param state_embedder: (Optional) :class: `MLPEmbedderConfig` for the MLP that embeds the state
+            ``x`` into a latent width (default output dim :constant: `DEFAULT_VF_LATENT_STATE_DIM`).
+            ``None`` passes the raw state through.
+        :type state_embedder: class: `MLPEmbedderConfig | None`
 
-        :param encode_time: (Optional) Whether to initilize an :class: `MLP` for
-            encoding the time index. Defaults to `True`.
-        :type encode_time: class: `bool`
+        :param time_embedder: (Optional) :class: `MLPEmbedderConfig` for the MLP that embeds the time
+            features into a latent width (default output dim :constant: `DEFAULT_VF_LATENT_TIME_DIM`).
+            ``None`` passes the raw time features through.
+        :type time_embedder: class: `MLPEmbedderConfig | None`
+
+        :param source_embedder: (Optional) :class: `MLPEmbedderConfig` for the MLP that embeds the source
+            state (used by GENOT to condition on the source cell; default output dim
+            :constant: `DEFAULT_SOURCE_ENCODER_OUTPUT_DIM`). ``None`` (default) means no source embedder.
+        :type source_embedder: class: `MLPEmbedderConfig | None`
 
         :param time_features_id: (Optional) The identifier for the chosen time features.
             Could be set to any of the string identifiers for predefined time features,
@@ -121,28 +139,6 @@ class MLPVelocity(BaseVelocityField):
             Only used when :param: `time_features_id` is set to `"log-sinusoidal"`, ignored otherwise.
             When not provided, it will be set to :constant: `sc_flow._constants.DEFAULT_TIME_FEATURES_MAX_PERIOD`. Defaults to `None`.
         :type max_period: class: `int | None`
-
-        :param state_encoder_output_dim: (Optional) The output dimensionality for the state encoder, only used when :param: `encode_state`
-            is set to `True`. When `None` it will be set to :constant: `sc_flow._constants.DEFAULT_VF_LATENT_STATE_DIM`.
-            Defaults to `None`.
-        :type state_encoder_output_dim: class: `int | None`
-
-        :param time_encoder_output_dim: (Optional) The output dimensionality for the time encoder, only used when :param: `encode_time`
-            is set to `True`. When `None` it will be set to :constant: `sc_flow._constants.DEFAULT_VF_LATENT_TIME_DIM`.
-            Defaults to `None`.
-        :type time_encoder_output_dim: class: `int | None`
-
-        :param state_encoder_mlp_kwargs: (Optional) Keyword arguments used for initializing the state encoder. When used, its key-value pairs
-            should match the signature of the `__init__` method of the :class: `MLP` class, raise :class: `TypeError` otherwise.
-            Only used when :param: `encode_state` is set to `True`. When `None` it will be set to an empty dictionary,
-            hence falling back to the default configurations defined directly in :class: `MLP`. Defaults to `None`.
-        :type state_encoder_mlp_kwargs: class: `dict[str, Any] | None`
-
-        :param time_encoder_mlp_kwargs: (Optional) Keyword arguments used for initializing the time encoder. When used, its key-value pairs
-            should match the signature of the `__init__` method of the :class: `MLP` class, raise :class: `TypeError` otherwise.
-            Only used when :param: `encode_time` is set to `True`. When `None` it will be set to an empty dictionary,
-            hence falling back to the default configurations defined directly in :class: `MLP`. Defaults to `None`.
-        :type time_encoder_mlp_kwargs: class: `dict[str, Any] | None`
 
         :param vf_decoder_mlp_kwargs: (Optional) Keyword arguments used for initializing the velocity field decoder. Its key-value pairs
             should match the signature of the `__init__` method of the :class: `MLP` class, raise :class: `TypeError` otherwise.
@@ -164,42 +160,23 @@ class MLPVelocity(BaseVelocityField):
             in ``config.json`` and must be re-supplied at ``from_pretrained`` (or re-instantiated from the
             experiment config).
         :type condition_encoder: class: `SetEncoder | None`
-
-        :param source_encoder_mlp_kwargs: (Optional) Keyword arguments used to initialize
-            source state encoders when provided. This is needed to retain the information about the
-            source states when interpolating between noise and samples from the target distribution.
-            Defaults to `None`, in which case no source encoder will be initialized.
-        :type source_encoder_mlp_kwargs: class: `LayersDict`
-
-        :param source_encoder_output_dim: (Optional) Output dimensionality for the source state encoder.
-            Only used when encoding source states. Defaults to `None`.
-        :type source_encoder_output_dim: class: `int`
         """
         super().__init__()
         self._state_dim = state_dim
-        self._encode_state = encode_state
-        self._encode_time = encode_time
+        # Each stream embedder is presence-based: an MLPEmbedderConfig builds an MLP over that stream, None
+        # passes the raw stream through. state/time default off here; the FlowMatching facade turns them on.
+        self._state_embedder = state_embedder
+        self._time_embedder = time_embedder
+        self._source_embedder = source_embedder
         self._time_features_id = time_features_id
         self._num_time_features = num_time_features
         self._max_period = DEFAULT_TIME_FEATURES_MAX_PERIOD if max_period is None else max_period
-        self._state_encoder_output_dim = (
-            DEFAULT_VF_LATENT_STATE_DIM if state_encoder_output_dim is None else state_encoder_output_dim
-        )
-        self._time_encoder_output_dim = (
-            DEFAULT_VF_LATENT_TIME_DIM if time_encoder_output_dim is None else time_encoder_output_dim
-        )
-        self._state_encoder_mlp_kwargs = {} if state_encoder_mlp_kwargs is None else state_encoder_mlp_kwargs
-        self._time_encoder_mlp_kwargs = {} if time_encoder_mlp_kwargs is None else time_encoder_mlp_kwargs
         self._vf_decoder_mlp_kwargs = {} if vf_decoder_mlp_kwargs is None else vf_decoder_mlp_kwargs
         # A built-in name (str) is saved/restored via config.json; a custom BaseCombiner instance
         # is not saved (see BaseModule) and must be passed again to from_pretrained — otherwise the strict
         # weight load raises a clear mismatch error.
         self._combiner = combiner
         self._condition_encoder = condition_encoder
-        self._source_encoder_mlp_kwargs = source_encoder_mlp_kwargs
-        self._source_encoder_output_dim = (
-            DEFAULT_SOURCE_ENCODER_OUTPUT_DIM if source_encoder_output_dim is None else source_encoder_output_dim
-        )
 
         self._vf = self._make_modules()
 
@@ -214,36 +191,42 @@ class MLPVelocity(BaseVelocityField):
         return self._time_features_id is not None
 
     @property
-    def use_source_encoder(
+    def use_source_embedder(
         self,
     ) -> bool:
-        """Boolean flag indicating whether an MLP should be initialized to encode source states."""
-        return self._source_encoder_mlp_kwargs is not None
+        """Whether a source-state embedder is configured."""
+        return self._source_embedder is not None
+
+    @staticmethod
+    def _embed_output_dim(config: MLPEmbedderConfig | None, raw_dim: int, default_output_dim: int) -> int:
+        """Width of a stream after its optional embedder: the raw width when ``None``, else the config output."""
+        if config is None:
+            return raw_dim
+        return default_output_dim if config.output_dim is None else config.output_dim
 
     @property
-    def _source_encoder_input_dim(self) -> int:
-        """Returns the input dimensionality for the source encoder.
+    def _source_embedder_input_dim(self) -> int:
+        """Input width for the source embedder (``mlp_kwargs['input_dim']`` if given, else ``state_dim``)."""
+        input_dim = self._source_embedder.mlp_kwargs.get("input_dim") if self._source_embedder is not None else None
+        return self._state_dim if input_dim is None else input_dim
 
-        When not explicitly specified in :attr: `self._source_encoder_mlp_kwargs`, it will be
-        automatically retrieved from :attr: `self._state_dim`
-        """
-        input_dim = self._source_encoder_mlp_kwargs.get("input_dim", None)
-        if input_dim is None:
-            return self._state_dim
-        return input_dim
+    @property
+    def _source_embedder_output_dim(self) -> int:
+        """Output width of the source embedder."""
+        return self._embed_output_dim(
+            self._source_embedder, self._source_embedder_input_dim, DEFAULT_SOURCE_ENCODER_OUTPUT_DIM
+        )
 
     @property
     def _combiner_dim(
         self,
     ) -> int | None:
-        """Returns the dimensionality for the condition input of the combiner layers."""
-        if self.is_conditional and self.use_source_encoder:
-            return self._condition_encoder.output_dim + self._source_encoder_output_dim
-        elif self.is_conditional and (not self.use_source_encoder):
-            return self._condition_encoder.output_dim
-        elif self.use_source_encoder:
-            return self._source_encoder_output_dim
-        return None
+        """Latent width of the condition input fed to the combiner (condition embedding, plus source, or None)."""
+        cond = self._condition_encoder.output_dim if self.is_conditional else None
+        src = self._source_embedder_output_dim if self.use_source_embedder else None
+        if cond is not None and src is not None:
+            return cond + src
+        return cond if cond is not None else src
 
     def _get_num_time_features(
         self,
@@ -284,11 +267,11 @@ class MLPVelocity(BaseVelocityField):
         source: torch.Tensor | None,
     ) -> torch.Tensor | None:
         """Retrieves the encoded source states."""
-        if self.use_source_encoder:
+        if self.use_source_embedder:
             if source is None:
-                msg = "When using source encoder a source state should be passed, found `None`."
+                msg = "When using a source embedder a source state should be passed, found `None`."
                 raise TypeError(msg)
-            return self._vf["source_encoder"](source)
+            return self._vf["source_embedder"](source)
         return None
 
     def _get_combiner_input(
@@ -320,37 +303,17 @@ class MLPVelocity(BaseVelocityField):
         )
         return FunctionalModule(time_features_fn)
 
-    def _make_time_encoder(
+    def _make_embedder(
         self,
+        config: MLPEmbedderConfig | None,
+        input_dim: int,
+        default_output_dim: int,
     ) -> BaseModule | torch.nn.Identity:
-        """Initializes the optional time encoder.
-
-        When :param: `encode_time` is set to `True` it will initialize a :class: `MLP` with the configurations
-        specified in :param: `time_encoder_mlp_kwargs`. Returns an instance of :class: `torch.nn.Identity` otherwise.
-        """
-        if self._encode_time:
-            return init_module_from_dict(
-                self._time_encoder_mlp_kwargs,
-                input_dim=self._get_num_time_features(),
-                output_dim=self._time_encoder_output_dim,
-            )
-        return torch.nn.Identity()
-
-    def _make_state_encoder(
-        self,
-    ) -> BaseModule | torch.nn.Identity:
-        """Initializes the optional state encoder.
-
-        When :param: `encode_state` is set to `True` it will initialize a :class: `MLP` with the configurations
-        specified in :param: `state_encoder_mlp_kwargs`. Returns an instance of :class: `torch.nn.Identity` otherwise.
-        """
-        if self._encode_state:
-            return init_module_from_dict(
-                self._state_encoder_mlp_kwargs,
-                input_dim=self._state_dim,
-                output_dim=self._state_encoder_output_dim,
-            )
-        return torch.nn.Identity()
+        """Builds a stream embedder MLP from its config, or :class:`torch.nn.Identity` when the slot is ``None``."""
+        if config is None:
+            return torch.nn.Identity()
+        output_dim = default_output_dim if config.output_dim is None else config.output_dim
+        return init_module_from_dict(dict(config.mlp_kwargs), input_dim=input_dim, output_dim=output_dim)
 
     def _injected_submodule_slots(self) -> dict[str, str]:
         """Reports the ``combiner`` slot when it holds a custom instance (see :meth:`BaseModule.save_pretrained`)."""
@@ -362,8 +325,8 @@ class MLPVelocity(BaseVelocityField):
     def _combiner_dims(self) -> tuple[int, int, int | None]:
         """The ``(latent_state, latent_time, latent_condition)`` dims the combiner layer must accept."""
         return (
-            self._state_encoder_output_dim if self._encode_state else self._state_dim,
-            self._time_encoder_output_dim if self._encode_time else self._get_num_time_features(),
+            self._embed_output_dim(self._state_embedder, self._state_dim, DEFAULT_VF_LATENT_STATE_DIM),
+            self._embed_output_dim(self._time_embedder, self._get_num_time_features(), DEFAULT_VF_LATENT_TIME_DIM),
             self._combiner_dim,
         )
 
@@ -410,23 +373,6 @@ class MLPVelocity(BaseVelocityField):
             output_dim=self._state_dim,
         )
 
-    def _make_source_encoder(
-        self,
-    ) -> BaseModule:
-        """Initializes the source state encoder when the required settings are passed."""
-        if not self.use_source_encoder:
-            msg = (
-                "To initialize the source encoder you have to pass"
-                "the `source_encoder_mlp_kwargs` argument, `None` found."
-            )
-            raise TypeError(msg)
-
-        return init_module_from_dict(
-            self._source_encoder_mlp_kwargs,
-            input_dim=self._source_encoder_input_dim,
-            output_dim=self._source_encoder_output_dim,
-        )
-
     def _make_modules(
         self,
     ) -> torch.nn.Module:
@@ -436,14 +382,18 @@ class MLPVelocity(BaseVelocityField):
         """
         modules = {
             "time_features": self._make_time_features(),
-            "time_encoder": self._make_time_encoder(),
-            "state_encoder": self._make_state_encoder(),
+            "time_embedder": self._make_embedder(
+                self._time_embedder, self._get_num_time_features(), DEFAULT_VF_LATENT_TIME_DIM
+            ),
+            "state_embedder": self._make_embedder(self._state_embedder, self._state_dim, DEFAULT_VF_LATENT_STATE_DIM),
             "combiner": self._make_combiner(),
         }
         if self.is_conditional:
             modules["condition_encoder"] = self._condition_encoder
-        if self.use_source_encoder:
-            modules["source_encoder"] = self._make_source_encoder()
+        if self.use_source_embedder:
+            modules["source_embedder"] = self._make_embedder(
+                self._source_embedder, self._source_embedder_input_dim, DEFAULT_SOURCE_ENCODER_OUTPUT_DIM
+            )
         modules["vf_decoder"] = self._make_vf_decoder(
             modules["combiner"].output_dim,
         )
@@ -488,8 +438,8 @@ class MLPVelocity(BaseVelocityField):
         stochastic encoder's noise draw consistent between the velocity and its KL regularization.
         :meth:`forward` is this composed with :meth:`condition_stats`.
         """
-        encoded_xt = self._vf["state_encoder"](x)
-        encoded_t = self._vf["time_encoder"](self._vf["time_features"](t))
+        encoded_xt = self._vf["state_embedder"](x)
+        encoded_t = self._vf["time_embedder"](self._vf["time_features"](t))
         encoded_source = self._get_encoded_source(source)
         encoded_concat = self._vf["combiner"](
             encoded_t, encoded_xt, encoded_condition=self._get_combiner_input(cond_embedding, encoded_source)

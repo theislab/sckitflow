@@ -4,7 +4,7 @@ from __future__ import annotations
 import copy
 import logging
 import os
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -12,8 +12,7 @@ import anndata as ad
 import numpy as np
 import pandas as pd
 
-from sc_flow.data._encoders import Encoder
-from sc_flow.data.containers._categorical import CategoricalData
+from sc_flow.data._encoders import Encoder, Label, Lookup, OneHot
 from sc_flow.data.schemas._condition_data_schema import ConditionDataSchema
 from sc_flow.data.schemas._coupling_data_schema import CouplingDataSchema
 from sc_flow.data.schemas._covariates_data_schema import CovariatesDataSchema
@@ -21,6 +20,7 @@ from sc_flow.data.schemas._state_data_schema import StateDataSchema
 
 if TYPE_CHECKING:
     from annbatch import DatasetCollection
+    from scfit.data import ConditionLookup
 
     # The cell source binded can stream from: in-memory / out-of-core / on-disk. Resolved by
     # ``binded._io.open_source``. Mirrors cellflow's ``DataInput``.
@@ -31,23 +31,27 @@ __all__ = ["compile_obs", "CompiledData", "CompiledDims"]
 logger = logging.getLogger("sc_flow.data")
 
 Leaf = tuple[Any, ...]
-ConditionFn = Callable[[Leaf], dict[str, np.ndarray]]
 
 
 @dataclass(frozen=True)
 class CompiledDims:
 
     state: int  # feature dim of the streamed state rep (``obsm/<rep>`` or ``X``)
-    condition: Mapping[str, int]  # condition realm -> encoding dim (trailing axis of condition_fn output)
+    #: feature realms (``condition_lookup`` emits a vector) -> its vector width. Categorical realms are NOT
+    #: here — they emit an integer index and are sized by :attr:`condition_num_categories` instead.
+    condition: Mapping[str, int]
+    #: categorical realms (``condition_lookup`` emits an int index) -> vocabulary size (sizes the model-side
+    #: embedding / one-hot). The model encoder kind (embedding vs one-hot) is chosen in the model config.
+    condition_num_categories: Mapping[str, int]
     max_comb: int  # combination slots (the set/pool axis length) shared across realms
     coupling: Mapping[str, int] | None = None  # coupling role -> rep feature dim (only differing reps)
 
 
 @dataclass(frozen=True)
 class CompiledData:
-
+    # TODO: type
     scheme: Any  # binded.Scheme
-    condition_fn: ConditionFn
+    condition_lookup: ConditionLookup  # leaf -> {realm: categorical index | feature vector}
     cols: tuple[str, ...]
     coupling: dict[str, str] | None = None  # coupling role -> streamed rep loc-string (see compile_obs)
     dims: CompiledDims | None = None  # data dimensionalities (headers + encoders); None only if unset
@@ -107,45 +111,54 @@ def compile_obs(
     source = open_source(data, keys=data_keys, cols=data_cols)
     obs = obs_columns(source, data_cols)
 
-    def _fit_encoders(encoder_map: Mapping[str, Encoder], realm_to_cols: dict) -> dict[str, Encoder]:
-        # Fit a COPY of each realm's encoder (never mutate the schema's objects): a lookup binds its
-        # rep_tables entry, a data-fit encoder fits ONCE on the union of the realm's columns' values across
-        # obs — so a per-leaf single value yields the full category-space encoding, not a dim-1 fit.
-        fitted: dict[str, Encoder] = {}
-        for realm, encoder in encoder_map.items():
-            union = obs[list(realm_to_cols[realm])].to_numpy().reshape(-1)
-            fitted[realm] = copy.deepcopy(encoder).fit(union, uns=rep_tables)
-        return fitted
-
-    # --- perturbation levels: a level's columns are its combination slots (stacked) ---
-    cond_reps_map = condition.categorical_reps_map
-    cond_encoders = _fit_encoders(condition.condition_encoders, condition.conditions)
-    cond_idx = [cols.index(c) for c in cond_cols]
-
-    # --- embedded covariates: one value per sample, tiled across the max_comb slots (cellflow's np.tile) ---
-    cov_reps_map = {c: c for c in cov_cols}  # each covariate is its own realm
-    cov_encoders = (
-        _fit_encoders(covariates.covariate_encoders, {c: [c] for c in cov_cols}) if covariates is not None else {}
-    )
-    cov_idx = [cols.index(c) for c in cov_cols]
-
     # combination length = the (shared) perturbation-level column count; covariates tile to it.
     max_comb = max((len(v) for v in condition.conditions.values()), default=1)
 
-    def condition_fn(leaf: Leaf) -> dict[str, np.ndarray]:
+    # Unified realm handling for conditions AND covariates. Each realm's dtype carries its kind: a
+    # categorical realm (``categorical()``, also legacy one_hot/label) emits an integer INDEX into a
+    # vocab enumerated here — the model owns the encoding (embedding / one-hot). A feature realm
+    # (``lookup()``) emits the looked-up VECTOR without changing its dtype. Conditions use their
+    # combinatorial slot columns; covariates are one value per sample, tiled across ``max_comb`` slots.
+    realm_columns: dict[str, list[str]] = {r: list(c) for r, c in condition.conditions.items()}
+    realm_tile: dict[str, bool] = dict.fromkeys(condition.conditions, False)
+    realm_encoders: dict[str, Encoder] = dict(condition.condition_encoders)
+    if covariates is not None:
+        for cov, encoder in covariates.covariate_encoders.items():
+            realm_columns[cov] = [cov]
+            realm_tile[cov] = True
+            realm_encoders[cov] = encoder
+
+    cat_vocab: dict[str, dict[str, int]] = {}
+    cat_num_categories: dict[str, int] = {}
+    feat_encoders: dict[str, Encoder] = {}
+    for realm, encoder in realm_encoders.items():
+        if isinstance(encoder, Label | OneHot):  # Categorical() is a Label subclass
+            categories = sorted({str(v) for v in obs[realm_columns[realm]].to_numpy().reshape(-1)})
+            cat_vocab[realm] = {v: i for i, v in enumerate(categories)}
+            cat_num_categories[realm] = len(categories)
+        elif isinstance(encoder, Lookup):
+            feat_encoders[realm] = copy.deepcopy(encoder).fit(uns=rep_tables)
+        else:
+            raise ValueError(
+                f"realm {realm!r}: unsupported encoder {type(encoder).__name__}; use categorical() (-> index) "
+                f"or lookup() (-> feature vector)."
+            )
+    col_idx = {c: cols.index(c) for c in cols}
+
+    def condition_lookup(leaf: Leaf) -> dict[str, np.ndarray]:
         out: dict[str, np.ndarray] = {}
-        if cond_cols:
-            row = pd.DataFrame([{c: leaf[i] for c, i in zip(cond_cols, cond_idx, strict=True)}])
-            cat = CategoricalData.from_pandas(row, encoders=cond_encoders, categorical_reps_map=cond_reps_map)
-            out.update({k: np.asarray(v, dtype=np.float32) for k, v in cat.extract_reps().mapping.items()})
-        if cov_cols:
-            srow = pd.DataFrame([{c: leaf[i] for c, i in zip(cov_cols, cov_idx, strict=True)}])
-            scat = CategoricalData.from_pandas(srow, encoders=cov_encoders, categorical_reps_map=cov_reps_map)
-            for cov, v in scat.extract_reps().mapping.items():
-                v = np.asarray(v, dtype=np.float32)  # (1, 1, dim) — one covariate value
-                if max_comb > v.shape[1]:
-                    v = np.repeat(v, max_comb, axis=1)  # tile across the max_comb combination slots
-                out[cov] = v
+        for realm, rcols in realm_columns.items():
+            slots = [leaf[col_idx[c]] for c in rcols]
+            if realm in cat_vocab:  # categorical -> (1, set) integer index
+                idx = np.asarray([cat_vocab[realm][str(v)] for v in slots])
+                if realm_tile[realm] and max_comb > idx.shape[0]:
+                    idx = np.repeat(idx, max_comb)  # covariate: tile the single value across slots
+                out[realm] = idx[np.newaxis, :]
+            else:  # feature (lookup) -> (1, set, dim), preserving the table's dtype
+                vecs = np.stack([np.asarray(feat_encoders[realm].transform(np.array([v]))).reshape(-1) for v in slots])
+                if realm_tile[realm] and max_comb > vecs.shape[0]:
+                    vecs = np.repeat(vecs, max_comb, axis=0)
+                out[realm] = vecs[np.newaxis, ...]
         return out
 
     # --- pert (target) leaves, and ctrl (source) leaves from wherever the controls live ---
@@ -213,18 +226,23 @@ def compile_obs(
         seed=seed,
     )
 
-    # --- dimensionalities: array headers (no cells) + one condition_fn lookup (no sampler) ---
-    # state/coupling reps come from `key_backings(...).shape[1]`; condition realm dims from running the
-    # fitted condition_fn on one target leaf (label lookup only). Sizes the VF without touching a batch.
+    # --- dimensionalities: array headers (no cells) + one condition_lookup probe (no sampler) ---
+    # state/coupling reps come from `key_backings(...).shape[1]`; feature-realm dims from probing
+    # condition_lookup on one target leaf; categorical realms are sized by their vocab. No batch touched.
     state_dim = int(key_backings(source, key)[0].shape[1])
-    cond_dims: dict[str, int] = {}
+    cond_feature_dims: dict[str, int] = {}
     if pert:
-        cond_dims = {realm: int(arr.shape[-1]) for realm, arr in condition_fn(pert[0]).items()}
+        probe = condition_lookup(pert[0])
+        cond_feature_dims = {r: int(v.shape[-1]) for r, v in probe.items() if r not in cat_num_categories}
     coupling_dims = {role: int(key_backings(source, loc)[0].shape[1]) for role, loc in coupling_locs.items()}
     dims = CompiledDims(
-        state=state_dim, condition=cond_dims, max_comb=int(max_comb), coupling=coupling_dims or None
+        state=state_dim,
+        condition=cond_feature_dims,
+        condition_num_categories=dict(cat_num_categories),
+        max_comb=int(max_comb),
+        coupling=coupling_dims or None,
     )
 
     return CompiledData(
-        scheme=scheme, condition_fn=condition_fn, cols=cols, coupling=coupling_locs or None, dims=dims
+        scheme=scheme, condition_lookup=condition_lookup, cols=cols, coupling=coupling_locs or None, dims=dims
     )

@@ -7,7 +7,7 @@ categorical single / combination / one-hot conditions and tiled sample covariate
 
 The ``builds``/``embeds`` flags gate cases not yet supported (as ``xfail``); currently all
 listed cases pass. Continuous "paired" covariates (per-cell ``obsm``) are out of scope here
-by design — they're streamed as extra Node keys, not a ``condition_fn`` lookup.
+by design — they're streamed as extra Node keys, not a ``condition_lookup``.
 """
 
 from __future__ import annotations
@@ -135,7 +135,7 @@ class TestCompileObsParity:
         assert ours.scheme.binds[0].common == ref.scheme.binds[0].common
 
     def test_condition_embedding_parity(self, pert, reps, split, samp, samp_reps, builds, embeds, reason):
-        """encoder layer: our condition_fn(leaf) == cellflow's, per group, per leaf."""
+        """Encoder layer: our condition_lookup(leaf) equals cellflow's legacy callback per leaf."""
         if not (builds and embeds):
             pytest.xfail(reason)
         adata = _make_adata()
@@ -143,7 +143,7 @@ class TestCompileObsParity:
         ours = _compile_ours(adata, pert, reps, split, samp, samp_reps)
 
         for leaf in ref.scheme.nodes["pert"].weights:  # same cols ordering both sides
-            ours_emb = ours.condition_fn(leaf)
+            ours_emb = ours.condition_lookup(leaf)
             ref_emb = ref.condition_fn(leaf)
             assert set(ours_emb) == set(ref_emb)
             for group in ref_emb:

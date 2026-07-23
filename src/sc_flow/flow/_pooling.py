@@ -23,18 +23,28 @@ __all__ = [
     "validate_pooling_spec",
 ]
 
-#: A pooling spec is a :class:`~sc_flow.core.ComponentSpec` — the slot (``pooling``) fixes the family.
+#: A pooling spec is a :class:`~scfit.ComponentSpec` — the slot (``pooling``) fixes the family.
 PoolingSpec = ComponentSpec
 
+#: Closed built-in pooling family on the shared registry machinery. ``mean``/``sum`` are parameter-free;
+#: token/seed attention carry weights and differing output-dim contracts, which is exactly why pooling is a
+#: discriminated spec rather than a flat enum. Each config owns its ``build(self, context)``; the runtime
+#: module classes it constructs are defined below (referenced lazily). Not (yet) open to third parties.
+POOLING_REGISTRY: ComponentRegistry[PoolingContext] = ComponentRegistry("pooling")
 
+
+@POOLING_REGISTRY.register("sc_flow.mean")
 @dataclass(frozen=True)
 class MeanPoolingConfig:
-    ...
+    def build(self, context: PoolingContext) -> BasePooling:
+        return MeanPooling(context.input_dim)
 
 
+@POOLING_REGISTRY.register("sc_flow.sum")
 @dataclass(frozen=True)
 class SumPoolingConfig:
-    ...
+    def build(self, context: PoolingContext) -> BasePooling:
+        return SumPooling(context.input_dim)
 
 
 def _validate_attention_config(
@@ -60,6 +70,7 @@ def _validate_attention_config(
         raise ValueError("layer_norm and ff_dim only apply when transformer_block=True.")
 
 
+@POOLING_REGISTRY.register("sc_flow.attention_token")
 @dataclass(frozen=True)
 class TokenAttentionPoolingConfig:
 
@@ -83,7 +94,11 @@ class TokenAttentionPoolingConfig:
         if self.num_layers <= 0:
             raise ValueError(f"num_layers must be positive, found {self.num_layers}.")
 
+    def build(self, context: PoolingContext) -> BasePooling:
+        return TokenAttentionPooling(context.input_dim, self)
 
+
+@POOLING_REGISTRY.register("sc_flow.attention_seed")
 @dataclass(frozen=True)
 class SeedAttentionPoolingConfig:
 
@@ -106,6 +121,9 @@ class SeedAttentionPoolingConfig:
         )
         if self.seed_dim <= 0:
             raise ValueError(f"seed_dim must be positive, found {self.seed_dim}.")
+
+    def build(self, context: PoolingContext) -> BasePooling:
+        return SeedAttentionPooling(context.input_dim, self)
 
 
 PoolingConfig = MeanPoolingConfig | SumPoolingConfig | TokenAttentionPoolingConfig | SeedAttentionPoolingConfig
@@ -332,32 +350,6 @@ class SeedAttentionPooling(BasePooling):
             attended = self.attention_norm(query + F.dropout(attended, p=self.dropout, training=self.training))
             attended = self.ff_norm(attended + F.dropout(self.ff(attended), p=self.dropout, training=self.training))
         return attended.squeeze(1)
-
-
-def _mean_factory(config: MeanPoolingConfig, context: PoolingContext) -> BasePooling:
-    return MeanPooling(context.input_dim)
-
-
-def _sum_factory(config: SumPoolingConfig, context: PoolingContext) -> BasePooling:
-    return SumPooling(context.input_dim)
-
-
-def _token_factory(config: TokenAttentionPoolingConfig, context: PoolingContext) -> BasePooling:
-    return TokenAttentionPooling(context.input_dim, config)
-
-
-def _seed_factory(config: SeedAttentionPoolingConfig, context: PoolingContext) -> BasePooling:
-    return SeedAttentionPooling(context.input_dim, config)
-
-
-#: Closed built-in pooling family on the shared registry machinery. ``mean``/``sum`` are parameter-free;
-#: token/seed attention carry weights and differing output-dim contracts, which is exactly why pooling is a
-#: discriminated spec rather than a flat enum. Not (yet) opened to third-party providers.
-POOLING_REGISTRY: ComponentRegistry[PoolingContext] = ComponentRegistry("pooling")
-POOLING_REGISTRY.register("sc_flow.mean", config_type=MeanPoolingConfig, build=_mean_factory)
-POOLING_REGISTRY.register("sc_flow.sum", config_type=SumPoolingConfig, build=_sum_factory)
-POOLING_REGISTRY.register("sc_flow.attention_token", config_type=TokenAttentionPoolingConfig, build=_token_factory)
-POOLING_REGISTRY.register("sc_flow.attention_seed", config_type=SeedAttentionPoolingConfig, build=_seed_factory)
 
 
 def validate_pooling_spec(spec: PoolingSpec | Mapping[str, Any]) -> PoolingSpec:

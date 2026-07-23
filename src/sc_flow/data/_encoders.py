@@ -8,7 +8,11 @@ import numpy as np
 from scipy.sparse import csr_matrix
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
-__all__ = ["Encoder", "OneHot", "Label", "Lookup", "Functional", "one_hot", "label", "lookup", "functional"]
+__all__ = [
+    "Encoder", "Categorical", "OneHot", "Label", "Lookup", "Functional",
+    "categorical", "one_hot", "label", "lookup", "functional",
+    "build_encoder",
+]
 
 
 def _as_1d(values: np.ndarray) -> np.ndarray:
@@ -72,6 +76,13 @@ class Label(_SklearnEncoder):
         return self._est.inverse_transform(_as_1d(arr))
 
 
+class Categorical(Label):
+    """Canonical data-side declaration that a realm is **categorical**: the dataloader emits an integer
+    index and the *model* owns the encoding (learned embedding or one-hot — chosen in the model config).
+    ``one_hot``/``label`` remain as aliases meaning the same thing on the data side now.
+    """
+
+
 class Functional(_SklearnEncoder):
 
     def __init__(self, fn: Callable | None = None, inv: Callable | None = None) -> None:
@@ -115,6 +126,11 @@ class Lookup(Encoder):
         return np.array([keys[i] for i in idx], dtype=object)
 
 
+def categorical() -> Categorical:
+    """A categorical realm → the model receives an integer index (embeds/one-hots it). Canonical."""
+    return Categorical()
+
+
 def one_hot() -> OneHot:
     return OneHot()
 
@@ -129,3 +145,23 @@ def lookup(uns_key: str) -> Lookup:
 
 def functional(fn: Callable | None = None, inv: Callable | None = None) -> Functional:
     return Functional(fn=fn, inv=inv)
+
+
+def build_encoder(spec: str) -> Encoder:
+    """Resolve a string data-side encoder ``spec`` to an :class:`Encoder` (the config-driven counterpart
+    of the model-side ``build_realm_encoder``, so a pipeline author never hand-writes ``_make_encoder``).
+
+    Recognized: ``"categorical"`` / ``"one_hot"`` / ``"label"`` (parameter-free) and ``"lookup:<uns_key>"``
+    (the looked-up feature table in ``adata.uns[<uns_key>]``).
+    """
+    if spec == "categorical":
+        return categorical()
+    if spec == "one_hot":
+        return one_hot()
+    if spec == "label":
+        return label()
+    if spec.startswith("lookup:"):
+        return lookup(spec.split(":", 1)[1])
+    raise ValueError(
+        f"unknown encoder spec {spec!r}; expected 'categorical', 'one_hot', 'label', or 'lookup:<uns_key>'."
+    )

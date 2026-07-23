@@ -31,9 +31,6 @@ dependencies = [
   # (entry points) instead of a hard dependency.
   "scfit",
   "cloudpickle",
-  # Hub model sharing (save_pretrained / from_pretrained / push_to_hub) for every nn.Module via
-  # core.nn.BaseModule's PyTorchModelHubMixin; safetensors is the mixin's weight-serialization backend.
-  "huggingface-hub",
   "omegaconf",
   "safetensors",
   "scikit-learn",

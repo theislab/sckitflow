@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from scfit.training._predictor import Predictor, register_predictor
+from scfit.training._predictor import Predictor
 
 __all__ = ["integrate_translation", "condition_mask_to_device", "condition_to_device", "ODEPredictor"]
 
@@ -17,8 +17,15 @@ def _as_f32(v: Any, device: Any) -> torch.Tensor:
     return torch.as_tensor(np.asarray(v, dtype=np.float32), device=device)
 
 
+def _to_condition(v: Any, device: Any) -> torch.Tensor:
+    """Move a condition array to ``device`` preserving its kind — an integer index (categorical realm)
+    becomes ``long``, a float feature vector becomes float32. Mirrors the train-time transport."""
+    t = v.to(device=device) if isinstance(v, torch.Tensor) else torch.as_tensor(np.asarray(v), device=device)
+    return t.to(torch.float32) if t.is_floating_point() else t.to(torch.long)
+
+
 def condition_to_device(condition: dict[str, Any], device: Any) -> dict[str, torch.Tensor]:
-    return {k: _as_f32(v, device) for k, v in condition.items()}
+    return {k: _to_condition(v, device) for k, v in condition.items()}
 
 
 def condition_mask_to_device(condition_mask: dict[str, Any], device: Any) -> dict[str, torch.Tensor]:
@@ -46,6 +53,7 @@ def integrate_translation(
 
     if is_genot:
         # y0 = latent ~ N(0, I) in the target/generated space; the cells condition the field.
+        # TODO: review this reprod pattern
         gen = torch.Generator().manual_seed(int(seed))
         y0 = torch.randn(src.shape[0], int(state_dim), generator=gen).to(device=device)
         source_cells: torch.Tensor | None = src
@@ -65,7 +73,6 @@ def integrate_translation(
     return trajectory if return_trajectory else trajectory[-1]
 
 
-@register_predictor("ode")
 class ODEPredictor(Predictor):
 
     def __init__(self, *, is_genot: bool, state_dim: int, num_steps: int = 50, seed: int = 0) -> None:
@@ -75,6 +82,18 @@ class ODEPredictor(Predictor):
         self._seed = int(seed)
 
     def predict(self, model: torch.nn.Module, batch: dict[str, Any]) -> torch.Tensor:
+        return self._integrate(model, batch, return_trajectory=False)
+
+    def predict_with_aux(
+        self, model: torch.nn.Module, batch: dict[str, Any]
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Prediction plus the full ODE trajectory (``aux["trajectory"]``, shape ``(num_steps, B, d)``)."""
+        trajectory = self._integrate(model, batch, return_trajectory=True)
+        return trajectory[-1], {"trajectory": trajectory}
+
+    def _integrate(
+        self, model: torch.nn.Module, batch: dict[str, Any], *, return_trajectory: bool
+    ) -> torch.Tensor:
         device = next(model.parameters()).device
         cond = batch.get("condition")
         cond_t = condition_to_device(cond, device) if cond is not None else None
@@ -90,4 +109,5 @@ class ODEPredictor(Predictor):
             num_steps=self._num_steps,
             seed=self._seed,
             device=device,
+            return_trajectory=return_trajectory,
         )

@@ -1,13 +1,12 @@
 import abc
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any
 
 import torch
 
-from scfit._utils import verify_fn_kwargs_dictionary
-from scfit._component import ComponentRegistry, ComponentSpec, JsonValue
+from scfit._component import ComponentRegistry, ComponentSpec
+from scfit.nn import NET_REGISTRY, NetContext, NetSpec, Resnet1d
 from sc_flow.flow._torch_utils import make_concatenation_possible
-from scfit.nn._modules import BaseModule, Resnet1d
 
 __all__ = [
     "COMBINER_REGISTRY",
@@ -20,7 +19,7 @@ __all__ = [
     "validate_combiner_spec",
 ]
 
-#: A combiner spec is a :class:`~sc_flow.core.ComponentSpec` — the slot (``combiner``) fixes the family.
+#: A combiner spec is a :class:`~scfit.ComponentSpec` — the slot (``combiner``) fixes the family.
 CombinerSpec = ComponentSpec
 
 
@@ -32,7 +31,7 @@ class CombinerContext:
     latent_condition_dim: int | None = None
 
 
-class BaseCombiner(BaseModule):
+class BaseCombiner(abc.ABC, torch.nn.Module):
 
     def __init__(
         self,
@@ -110,13 +109,6 @@ class ConcatCombiner(BaseCombiner):
             latent_condition_dim,
         )
 
-        self._identity = self._make_modules()
-
-    def _make_modules(
-        self,
-    ) -> torch.nn.Module:
-        return torch.nn.Identity()
-
     @property
     def output_dim(
         self,
@@ -143,8 +135,7 @@ class ConcatCombiner(BaseCombiner):
         to_concat = (encoded_state, make_concatenation_possible(encoded_t, encoded_state, -1))
         if encoded_condition is not None:
             to_concat = to_concat + (make_concatenation_possible(encoded_condition, encoded_state, -1),)
-        concat_input = torch.concatenate(to_concat, dim=-1)
-        return self._identity(concat_input)
+        return torch.concatenate(to_concat, dim=-1)
 
 
 class Resnet1dCombiner(BaseCombiner):
@@ -155,29 +146,14 @@ class Resnet1dCombiner(BaseCombiner):
         latent_time_dim: int,
         latent_condition_dim: int | None = None,
         *,
-        num_resnet_layers: int,
-        resnet_kwargs: dict[str, Any] | None = None,
+        resnet: Resnet1d,
     ) -> None:
         super().__init__(
             latent_state_dim,
             latent_time_dim,
             latent_condition_dim,
         )
-        self._num_resnet_layers = num_resnet_layers
-        self._resnet_kwargs = {} if resnet_kwargs is None else resnet_kwargs
-
-        self._resnet = self._make_modules()
-
-    def _make_modules(
-        self,
-    ) -> torch.nn.Module:
-        verify_fn_kwargs_dictionary(Resnet1d.__init__, self._resnet_kwargs)
-        return Resnet1d(
-            self._latent_state_dim,
-            self.embedding_dim,
-            self._num_resnet_layers,
-            **self._resnet_kwargs,
-        )
+        self._resnet = resnet
 
     def forward(
         self,
@@ -216,43 +192,63 @@ class Resnet1dCombiner(BaseCombiner):
         return embedding_dim
 
 
-@dataclass(frozen=True)
-class ConcatCombinerConfig:
-    ...
-
-
-@dataclass(frozen=True)
-class Resnet1dCombinerConfig:
-
-    num_resnet_layers: int
-    resnet_kwargs: dict[str, JsonValue] = field(default_factory=dict)
-
-
-def _concat_factory(config: ConcatCombinerConfig, context: CombinerContext) -> BaseCombiner:
-    return ConcatCombiner(
-        context.latent_state_dim,
-        context.latent_time_dim,
-        latent_condition_dim=context.latent_condition_dim,
-    )
-
-
-def _resnet1d_factory(config: Resnet1dCombinerConfig, context: CombinerContext) -> BaseCombiner:
-    return Resnet1dCombiner(
-        context.latent_state_dim,
-        context.latent_time_dim,
-        latent_condition_dim=context.latent_condition_dim,
-        num_resnet_layers=config.num_resnet_layers,
-        resnet_kwargs=dict(config.resnet_kwargs),
-    )
-
-
 #: Closed built-in combiner family on the shared registry machinery. ``concat`` is parameter-free; the
 #: resnet combiner carries weights and a different output dim, which is why a combiner is a discriminated
 #: spec (like pooling) rather than a flat enum. A custom :class:`BaseCombiner` instance is the runtime-only
 #: research escape hatch (see :class:`~sc_flow.flow._vf.MLPVelocity`), not a registered type.
 COMBINER_REGISTRY: ComponentRegistry[CombinerContext] = ComponentRegistry("combiner")
-COMBINER_REGISTRY.register("sc_flow.concat", config_type=ConcatCombinerConfig, build=_concat_factory)
-COMBINER_REGISTRY.register("sc_flow.resnet1d", config_type=Resnet1dCombinerConfig, build=_resnet1d_factory)
+
+
+@COMBINER_REGISTRY.register("sc_flow.concat")
+@dataclass(frozen=True)
+class ConcatCombinerConfig:
+    def build(self, context: CombinerContext) -> BaseCombiner:
+        return ConcatCombiner(
+            context.latent_state_dim,
+            context.latent_time_dim,
+            latent_condition_dim=context.latent_condition_dim,
+        )
+
+
+@COMBINER_REGISTRY.register("sc_flow.resnet1d")
+@dataclass
+class Resnet1dCombinerConfig:
+    resnet: NetSpec
+
+    def __post_init__(self) -> None:
+        try:
+            self.resnet = NET_REGISTRY.validate(self.resnet)
+        except (TypeError, ValueError) as e:
+            raise ValueError(f"Invalid sc_flow.resnet1d config slot 'resnet': {e}") from e
+        if self.resnet["type"] != "scfit.resnet":
+            raise ValueError(
+                "sc_flow.resnet1d config slot 'resnet' requires a 'scfit.resnet' net spec, "
+                f"found {self.resnet['type']!r}."
+            )
+
+    def build(self, context: CombinerContext) -> BaseCombiner:
+        condition_dim = context.latent_time_dim
+        if context.latent_condition_dim is not None:
+            condition_dim += context.latent_condition_dim
+        resnet = NET_REGISTRY.build(
+            self.resnet,
+            NetContext(
+                input_dim=context.latent_state_dim,
+                output_dim=context.latent_state_dim,
+                condition_dim=condition_dim,
+            ),
+        )
+        if not isinstance(resnet, Resnet1d):  # registry/slot invariant; fail loudly if registration changes
+            raise TypeError(
+                "sc_flow.resnet1d config slot 'resnet' must build scfit.nn.Resnet1d, "
+                f"found {type(resnet).__name__}."
+            )
+        return Resnet1dCombiner(
+            context.latent_state_dim,
+            context.latent_time_dim,
+            latent_condition_dim=context.latent_condition_dim,
+            resnet=resnet,
+        )
 
 
 def validate_combiner_spec(spec: CombinerSpec | dict[str, Any]) -> CombinerSpec:

@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 
 from sc_flow.methods._methods import BaseMethod
 from sc_flow.methods._opt import BaseOptManager
@@ -27,6 +28,18 @@ class DummyMethod(BaseMethod):
 
     def predict(self, node):
         return np.random.randn(10, 5)
+
+    def extract_state_data(self, state_data):
+        return state_data
+
+
+class DummyJointMethod(DummyMethod):
+    @property
+    def is_joint(self):
+        return True
+
+    def train_step_joint(self, nodes, *args, **kwargs):
+        return 0.3, {"loss": 0.3}
 
 
 class DummyOptManager(BaseOptManager):
@@ -211,3 +224,68 @@ class TestTrainer:
         assert trainer.opt_manager is opt_manager
         assert trainer.train_logs_raw == []
         assert trainer.val_logs_raw == {}
+
+
+class TestTrainerExecutorSelection:
+    def test_independent_executor_calls_per_node(self):
+        method = DummyMethod()
+        method.train_step = Mock(return_value=(0.5, {"loss": 0.5}))
+        trainer = Trainer(method, DummyOptManager())
+        nodes = [Mock(), Mock(), Mock()]
+
+        results = trainer._independent_train_executor(method, nodes)
+
+        assert len(results) == 3
+        assert method.train_step.call_count == 3
+
+    def test_join_executor_calls_once(self):
+        method = DummyJointMethod()
+        method.train_step_joint = Mock(return_value=(0.3, {"loss": 0.3}))
+        trainer = Trainer(method, DummyOptManager())
+        nodes = [Mock(), Mock(), Mock()]
+
+        results = trainer._join_train_executor(method, nodes)
+
+        assert len(results) == 1
+        method.train_step_joint.assert_called_once()
+
+    @patch("sc_flow.trainer._trainer.tqdm")
+    def test_is_joint_false_selects_independent(self, mock_tqdm):
+        mock_pbar = MagicMock()
+        mock_pbar.__iter__.return_value = range(2)
+        mock_tqdm.return_value = mock_pbar
+
+        method = DummyMethod()
+        method.train_step = Mock(return_value=(0.5, {"loss": 0.5}))
+        trainer = Trainer(method, DummyOptManager())
+        sampler = DummySampler()
+
+        trainer.train(sampler, n_train_steps=2)
+
+        # DummySampler returns 2 nodes per sample call, 2 steps = 4 train_step calls
+        assert method.train_step.call_count == 4
+
+    @patch("sc_flow.trainer._trainer.tqdm")
+    def test_is_joint_true_selects_join(self, mock_tqdm):
+        mock_pbar = MagicMock()
+        mock_pbar.__iter__.return_value = range(2)
+        mock_tqdm.return_value = mock_pbar
+
+        method = DummyJointMethod()
+        method.train_step_joint = Mock(return_value=(0.3, {"loss": 0.3}))
+        trainer = Trainer(method, DummyOptManager())
+        sampler = DummySampler()
+
+        trainer.train(sampler, n_train_steps=2)
+
+        # Joint: one call per step = 2 calls total
+        assert method.train_step_joint.call_count == 2
+
+    def test_base_method_is_joint_false(self):
+        method = DummyMethod()
+        assert method.is_joint is False
+
+    def test_base_method_train_step_joint_raises(self):
+        method = DummyMethod()
+        with pytest.raises(NotImplementedError):
+            method.train_step_joint()

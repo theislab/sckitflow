@@ -14,6 +14,7 @@ __all__ = [
     "verify_repr",
     "verify_categorical_data",
     "verify_mixin",
+    "make_multi_transition_tree",
 ]
 
 
@@ -117,3 +118,13 @@ def make_tree():
         }
     )
     return NestedData._init_tree(target_data, mapped_index)
+
+
+def make_multi_transition_tree(n_transitions=3, n_obs=10):
+    """Tree with n_transitions MatchedData leaves, each having source+target."""
+    data_dict = {}
+    for i in range(n_transitions):
+        target = make_distribution(n_obs)
+        source = make_distribution(n_obs)
+        data_dict[(str(i),)] = MatchedData(target_distribution=target, source_distribution=source)
+    return NestedData(data_dict)

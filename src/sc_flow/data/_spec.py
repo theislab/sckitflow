@@ -79,4 +79,4 @@ class FlowSpec:
         if preload_nchunks is None:
             preload_nchunks = max(1, batch_size // chunk_size)
         cfg = SamplerConfig(batch_size=batch_size, chunk_size=chunk_size, preload_nchunks=preload_nchunks, to=to)
-        return Loader(compiled.scheme, cfg, compiled.condition_fn)
+        return Loader(compiled.scheme, cfg, compiled.condition_lookup)

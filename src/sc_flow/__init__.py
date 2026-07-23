@@ -4,6 +4,7 @@ from sc_flow import data
 
 __all__ = [
     "FlowMatching",
+    "FlowMatchingConfig",
     "data",
     "flow",
 ]
@@ -17,6 +18,6 @@ def __getattr__(name: str):
     # raw ModuleNotFoundError deep in a traceback.
     if name in _LAZY_SUBMODULES:
         return require(f"sc_flow.{name}")
-    if name == "FlowMatching":
-        return require("sc_flow._model").FlowMatching
+    if name in ("FlowMatching", "FlowMatchingConfig"):
+        return getattr(require("sc_flow._model"), name)
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

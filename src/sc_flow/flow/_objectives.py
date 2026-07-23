@@ -30,9 +30,19 @@ class LinearFMObjective(Objective):
 
 
 def _to_device(x: Any, device: Any) -> torch.Tensor:
+    """Move a STATE-stream array to ``device`` as float32 (source/target are always float model inputs)."""
     if isinstance(x, torch.Tensor):
         return x.to(device=device, dtype=torch.float32)
     return torch.as_tensor(np.asarray(x, dtype=np.float32), device=device)
+
+
+def _to_condition(x: Any, device: Any, float_dtype: Any) -> torch.Tensor:
+    """Move a CONDITION-stream array to ``device`` preserving its kind: an integer **index** (categorical
+    realm) becomes ``long`` for embedding/one-hot; a float **feature** vector is aligned to the model dtype.
+    The realm's dtype *is* the contract — no realm-kind branching, just ``is_floating_point()``.
+    """
+    t = x.to(device=device) if isinstance(x, torch.Tensor) else torch.as_tensor(np.asarray(x), device=device)
+    return t.to(float_dtype) if t.is_floating_point() else t.to(torch.long)
 
 
 def _condition_tensors(
@@ -46,7 +56,7 @@ def _condition_tensors(
         return None
     out: dict[str, torch.Tensor] = {}
     for realm, arr in cond.items():
-        a = _to_device(arr, device).to(dtype)
+        a = _to_condition(arr, device, dtype)
         if a.shape[0] == n_target:
             a = a[tgt_ixs]
         out[realm] = a

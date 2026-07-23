@@ -111,7 +111,7 @@ def test_flow_matching_coupling_rep_and_baselines(match_method):
         coupling=CouplingDataSchema(src_lin="X_pca", tgt_lin="X_pca"),  # OT on X_pca, flow on X
     )
 
-    # dims computed from headers + one condition_fn lookup — no sampler pulled.
+    # dims computed from headers + one condition_lookup call — no sampler pulled.
     dims = spec.compile(adata, rep_tables=adata.uns).dims
     assert dims.state == d
     assert dims.condition == {"drug": 3}
@@ -168,19 +168,29 @@ def test_flow_matching_bit_reproducible():
 
 
 def test_predict_helpers_accept_device_tensors():
-    """_as_f32 / condition_to_device / integrate_translation accept torch tensors already on a device.
+    """Training and prediction boundaries accept tensors and own condition dtype conversion.
 
     Guards the GPU validation path: Lightning moves the val batch onto the accelerator, so the coercion
     must NOT do np.asarray on those tensors (that raises "can't convert cuda tensor to numpy"). Exercised
     on CPU tensors here — the code path (isinstance torch.Tensor branch) is device-agnostic.
     """
+    from sc_flow.flow._objectives import _to_condition as objective_condition_to_device
     from sc_flow.flow._predict import _as_f32, condition_to_device
 
     t = torch.ones(3, 4, dtype=torch.float64)  # a tensor, not numpy
     out = _as_f32(t, torch.device("cpu"))
     assert out.dtype == torch.float32 and out.shape == (3, 4)
-    cond = condition_to_device({"drug": torch.zeros(3, 5)}, torch.device("cpu"))
-    assert cond["drug"].dtype == torch.float32
+    cond = condition_to_device(
+        {
+            "drug": torch.zeros(3, 5, dtype=torch.int32),
+            "feature": torch.zeros(3, 5, dtype=torch.float64),
+        },
+        torch.device("cpu"),
+    )
+    assert cond["drug"].dtype == torch.long
+    assert cond["feature"].dtype == torch.float32
+    assert objective_condition_to_device(np.zeros((1, 2), np.int32), "cpu", torch.float64).dtype == torch.long
+    assert objective_condition_to_device(np.zeros((1, 2), np.float32), "cpu", torch.float64).dtype == torch.float64
     # numpy still works too (predict() path passes numpy)
     assert _as_f32(np.ones((2, 2), np.float64), torch.device("cpu")).dtype == torch.float32
 
@@ -415,7 +425,7 @@ def test_save_load_roundtrip(tmp_path, objective):
     for k, v in model.vf.state_dict().items():
         assert torch.equal(v, reloaded.vf.state_dict()[k]), f"param {k} differs after reload"
 
-    # reloaded model never called .fit(); predict must still work via the persisted condition_fn + dims.
+    # reloaded model never called .fit(); predict must still work via the persisted condition_lookup + dims.
     pred_after = reloaded.predict(x, leaf, device="cpu", num_steps=5, seed=0)
     assert np.array_equal(pred_before, pred_after)
 

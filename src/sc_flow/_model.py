@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping, Sequence
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -15,76 +16,116 @@ if TYPE_CHECKING:
     from sc_flow.data._compile_obs import CompiledDims, DataInput
     from sc_flow.flow._pooling import PoolingSpec
 
-__all__ = ["FlowMatching"]
+__all__ = ["FlowMatching", "FlowMatchingConfig"]
 
 logger = logging.getLogger(__name__)
 
 
+@dataclass(kw_only=True)
+class FlowMatchingConfig:
+    """The flow-matching **recipe** — everything that configures a :class:`FlowMatching` other than the
+    data (:class:`~sc_flow.data.FlowSpec`) and the fitted weights. A plain, JSON/OmegaConf-friendly object;
+    it lives in the flow layer (not the generic ``scfit`` core). Build a model with
+    ``FlowMatching(spec, config)`` or ``FlowMatching.from_config(spec, mapping_or_config)``.
+    """
+
+    pooling: PoolingSpec
+    objective: str = "otfm"
+    hidden_dims: Sequence[int] = (1024, 1024, 1024)
+    decoder_dims: Sequence[int] | None = None
+    time_encoder_dims: Sequence[int] | None = None
+    condition_embedding_dim: int = 64
+    condition_mode: str = "deterministic"
+    #: categorical realm -> "embedding" (learned, default) or "onehot" (fixed); a global str or per-realm map.
+    condition_encoding: str | Mapping[str, str] = "embedding"
+    state_latent_dim: int = 32
+    time_latent_dim: int = 16
+    source_latent_dim: int = 16
+    time_features_id: str | None = None
+    num_time_features: int = 256
+    max_period: int = 1_000
+    regularization: float = 1.0
+    sigma: float = 0.0
+    match_method: str = "sinkhorn"
+    match_kwargs: Mapping[str, Any] | None = None
+    seed: int = 0
+
+    @classmethod
+    def from_dict(cls, data: Mapping[str, Any]) -> FlowMatchingConfig:
+        data = dict(data)
+        unknown = set(data) - {f.name for f in fields(cls)}
+        if unknown:
+            raise ValueError(f"Unknown FlowMatchingConfig field(s): {sorted(unknown)}.")
+        return cls(**data)
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+
 class FlowMatching:
 
-    def __init__(
-        self,
-        spec: FlowSpec,
-        *,
-        objective: str = "otfm",
-        hidden_dims: Sequence[int] = (1024, 1024, 1024),
-        decoder_dims: Sequence[int] | None = None,
-        time_encoder_dims: Sequence[int] | None = None,
-        condition_embedding_dim: int = 64,
-        condition_mode: str = "deterministic",
-        state_latent_dim: int = 32,
-        time_latent_dim: int = 16,
-        source_latent_dim: int = 16,
-        time_features_id: str | None = None,
-        num_time_features: int = 256,
-        max_period: int = 1_000,
-        regularization: float = 1.0,
-        sigma: float = 0.0,
-        pooling: PoolingSpec,
-        match_method: str = "sinkhorn",
-        match_kwargs: Mapping[str, Any] | None = None,
-        seed: int = 0,
-    ):
+    def __init__(self, spec: FlowSpec, config: FlowMatchingConfig):
         from sc_flow.flow._pooling import validate_pooling_spec
 
         self.spec = spec
-        self.objective_name = objective
-        self.hidden_dims = tuple(hidden_dims)
-        self.decoder_dims = None if decoder_dims is None else tuple(decoder_dims)
-        self.time_encoder_dims = None if time_encoder_dims is None else tuple(time_encoder_dims)
-        self.condition_embedding_dim = condition_embedding_dim
-        self.condition_mode = condition_mode
-        # Latent widths + time-feature knobs the facade passes EXPLICITLY to the velocity field. The
-        # low-level VF has no hidden defaults for these; these facade-level values are the only defaults.
-        self.state_latent_dim = state_latent_dim
-        self.time_latent_dim = time_latent_dim
-        self.source_latent_dim = source_latent_dim
-        self.time_features_id = time_features_id
-        self.num_time_features = num_time_features
-        self.max_period = max_period
-        self.regularization = regularization
-        self.sigma = sigma
-        self.pooling = validate_pooling_spec(pooling)
-        self.match_method = match_method
-        self.match_kwargs = dict(match_kwargs) if match_kwargs else {}
-        self.seed = seed
+        self.config = config
+        # Unpack the recipe into the attributes the internals already use (single source of truth = config).
+        self.objective_name = config.objective
+        self.hidden_dims = tuple(config.hidden_dims)
+        self.decoder_dims = None if config.decoder_dims is None else tuple(config.decoder_dims)
+        self.time_encoder_dims = None if config.time_encoder_dims is None else tuple(config.time_encoder_dims)
+        self.condition_embedding_dim = config.condition_embedding_dim
+        self.condition_mode = config.condition_mode
+        self.condition_encoding = config.condition_encoding
+        self.state_latent_dim = config.state_latent_dim
+        self.time_latent_dim = config.time_latent_dim
+        self.source_latent_dim = config.source_latent_dim
+        self.time_features_id = config.time_features_id
+        self.num_time_features = config.num_time_features
+        self.max_period = config.max_period
+        self.regularization = config.regularization
+        self.sigma = config.sigma
+        self.pooling = validate_pooling_spec(config.pooling)
+        self.match_method = config.match_method
+        self.match_kwargs = dict(config.match_kwargs) if config.match_kwargs else {}
+        self.seed = config.seed
 
         self.vf = None  # MLPVelocity (torch nn.Module holding the weights)
         self.model = None  # alias of vf (the trained weights)
         self.probability_path = None
         self.objective = None
-        self._condition_fn = None
+        self._condition_lookup = None
         self._dims = None
         # {metric_name: [mean-over-held-out-conditions per validation pass]}; populated by fit(split_by=...).
         self.metrics_history: dict[str, list[float]] = {}
 
+    @classmethod
+    def from_config(cls, spec: FlowSpec, config: FlowMatchingConfig | Mapping[str, Any]) -> FlowMatching:
+        """Build from a :class:`FlowMatchingConfig`, or a plain / OmegaConf mapping of its fields."""
+        if not isinstance(config, FlowMatchingConfig):
+            try:
+                from omegaconf import DictConfig, OmegaConf
+
+                if isinstance(config, DictConfig):
+                    config = OmegaConf.to_container(config, resolve=True)
+            except ImportError:
+                pass
+            config = FlowMatchingConfig.from_dict(config)
+        return cls(spec, config)
+
     # --- construction helpers -------------------------------------------------------------------
 
     def _build_vf(self, dims: CompiledDims) -> torch.nn.Module:
-        from sc_flow.flow._set_encoder import SetEncoder
-        from sc_flow.flow._vf import MLPEmbedderConfig, MLPVelocity
+        # Dim-materialization only: the recipe (self.config) + compiled dims -> a dim-complete
+        # MLPVelocityConfig, then config.build(). No module is constructed here — the config owns build.
+        from sc_flow.flow._config import (
+            MLPEmbedderConfig,
+            MLPVelocityConfig,
+            SetEncoderConfig,
+            VelocityFieldContext,
+        )
 
-        vf_kwargs: dict[str, Any] = {
+        cfg_kwargs: dict[str, Any] = {
             "state_dim": int(dims.state),
             "combiner": {"type": "sc_flow.concat", "version": 1, "config": {}},
             "state_embedder": MLPEmbedderConfig(
@@ -99,14 +140,36 @@ class FlowMatching:
             "max_period": self.max_period,
         }
         if self.decoder_dims is not None:
-            vf_kwargs["vf_decoder_mlp_kwargs"] = {"hidden_dims": self.decoder_dims}
-        if dims.condition:
-            vf_kwargs["condition_encoder"] = SetEncoder(
-                input_layers={
-                    realm: {"input_dim": int(dim), "output_dim": int(self.condition_embedding_dim)}
+            cfg_kwargs["vf_decoder_mlp_kwargs"] = {"hidden_dims": self.decoder_dims}
+        if dims.condition or dims.condition_num_categories:
+            embed_dim = int(self.condition_embedding_dim)
+
+            def _categorical_spec(realm: str, n: int) -> dict[str, Any]:
+                # "embedding" (learned, default) or "onehot" (fixed) per the condition_encoding knob.
+                ce = self.condition_encoding
+                kind = ce.get(realm, "embedding") if isinstance(ce, Mapping) else ce
+                if kind == "onehot":
+                    return {"type": "sc_flow.onehot", "version": 1, "config": {"num_categories": int(n)}}
+                if kind != "embedding":
+                    raise ValueError(f"condition_encoding for {realm!r} must be 'embedding' or 'onehot', got {kind!r}.")
+                return {"type": "sc_flow.embedding", "version": 1,
+                        "config": {"num_categories": int(n), "output_dim": embed_dim}}
+
+            # Categorical realms -> embedding/onehot sized by the vocab; feature realms -> an MLP projection
+            # of the looked-up vector. The data side emits index / vector accordingly.
+            realms: dict[str, dict[str, Any]] = {
+                realm: _categorical_spec(realm, n) for realm, n in dims.condition_num_categories.items()
+            }
+            realms.update(
+                {
+                    realm: {"type": "sc_flow.feature_mlp", "version": 1,
+                            "config": {"input_dim": int(dim), "output_dim": embed_dim, "mlp_kwargs": {}}}
                     for realm, dim in dims.condition.items()
-                },
-                output_dim=int(self.condition_embedding_dim),
+                }
+            )
+            cfg_kwargs["condition_encoder"] = SetEncoderConfig(
+                realms=realms,
+                output_dim=embed_dim,
                 pooling=self.pooling,
                 condition_mode=self.condition_mode,
             )
@@ -114,11 +177,11 @@ class FlowMatching:
             # GENOT flows noise->target (state space) with the SOURCE cell conditioning the field: enable
             # the source encoder. G1 is same-space — the source cell is the state source, so it is sized by
             # the state dim; the coupling reps (if any) only drive the OT plan. (Cross-space source is G2.)
-            vf_kwargs["source_embedder"] = MLPEmbedderConfig(
+            cfg_kwargs["source_embedder"] = MLPEmbedderConfig(
                 output_dim=int(self.source_latent_dim),
                 mlp_kwargs={"input_dim": int(dims.state), "hidden_dims": self.hidden_dims}
             )
-        return MLPVelocity(**vf_kwargs)
+        return MLPVelocityConfig(**cfg_kwargs).build(VelocityFieldContext())
 
     def _build_probability_path(self):
         from sc_flow.flow.probability_paths._probability_paths import (
@@ -151,10 +214,9 @@ class FlowMatching:
         split_ratios: Mapping[str, float] | Sequence[float] | None = None,
         val_batch_size: int | None = None,
         n_val_conditions: int | None = None,
-        metrics: Sequence[str] = ("r_squared", "e-dist"),
+        metrics: Sequence[str] = ("mean_aggregated_r_squared", "e-dist"),
         val_num_steps: int = 50,
         val_max_source_cells: int | None = 2048,
-        debug_val: bool = False,
         callbacks: Sequence[Any] | None = None,
     ) -> FlowMatching:
         from scfit.data import Loader, SamplerConfig
@@ -179,7 +241,7 @@ class FlowMatching:
             data, rep_tables=rep_tables, min_runs_per_leaf=min_runs_per_leaf,
             control_in_memory=control_in_memory, seed=self.seed,
         )
-        self._condition_fn = compiled.condition_fn
+        self._condition_lookup = compiled.condition_lookup
         self._dims = compiled.dims
         self.metrics_history = {}
 
@@ -201,17 +263,18 @@ class FlowMatching:
         to_gpu = self._resolve_preload_to_gpu(device, preload_to_gpu)
         cfg = SamplerConfig(batch_size=batch_size, chunk_size=chunk_size, preload_nchunks=preload,
                             to="torch", preload_to_gpu=to_gpu)
-        loader = Loader(train_scheme, cfg, compiled.condition_fn)
+        loader = Loader(train_scheme, cfg, compiled.condition_lookup)
 
         # 2. Torch velocity field + probability path, sized from compiled.dims.
         self.vf = self._build_vf(compiled.dims)
         self.model = self.vf
         self.probability_path = self._build_probability_path()
 
-        # 3. Objective selected by name (OT coupling in JAX, everything else torch) + shared harness.
-        # Import from sc_flow.flow so the concrete objectives / predictor register before we build by name.
+        # 3. Objective selected by name (OT coupling in JAX, everything else torch) + generic harness.
+        # scfit.TrainingModule is training-only; the perturbation held-out scoring is a Lightning Callback
+        # from the flow layer (attached below only when validation is configured).
         from scfit.training import TrainingModule
-        from sc_flow.flow import build_objective, build_predictor
+        from sc_flow.flow import ODEPredictor, PerturbationValidationCallback, build_objective
 
         self.objective = build_objective(
             self.objective_name,
@@ -228,7 +291,7 @@ class FlowMatching:
         if val_scheme is not None:
             val_metrics, val_loader = self._build_validation(
                 val_scheme,
-                compiled.condition_fn,
+                compiled.condition_lookup,
                 val_batch_size=val_batch_size or batch_size,
                 chunk_size=chunk_size,
                 preload_nchunks=preload_nchunks,
@@ -238,14 +301,20 @@ class FlowMatching:
                 val_num_steps=val_num_steps,
             )
 
-        predictor = build_predictor(
-            "ode", is_genot=self.objective_name == "genot", state_dim=int(self._dims.state),
-            num_steps=val_num_steps, seed=int(self.seed),
-        )
-        harness = TrainingModule(
-            self.vf, self.objective, lr=lr, val_metrics=val_metrics, predictor=predictor,
-            val_max_source_cells=val_max_source_cells, debug_val=debug_val,
-        )
+        harness = TrainingModule(self.vf, self.objective, lr=lr)
+
+        # Validation is optional: build the predictor + callback only when a held-out split is configured.
+        # The predictor is the same inference seam FlowMatching.predict uses on external data.
+        val_callback: PerturbationValidationCallback | None = None
+        if val_loader is not None:
+            predictor = ODEPredictor(
+                is_genot=self.objective_name == "genot", state_dim=int(self._dims.state),
+                num_steps=val_num_steps, seed=int(self.seed),
+            )
+            val_callback = PerturbationValidationCallback(
+                predictor=predictor, val_metrics=val_metrics,
+                val_max_source_cells=val_max_source_cells,
+            )
 
         # 4. Wrap the binded loader as an IterableDataset (batches pass through untouched).
         class _BindedIterableDataset(torch.utils.data.IterableDataset):
@@ -265,8 +334,11 @@ class FlowMatching:
             "enable_progress_bar": False,
             "enable_model_summary": False,
         }
-        if callbacks:
-            trainer_kwargs["callbacks"] = list(callbacks)
+        trainer_callbacks = list(callbacks) if callbacks else []
+        if val_callback is not None:
+            trainer_callbacks.append(val_callback)
+        if trainer_callbacks:
+            trainer_kwargs["callbacks"] = trainer_callbacks
         if val_loader is not None:
             # Step-based validation: run the held-out pass every valid_freq training steps (no sanity pass,
             # so metrics_history holds only real validation runs).
@@ -278,7 +350,7 @@ class FlowMatching:
             trainer.fit(harness, torch_loader, val_loader)
         else:
             trainer.fit(harness, torch_loader)
-        self.metrics_history = dict(harness.metrics_history)
+        self.metrics_history = dict(val_callback.metrics_history) if val_callback is not None else {}
         return self
 
     # --- validation helpers -----------------------------------------------------------------------
@@ -313,7 +385,7 @@ class FlowMatching:
     def _build_validation(
         self,
         val_scheme: Any,
-        condition_fn: Any,
+        condition_lookup: Any,
         *,
         val_batch_size: int,
         chunk_size: int = 1,
@@ -339,7 +411,7 @@ class FlowMatching:
         preload = self._resolve_preload(val_batch_size, chunk_size, preload_nchunks)
         cfg = SamplerConfig(batch_size=val_batch_size, chunk_size=chunk_size, preload_nchunks=preload,
                             to="torch", preload_to_gpu=preload_to_gpu)
-        eval_loader = EvalLoader(val_scheme, cfg, condition_fn, seed=int(self.seed))
+        eval_loader = EvalLoader(val_scheme, cfg, condition_lookup, seed=int(self.seed))
 
         class _EvalIterableDataset(torch.utils.data.IterableDataset):
             def __init__(self, eval_loader, n):
@@ -362,59 +434,41 @@ class FlowMatching:
         condition_mask: Mapping[str, np.ndarray] | None = None,
         device: str = "cpu",
         num_steps: int = 50,
-        return_trajectory: bool = False,
+        return_aux: bool = False,
         seed: int | None = None,
-    ) -> np.ndarray:
+    ) -> np.ndarray | tuple[np.ndarray, dict[str, Any]]:
         if self.vf is None:
             raise RuntimeError("Model must be fitted before predict() can be called.")
-        from sc_flow.flow._predict import condition_mask_to_device, condition_to_device, integrate_translation
+        from sc_flow.flow import ODEPredictor
 
         self.vf.to(device)
         self.vf.eval()
 
         # Resolve a leaf tuple to its condition dict; a ready condition dict is used as-is.
         if not (isinstance(condition, dict) and all(isinstance(v, np.ndarray) for v in condition.values())):
-            if self._condition_fn is None:
+            if self._condition_lookup is None:
                 raise RuntimeError("Model must be fitted to resolve leaf conditions.")
-            condition = self._condition_fn(condition)
-        cond_t = condition_to_device(condition, device)
-        cond_mask = condition_mask_to_device(dict(condition_mask), device) if condition_mask is not None else None
+            condition = self._condition_lookup(condition)
 
-        trajectory = integrate_translation(
-            self.vf,
-            np.asarray(x, dtype=np.float32),
-            cond_t,
-            condition_mask=cond_mask,
-            is_genot=self.objective_name == "genot",
-            state_dim=int(self._dims.state),
-            num_steps=num_steps,
-            seed=int(self.seed if seed is None else seed),
-            device=device,
-            return_trajectory=return_trajectory,
+        # External numpy is coerced to torch on the model's device at the integrator boundary; the batch
+        # contract matches what the eval loader emits, so predict() and validation share one code path.
+        batch = {
+            # TODO: why the cast here
+            "source": np.asarray(x, dtype=np.float32),
+            "condition": condition,
+            "condition_mask": None if condition_mask is None else dict(condition_mask),
+        }
+        predictor = ODEPredictor(
+            is_genot=self.objective_name == "genot", state_dim=int(self._dims.state),
+            num_steps=num_steps, seed=int(self.seed if seed is None else seed),
         )
-        return trajectory.cpu().numpy()
+        if return_aux:
+            pred, aux = predictor.predict_with_aux(self.vf, batch)
+            aux_np = {k: (v.detach().cpu().numpy() if isinstance(v, torch.Tensor) else v) for k, v in aux.items()}
+            return pred.detach().cpu().numpy(), aux_np
+        return predictor.predict(self.vf, batch).detach().cpu().numpy()
 
     # --- persistence ------------------------------------------------------------------------------
-
-    _CTOR_FIELDS: tuple[str, ...] = (
-        "hidden_dims",
-        "decoder_dims",
-        "time_encoder_dims",
-        "condition_embedding_dim",
-        "condition_mode",
-        "state_latent_dim",
-        "time_latent_dim",
-        "source_latent_dim",
-        "time_features_id",
-        "num_time_features",
-        "max_period",
-        "regularization",
-        "sigma",
-        "pooling",
-        "match_method",
-        "match_kwargs",
-        "seed",
-    )
 
     def save(self, path: str | Path) -> None:
         import json
@@ -434,16 +488,15 @@ class FlowMatching:
         # (double-registered) tensors.
         config = {
             "format_version": FORMAT_VERSION,
-            "objective": self.objective_name,
-            "flow_matching": {name: getattr(self, name) for name in self._CTOR_FIELDS},
+            "flow_matching": self.config.to_dict(),  # the recipe (single source of truth)
             "architecture": self.vf.to_config().to_spec(),
         }
         (path / "config.json").write_text(json.dumps(config, indent=2))
         save_model(self.vf, str(path / "model.safetensors"))
 
-        # Trusted data sidecar (spec / dims / condition_fn) — cloudpickle, isolated and documented.
+        # Trusted data sidecar (spec / dims / condition_lookup) — cloudpickle, isolated and documented.
         with open(path / "data_state.pkl", "wb") as f:
-            cloudpickle.dump({"spec": self.spec, "dims": self._dims, "condition_fn": self._condition_fn}, f)
+            cloudpickle.dump({"spec": self.spec, "dims": self._dims, "condition_lookup": self._condition_lookup}, f)
 
     @classmethod
     def load(cls, path: str | Path) -> FlowMatching:
@@ -460,9 +513,9 @@ class FlowMatching:
         with open(path / "data_state.pkl", "rb") as f:
             data_state = cloudpickle.load(f)
 
-        model = cls(spec=data_state["spec"], objective=config["objective"], **config["flow_matching"])
+        model = cls(data_state["spec"], FlowMatchingConfig.from_dict(config["flow_matching"]))
         model._dims = data_state["dims"]
-        model._condition_fn = data_state["condition_fn"]
+        model._condition_lookup = data_state["condition_lookup"]
         model.vf = MLPVelocity.from_config(MLPVelocityConfig.from_spec(config["architecture"]))
         load_model(model.vf, str(path / "model.safetensors"), strict=True)
         model.model = model.vf

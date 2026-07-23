@@ -8,7 +8,7 @@ verbose plan/diagram docs (removed).
 - Stripped the in-memory containers (`Distribution`/`Coupling`/`Nested`/`Matched`Data,
   `MappedLevelIndex`, `DataManager`, indexer/selector/samplers); the repo stores no arrays.
 - Cells stream via **binded**; dropped `StateData`/`MixedTypeData`. `CategoricalData` kept only as the
-  per-leaf `condition_fn` builder.
+  per-leaf `condition_lookup` builder.
 - `groups` split into `match_context` (matching only, not embedded) + `covariates` (embedded only);
   a column may be in both.
 - `reps` + `encoding` merged into one `Encoder` (`transform`/`inverse_transform`); a `.uns` lookup is
@@ -16,7 +16,7 @@ verbose plan/diagram docs (removed).
 - `GroupsDataSchema` → `CovariatesDataSchema`.
 - Coupling `source_rep`/`target_rep`/`n_shared_dims` → role refs `src/tgt_lin/quad` (`anndata.acc`
   accessor or str); regime inferred; streamed as extra aligned binded `Node` keys.
-- Entry point: `compile_obs` (obs-only) → `CompiledData{scheme, condition_fn, cols, coupling}`;
+- Entry point: `compile_obs` (obs-only) → `CompiledData{scheme, condition_lookup, cols, coupling}`;
   `FlowSpec.build_loader` → `binded.Loader`.
 - `control_key` is now **required, no default** (was `"control"`), and moved next to the other required
   args.

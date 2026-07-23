@@ -1,7 +1,7 @@
 """End-to-end: ``compile_obs`` (labels only) → ``binded.Loader`` → a streamed batch.
 
 Proves the data layer speaks binded's vocab and holds no cell arrays: ``compile_obs`` reads
-``obs``/``uns`` only and returns a :class:`binded.Scheme` + a per-leaf ``condition_fn``; binded
+``obs``/``uns`` only and returns a :class:`binded.Scheme` + a per-leaf ``condition_lookup``; binded
 streams ``{source, target, condition}`` from the source ``adata`` at iteration time.
 
 Skips where binded (and its annbatch ``BoundClassSampler`` fork) is not installed.
@@ -117,11 +117,11 @@ def test_min_runs_per_leaf_filters_on_shortest_run_not_total():
     assert _pert_leaves(adata, 16) == {("cl_a", "drug_b")}  # drug_a 10-run < 16 -> dropped (total 50 ignored)
 
 
-def test_condition_fn_is_per_leaf_not_dataset_wide():
-    """condition_fn maps ONE leaf → its reps dict; it never materializes a dataset-wide array."""
+def test_condition_lookup_is_per_leaf_not_dataset_wide():
+    """condition_lookup maps ONE leaf → its reps dict; it never materializes a dataset-wide array."""
     compiled = _compile(_make_adata())
     leaf = next(iter(compiled.scheme.nodes["pert"].weights))  # a (cell_type, drug1) tuple
-    reps = compiled.condition_fn(leaf)
+    reps = compiled.condition_lookup(leaf)
     assert set(reps) == {"drug", "cell_type"}
     # one value per leaf: leading dim is 1 (single condition), not n_obs
     assert reps["drug"].shape[0] == 1
@@ -129,14 +129,14 @@ def test_condition_fn_is_per_leaf_not_dataset_wide():
     assert reps["drug"].shape[-1] == 5  # the drug embedding dim from uns
 
 
-def test_condition_fn_matches_raw_uns_lookup():
+def test_condition_lookup_matches_raw_uns_lookup():
     """The unified Lookup encoder reproduces the raw ``uns[key][value]`` embedding, per leaf."""
     adata = _make_adata()
     compiled = _compile(adata)
     assert compiled.cols == ("cell_type", "drug1")  # leaf tuple order
     for leaf in compiled.scheme.nodes["pert"].weights:
         cell_type, drug = leaf
-        reps = compiled.condition_fn(leaf)
+        reps = compiled.condition_lookup(leaf)
         np.testing.assert_array_equal(reps["drug"][0, 0], np.asarray(adata.uns["drug"][drug]).reshape(-1))
         np.testing.assert_array_equal(
             reps["cell_type"][0, 0], np.asarray(adata.uns["cell_type"][cell_type]).reshape(-1)
@@ -144,13 +144,13 @@ def test_condition_fn_matches_raw_uns_lookup():
 
 
 def test_loader_streams_source_target_condition():
-    """binded.Loader consumes the compiled scheme + condition_fn and yields aligned batches."""
+    """binded.Loader consumes the compiled scheme + condition_lookup and yields aligned batches."""
     from binded import Loader, SamplerConfig
 
     adata = _make_adata()
     compiled = _compile(adata)
     cfg = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8, to=None)
-    loader = Loader(compiled.scheme, cfg, compiled.condition_fn)
+    loader = Loader(compiled.scheme, cfg, compiled.condition_lookup)
 
     batch = next(iter(loader))
     assert set(batch) >= {"source", "target", "condition"}
@@ -184,7 +184,7 @@ def test_coupling_reps_stream_as_aligned_node_keys():
     assert compiled.scheme.nodes["ctrl"].keys == ("X", "obsm/X_lin")
 
     cfg = SamplerConfig(batch_size=8, chunk_size=1, preload_nchunks=8, to=None)
-    batch = next(iter(Loader(compiled.scheme, cfg, compiled.condition_fn)))
+    batch = next(iter(Loader(compiled.scheme, cfg, compiled.condition_lookup)))
     assert "obsm/X_lin" in batch["target_reps"] and "obsm/X_lin" in batch["source_reps"]
     assert np.asarray(batch["target_reps"]["obsm/X_lin"]).shape == (8, 6)
     assert np.asarray(batch["source_reps"]["obsm/X_lin"]).shape == (8, 6)

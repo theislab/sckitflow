@@ -155,6 +155,8 @@ def _min_run_per_leaf(source: Any, group_by: Sequence[str]) -> dict[tuple, int]:
 
 def _fast_leaves(frame: Any, group_by: Sequence[str]) -> list[tuple]:
     """Extract unique leaf tuples efficiently, maintaining CategoricalDtype for fast C-level hashing."""
+    import pandas as pd
+
     cols = list(group_by)
     sub = frame.loc[:, cols].copy()
     for c in cols:

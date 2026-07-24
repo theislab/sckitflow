@@ -206,6 +206,7 @@ def _read_problem(
 
 
 
+
     # Per realm: a categorical vocab over its column values (perturbed cells only — the control token is not
     # a perturbation category); the leaf's index per realm column.
     col_idx = {c: group_by.index(c) for c in group_by}

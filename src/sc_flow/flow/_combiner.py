@@ -135,7 +135,7 @@ class ConcatCombiner(BaseCombiner):
         to_concat = (encoded_state, make_concatenation_possible(encoded_t, encoded_state, -1))
         if encoded_condition is not None:
             to_concat = to_concat + (make_concatenation_possible(encoded_condition, encoded_state, -1),)
-        return torch.concatenate(to_concat, dim=-1)
+        return torch.cat(to_concat, dim=-1)
 
 
 class Resnet1dCombiner(BaseCombiner):
@@ -173,7 +173,7 @@ class Resnet1dCombiner(BaseCombiner):
         if encoded_condition is not None:
             to_concat = to_concat + (make_concatenation_possible(encoded_condition, encoded_state, -1),)
 
-        conditions = torch.concatenate(to_concat, dim=-1)
+        conditions = torch.cat(to_concat, dim=-1)
         return self._resnet(encoded_state, conditions)
 
     @property

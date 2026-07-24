@@ -17,7 +17,7 @@ __all__ = [
 def to_torch_tensor(x: TensorLike | NumpyArray) -> torch.Tensor:
     if isinstance(x, np.ndarray):
         return torch.from_numpy(x)
-    if x is not None and not isinstance(x, TensorLike):
+    if x is not None and not isinstance(x, (torch.Tensor, np.ndarray)):
         msg = f"Invalid type found {type(x)}"
         raise TypeError(msg)
     return x
@@ -71,7 +71,7 @@ def make_concatenation_possible(
     input_tensor: torch.Tensor,
     target_tensor: torch.Tensor,
     concat_dims: int = -1,
-) -> tuple[torch.Tensor, torch.Tensor]:
+) -> torch.Tensor:
 
     dims_to_match = list(target_tensor.shape[:concat_dims])
     dims_to_retain = list(input_tensor.shape[concat_dims:])

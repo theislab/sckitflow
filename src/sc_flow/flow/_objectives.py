@@ -159,8 +159,8 @@ class _OTObjective(Objective):
     def _couple(self, batch: dict[str, Any], device: Any) -> tuple[torch.Tensor, torch.Tensor]:
         locs = self._coupling_locs
         if self._match_method == "independent":
-            n_src = _to_device(batch["source"], device).shape[0]
-            n_tgt = _to_device(batch["target"], device).shape[0]
+            n_src = len(batch["source"]) if hasattr(batch["source"], "__len__") else batch["source"].shape[0]
+            n_tgt = len(batch["target"]) if hasattr(batch["target"], "__len__") else batch["target"].shape[0]
             m = min(n_src, n_tgt)
             src_ixs = torch.randperm(n_src, generator=self._perm_gen)[:m]
             tgt_ixs = torch.randperm(n_tgt, generator=self._perm_gen)[:m]

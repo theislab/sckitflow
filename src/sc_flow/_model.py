@@ -130,8 +130,10 @@ def _min_run_per_leaf(source: Any, group_by: Sequence[str]) -> dict[tuple, int]:
     it can only over-drop, never leave a leaf that annbatch would then reject. Loops over runs (few), not
     rows (many). Obs cols are already in RAM on the backed AnnData(s), so this reads directly from RAM.
     """
+    import time
     from scfit.data._io import obs_columns
 
+    t0 = time.perf_counter()
     elems = source if isinstance(source, list) else [source]
     cols = list(group_by)
     min_run: dict[tuple, int] = {}
@@ -150,6 +152,7 @@ def _min_run_per_leaf(source: Any, group_by: Sequence[str]) -> dict[tuple, int]:
             leaf, length = tuple(row), int(length)
             if leaf not in min_run or length < min_run[leaf]:
                 min_run[leaf] = length
+    logger.info("[prep] 5. min_run_per_leaf scan (%d plates): %.2fs", len(elems), time.perf_counter() - t0)
     return min_run
 
 
@@ -169,9 +172,10 @@ def _read_problem(
     perturbed leaves get a categorical ``label_lookup`` (one integer index per realm column, shape ``(1, set)``
     so the objective broadcasts it over the batch); dims come from the rep header + the per-realm vocab.
     """
-    import pandas as pd
+    import time
     from scfit.data._io import get_from_container, obs_columns, open_source
 
+    t_start = time.perf_counter()
     match_on = tuple(split_covariates)
     realm_cols = {realm: tuple(cols) for realm, cols in perturbation_covariates.items()}
     cond_cols = tuple(dict.fromkeys(c for cols in realm_cols.values() for c in cols))
@@ -179,10 +183,12 @@ def _read_problem(
     rep_loc = _sample_rep_to_key(sample_rep)
 
     source = open_source(data, keys=[rep_loc], cols=[*group_by, control_key])
+    t_source = time.perf_counter()
+    logger.info("[prep] 1. Open primary Zarr sources: %.2fs", t_source - t_start)
+
     obs = obs_columns(source, [*group_by, control_key])
-    for col in group_by:
-        if not isinstance(obs[col].dtype, pd.CategoricalDtype):
-            obs[col] = obs[col].astype("category")
+    t_obs = time.perf_counter()
+    logger.info("[prep] 2. Read + unify primary obs columns (%d cells): %.2fs", len(obs), t_obs - t_source)
 
     def _leaves(frame) -> list[tuple]:
         return [tuple(r) for r in frame.loc[:, list(group_by)].drop_duplicates().to_numpy()]
@@ -190,19 +196,24 @@ def _read_problem(
     if controls is not None:
         ctrl_source = open_source(controls, keys=[rep_loc], cols=[*group_by, control_key])
         ctrl_obs = obs_columns(ctrl_source, [*group_by, control_key])
-        for col in group_by:
-            if not isinstance(ctrl_obs[col].dtype, pd.CategoricalDtype):
-                ctrl_obs[col] = ctrl_obs[col].astype("category")
+        t_ctrl = time.perf_counter()
+        logger.info("[prep] 3. Open + read controls store (%d cells): %.2fs", len(ctrl_obs), t_ctrl - t_obs)
+
         ctrl_leaves = _leaves(ctrl_obs)
         ctrl_mask = obs[control_key].to_numpy().astype(bool) if control_key in obs else np.zeros(len(obs), dtype=bool)
         pert_obs = obs.loc[~ctrl_mask] if control_key in obs else obs
         pert_leaves = _leaves(pert_obs)
+        t_leaves = time.perf_counter()
+        logger.info("[prep] 4. Extract unique condition leaves (%d pert, %d ctrl): %.2fs", len(pert_leaves), len(ctrl_leaves), t_leaves - t_ctrl)
     else:
         ctrl_source = None
         ctrl_mask = obs[control_key].to_numpy().astype(bool)
         pert_obs = obs.loc[~ctrl_mask]
         pert_leaves = _leaves(pert_obs)
         ctrl_leaves = _leaves(obs.loc[ctrl_mask])
+        t_leaves = time.perf_counter()
+        logger.info("[prep] 4. Extract unique condition leaves (%d pert, %d ctrl): %.2fs", len(pert_leaves), len(ctrl_leaves), t_leaves - t_obs)
+
 
 
 

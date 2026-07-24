@@ -180,17 +180,13 @@ lint.per-file-ignores."tests/*" = [ "D" ]
 lint.pydocstyle.convention = "numpy"
 
 [tool.pytest]
+# The old dual-backend (jax/torch) + sc_flow.core/data/dataset test suite was retired with the
+# torch-native rewrite (data layer now lives in scfit; model in sc_flow.flow/nn/training). What
+# remains are the surviving leaf-component unit tests; behavioural coverage of the new recipe ->
+# FlowMatching -> Lightning path lives in scripts/smoke_flow_matching.py + scripts/smoke_harness_split.py.
 ini_options.testpaths = [
-  "tests/backends/torch/nn/test_pooling.py",
-  "tests/backends/torch/nn/test_set_encoder.py",
-  "tests/backends/torch/training/test_harness.py",
-  "tests/data/test_compile_obs_binded.py",
-  "tests/data/test_compile_obs_parity.py",
-  "tests/data/test_coupling_refs.py",
-  "tests/data/test_encoders.py",
-  "tests/data/test_mixin.py",
-  "tests/data/test_utils.py",
-  "tests/test_flow_matching.py",
+  "tests/backends/torch/nn",
+  "tests/backends/torch/test_utils.py",
 ]
 ini_options.addopts = [
   "--import-mode=importlib", # allow using test files with same name

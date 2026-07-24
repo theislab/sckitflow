@@ -3,10 +3,6 @@ from collections.abc import Collection, Sequence
 import pandas as pd
 import pytest
 
-from sc_flow.core.data.sim._dummy_adata import get_dummy_adata
-
-from .utils import get_dummy_network
-
 input_dim = 10
 output_dim = 10
 hidden_dims = (20, 20)
@@ -206,29 +202,6 @@ def uns_keys_to_nunique_prefix_and_dim(
 
 
 @pytest.fixture
-def adata(
-    n_obs_pert: int,
-    n_obs_ctrl: int,
-    n_genes: int,
-    obsm_keys_to_dim: dict[str, int],
-    obs_columns_to_nunique_and_prefix: dict[str, tuple[int | str]],
-    uns_keys_to_nunique_prefix_and_dim: dict[str, int | str],
-    obs_columns_to_fixed_val: dict[str, str],
-    control_key: str,
-):
-    return get_dummy_adata(
-        n_obs_pert=n_obs_pert,
-        n_obs_ctrl=n_obs_ctrl,
-        n_genes=n_genes,
-        obsm_keys_to_dim=obsm_keys_to_dim,
-        obs_columns_to_nunique_and_prefix=obs_columns_to_nunique_and_prefix,
-        uns_keys_to_nunique_prefix_and_dim=uns_keys_to_nunique_prefix_and_dim,
-        obs_columns_to_fixed_val=obs_columns_to_fixed_val,
-        control_key=control_key,
-    )
-
-
-@pytest.fixture
 def registry() -> dict[str, Collection[str]]:
     return {"level0": ["level0-A", "level0-B"], "level1": ["level1-A", "level1-B"]}
 
@@ -243,11 +216,6 @@ def sample_df():
         }
     )
     return adata
-
-
-@pytest.fixture
-def dummy_method(input_di=input_dim, output_dim=output_dim, hidden_dims=hidden_dims):
-    return get_dummy_network(input_dim, output_dim, hidden_dims)
 
 
 @pytest.fixture

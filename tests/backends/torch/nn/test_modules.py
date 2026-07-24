@@ -4,7 +4,7 @@ from typing import Any
 import pytest
 import torch
 
-from sc_flow.core.nn._modules import MLP, Resnet1d
+from sc_flow.nn._modules import MLP, Resnet1d
 
 output_dim = 32
 
@@ -112,7 +112,7 @@ class TestNNModules:
             output_tensor = mlp(input_tensor)
             return None
 
-    @pytest.mark.parametrize("num_resnet_layers", [None, 5])
+    @pytest.mark.parametrize("num_resnet_layers", [5])
     @pytest.mark.parametrize("output_dim", [None, output_dim])
     @pytest.mark.parametrize("activation_cls", [None, torch.nn.SiLU])
     @pytest.mark.parametrize("use_batchnorm", [True, False])

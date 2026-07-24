@@ -105,7 +105,7 @@ def _sample_rep_to_key(sample_rep: str) -> str:
     return "X" if sample_rep == "X" else f"obsm/{sample_rep}"
 
 
-@dataclass
+@dataclass(frozen=True)
 class _Problem:
     """Everything read from obs to describe the streams + size the net (the 'compile', via scfit readers)."""
 
@@ -118,6 +118,7 @@ class _Problem:
     label_lookup: dict[tuple, dict[str, np.ndarray]]  # pert leaf -> {realm: (1, set) categorical index}
     dims: _Dims
     pert_leaf_min_run: dict[tuple, int]  # pert leaf -> shortest contiguous on-disk run (per path); for min_runs_per_leaf
+    ctrl_source: Any = None  # optional separate control store (e.g. controls.zarr)
 
 
 def _min_run_per_leaf(source: Any, group_by: Sequence[str]) -> dict[tuple, int]:
@@ -157,6 +158,7 @@ def _read_problem(
     control_key: str,
     perturbation_covariates: Mapping[str, Sequence[str]],
     split_covariates: Sequence[str],
+    controls: Any | None = None,
 ) -> _Problem:
     """Read obs once (via scfit's readers) → the streams' description + the net's dims. No cells materialized.
 
@@ -175,18 +177,24 @@ def _read_problem(
 
     source = open_source(data, keys=[rep_loc], cols=[*group_by, control_key])
     obs = obs_columns(source, [*group_by, control_key])
-    ctrl_mask = obs[control_key].to_numpy().astype(bool)
 
-    def _leaves(frame) -> list[tuple]:
-        return [tuple(r) for r in frame.loc[:, list(group_by)].drop_duplicates().to_numpy()]
-
-    pert_leaves = _leaves(obs.loc[~ctrl_mask])
-    ctrl_leaves = _leaves(obs.loc[ctrl_mask])
+    if controls is not None:
+        ctrl_source = open_source(controls, keys=[rep_loc], cols=[*group_by, control_key])
+        ctrl_obs = obs_columns(ctrl_source, [*group_by, control_key])
+        ctrl_leaves = [tuple(r) for r in ctrl_obs.loc[:, list(group_by)].drop_duplicates().to_numpy()]
+        ctrl_mask = obs[control_key].to_numpy().astype(bool) if control_key in obs else np.zeros(len(obs), dtype=bool)
+        pert_obs = obs.loc[~ctrl_mask] if control_key in obs else obs
+        pert_leaves = [tuple(r) for r in pert_obs.loc[:, list(group_by)].drop_duplicates().to_numpy()]
+    else:
+        ctrl_source = None
+        ctrl_mask = obs[control_key].to_numpy().astype(bool)
+        pert_obs = obs.loc[~ctrl_mask]
+        pert_leaves = [tuple(r) for r in pert_obs.loc[:, list(group_by)].drop_duplicates().to_numpy()]
+        ctrl_leaves = [tuple(r) for r in obs.loc[ctrl_mask, list(group_by)].drop_duplicates().to_numpy()]
 
     # Per realm: a categorical vocab over its column values (perturbed cells only — the control token is not
     # a perturbation category); the leaf's index per realm column.
     col_idx = {c: group_by.index(c) for c in group_by}
-    pert_obs = obs.loc[~ctrl_mask]
     vocab: dict[str, dict[str, int]] = {}
     num_categories: dict[str, int] = {}
     for realm, cols in realm_cols.items():
@@ -208,7 +216,8 @@ def _read_problem(
     min_run = _min_run_per_leaf(source, group_by)
     pert_leaf_min_run = {leaf: min_run.get(leaf, 0) for leaf in pert_leaves}
     return _Problem(
-        source, rep_loc, group_by, match_on, pert_leaves, ctrl_leaves, label_lookup, dims, pert_leaf_min_run
+        source, rep_loc, group_by, match_on, pert_leaves, ctrl_leaves, label_lookup, dims, pert_leaf_min_run,
+        ctrl_source=ctrl_source
     )
 
 
@@ -304,8 +313,10 @@ class FlowMatching:
 
         d = self._data
         source = self._resolve_source(d)
+        ctrl_source = self._resolve_source({"data": d["controls"]}) if ("controls" in d and d["controls"]) else None
         self._problem = _read_problem(
             source,
+            controls=ctrl_source,
             sample_rep=d.get("sample_rep", "X"),
             control_key=d.get("control_key", "is_control"),
             perturbation_covariates=d.get("perturbation_covariates", {"drug": ["drug"]}),
@@ -412,7 +423,7 @@ class FlowMatching:
             batch_size=batch, chunk_size=chunk, preload_nchunks=preload,
         )
         ctrl = Stream(
-            p.source, group_by=p.group_by, rep=p.rep_loc,
+            p.ctrl_source or p.source, group_by=p.group_by, rep=p.rep_loc,
             weights={lf: 1.0 for lf in ctrl_leaves}, match_on=p.match_on, in_memory=True,
             batch_size=batch, chunk_size=1, preload_nchunks=preload * chunk,  # chunk=1 → ×chunk to match cells
         )

@@ -7,7 +7,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from scfit.training._objective import Objective, register_objective
+from sc_flow.training._objective import Objective, register_objective
 
 __all__ = ["LinearFMObjective", "OTFMObjective", "GENOTObjective"]
 

@@ -2,7 +2,7 @@ from collections.abc import Collection, Mapping
 
 from anndata import AnnData
 
-from scfit._utils import check_sequence_query_against_reference
+from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.data._encoders import Encoder, Lookup
 from sc_flow.data.schemas._base_schema import StrictDataSchema
 

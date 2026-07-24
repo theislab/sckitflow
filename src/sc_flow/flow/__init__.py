@@ -1,5 +1,5 @@
 
-from scfit.training._objective import build_objective
+from sc_flow.training._objective import build_objective
 
 # importing the concrete objectives / predictor registers them with the core registries
 from sc_flow.flow._combiner import BaseCombiner, CombinerSpec, build_combiner, validate_combiner_spec

@@ -4,8 +4,8 @@ from typing import Any
 
 import torch
 
-from scfit._component import ComponentRegistry, ComponentSpec
-from scfit.nn import NET_REGISTRY, NetContext, NetSpec, Resnet1d
+from sc_flow._component import ComponentRegistry, ComponentSpec
+from sc_flow.nn import NET_REGISTRY, NetContext, NetSpec, Resnet1d
 from sc_flow.flow._torch_utils import make_concatenation_possible
 
 __all__ = [
@@ -19,7 +19,7 @@ __all__ = [
     "validate_combiner_spec",
 ]
 
-#: A combiner spec is a :class:`~scfit.ComponentSpec` — the slot (``combiner``) fixes the family.
+#: A combiner spec is a :class:`~sc_flow.ComponentSpec` — the slot (``combiner``) fixes the family.
 CombinerSpec = ComponentSpec
 
 
@@ -220,9 +220,9 @@ class Resnet1dCombinerConfig:
             self.resnet = NET_REGISTRY.validate(self.resnet)
         except (TypeError, ValueError) as e:
             raise ValueError(f"Invalid sc_flow.resnet1d config slot 'resnet': {e}") from e
-        if self.resnet["type"] != "scfit.resnet":
+        if self.resnet["type"] != "sc_flow.resnet":
             raise ValueError(
-                "sc_flow.resnet1d config slot 'resnet' requires a 'scfit.resnet' net spec, "
+                "sc_flow.resnet1d config slot 'resnet' requires a 'sc_flow.resnet' net spec, "
                 f"found {self.resnet['type']!r}."
             )
 
@@ -240,7 +240,7 @@ class Resnet1dCombinerConfig:
         )
         if not isinstance(resnet, Resnet1d):  # registry/slot invariant; fail loudly if registration changes
             raise TypeError(
-                "sc_flow.resnet1d config slot 'resnet' must build scfit.nn.Resnet1d, "
+                "sc_flow.resnet1d config slot 'resnet' must build sc_flow.nn.Resnet1d, "
                 f"found {type(resnet).__name__}."
             )
         return Resnet1dCombiner(

@@ -4,7 +4,7 @@ from collections.abc import Mapping
 
 import torch
 
-from scfit._utils import check_sequence_query_against_reference
+from sc_flow._utils import check_sequence_query_against_reference
 from sc_flow.flow._torch_types import MappedTensor
 from sc_flow.flow._config import SetEncoderConfig
 

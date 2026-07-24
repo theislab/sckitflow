@@ -1,11 +1,11 @@
 """Population-level held-out validation as a Lightning ``Callback``.
 
-:class:`~scfit.training.TrainingModule` is training-only by design — a generic trainer must not know a
+:class:`~sc_flow.training.TrainingModule` is training-only by design — a generic trainer must not know a
 batch has ``source``/``target``/``condition`` semantics. This callback supplies the distribution-matching
 eval protocol that flow matching (and any control→perturbed model) needs, *composed* from the orthogonal
 seams rather than baked into the module:
 
-* it drives inference through an injected :class:`~scfit.training.Predictor` — the **same** object
+* it drives inference through an injected :class:`~sc_flow.training.Predictor` — the **same** object
   ``FlowMatching.predict`` uses on external data, so a validation metric reflects exactly what inference
   does;
 * it scores two prediction *streams* against the held-out target — the model, and an **identity
@@ -26,7 +26,7 @@ from typing import Any
 import lightning.pytorch as pl
 import torch
 
-from scfit.training import Predictor
+from sc_flow.training import Predictor
 
 __all__ = ["PerturbationValidationCallback"]
 
@@ -42,7 +42,7 @@ def _clone_metrics(templates: Mapping[str, torch.nn.Module]) -> dict[str, torch.
 
 
 class PerturbationValidationCallback(pl.Callback):
-    """Control→perturbed population validation, attachable to any :class:`~scfit.training.TrainingModule`.
+    """Control→perturbed population validation, attachable to any :class:`~sc_flow.training.TrainingModule`.
 
     Parameters
     ----------

@@ -9,7 +9,7 @@ from typing import Any
 import torch
 from torch.nn import functional as F
 
-from scfit._component import ComponentRegistry, ComponentSpec
+from sc_flow._component import ComponentRegistry, ComponentSpec
 
 __all__ = [
     "BasePooling",
@@ -23,7 +23,7 @@ __all__ = [
     "validate_pooling_spec",
 ]
 
-#: A pooling spec is a :class:`~scfit.ComponentSpec` — the slot (``pooling``) fixes the family.
+#: A pooling spec is a :class:`~sc_flow.ComponentSpec` — the slot (``pooling``) fixes the family.
 PoolingSpec = ComponentSpec
 
 #: Closed built-in pooling family on the shared registry machinery. ``mean``/``sum`` are parameter-free;

@@ -405,8 +405,11 @@ class FlowMatching:
         """
         from scfit.data import Loader, Stream
 
+        p = self._problem
+        s = self._sampler
         batch = int(s.get("batch_size", 1024))
         chunk = int(s.get("chunk_size", 1))
+
         prefetch = int(s.get("prefetch_factor", 2))
         ctrl_prefetch = int(s.get("ctrl_prefetch_factor", min(prefetch, 2)))
 

@@ -439,8 +439,9 @@ class FlowMatching:
         ctrl = Stream(
             p.ctrl_source or p.source, group_by=p.group_by, rep=p.rep_loc,
             weights={lf: 1.0 for lf in ctrl_leaves}, match_on=p.match_on, in_memory=True,
-            batch_size=batch, chunk_size=1, preload_nchunks=preload * chunk,  # chunk=1 → ×chunk to match cells
+            batch_size=batch, chunk_size=1, preload_nchunks=preload * 2,  # lean preload (2 batches of cells)
         )
+
         to_gpu = str(self._trainer.get("device", "cpu")) not in ("cpu", "mps")
         return Loader(primary, {"ctrl": ctrl}, seed=self.seed, to="torch", preload_to_gpu=to_gpu)
 

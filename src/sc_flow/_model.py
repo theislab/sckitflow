@@ -128,14 +128,16 @@ def _min_run_per_leaf(source: Any, group_by: Sequence[str]) -> dict[tuple, int]:
     shorter than ``chunk_size``; a slice never crosses a backing, so runs are per-path. Computing per path
     (and taking the global min per leaf) therefore never *over*-credits a leaf that is split across plates —
     it can only over-drop, never leave a leaf that annbatch would then reject. Loops over runs (few), not
-    rows (many). Obs cols are already in RAM on the backed AnnData(s), so this reads nothing new from zarr.
+    rows (many). Obs cols are already in RAM on the backed AnnData(s), so this reads directly from RAM.
     """
     from scfit.data._io import obs_columns
 
     elems = source if isinstance(source, list) else [source]
+    cols = list(group_by)
     min_run: dict[tuple, int] = {}
     for el in elems:
-        arr = obs_columns(el, list(group_by)).to_numpy()  # (n, k) leaf values in stored (path) order
+        df = el.obs[cols] if hasattr(el, "obs") else obs_columns(el, cols)
+        arr = df.loc[:, cols].to_numpy()  # (n, k) leaf values in stored (path) order
         n = len(arr)
         if n == 0:
             continue
@@ -149,6 +151,16 @@ def _min_run_per_leaf(source: Any, group_by: Sequence[str]) -> dict[tuple, int]:
             if leaf not in min_run or length < min_run[leaf]:
                 min_run[leaf] = length
     return min_run
+
+
+def _fast_leaves(frame: Any, group_by: Sequence[str]) -> list[tuple]:
+    """Extract unique leaf tuples efficiently, maintaining CategoricalDtype for fast C-level hashing."""
+    cols = list(group_by)
+    sub = frame.loc[:, cols].copy()
+    for c in cols:
+        if not isinstance(sub[c].dtype, pd.CategoricalDtype):
+            sub[c] = sub[c].astype("category")
+    return [tuple(r) for r in sub.drop_duplicates().to_numpy()]
 
 
 def _read_problem(
@@ -181,16 +193,17 @@ def _read_problem(
     if controls is not None:
         ctrl_source = open_source(controls, keys=[rep_loc], cols=[*group_by, control_key])
         ctrl_obs = obs_columns(ctrl_source, [*group_by, control_key])
-        ctrl_leaves = [tuple(r) for r in ctrl_obs.loc[:, list(group_by)].drop_duplicates().to_numpy()]
+        ctrl_leaves = _fast_leaves(ctrl_obs, group_by)
         ctrl_mask = obs[control_key].to_numpy().astype(bool) if control_key in obs else np.zeros(len(obs), dtype=bool)
         pert_obs = obs.loc[~ctrl_mask] if control_key in obs else obs
-        pert_leaves = [tuple(r) for r in pert_obs.loc[:, list(group_by)].drop_duplicates().to_numpy()]
+        pert_leaves = _fast_leaves(pert_obs, group_by)
     else:
         ctrl_source = None
         ctrl_mask = obs[control_key].to_numpy().astype(bool)
         pert_obs = obs.loc[~ctrl_mask]
-        pert_leaves = [tuple(r) for r in pert_obs.loc[:, list(group_by)].drop_duplicates().to_numpy()]
-        ctrl_leaves = [tuple(r) for r in obs.loc[ctrl_mask, list(group_by)].drop_duplicates().to_numpy()]
+        pert_leaves = _fast_leaves(pert_obs, group_by)
+        ctrl_leaves = _fast_leaves(obs.loc[ctrl_mask], group_by)
+
 
     # Per realm: a categorical vocab over its column values (perturbed cells only — the control token is not
     # a perturbation category); the leaf's index per realm column.

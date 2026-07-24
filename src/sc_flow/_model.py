@@ -156,6 +156,41 @@ def _min_run_per_leaf(source: Any, group_by: Sequence[str]) -> dict[tuple, int]:
     return min_run
 
 
+def _load_rep_tables(data: Any, reps: Mapping[str, str]) -> dict[str, tuple[dict[str, np.ndarray], int]]:
+    """Load per-realm FEATURE tables from a rep source's ``uns`` (``perturbation_covariate_reps =
+    {realm: uns_key}``). Each ``uns[key]`` is a category→vector table: a pandas DataFrame indexed by the
+    category value, or a ``{value: vector}`` mapping. Returns ``{realm: (table, dim)}`` with a STRING-keyed
+    lookup — so a HELD-OUT category still resolves to a vector (the whole point of a rep vs a learned
+    embedding, which has no trained row for an unseen category).
+    """
+    if not reps:
+        return {}
+    import anndata as ad
+
+    first = data[0] if isinstance(data, (list, tuple)) else data
+    if isinstance(first, ad.AnnData):
+        get = lambda k: first.uns[k]  # noqa: E731
+    else:
+        import zarr
+        from anndata.io import read_elem
+
+        g = zarr.open_group(str(first), mode="r", use_consolidated=False)  # rep may post-date consolidation
+        get = lambda k: read_elem(g["uns"][k])  # noqa: E731
+    out: dict[str, tuple[dict[str, np.ndarray], int]] = {}
+    for realm, key in reps.items():
+        tbl = get(key)
+        if hasattr(tbl, "iterrows"):  # pandas DataFrame indexed by category value
+            table = {str(i): np.asarray(v, dtype=np.float32) for i, v in zip(tbl.index, tbl.to_numpy())}
+        elif isinstance(tbl, Mapping):
+            table = {str(k): np.asarray(v, dtype=np.float32) for k, v in tbl.items()}
+        else:
+            raise TypeError(f"rep uns[{key!r}] must be a DataFrame or a mapping category->vector, got {type(tbl)}.")
+        if not table:
+            raise ValueError(f"rep uns[{key!r}] is empty.")
+        out[realm] = (table, int(len(next(iter(table.values())))))
+    return out
+
+
 def _read_problem(
     data: Any,
     *,
@@ -163,6 +198,7 @@ def _read_problem(
     control_key: str,
     perturbation_covariates: Mapping[str, Sequence[str]],
     split_covariates: Sequence[str],
+    perturbation_covariate_reps: Mapping[str, str] | None = None,
     controls: Any | None = None,
 ) -> _Problem:
     """Read obs once (via scfit's readers) → the streams' description + the net's dims. No cells materialized.
@@ -228,12 +264,19 @@ def _read_problem(
 
 
 
-    # Per realm: a categorical vocab over its column values (perturbed cells only — the control token is not
-    # a perturbation category); the leaf's index per realm column.
+    # Per realm: a FEATURE vector (looked up from a rep table in uns via perturbation_covariate_reps) OR a
+    # categorical vocab index over its column values (perturbed cells only — the control token is not a
+    # perturbation category). Feature realms → a width in dims.condition (→ a feature_mlp encoder); categorical
+    # realms → a vocab size in dims.condition_num_categories (→ an embedding/onehot encoder).
+    rep_tables = _load_rep_tables(data, dict(perturbation_covariate_reps or {}))
     col_idx = {c: group_by.index(c) for c in group_by}
     vocab: dict[str, dict[str, int]] = {}
     num_categories: dict[str, int] = {}
+    condition_dims: dict[str, int] = {}
     for realm, cols in realm_cols.items():
+        if realm in rep_tables:
+            condition_dims[realm] = rep_tables[realm][1]  # feature realm: width from the rep table
+            continue
         cats = sorted({str(v) for v in pert_obs[list(cols)].to_numpy().reshape(-1)})
         vocab[realm] = {v: i for i, v in enumerate(cats)}
         num_categories[realm] = len(cats)
@@ -242,13 +285,21 @@ def _read_problem(
     def _label(leaf: tuple) -> dict[str, np.ndarray]:
         out: dict[str, np.ndarray] = {}
         for realm, cols in realm_cols.items():
-            idx = np.asarray([vocab[realm][str(leaf[col_idx[c]])] for c in cols])
-            out[realm] = idx[np.newaxis, :]  # (1, set) — broadcast over the batch by the objective
+            if realm in rep_tables:
+                table, _dim = rep_tables[realm]
+                try:
+                    vecs = np.stack([table[str(leaf[col_idx[c]])] for c in cols], axis=0)  # (set, dim)
+                except KeyError as e:
+                    raise KeyError(f"perturbation_covariate_reps[{realm!r}]: no vector for category {e}.") from None
+                out[realm] = vecs[np.newaxis, :, :].astype(np.float32)  # (1, set, dim) feature — broadcast over batch
+            else:
+                idx = np.asarray([vocab[realm][str(leaf[col_idx[c]])] for c in cols])
+                out[realm] = idx[np.newaxis, :]  # (1, set) categorical index — broadcast over the batch
         return out
 
     label_lookup = {leaf: _label(leaf) for leaf in pert_leaves}
     state_dim = int(get_from_container(source, rep_loc)[0].shape[1])
-    dims = _Dims(state=state_dim, condition={}, condition_num_categories=num_categories, max_comb=max_comb)
+    dims = _Dims(state=state_dim, condition=condition_dims, condition_num_categories=num_categories, max_comb=max_comb)
     min_run = _min_run_per_leaf(source, group_by)
     pert_leaf_min_run = {leaf: min_run.get(leaf, 0) for leaf in pert_leaves}
     return _Problem(
@@ -357,6 +408,7 @@ class FlowMatching:
             control_key=d.get("control_key", "is_control"),
             perturbation_covariates=d.get("perturbation_covariates", {"drug": ["drug"]}),
             split_covariates=d.get("split_covariates", []),
+            perturbation_covariate_reps=d.get("perturbation_covariate_reps", {}),
         )
         self._dims = self._problem.dims
 

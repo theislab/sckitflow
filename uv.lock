@@ -176,8 +176,8 @@ wheels = [
 
 [[package]]
 name = "annbatch"
-version = "0.0.2.dev129+g98e543a8a"
-source = { git = "https://github.com/selmanozleyen/annbatch.git?rev=98e543a8a75ef22d14bfcc8f5c9fa11f83db7c23#98e543a8a75ef22d14bfcc8f5c9fa11f83db7c23" }
+version = "0.0.2.dev131+g60c1de981"
+source = { git = "https://github.com/selmanozleyen/annbatch.git?rev=60c1de98156edae493d340b626877959d513ca10#60c1de98156edae493d340b626877959d513ca10" }
 dependencies = [
     { name = "anndata", extra = ["lazy"] },
     { name = "dask" },
@@ -4033,7 +4033,7 @@ requires-dist = [
     { name = "sc-flow-tools", extras = ["jax", "test"], marker = "extra == 'test-jax'" },
     { name = "sc-flow-tools", extras = ["lightning", "test", "torch"], marker = "extra == 'test-lightning'" },
     { name = "scanpy", marker = "extra == 'test'" },
-    { name = "scfit", editable = "../scfit" },
+    { name = "scfit", git = "https://github.com/theislab/scfit.git?rev=c6477871a4d8373d02ece40b0a4cf992eba64b6d" },
     { name = "scikit-learn" },
     { name = "session-info2" },
     { name = "setuptools", marker = "extra == 'doc'" },
@@ -4091,7 +4091,7 @@ wheels = [
 [[package]]
 name = "scfit"
 version = "0.0.1"
-source = { editable = "../scfit" }
+source = { git = "https://github.com/theislab/scfit.git?rev=c6477871a4d8373d02ece40b0a4cf992eba64b6d#c6477871a4d8373d02ece40b0a4cf992eba64b6d" }
 dependencies = [
     { name = "annbatch" },
     { name = "anndata" },
@@ -4104,49 +4104,6 @@ dependencies = [
     { name = "session-info2" },
     { name = "torch" },
     { name = "zarrs" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "annbatch", git = "https://github.com/selmanozleyen/annbatch.git?rev=98e543a8a75ef22d14bfcc8f5c9fa11f83db7c23" },
-    { name = "anndata", specifier = ">=0.13" },
-    { name = "cupy-cuda12x", marker = "sys_platform == 'linux' and extra == 'cuda'" },
-    { name = "lightning" },
-    { name = "numpy" },
-    { name = "pandas" },
-    { name = "safetensors" },
-    { name = "scikit-learn" },
-    { name = "scipy" },
-    { name = "session-info2" },
-    { name = "torch", specifier = ">=2" },
-    { name = "zarrs", specifier = ">=0.2.1" },
-]
-provides-extras = ["cuda"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "prek" },
-    { name = "twine", specifier = ">=4.0.2" },
-]
-doc = [
-    { name = "ipykernel" },
-    { name = "ipython" },
-    { name = "myst-nb", specifier = ">=1.1" },
-    { name = "pandas" },
-    { name = "scverse-misc", extras = ["sphinx"], specifier = ">=0.1.2" },
-    { name = "sphinx", specifier = ">=8.1" },
-    { name = "sphinx-autodoc-typehints" },
-    { name = "sphinx-book-theme", specifier = ">=1" },
-    { name = "sphinx-copybutton" },
-    { name = "sphinx-design" },
-    { name = "sphinxcontrib-bibtex", specifier = ">=1" },
-    { name = "sphinxcontrib-katex" },
-    { name = "sphinxext-opengraph" },
-]
-test = [
-    { name = "coverage", specifier = ">=7.10" },
-    { name = "pytest" },
-    { name = "pytest-cov" },
 ]
 
 [[package]]

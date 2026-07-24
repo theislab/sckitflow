@@ -134,11 +134,12 @@ envs.hatch-test.overrides.matrix.deps.env-vars = [
   { value = "allow", key = "UV_PRERELEASE", if = [ "pre" ] },
 ]
 
-# scfit (data + metrics layer) is not yet on PyPI, so pin it to its active branch on theislab/scfit.
-# Git (not a local path) so sc-flow-tools stays installable as a git dependency downstream (e.g. cf-train
-# on the cluster); a `../scfit` path source gets rewritten to a bogus git subdirectory when consumed.
+# scfit (data + metrics layer) is not yet on PyPI, so pin it to an immutable commit on theislab/scfit
+# (feat/api-simplification @ c647787 — that branch head moves). Git (not a local path) so sc-flow-tools
+# stays installable as a git dependency downstream (e.g. cf-train on the cluster); a `../scfit` path
+# source gets rewritten to a bogus git subdirectory when consumed.
 [tool.uv.sources]
-scfit = { git = "https://github.com/theislab/scfit.git", branch = "feat/metrics-data" }
+scfit = { git = "https://github.com/theislab/scfit.git", rev = "c6477871a4d8373d02ece40b0a4cf992eba64b6d" }
 
 [tool.ruff]
 line-length = 120

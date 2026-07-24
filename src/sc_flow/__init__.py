@@ -1,11 +1,9 @@
 
 from sc_flow._optional import require
-from sc_flow import data
 
 __all__ = [
     "FlowMatching",
     "FlowMatchingConfig",
-    "data",
     "flow",
 ]
 

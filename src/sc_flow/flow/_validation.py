@@ -108,10 +108,13 @@ class PerturbationValidationCallback(pl.Callback):
         for suffix, metrics in self._stream_metrics.items():
             for name, metric in metrics.items():
                 value = float(metric.compute())
-                if suffix == _MODEL:
-                    pl_module.log(f"val_{name}_mean", value, prog_bar=True)
-                self.metrics_history.setdefault(f"{name}{suffix}", []).append(value)
                 metric.reset()
+                if getattr(trainer, "sanity_checking", False):
+                    continue  # startup sanity pass: exercise the whole held-out path, but don't record init
+                # Log every scored stream so wandb shows the model AND the identity baseline side by side
+                # (val_<name>_mean, val_<name>_mean_identity); prog bar stays model-only to keep it readable.
+                pl_module.log(f"val_{name}_mean{suffix}", value, prog_bar=suffix == _MODEL)
+                self.metrics_history.setdefault(f"{name}{suffix}", []).append(value)
 
     def _cap_source(self, batch: Any) -> Any:
         cap = self._val_max_source_cells

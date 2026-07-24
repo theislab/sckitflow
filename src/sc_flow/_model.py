@@ -117,6 +117,37 @@ class _Problem:
     ctrl_leaves: list[tuple]  # control source leaves
     label_lookup: dict[tuple, dict[str, np.ndarray]]  # pert leaf -> {realm: (1, set) categorical index}
     dims: _Dims
+    pert_leaf_min_run: dict[tuple, int]  # pert leaf -> shortest contiguous on-disk run (per path); for min_runs_per_leaf
+
+
+def _min_run_per_leaf(source: Any, group_by: Sequence[str]) -> dict[tuple, int]:
+    """Shortest contiguous on-disk run per leaf, computed PER source path.
+
+    annbatch's ``ClassSampler`` reads a sampled leaf as contiguous ``chunk_size`` slices and rejects a run
+    shorter than ``chunk_size``; a slice never crosses a backing, so runs are per-path. Computing per path
+    (and taking the global min per leaf) therefore never *over*-credits a leaf that is split across plates —
+    it can only over-drop, never leave a leaf that annbatch would then reject. Loops over runs (few), not
+    rows (many). Obs cols are already in RAM on the backed AnnData(s), so this reads nothing new from zarr.
+    """
+    from scfit.data._io import obs_columns
+
+    elems = source if isinstance(source, list) else [source]
+    min_run: dict[tuple, int] = {}
+    for el in elems:
+        arr = obs_columns(el, list(group_by)).to_numpy()  # (n, k) leaf values in stored (path) order
+        n = len(arr)
+        if n == 0:
+            continue
+        change = np.ones(n, dtype=bool)  # a new run starts wherever the leaf row differs from its predecessor
+        if n > 1:
+            change[1:] = (arr[1:] != arr[:-1]).any(axis=1)
+        starts = np.flatnonzero(change)
+        lengths = np.diff(np.append(starts, n))
+        for row, length in zip(arr[starts], lengths):
+            leaf, length = tuple(row), int(length)
+            if leaf not in min_run or length < min_run[leaf]:
+                min_run[leaf] = length
+    return min_run
 
 
 def _read_problem(
@@ -174,7 +205,11 @@ def _read_problem(
     label_lookup = {leaf: _label(leaf) for leaf in pert_leaves}
     state_dim = int(get_from_container(source, rep_loc)[0].shape[1])
     dims = _Dims(state=state_dim, condition={}, condition_num_categories=num_categories, max_comb=max_comb)
-    return _Problem(source, rep_loc, group_by, match_on, pert_leaves, ctrl_leaves, label_lookup, dims)
+    min_run = _min_run_per_leaf(source, group_by)
+    pert_leaf_min_run = {leaf: min_run.get(leaf, 0) for leaf in pert_leaves}
+    return _Problem(
+        source, rep_loc, group_by, match_on, pert_leaves, ctrl_leaves, label_lookup, dims, pert_leaf_min_run
+    )
 
 
 class _SemanticBatches(torch.utils.data.IterableDataset):
@@ -351,6 +386,19 @@ class FlowMatching:
         chunk = int(s.get("chunk_size", 1))
         prefetch = int(s.get("prefetch_factor", 2))
         preload = max(1, batch // chunk) * prefetch
+
+        # Drop target leaves whose shortest contiguous run < min_runs_per_leaf so the annbatch ClassSampler's
+        # chunk_size run-length rule holds (a fragmented leaf would else abort loader construction). Only
+        # relevant for chunk_size>1; a dropped leaf simply leaves the target selection (scfit excludes weight-0).
+        min_run = int(s.get("min_runs_per_leaf", 0))
+        if chunk > 1 and min_run > 0:
+            kept = [lf for lf in pert_leaves if p.pert_leaf_min_run.get(lf, 0) >= min_run]
+            if (dropped := len(pert_leaves) - len(kept)):
+                logger.info("min_runs_per_leaf=%d: dropped %d/%d target leaves (shortest run < it; chunk_size=%d)",
+                            min_run, dropped, len(pert_leaves), chunk)
+            if not kept:
+                raise ValueError(f"min_runs_per_leaf={min_run} dropped every target leaf; lower it or chunk_size ({chunk}).")
+            pert_leaves = kept
 
         # control leaves whose context matches a kept perturbed leaf (avoid an orphaned target).
         ctx_pos = [p.group_by.index(c) for c in p.match_on]

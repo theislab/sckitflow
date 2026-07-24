@@ -405,12 +405,16 @@ class FlowMatching:
         """
         from scfit.data import Loader, Stream
 
-        p = self._problem
-        s = self._sampler
         batch = int(s.get("batch_size", 1024))
         chunk = int(s.get("chunk_size", 1))
         prefetch = int(s.get("prefetch_factor", 2))
-        preload = max(1, batch // chunk) * prefetch
+        ctrl_prefetch = int(s.get("ctrl_prefetch_factor", min(prefetch, 2)))
+
+        # Target (primary) stream: chunked reads aligned to stored runs.
+        primary_preload = max(1, (batch // chunk) * prefetch)
+
+        # Control stream: chunk_size=1 (individual cell sampling). Pre-allocate prefetch batches of cells.
+        ctrl_preload = max(1, batch * ctrl_prefetch)
 
         # Drop target leaves whose shortest contiguous run < min_runs_per_leaf so the annbatch ClassSampler's
         # chunk_size run-length rule holds (a fragmented leaf would else abort loader construction). Only
@@ -434,13 +438,14 @@ class FlowMatching:
             p.source, group_by=p.group_by, rep=p.rep_loc,
             weights={lf: 1.0 for lf in pert_leaves},
             label_lookup={lf: p.label_lookup[lf] for lf in pert_leaves},
-            batch_size=batch, chunk_size=chunk, preload_nchunks=preload,
+            batch_size=batch, chunk_size=chunk, preload_nchunks=primary_preload,
         )
         ctrl = Stream(
             p.ctrl_source or p.source, group_by=p.group_by, rep=p.rep_loc,
             weights={lf: 1.0 for lf in ctrl_leaves}, match_on=p.match_on, in_memory=True,
-            batch_size=batch, chunk_size=1, preload_nchunks=preload * 2,  # lean preload (2 batches of cells)
+            batch_size=batch, chunk_size=1, preload_nchunks=ctrl_preload,
         )
+
 
         to_gpu = str(self._trainer.get("device", "cpu")) not in ("cpu", "mps")
         return Loader(primary, {"ctrl": ctrl}, seed=self.seed, to="torch", preload_to_gpu=to_gpu)

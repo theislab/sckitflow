@@ -18,8 +18,8 @@ import lightning.pytorch as pl
 import torch
 
 from scfit.metrics import MeanAggregatedRSquared, PredictionDispersion
-from scfit.training import Objective, Predictor, TrainingModule
 from sc_flow.flow import ODEPredictor, PerturbationValidationCallback
+from sc_flow.training import Objective, Predictor, TrainingModule
 
 D = 4
 

@@ -6,7 +6,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from scfit.training._predictor import Predictor
+from sc_flow.training._predictor import Predictor
 
 __all__ = ["integrate_translation", "condition_mask_to_device", "condition_to_device", "ODEPredictor"]
 

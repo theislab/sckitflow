@@ -20,7 +20,8 @@ from sc_flow.data.schemas._state_data_schema import StateDataSchema
 
 if TYPE_CHECKING:
     from annbatch import DatasetCollection
-    from scfit.data import ConditionLookup
+
+    from sc_flow.data._stream import ConditionLookup
 
     # The cell source binded can stream from: in-memory / out-of-core / on-disk. Resolved by
     # ``binded._io.open_source``. Mirrors cellflow's ``DataInput``.
@@ -76,8 +77,10 @@ def compile_obs(
     min_runs_per_leaf: int = 0,
     seed: int = 0,
 ) -> CompiledData:
-    from scfit.data import Bind, Node, Scheme, uniform
-    from scfit.data._io import key_backings, obs_columns, open_source
+    from scfit.data import Bind, Node, Scheme
+    from scfit.data._io import obs_columns, open_source
+
+    from sc_flow.data._stream import key_backings, uniform
 
     cond_cols = list(condition.all_condition_cols)
     cov_cols = list(covariates.covariates) if covariates is not None else []

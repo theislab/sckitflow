@@ -540,7 +540,7 @@ def test_fit_validation_loop(objective):
 
 def test_fit_split_holds_out_whole_conditions():
     """split_by held out whole drugs: the val leaves are disjoint from the train leaves (no cell leakage)."""
-    from binded import split_assignment, split_scheme
+    from scfit.data import split_assignment, split_scheme
 
     adata = _multi_drug_adata(n_drugs=4)
     compiled = _shift_spec().compile(adata, rep_tables=adata.uns, seed=0)

@@ -6,14 +6,14 @@ integer **index** (categorical) or a looked-up **feature vector**. The *encoding
 trainable, so a condition encoder can be a learned embedding / linear projection rather than a frozen
 one-hot, and trains jointly with the flow.
 
-This is a closed-but-extensible discriminated-spec family on the shared :class:`~scfit.ComponentRegistry`
+This is a closed-but-extensible discriminated-spec family on the shared :class:`~sc_flow.ComponentRegistry`
 (same machinery as pooling/combiner). Built-ins: ``sc_flow.embedding`` (learned), ``sc_flow.onehot``
 (fixed), ``sc_flow.feature_mlp`` (projection of a looked-up vector). New kinds — e.g. an LLM/text encoder
 over SMILES or protein sequences — are added by *registering* another config, with no change here; the
 data side is untouched because ``embedding``/``onehot``/``llm`` all consume the same integer **index**,
 only ``feature_mlp`` consumes a vector.
 
-Kept in ``sc_flow.flow`` (not the generic ``scfit`` base): the only consumer is the perturbation
+Kept in ``sc_flow.flow`` (not the generic ``sc_flow`` base): the only consumer is the perturbation
 :class:`~sc_flow.flow._set_encoder.SetEncoder`, ``realm`` is perturbation vocabulary, and open members
 (the LLM encoder) carry heavy deps that must not enter the lean base. Promote to a generic input-encoder
 family only if a non-perturbation consumer appears.
@@ -26,8 +26,8 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import torch
-from scfit._component import ComponentRegistry, ComponentSpec, JsonValue
-from scfit.nn._utils import init_module_from_dict
+from sc_flow._component import ComponentRegistry, ComponentSpec, JsonValue
+from sc_flow.nn._utils import init_module_from_dict
 
 __all__ = [
     "RealmContext",
@@ -40,7 +40,7 @@ __all__ = [
     "realm_output_dim",
 ]
 
-#: A realm-encoder spec is a :class:`~scfit.ComponentSpec` — the slot (a condition realm) fixes the family.
+#: A realm-encoder spec is a :class:`~sc_flow.ComponentSpec` — the slot (a condition realm) fixes the family.
 RealmEncoderSpec = ComponentSpec
 
 

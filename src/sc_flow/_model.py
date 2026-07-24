@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class FlowMatchingConfig:
     """The flow-matching **recipe** — everything that configures a :class:`FlowMatching` other than the
     data (:class:`~sc_flow.data.FlowSpec`) and the fitted weights. A plain, JSON/OmegaConf-friendly object;
-    it lives in the flow layer (not the generic ``scfit`` core). Build a model with
+    it lives in the flow layer (not the generic ``sc_flow`` core). Build a model with
     ``FlowMatching(spec, config)`` or ``FlowMatching.from_config(spec, mapping_or_config)``.
     """
 
@@ -219,9 +219,10 @@ class FlowMatching:
         val_max_source_cells: int | None = 2048,
         callbacks: Sequence[Any] | None = None,
     ) -> FlowMatching:
-        from scfit.data import Loader, SamplerConfig
+        from scfit.data import SamplerConfig
 
         from sc_flow._optional import require
+        from sc_flow.data._stream import make_train_loader
 
         pl = require("lightning.pytorch")
 
@@ -261,9 +262,8 @@ class FlowMatching:
         # per-step host->device copy and refills happen on-device. `to=None` (annbatch default) is host
         # numpy — a redundant numpy->torch->host->device chain, and it errors outright once cupy is present.
         to_gpu = self._resolve_preload_to_gpu(device, preload_to_gpu)
-        cfg = SamplerConfig(batch_size=batch_size, chunk_size=chunk_size, preload_nchunks=preload,
-                            to="torch", preload_to_gpu=to_gpu)
-        loader = Loader(train_scheme, cfg, compiled.condition_lookup)
+        cfg = SamplerConfig(batch_size=batch_size, chunk_size=chunk_size, preload_nchunks=preload, to="torch")
+        loader = make_train_loader(train_scheme, cfg, compiled.condition_lookup, preload_to_gpu=to_gpu)
 
         # 2. Torch velocity field + probability path, sized from compiled.dims.
         self.vf = self._build_vf(compiled.dims)
@@ -271,9 +271,9 @@ class FlowMatching:
         self.probability_path = self._build_probability_path()
 
         # 3. Objective selected by name (OT coupling in JAX, everything else torch) + generic harness.
-        # scfit.TrainingModule is training-only; the perturbation held-out scoring is a Lightning Callback
+        # sc_flow.TrainingModule is training-only; the perturbation held-out scoring is a Lightning Callback
         # from the flow layer (attached below only when validation is configured).
-        from scfit.training import TrainingModule
+        from sc_flow.training import TrainingModule
         from sc_flow.flow import ODEPredictor, PerturbationValidationCallback, build_objective
 
         self.objective = build_objective(
@@ -395,9 +395,11 @@ class FlowMatching:
         metrics: Sequence[str],
         val_num_steps: int,
     ) -> tuple[dict[str, Any], Any]:
-        from scfit.data import EvalLoader, SamplerConfig, split_assignment
+        from scfit.data import SamplerConfig, split_assignment
 
         from scfit.metrics import METRICS_REGISTRY
+
+        from sc_flow.data._stream import EvalLoader
 
         unknown = [m for m in metrics if m not in METRICS_REGISTRY]
         if unknown:
@@ -409,8 +411,7 @@ class FlowMatching:
             n_val_conditions = max(int((assignment["split"] == "val").sum()), 1)
 
         preload = self._resolve_preload(val_batch_size, chunk_size, preload_nchunks)
-        cfg = SamplerConfig(batch_size=val_batch_size, chunk_size=chunk_size, preload_nchunks=preload,
-                            to="torch", preload_to_gpu=preload_to_gpu)
+        cfg = SamplerConfig(batch_size=val_batch_size, chunk_size=chunk_size, preload_nchunks=preload, to="torch")
         eval_loader = EvalLoader(val_scheme, cfg, condition_lookup, seed=int(self.seed))
 
         class _EvalIterableDataset(torch.utils.data.IterableDataset):

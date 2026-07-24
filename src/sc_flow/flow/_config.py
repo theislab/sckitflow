@@ -6,9 +6,9 @@ from dataclasses import dataclass, field, replace
 from typing import TYPE_CHECKING, Any
 
 import torch
-from scfit._component import JsonValue
-from scfit.nn._modules import FunctionalModule
-from scfit.nn._utils import init_module_from_dict
+from sc_flow._component import JsonValue
+from sc_flow.nn._modules import FunctionalModule
+from sc_flow.nn._utils import init_module_from_dict
 
 from sc_flow._types import TimeFeaturesId
 from sc_flow.flow._combiner import BaseCombiner, CombinerSpec, build_combiner, validate_combiner_spec
@@ -134,7 +134,7 @@ class SetEncoderConfig:
             raise ValueError(
                 f"condition_mode must be 'deterministic' or 'stochastic', found {self.condition_mode!r}."
             )
-        from scfit._utils import check_sequence_query_against_reference
+        from sc_flow._utils import check_sequence_query_against_reference
 
         check_sequence_query_against_reference(
             self.covariates_not_pooled,

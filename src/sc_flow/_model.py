@@ -172,6 +172,7 @@ def _read_problem(
     perturbed leaves get a categorical ``label_lookup`` (one integer index per realm column, shape ``(1, set)``
     so the objective broadcasts it over the batch); dims come from the rep header + the per-realm vocab.
     """
+    import pandas as pd
     import time
     from scfit.data._io import get_from_container, obs_columns, open_source
 
@@ -190,6 +191,10 @@ def _read_problem(
     t_obs = time.perf_counter()
     logger.info("[prep] 2. Read + unify primary obs columns (%d cells): %.2fs", len(obs), t_obs - t_source)
 
+    for col in group_by:
+        if not isinstance(obs[col].dtype, pd.CategoricalDtype):
+            obs[col] = obs[col].astype("category")
+
     def _leaves(frame) -> list[tuple]:
         return [tuple(r) for r in frame.loc[:, list(group_by)].drop_duplicates().to_numpy()]
 
@@ -199,12 +204,17 @@ def _read_problem(
         t_ctrl = time.perf_counter()
         logger.info("[prep] 3. Open + read controls store (%d cells): %.2fs", len(ctrl_obs), t_ctrl - t_obs)
 
+        for col in group_by:
+            if not isinstance(ctrl_obs[col].dtype, pd.CategoricalDtype):
+                ctrl_obs[col] = ctrl_obs[col].astype("category")
+
         ctrl_leaves = _leaves(ctrl_obs)
         ctrl_mask = obs[control_key].to_numpy().astype(bool) if control_key in obs else np.zeros(len(obs), dtype=bool)
         pert_obs = obs.loc[~ctrl_mask] if control_key in obs else obs
         pert_leaves = _leaves(pert_obs)
         t_leaves = time.perf_counter()
         logger.info("[prep] 4. Extract unique condition leaves (%d pert, %d ctrl): %.2fs", len(pert_leaves), len(ctrl_leaves), t_leaves - t_ctrl)
+
     else:
         ctrl_source = None
         ctrl_mask = obs[control_key].to_numpy().astype(bool)

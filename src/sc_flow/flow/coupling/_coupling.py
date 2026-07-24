@@ -134,10 +134,10 @@ def ot_linear_coupling(
 
     if method in ["sinkhorn", "unbalanced"]:
         ot_fn = sinkhorn.Sinkhorn(threshold=threshold)
-    elif (method == "partial") | (method == "exact"):
-        msg = f"{method=} has to equivalent in `ott-ajax`"
+    elif method in ("partial", "exact"):
+        msg = f"{method=} has no equivalent in `ott-jax`"
         raise ValueError(msg)
-    elif method in ["exact", "sinkhorn", "partial", "unbalanced"] and ot_fn is None:
+    elif ot_fn is None:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
         raise ValueError(msg)
 

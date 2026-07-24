@@ -111,15 +111,15 @@ class SetEncoder(torch.nn.Module):
 
         # pooled covariates
         if len(encoded_covariates_to_pool) > 0:
-            pooled_covariates = torch.concatenate(tuple(encoded_covariates_to_pool.values()), dim=-2)
-            combined_mask = None if pooled_masks is None else torch.concatenate(pooled_masks, dim=-1)
+            pooled_covariates = torch.cat(tuple(encoded_covariates_to_pool.values()), dim=-2)
+            combined_mask = None if pooled_masks is None else torch.cat(pooled_masks, dim=-1)
             pooled_covariates = self._condition_encoder["pooling_layer"](pooled_covariates, combined_mask)
         else:
             pooled_covariates = None
 
         # not pooled covariates
         if len(encoded_covariates_not_pooled) > 0:
-            covariates_not_pooled_z = torch.concatenate(tuple(encoded_covariates_not_pooled.values()), dim=-1)
+            covariates_not_pooled_z = torch.cat(tuple(encoded_covariates_not_pooled.values()), dim=-1)
         else:
             covariates_not_pooled_z = None
 
@@ -129,7 +129,7 @@ class SetEncoder(torch.nn.Module):
             to_concat.append(pooled_covariates)
         if covariates_not_pooled_z is not None:
             to_concat.append(covariates_not_pooled_z)
-        latent_cond = torch.concatenate(to_concat, dim=-1)
+        latent_cond = torch.cat(to_concat, dim=-1)
 
         mean = self._condition_encoder["output_layer"](latent_cond)
         logvar = self._condition_encoder["var_layer"](latent_cond) if self.is_stochastic else None

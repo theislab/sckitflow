@@ -75,6 +75,14 @@ def _quadratic_coupler(scale_cost: Any, cost_fn: Any, fused: bool):
     return _fn
 
 
+def _make_hashable(val: Any) -> Any:
+    if isinstance(val, dict):
+        return tuple(sorted((k, _make_hashable(v)) for k, v in val.items()))
+    if isinstance(val, (list, set)):
+        return tuple(_make_hashable(x) for x in val)
+    return val
+
+
 def couple_device(
     src_rep: torch.Tensor,
     tgt_rep: torch.Tensor,
@@ -106,7 +114,7 @@ def couple_device(
             threshold = 1e-3 if (tau_a == 1.0 and tau_b == 1.0) else 1e-2
         # Any remaining match_kwargs are further Sinkhorn solver args (max_iterations, lse_mode, …): forward
         # them + key the cache on them, so they are honored — not silently dropped (must be hashable).
-        extra = tuple(sorted(mk.items()))
+        extra = tuple(sorted((k, _make_hashable(v)) for k, v in mk.items()))
         coupler = _linear_coupler(epsilon, scale_cost, tau_a, tau_b, float(threshold), extra)
         src_ixs_j, tgt_ixs_j = coupler(src_j, tgt_j, key)
     return jax_to_torch(src_ixs_j).long(), jax_to_torch(tgt_ixs_j).long()

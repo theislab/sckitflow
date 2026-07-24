@@ -1,4 +1,7 @@
-from typing import Literal
+from typing import Any, Literal
+
+#: A layer-config mapping (kwargs for one nn layer).
+LayersDict = dict[str, Any]
 
 ProbabilityPathId = Literal[
     "constant-noise-linear-gaussian",

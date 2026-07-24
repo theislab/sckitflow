@@ -153,18 +153,6 @@ def _min_run_per_leaf(source: Any, group_by: Sequence[str]) -> dict[tuple, int]:
     return min_run
 
 
-def _fast_leaves(frame: Any, group_by: Sequence[str]) -> list[tuple]:
-    """Extract unique leaf tuples efficiently, maintaining CategoricalDtype for fast C-level hashing."""
-    import pandas as pd
-
-    cols = list(group_by)
-    sub = frame.loc[:, cols].copy()
-    for c in cols:
-        if not isinstance(sub[c].dtype, pd.CategoricalDtype):
-            sub[c] = sub[c].astype("category")
-    return [tuple(r) for r in sub.drop_duplicates().to_numpy()]
-
-
 def _read_problem(
     data: Any,
     *,
@@ -181,6 +169,7 @@ def _read_problem(
     perturbed leaves get a categorical ``label_lookup`` (one integer index per realm column, shape ``(1, set)``
     so the objective broadcasts it over the batch); dims come from the rep header + the per-realm vocab.
     """
+    import pandas as pd
     from scfit.data._io import get_from_container, obs_columns, open_source
 
     match_on = tuple(split_covariates)
@@ -191,20 +180,30 @@ def _read_problem(
 
     source = open_source(data, keys=[rep_loc], cols=[*group_by, control_key])
     obs = obs_columns(source, [*group_by, control_key])
+    for col in group_by:
+        if not isinstance(obs[col].dtype, pd.CategoricalDtype):
+            obs[col] = obs[col].astype("category")
+
+    def _leaves(frame) -> list[tuple]:
+        return [tuple(r) for r in frame.loc[:, list(group_by)].drop_duplicates().to_numpy()]
 
     if controls is not None:
         ctrl_source = open_source(controls, keys=[rep_loc], cols=[*group_by, control_key])
         ctrl_obs = obs_columns(ctrl_source, [*group_by, control_key])
-        ctrl_leaves = _fast_leaves(ctrl_obs, group_by)
+        for col in group_by:
+            if not isinstance(ctrl_obs[col].dtype, pd.CategoricalDtype):
+                ctrl_obs[col] = ctrl_obs[col].astype("category")
+        ctrl_leaves = _leaves(ctrl_obs)
         ctrl_mask = obs[control_key].to_numpy().astype(bool) if control_key in obs else np.zeros(len(obs), dtype=bool)
         pert_obs = obs.loc[~ctrl_mask] if control_key in obs else obs
-        pert_leaves = _fast_leaves(pert_obs, group_by)
+        pert_leaves = _leaves(pert_obs)
     else:
         ctrl_source = None
         ctrl_mask = obs[control_key].to_numpy().astype(bool)
         pert_obs = obs.loc[~ctrl_mask]
-        pert_leaves = _fast_leaves(pert_obs, group_by)
-        ctrl_leaves = _fast_leaves(obs.loc[ctrl_mask], group_by)
+        pert_leaves = _leaves(pert_obs)
+        ctrl_leaves = _leaves(obs.loc[ctrl_mask])
+
 
 
     # Per realm: a categorical vocab over its column values (perturbed cells only — the control token is not

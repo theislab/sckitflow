@@ -1,10 +1,7 @@
-import inspect
-
 import pytest
 import torch
 from torch.nn import functional as F
 
-from sc_flow._model import FlowMatching
 from sc_flow.flow._objectives import _condition_masks
 from sc_flow.flow._pooling import (
     MeanPooling,
@@ -147,17 +144,24 @@ def test_attention_config_rejects_omitted_fields_instead_of_filling_defaults() -
                 "config": {"num_heads": 8, "qkv_dim": 64},
             }
         )
-    with pytest.raises(ValueError, match="Missing PoolingSpec field"):
+    with pytest.raises(ValueError, match="Missing pooling spec field"):
         validate_pooling_spec({"type": "sc_flow.mean", "config": {}})
-    with pytest.raises(TypeError, match="Expected PoolingSpec or mapping"):
+    with pytest.raises(TypeError, match="Expected a pooling spec mapping"):
         validate_pooling_spec("mean")
 
 
 def test_model_apis_require_an_explicit_pooling_choice() -> None:
-    from sc_flow.flow._set_encoder import SetEncoder
+    from dataclasses import MISSING, fields
 
-    assert inspect.signature(FlowMatching).parameters["pooling"].default is inspect.Parameter.empty
-    assert inspect.signature(SetEncoder).parameters["pooling"].default is inspect.Parameter.empty
+    from sc_flow._model import FlowMatchingConfig
+    from sc_flow.flow._config import SetEncoderConfig
+
+    # Pooling is chosen in the recipe/config (a PoolingSpec), not a model-constructor kwarg. The "no silent
+    # default" contract now lives on these config dataclasses: the ``pooling`` field is required (no default).
+    for config_cls in (FlowMatchingConfig, SetEncoderConfig):
+        (pooling_field,) = (f for f in fields(config_cls) if f.name == "pooling")
+        assert pooling_field.default is MISSING
+        assert pooling_field.default_factory is MISSING
 
 
 @pytest.mark.parametrize("type_id", ["sc_flow.attention_token", "sc_flow.attention_seed"])

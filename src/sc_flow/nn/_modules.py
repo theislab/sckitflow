@@ -10,6 +10,7 @@ __all__ = [
     "FunctionalModule",
     "MLP",
     "Resnet1d",
+    "AdaLNZero1d",
 ]
 
 
@@ -327,3 +328,76 @@ class Resnet1d(torch.nn.Module):
         self,
     ) -> int:
         return self._output_dim
+
+
+class AdaLNZero1d(torch.nn.Module):
+    """DiT-style adaLN-zero trunk: a stack of residual blocks whose LayerNorm is *modulated* by a
+    conditioning vector through a **zero-initialized** projection.
+
+    Each block computes ``x = x + gate * MLP(LayerNorm(x) * (1 + scale) + shift)`` where
+    ``(scale, shift, gate)`` are produced from ``cond`` by a Linear whose weight **and** bias start at
+    zero. So at initialization ``scale = shift = gate = 0`` and every block is the identity
+    (``LayerNorm(x) * 1 + 0``, gated by ``0``) — training starts from a stable pass-through and the
+    conditioning ramps in as the projection learns. This mirrors CellFlow2's ``adaln_zero`` block.
+
+    The block LayerNorm is non-affine (``elementwise_affine=False``): the learnable affine is supplied by
+    the adaLN ``(1 + scale)`` / ``shift`` modulation, as in DiT. Width is constant across blocks (the gated
+    residual ``x + gate * h`` requires it), so this is the trunk itself, not a variable-width decoder MLP.
+    """
+
+    def __init__(
+        self,
+        dim: int,
+        cond_dim: int,
+        num_blocks: int,
+        *,
+        mlp_ratio: float = 4.0,
+        activation_cls: ActivationId | type[torch.nn.Module] | None = None,
+        dropout_p: float = 0.0,
+        layernorm_eps: float = 1e-5,
+    ) -> None:
+        super().__init__()
+        if num_blocks < 1:
+            raise ValueError(f"AdaLNZero1d needs at least one block, found num_blocks={num_blocks}.")
+        self._dim = int(dim)
+        self._num_blocks = int(num_blocks)
+        activation_cls = resolve_activation(activation_cls, "silu")
+        mlp_hidden = max(1, int(self._dim * mlp_ratio))
+        blocks = []
+        for block_id in range(self._num_blocks):
+            # Zero-init modulation Linear (weight AND bias) => identity block at init (the adaLN-ZERO trick).
+            modulation = torch.nn.Linear(cond_dim, 3 * self._dim)
+            torch.nn.init.zeros_(modulation.weight)
+            torch.nn.init.zeros_(modulation.bias)
+            mlp_layers: list[torch.nn.Module] = [
+                torch.nn.Linear(self._dim, mlp_hidden),
+                activation_cls(),
+            ]
+            if dropout_p > 0.0:
+                mlp_layers.append(torch.nn.Dropout(p=dropout_p))
+            mlp_layers.append(torch.nn.Linear(mlp_hidden, self._dim))
+            blocks.append(
+                torch.nn.ModuleDict(
+                    {
+                        "norm": torch.nn.LayerNorm(self._dim, eps=layernorm_eps, elementwise_affine=False),
+                        "modulation": torch.nn.Sequential(activation_cls(), modulation),
+                        "mlp": torch.nn.Sequential(*mlp_layers),
+                    }
+                )
+            )
+        self._blocks = torch.nn.ModuleList(blocks)
+
+    @property
+    def output_dim(self) -> int:
+        return self._dim
+
+    def forward(self, x: torch.Tensor, cond: torch.Tensor) -> torch.Tensor:
+        original_shape = x.shape[:-1]
+        x = x.reshape(-1, x.shape[-1])
+        cond = cond.reshape(-1, cond.shape[-1])
+        for block in self._blocks:
+            scale, shift, gate = block["modulation"](cond).chunk(3, dim=-1)
+            h = block["norm"](x) * (1.0 + scale) + shift
+            h = block["mlp"](h)
+            x = x + gate * h
+        return x.reshape(*original_shape, -1)

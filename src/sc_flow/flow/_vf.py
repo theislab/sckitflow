@@ -35,6 +35,36 @@ class MLPVelocity(torch.nn.Module):
     def use_source_embedder(self) -> bool:
         return self._config.use_source_embedder
 
+    # --- classifier-free guidance (CFG) --------------------------------------------------------------
+
+    @property
+    def condition_dropout_prob(self) -> float:
+        return float(self._config.condition_dropout_prob)
+
+    @property
+    def condition_null(self) -> str:
+        return self._config.condition_null
+
+    @property
+    def mask_value(self) -> float:
+        return float(self._config.mask_value)
+
+    @property
+    def cfg_enabled(self) -> bool:
+        """Whether a null (unconditional) condition was trained (``condition_dropout_prob > 0``) — the
+        precondition for meaningful inference guidance. A guided solve with a field that never saw the
+        null just re-derives the conditional velocity, so callers gate guidance on this."""
+        return self.is_conditional and self.condition_dropout_prob > 0.0
+
+    def null_condition_dict(self, condition_dict: MappedTensor) -> MappedTensor:
+        """The ``mask_value`` null: every raw condition tensor filled with ``mask_value`` (kept in its
+        original dtype so a categorical-index realm stays ``long``)."""
+        mv = self.mask_value
+        return {
+            realm: torch.full_like(v, mv if v.is_floating_point() else int(mv))
+            for realm, v in condition_dict.items()
+        }
+
     def condition_stats(
         self,
         condition_dict: MappedTensor | None = None,
@@ -78,11 +108,21 @@ class MLPVelocity(torch.nn.Module):
         condition_dict: MappedTensor | None = None,
         source: torch.Tensor | None = None,
         condition_mask: MappedTensor | None = None,
+        *,
+        force_uncond: bool = False,
     ) -> torch.Tensor:
         # Inference/solver path: use the condition **mean** embedding (a stochastic encoder's inference
         # is its mean, i.e. encoder_noise = 0). Training reparameterizes upstream and calls
         # :meth:`velocity_from_embedding` directly.
+        #
+        # ``force_uncond`` selects the unconditional velocity v(x, t, null) for classifier-free guidance:
+        # ``mask_value`` nulls the raw condition before encoding; ``zero_embedding`` zeros the pooled
+        # embedding after. Both are no-ops for an unconditional field.
+        if force_uncond and self.is_conditional and condition_dict is not None and self.condition_null == "mask_value":
+            condition_dict = self.null_condition_dict(condition_dict)
         mean, _ = self.condition_stats(condition_dict, condition_mask=condition_mask)
+        if force_uncond and mean is not None and self.condition_null == "zero_embedding":
+            mean = torch.zeros_like(mean)
         return self.velocity_from_embedding(t, x, mean, source=source)
 
     def velocity_from_embedding(

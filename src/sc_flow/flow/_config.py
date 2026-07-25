@@ -322,10 +322,27 @@ class MLPVelocityConfig:
     max_period: int | None = None
     vf_decoder_mlp_kwargs: dict[str, Any] = field(default_factory=dict)
     condition_encoder: SetEncoderConfig | None = None
+    # --- classifier-free guidance (CFG) ---
+    #: Probability of nulling the pooled condition per sample during training (0 = off). >0 teaches the
+    #: field both v(x,t,c) and v(x,t,null), which inference guidance then blends.
+    condition_dropout_prob: float = 0.0
+    #: How the "null" (unconditional) condition is built: ``zero_embedding`` (zero the pooled embedding)
+    #: or ``mask_value`` (fill the raw condition tensors with ``mask_value`` and encode).
+    condition_null: str = "zero_embedding"
+    #: Fill value for the ``mask_value`` null mode.
+    mask_value: float = 0.0
 
     def __post_init__(self) -> None:
         if not isinstance(self.combiner, BaseCombiner):
             self.combiner = validate_combiner_spec(self.combiner)
+        if self.condition_null not in ("zero_embedding", "mask_value"):
+            raise ValueError(
+                f"condition_null must be 'zero_embedding' or 'mask_value', found {self.condition_null!r}."
+            )
+        if not 0.0 <= float(self.condition_dropout_prob) <= 1.0:
+            raise ValueError(
+                f"condition_dropout_prob must be in [0, 1], found {self.condition_dropout_prob!r}."
+            )
 
     # --- derived sizing (pure functions of the config) -------------------------------------------------
 
@@ -448,6 +465,9 @@ class MLPVelocityConfig:
                 dict(self.vf_decoder_mlp_kwargs), "MLPVelocityConfig.vf_decoder_mlp_kwargs"
             ),
             "condition_encoder": None if self.condition_encoder is None else self.condition_encoder.to_dict(),
+            "condition_dropout_prob": self.condition_dropout_prob,
+            "condition_null": self.condition_null,
+            "mask_value": self.mask_value,
         }
 
     @classmethod
@@ -463,6 +483,9 @@ class MLPVelocityConfig:
             "max_period",
             "vf_decoder_mlp_kwargs",
             "condition_encoder",
+            "condition_dropout_prob",
+            "condition_null",
+            "mask_value",
         }
         unknown = set(data) - allowed
         if unknown:
@@ -482,6 +505,9 @@ class MLPVelocityConfig:
             max_period=data.get("max_period"),
             vf_decoder_mlp_kwargs=dict(data.get("vf_decoder_mlp_kwargs", {})),
             condition_encoder=None if condition_encoder is None else SetEncoderConfig.from_dict(condition_encoder),
+            condition_dropout_prob=data.get("condition_dropout_prob", 0.0),
+            condition_null=data.get("condition_null", "zero_embedding"),
+            mask_value=data.get("mask_value", 0.0),
         )
 
     def to_spec(self) -> dict[str, JsonValue]:

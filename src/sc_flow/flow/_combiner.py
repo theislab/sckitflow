@@ -5,7 +5,7 @@ from typing import Any
 import torch
 
 from sc_flow._component import ComponentRegistry, ComponentSpec
-from sc_flow.nn import NET_REGISTRY, NetContext, NetSpec, Resnet1d
+from sc_flow.nn import NET_REGISTRY, AdaLNZero1d, NetContext, NetSpec, Resnet1d
 from sc_flow.flow._torch_utils import make_concatenation_possible
 
 __all__ = [
@@ -14,6 +14,7 @@ __all__ = [
     "CombinerContext",
     "CombinerSpec",
     "ConcatCombiner",
+    "AdaLNCombiner",
     "Resnet1dCombiner",
     "build_combiner",
     "validate_combiner_spec",
@@ -95,6 +96,28 @@ class BaseCombiner(abc.ABC, torch.nn.Module):
                 raise RuntimeError(msg)
 
 
+class _InputLayerNorms(torch.nn.Module):
+    """Optional per-stream LayerNorm applied to (state, time, condition) before they are combined.
+
+    Off by default (identity, zero params) so it never perturbs the legacy concat path. When on it
+    matches CellFlow2's ``layer_norm_before_concatenation`` — a LayerNorm on each stream so, e.g., time
+    doesn't dominate the condition in the combined signal (matters most for adaLN's modulation vector)."""
+
+    def __init__(self, latent_state_dim, latent_time_dim, latent_condition_dim, *, enabled):
+        super().__init__()
+        self._enabled = bool(enabled)
+        if self._enabled:
+            self.state = torch.nn.LayerNorm(latent_state_dim)
+            self.time = torch.nn.LayerNorm(latent_time_dim)
+            self.condition = None if latent_condition_dim is None else torch.nn.LayerNorm(latent_condition_dim)
+
+    def __call__(self, encoded_t, encoded_state, encoded_condition):
+        if not self._enabled:
+            return encoded_t, encoded_state, encoded_condition
+        encoded_condition = None if encoded_condition is None else self.condition(encoded_condition)
+        return self.time(encoded_t), self.state(encoded_state), encoded_condition
+
+
 class ConcatCombiner(BaseCombiner):
 
     def __init__(
@@ -102,11 +125,16 @@ class ConcatCombiner(BaseCombiner):
         latent_state_dim: int,
         latent_time_dim: int,
         latent_condition_dim: int | None = None,
+        *,
+        layer_norm: bool = False,
     ) -> None:
         super().__init__(
             latent_state_dim,
             latent_time_dim,
             latent_condition_dim,
+        )
+        self._norms = _InputLayerNorms(
+            latent_state_dim, latent_time_dim, latent_condition_dim, enabled=layer_norm
         )
 
     @property
@@ -131,11 +159,68 @@ class ConcatCombiner(BaseCombiner):
             encoded_condition,
         )
 
+        encoded_t, encoded_state, encoded_condition = self._norms(encoded_t, encoded_state, encoded_condition)
+
         # concatenating input
         to_concat = (encoded_state, make_concatenation_possible(encoded_t, encoded_state, -1))
         if encoded_condition is not None:
             to_concat = to_concat + (make_concatenation_possible(encoded_condition, encoded_state, -1),)
         return torch.cat(to_concat, dim=-1)
+
+
+class AdaLNCombiner(BaseCombiner):
+    """adaLN-zero conditioning (DiT-style). The **state** stream is the trunk input; ``[time (+ condition)]``
+    is the modulation signal that drives each block's zero-initialized scale/shift/gate. Contrast
+    :class:`ConcatCombiner`, which concatenates the condition into the decoder input — here the condition
+    never enters the trunk stream, it only *modulates* it. Output width == ``latent_state_dim`` (the
+    :class:`~sc_flow.nn.AdaLNZero1d` trunk preserves width), which the ``vf_decoder`` then projects to
+    ``state_dim``."""
+
+    def __init__(
+        self,
+        latent_state_dim: int,
+        latent_time_dim: int,
+        latent_condition_dim: int | None = None,
+        *,
+        net: AdaLNZero1d,
+        layer_norm: bool = False,
+    ) -> None:
+        super().__init__(
+            latent_state_dim,
+            latent_time_dim,
+            latent_condition_dim,
+        )
+        self._net = net
+        self._norms = _InputLayerNorms(
+            latent_state_dim, latent_time_dim, latent_condition_dim, enabled=layer_norm
+        )
+
+    def forward(
+        self,
+        encoded_t: torch.Tensor,
+        encoded_state: torch.Tensor,
+        encoded_condition: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        self._verify_inputs_shape(
+            encoded_t,
+            encoded_state,
+            encoded_condition,
+        )
+
+        encoded_t, encoded_state, encoded_condition = self._norms(encoded_t, encoded_state, encoded_condition)
+
+        # modulation signal = [time (+ condition)]; the state stream is the trunk input it modulates.
+        to_concat = (make_concatenation_possible(encoded_t, encoded_state, -1),)
+        if encoded_condition is not None:
+            to_concat = to_concat + (make_concatenation_possible(encoded_condition, encoded_state, -1),)
+        modulation = torch.cat(to_concat, dim=-1)
+        return self._net(encoded_state, modulation)
+
+    @property
+    def output_dim(
+        self,
+    ) -> int:
+        return self._net.output_dim
 
 
 class Resnet1dCombiner(BaseCombiner):
@@ -202,11 +287,47 @@ COMBINER_REGISTRY: ComponentRegistry[CombinerContext] = ComponentRegistry("combi
 @COMBINER_REGISTRY.register("sc_flow.concat")
 @dataclass(frozen=True)
 class ConcatCombinerConfig:
+    #: LayerNorm each stream (state/time/condition) before concatenating (CellFlow2's
+    #: ``layer_norm_before_concatenation``). Default off => byte-for-byte the legacy concat path.
+    layer_norm: bool = False
+
     def build(self, context: CombinerContext) -> BaseCombiner:
         return ConcatCombiner(
             context.latent_state_dim,
             context.latent_time_dim,
             latent_condition_dim=context.latent_condition_dim,
+            layer_norm=self.layer_norm,
+        )
+
+
+@COMBINER_REGISTRY.register("sc_flow.adaln")
+@dataclass(frozen=True)
+class AdaLNCombinerConfig:
+    #: One :class:`~sc_flow.nn.AdaLNZero1d` block per unit (DiT-style trunk depth).
+    num_blocks: int
+    #: Per-block MLP hidden width = round(latent_state_dim * mlp_ratio).
+    mlp_ratio: float = 4.0
+    dropout_p: float = 0.0
+    activation: str = "silu"
+    #: LayerNorm the modulation streams (time/condition) + the state stream before the trunk.
+    layer_norm: bool = False
+
+    def build(self, context: CombinerContext) -> BaseCombiner:
+        cond_dim = context.latent_time_dim + (context.latent_condition_dim or 0)
+        net = AdaLNZero1d(
+            dim=context.latent_state_dim,
+            cond_dim=cond_dim,
+            num_blocks=self.num_blocks,
+            mlp_ratio=self.mlp_ratio,
+            dropout_p=self.dropout_p,
+            activation_cls=self.activation,
+        )
+        return AdaLNCombiner(
+            context.latent_state_dim,
+            context.latent_time_dim,
+            latent_condition_dim=context.latent_condition_dim,
+            net=net,
+            layer_norm=self.layer_norm,
         )
 
 

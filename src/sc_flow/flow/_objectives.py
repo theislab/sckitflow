@@ -137,6 +137,7 @@ class _OTObjective(Objective):
         self._t_gen = torch.Generator().manual_seed(self._seed)
         self._enc_gen = torch.Generator().manual_seed(self._seed + 2)
         self._perm_gen = torch.Generator().manual_seed(self._seed + 3)
+        self._dropout_gen = torch.Generator().manual_seed(self._seed + 4)  # CFG condition-dropout draw
         self._coupling_key: Any = None
 
     def _encode(
@@ -155,6 +156,54 @@ class _OTObjective(Objective):
             return mean, mean, None
         eps = torch.randn(mean.shape, generator=self._enc_gen).to(device=mean.device, dtype=mean.dtype)
         return mean + torch.exp(0.5 * logvar) * eps, mean, logvar
+
+    # --- classifier-free guidance: train-time per-sample condition dropout ---------------------------
+
+    def _cfg_keep_mask(self, model: torch.nn.Module, n: int, device: Any) -> torch.Tensor | None:
+        """Per-sample keep mask (True = keep the real condition) for CFG train-time dropout; ``None`` when
+        off (unconditional field or ``condition_dropout_prob == 0``). Drawn on CPU with a seeded generator
+        so the null pattern is reproducible and device-agnostic."""
+        p = float(getattr(model, "condition_dropout_prob", 0.0))
+        if not getattr(model, "is_conditional", False) or p <= 0.0:
+            return None
+        keep = torch.rand(n, generator=self._dropout_gen) >= p
+        return keep.to(device)
+
+    @staticmethod
+    def _null_input(
+        model: torch.nn.Module, cond_t: dict[str, torch.Tensor], keep: torch.Tensor
+    ) -> dict[str, torch.Tensor]:
+        """``mask_value`` null: replace dropped-sample rows of each raw condition tensor with the fill."""
+        null = model.null_condition_dict(cond_t)
+        out: dict[str, torch.Tensor] = {}
+        for realm, v in cond_t.items():
+            k = keep.view(-1, *([1] * (v.ndim - 1)))  # broadcast (n,) over set/feature dims
+            out[realm] = torch.where(k, v, null[realm])
+        return out
+
+    @staticmethod
+    def _null_embedding(emb: torch.Tensor, keep: torch.Tensor) -> torch.Tensor:
+        """``zero_embedding`` null: zero the pooled embedding for dropped samples."""
+        return emb * keep.view(-1, *([1] * (emb.ndim - 1))).to(emb.dtype)
+
+    def _encode_with_cfg_dropout(
+        self,
+        model: torch.nn.Module,
+        cond_t: dict[str, torch.Tensor] | None,
+        cond_mask: dict[str, torch.Tensor] | None,
+        n: int,
+    ) -> tuple[torch.Tensor | None, torch.Tensor | None, torch.Tensor | None]:
+        """:meth:`_encode` + CFG train-time null-dropout (``mask_value`` nulls the input pre-encode,
+        ``zero_embedding`` nulls the embedding post-encode). A no-op when CFG dropout is off."""
+        device = next(model.parameters()).device
+        keep = self._cfg_keep_mask(model, n, device)
+        null_mode = getattr(model, "condition_null", "zero_embedding")
+        if keep is not None and cond_t is not None and null_mode == "mask_value":
+            cond_t = self._null_input(model, cond_t, keep)
+        emb, mean, logvar = self._encode(model, cond_t, cond_mask)
+        if keep is not None and emb is not None and null_mode == "zero_embedding":
+            emb = self._null_embedding(emb, keep)
+        return emb, mean, logvar
 
     def _couple(self, batch: dict[str, Any], device: Any) -> tuple[torch.Tensor, torch.Tensor]:
         locs = self._coupling_locs
@@ -207,7 +256,8 @@ class OTFMObjective(_OTObjective):
         x1 = target[tgt_ixs].to(dtype)
         cond_t = _condition_tensors(batch.get("condition"), tgt_ixs, target.shape[0], device, dtype)
         cond_mask = _condition_masks(batch.get("condition_mask"), tgt_ixs, target.shape[0], device)
-        emb, mean, logvar = self._encode(model, cond_t, cond_mask)  # encode once (reparam if stochastic)
+        # encode once (reparam if stochastic) with CFG train-time null-dropout applied per sample.
+        emb, mean, logvar = self._encode_with_cfg_dropout(model, cond_t, cond_mask, x1.shape[0])
 
         # t drawn on CPU with the seeded generator (device-agnostic), then moved to the model's device.
         t = torch.rand(x0.shape[0], 1, generator=self._t_gen).to(device=device, dtype=dtype)
@@ -236,7 +286,8 @@ class GENOTObjective(_OTObjective):
         target_r = target[tgt_ixs].to(dtype)
         cond_t = _condition_tensors(batch.get("condition"), tgt_ixs, target.shape[0], device, dtype)
         cond_mask = _condition_masks(batch.get("condition_mask"), tgt_ixs, target.shape[0], device)
-        emb, mean, logvar = self._encode(model, cond_t, cond_mask)  # encode once (reparam if stochastic)
+        # encode once (reparam if stochastic) with CFG train-time null-dropout applied per sample.
+        emb, mean, logvar = self._encode_with_cfg_dropout(model, cond_t, cond_mask, target_r.shape[0])
 
         # latent ~ N(0, I) in target space, drawn on CPU (seeded), then moved to the model's device.
         latent = torch.randn(target_r.shape, generator=self._latent_gen).to(device=device, dtype=dtype)

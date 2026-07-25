@@ -75,6 +75,24 @@ class FlowMatchingConfig:
     sigma: float = 0.0
     match_method: str = "sinkhorn"
     match_kwargs: Mapping[str, Any] | None = None
+    # --- conditioning mode: how the pooled condition enters the velocity trunk ---
+    #: ``concatenation`` (concat c into the decoder input, the default/legacy path) or ``adaln_zero``
+    #: (DiT-style: c modulates each trunk block's LayerNorm via a zero-initialized scale/shift/gate).
+    conditioning: str = "concatenation"
+    #: adaln_zero hyperparameters: ``{num_blocks?, mlp_ratio?, dropout_p?, activation?}`` (num_blocks
+    #: defaults to len(decoder_dims or hidden_dims)). Unused for ``concatenation``.
+    conditioning_kwargs: Mapping[str, Any] | None = None
+    #: LayerNorm each stream (state/time/condition) before combining — CellFlow2's
+    #: ``layer_norm_before_concatenation`` (helps adaln_zero balance time vs condition).
+    layer_norm_before_concatenation: bool = False
+    # --- classifier-free guidance (CFG) ---
+    condition_dropout_prob: float = 0.0
+    condition_null: str = "zero_embedding"  # "zero_embedding" | "mask_value"
+    mask_value: float = 0.0
+    #: Inference/validation guidance blend v = v_uncond + w*(v_cond - v_uncond); 1.0 = plain conditional.
+    guidance_scale: float = 1.0
+    #: Optional validation sweep of scales; the best (by the primary metric) is surfaced as the default.
+    guidance_scales: Sequence[float] | None = None
     seed: int = 0
 
     @classmethod
@@ -384,6 +402,24 @@ class FlowMatching:
         self.match_kwargs = dict(c.match_kwargs) if c.match_kwargs else {}
         self.seed = int(c.seed)
 
+        # conditioning mode + classifier-free guidance
+        self.conditioning = c.conditioning
+        self.conditioning_kwargs = dict(c.conditioning_kwargs) if c.conditioning_kwargs else {}
+        self.layer_norm_before_concatenation = bool(c.layer_norm_before_concatenation)
+        self.condition_dropout_prob = float(c.condition_dropout_prob)
+        self.condition_null = c.condition_null
+        self.mask_value = float(c.mask_value)
+        self.guidance_scale = float(c.guidance_scale)
+        self.guidance_scales = None if c.guidance_scales is None else [float(w) for w in c.guidance_scales]
+        if self.conditioning not in ("concatenation", "adaln_zero"):
+            raise ValueError(
+                f"model.conditioning must be 'concatenation' or 'adaln_zero', found {self.conditioning!r}."
+            )
+        if self.condition_null not in ("zero_embedding", "mask_value"):
+            raise ValueError(
+                f"model.condition_null must be 'zero_embedding' or 'mask_value', found {self.condition_null!r}."
+            )
+
         from sc_flow.flow._pooling import validate_pooling_spec
 
         self.pooling = validate_pooling_spec(_to_container(c.pooling))
@@ -438,13 +474,37 @@ class FlowMatching:
             unknown = [m for m in metrics if m not in METRICS_REGISTRY]
             if unknown:
                 raise KeyError(f"Unknown validation metric(s) {unknown}; available: {sorted(METRICS_REGISTRY)}.")
-            predictor = ODEPredictor(
-                is_genot=self.objective_name == "genot", state_dim=int(self._dims.state),
-                num_steps=int(self._trainer.get("val_num_steps", 50)), seed=self.seed,
+            is_genot = self.objective_name == "genot"
+            num_steps = int(self._trainer.get("val_num_steps", 50))
+
+            def _predictor(scale: float) -> ODEPredictor:
+                return ODEPredictor(
+                    is_genot=is_genot, state_dim=int(self._dims.state), num_steps=num_steps,
+                    seed=self.seed, guidance_scale=scale,
+                )
+
+            # Guidance needs a trained null (condition_dropout_prob > 0). If asked for without one, warn and
+            # fall back to a plain conditional solve rather than silently integrating a meaningless blend.
+            cfg_enabled = bool(getattr(self.vf, "cfg_enabled", False))
+            base_scale = self.guidance_scale
+            if (self.guidance_scale != 1.0 or self.guidance_scales) and not cfg_enabled:
+                logger.warning(
+                    "Guidance requested (guidance_scale=%s, guidance_scales=%s) but condition_dropout_prob=0, "
+                    "so no unconditional velocity was trained; using plain conditional (guidance_scale=1.0). "
+                    "Set model.condition_dropout_prob > 0 to enable CFG.",
+                    self.guidance_scale, self.guidance_scales,
+                )
+                base_scale = 1.0
+            guidance_predictors = (
+                {float(w): _predictor(float(w)) for w in self.guidance_scales}
+                if (self.guidance_scales and cfg_enabled)
+                else None
             )
             self._callbacks.append(PerturbationValidationCallback(
-                predictor=predictor, val_metrics={m: METRICS_REGISTRY[m]() for m in metrics},
+                predictor=_predictor(base_scale),
+                val_metrics={m: METRICS_REGISTRY[m]() for m in metrics},
                 val_max_source_cells=self._trainer.get("val_max_source_cells", 2048),
+                guidance_predictors=guidance_predictors,
             ))
 
     def _resolve_source(self, d: Mapping[str, Any]) -> Any:
@@ -537,7 +597,6 @@ class FlowMatching:
 
         cfg_kwargs: dict[str, Any] = {
             "state_dim": int(dims.state),
-            "combiner": {"type": "sc_flow.concat", "version": 1, "config": {}},
             "state_embedder": MLPEmbedderConfig(
                 output_dim=int(self.state_latent_dim), mlp_kwargs={"hidden_dims": self.hidden_dims}
             ),
@@ -548,9 +607,38 @@ class FlowMatching:
             "time_features_id": self.time_features_id,
             "num_time_features": self.num_time_features,
             "max_period": self.max_period,
+            # classifier-free guidance null (used by training dropout + inference force_uncond)
+            "condition_dropout_prob": self.condition_dropout_prob,
+            "condition_null": self.condition_null,
+            "mask_value": self.mask_value,
         }
-        if self.decoder_dims is not None:
-            cfg_kwargs["vf_decoder_mlp_kwargs"] = {"hidden_dims": self.decoder_dims}
+        # Conditioning mode picks the combiner. adaln_zero uses a block-structured, condition-MODULATED
+        # trunk (decoder_dims sets its DEPTH, not a decoder MLP); concatenation concatenates c into a plain
+        # decoder MLP (decoder_dims). layer_norm_before_concatenation LayerNorms the streams either way.
+        if self.conditioning == "adaln_zero":
+            allowed = {"num_blocks", "mlp_ratio", "dropout_p", "activation"}
+            unknown = set(self.conditioning_kwargs) - allowed
+            if unknown:
+                raise ValueError(
+                    f"Unknown conditioning_kwargs for adaln_zero: {sorted(unknown)}; allowed: {sorted(allowed)}."
+                )
+            depth = self.conditioning_kwargs.get("num_blocks")
+            if depth is None:
+                depth = len(self.decoder_dims) if self.decoder_dims else len(self.hidden_dims)
+            adaln_config: dict[str, Any] = {"num_blocks": int(depth)}
+            for key in ("mlp_ratio", "dropout_p", "activation"):
+                if key in self.conditioning_kwargs:
+                    adaln_config[key] = self.conditioning_kwargs[key]
+            adaln_config["layer_norm"] = bool(self.layer_norm_before_concatenation)
+            cfg_kwargs["combiner"] = {"type": "sc_flow.adaln", "version": 1, "config": adaln_config}
+        else:
+            cfg_kwargs["combiner"] = {
+                "type": "sc_flow.concat",
+                "version": 1,
+                "config": {"layer_norm": bool(self.layer_norm_before_concatenation)},
+            }
+            if self.decoder_dims is not None:
+                cfg_kwargs["vf_decoder_mlp_kwargs"] = {"hidden_dims": self.decoder_dims}
         if dims.condition or dims.condition_num_categories:
             embed_dim = int(self.condition_embedding_dim)
 

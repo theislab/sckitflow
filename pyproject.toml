@@ -112,6 +112,12 @@ urls.Documentation = "https://sc-flow-tools.readthedocs.io/"
 urls.Homepage = "https://github.com/lorenzo-consoli/sc-flow-tools"
 urls.Source = "https://github.com/lorenzo-consoli/sc-flow-tools"
 
+# Family plugins the app (cf-train) discovers WITHOUT importing them. On the 4-repo split these move to
+# their toolboxes (foundation -> sc-concept-tools, flow/pancell -> sc-flow-tools); on this branch all live here.
+[project.entry-points."scfit.families"]
+foundation = "sc_flow.pancell._builder:FOUNDATION_FAMILY"
+pancell = "sc_flow.pancell._builder:PANCELL_FAMILY"
+
 [tool.hatch]
 # binded (and its transitive annbatch fork) are declared as git direct references.
 metadata.allow-direct-references = true

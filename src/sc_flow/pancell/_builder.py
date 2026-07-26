@@ -20,7 +20,7 @@ from sc_flow.pancell._model import PanCellFlowModel, VelocityMLPConfig
 from sc_flow.pancell._objective import LinearFMObjectiveConfig
 from sc_flow.training import TrainingModule
 
-__all__ = ["PanCellFlow", "PanCellFlowFamily", "FoundationFamily"]
+__all__ = ["PanCellFlow", "PanCellFlowFamily", "FoundationFamily", "PANCELL_FAMILY", "FOUNDATION_FAMILY"]
 
 
 class PanCellFlow:
@@ -111,5 +111,8 @@ class FoundationFamily(ModelFamily):
         return FoundationModel(recipe)
 
 
-register_family(PanCellFlowFamily())
-register_family(FoundationFamily())
+# Module-level instances so an entry point can point at them (``module:attr``) and importing this module
+# registers them for editable dev trees. The two paths compose: entry-point discovery in the app, manual
+# registration on import.
+PANCELL_FAMILY = register_family(PanCellFlowFamily())
+FOUNDATION_FAMILY = register_family(FoundationFamily())

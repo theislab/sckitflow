@@ -1,12 +1,15 @@
-from sc_flow.training._config import ArchitectureConfig, ObjectiveConfig
-from sc_flow.training._harness import TrainingModule
-from sc_flow.training._objective import (
+"""Back-compat shim: the training core moved to :mod:`scfit.training`. Import from there in new code."""
+
+from scfit.training import (
     OBJECTIVE_REGISTRY,
+    ArchitectureConfig,
     Objective,
+    ObjectiveConfig,
+    Predictor,
+    TrainingModule,
     build_objective,
     register_objective,
 )
-from sc_flow.training._predictor import Predictor
 
 __all__ = [
     "TrainingModule",

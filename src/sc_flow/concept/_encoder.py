@@ -22,8 +22,8 @@ from dataclasses import dataclass
 import torch
 import torch.nn as nn
 
-from sc_flow._registry import Component
 from sc_flow.concept._vocab import PAD_TOKEN
+from sc_flow.training._config import ArchitectureConfig
 
 __all__ = ["GeneEncoder", "GeneEncoderConfig"]
 
@@ -111,7 +111,7 @@ class GeneEncoder(nn.Module):
 
 
 @dataclass
-class GeneEncoderConfig(Component, type_id="sc_flow.gene_encoder", version=1):
+class GeneEncoderConfig(ArchitectureConfig, type_id="sc_flow.gene_encoder", version=1):
     """Portable recipe for :class:`GeneEncoder` (a :class:`sc_flow.Component`).
 
     ``n_tokens`` is the embedding-table size — take it from :attr:`GeneVocab.n_tokens`. ``max_rank`` bounds

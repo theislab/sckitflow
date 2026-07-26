@@ -1,3 +1,4 @@
+from sc_flow.training._config import ArchitectureConfig, ObjectiveConfig
 from sc_flow.training._harness import TrainingModule
 from sc_flow.training._objective import (
     OBJECTIVE_REGISTRY,
@@ -11,6 +12,8 @@ __all__ = [
     "TrainingModule",
     "Objective",
     "Predictor",
+    "ArchitectureConfig",
+    "ObjectiveConfig",
     "register_objective",
     "build_objective",
     "OBJECTIVE_REGISTRY",

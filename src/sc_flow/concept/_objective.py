@@ -20,7 +20,7 @@ from typing import Any
 import torch
 import torch.nn.functional as F
 
-from sc_flow._registry import Component
+from sc_flow.training._config import ObjectiveConfig
 from sc_flow.training._objective import Objective, register_objective
 
 __all__ = ["ContrastiveObjective", "ObjectiveConfig", "ContrastiveObjectiveConfig"]
@@ -56,11 +56,6 @@ class ContrastiveObjective(Objective):
         with torch.no_grad():
             acc = (logits.argmax(dim=1) == labels).float().mean()  # in-batch retrieval accuracy
         return loss, {"loss": loss.detach(), "logit_scale": scale.detach(), "retrieval_acc": acc}
-
-
-class ObjectiveConfig(Component):
-    """Abstract family base for objective *configs* (unregistered). ``build(ctx)`` returns the runtime
-    :class:`sc_flow.training.Objective` that owns ``compute_loss``."""
 
 
 @dataclass

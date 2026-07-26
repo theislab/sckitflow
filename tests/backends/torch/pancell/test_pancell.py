@@ -75,7 +75,7 @@ def test_pancell_save_records_component_specs(tmp_path):
     b.save(tmp_path)
     cfg = json.loads((tmp_path / "config.json").read_text())
     assert cfg["family"] == "pancell"
-    assert cfg["state_encoder"]["type"] == "sc_flow.gene_encoder"
+    assert cfg["state_encoder"]["type"] == "scfoundations.gene_encoder"
     assert cfg["velocity"]["type"] == "flow.velocity_mlp"
     assert cfg["objective"]["type"] == "flow.fm_linear"
     assert (tmp_path / "model.safetensors").exists()

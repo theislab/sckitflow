@@ -432,7 +432,7 @@ class FlowMatching:
     def _build(self) -> None:
         from scfit.metrics import METRICS_REGISTRY
 
-        from sc_flow.flow import ODEPredictor, PerturbationValidationCallback, build_objective
+        from sc_flow.flow import ODEPredictor, PerturbationValidationCallback
 
         d = self._data
         source = self._resolve_source(d)
@@ -451,12 +451,7 @@ class FlowMatching:
         # torch velocity field (weights) + probability path + objective (OT coupling in JAX, rest torch).
         self.vf = self._build_vf(self._dims)
         self.model = self.vf
-        self.probability_path = self._build_probability_path()
-        self.objective = build_objective(
-            self.objective_name, self.probability_path, condition_mode=self.condition_mode,
-            regularization=self.regularization, coupling_locs={}, match_method=self.match_method,
-            match_kwargs=self.match_kwargs, seed=self.seed,
-        )
+        self.objective = self._build_objective()
 
         # Data: describe the streams (target + matched control), split off held-out conditions if configured.
         train_pert, val_pert = self._split_leaves()
@@ -675,6 +670,37 @@ class FlowMatching:
                 mlp_kwargs={"input_dim": int(dims.state), "hidden_dims": self.hidden_dims}
             )
         return MLPVelocityConfig(**cfg_kwargs).build(VelocityFieldContext())
+
+    def _build_objective(self):
+        """Build the flow objective FROM its portable Component. ``otfm`` / ``genot`` construct via
+        ``OTFMObjectiveConfig`` / ``GENOTObjectiveConfig`` (the runtime OTFM/GENOT is the Component's build
+        target); ``coupling_locs`` + ``seed`` are the run/data build context, not the portable spec.
+        ``fm-linear`` keeps the by-name builder."""
+        from sc_flow.flow._objective_config import (
+            FlowBuildContext,
+            GENOTObjectiveConfig,
+            LinearDiracPathConfig,
+            LinearGaussianPathConfig,
+            OTFMObjectiveConfig,
+        )
+
+        configs = {"otfm": OTFMObjectiveConfig, "genot": GENOTObjectiveConfig}
+        if self.objective_name in configs:
+            path_cfg = LinearGaussianPathConfig(sigma=self.sigma) if self.sigma > 0 else LinearDiracPathConfig()
+            self.objective_config = configs[self.objective_name](
+                probability_path=path_cfg, condition_mode=self.condition_mode,
+                regularization=self.regularization, match_method=self.match_method,
+                match_kwargs=dict(self.match_kwargs),
+            )
+            return self.objective_config.build(FlowBuildContext(seed=self.seed, coupling_locs={}))
+
+        from sc_flow.flow import build_objective  # fm-linear (torch-only) keeps the by-name builder
+
+        return build_objective(
+            self.objective_name, self._build_probability_path(), condition_mode=self.condition_mode,
+            regularization=self.regularization, coupling_locs={}, match_method=self.match_method,
+            match_kwargs=self.match_kwargs, seed=self.seed,
+        )
 
     def _build_probability_path(self):
         from sc_flow.flow.probability_paths._probability_paths import (

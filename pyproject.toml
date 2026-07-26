@@ -42,6 +42,13 @@ dependencies = [
 optional-dependencies.all = [
   "sc-flow-tools[jax,lightning,torch]",
 ]
+# pancell (sc_flow.pancell) composes a foundation GeneEncoder from scfoundations — an OPTIONAL extra so the
+# core flow toolbox installs without it (and [all] stays free of a private-git dep). Pinned to an immutable
+# commit until scfoundations is published; it is a PRIVATE repo, so a git+https install needs a token (same
+# as theislab/scfit). The `scfoundations @ git+…` direct URL is permitted by allow-direct-references (below).
+optional-dependencies.pancell = [
+  "scfoundations @ git+https://github.com/selmanozleyen/scfoundations.git@eba0a1d77e3c5172b4b09b0a3665fa5c2907f693",
+]
 # GPU install: the OT coupling runs on-device (torch reps -> JAX via zero-copy DLPack -> ott sinkhorn/GW
 # -> back to torch), so BOTH torch and jax must be CUDA builds matching the node's driver. This extra adds
 # JAX's self-contained CUDA-12 wheels (Linux only, from PyPI). torch's CUDA build is an *index* selection,

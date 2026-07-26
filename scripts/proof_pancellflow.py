@@ -5,8 +5,8 @@ control/perturbed biology through different genes. The pan-cell model runs both 
 sc_flow.concept.GeneEncoder (state-encoder slot) into one latent, and ONE rectified-flow velocity transports
 control→perturbed there. We show: (1) it trains across both panels and the loss drops; (2) the learned flow
 moves control cells toward the perturbed manifold for BOTH datasets (cross-dataset transport in the shared
-space); (3) it works with the encoder fine-tuned AND frozen; (4) it's dispatched generically via
-sc_flow.families.build_family("pancell", recipe).
+space); (3) it works with the encoder fine-tuned AND frozen; (4) it's a composition you construct directly
+(``PanCellFlow(recipe)``) — pan-cell is NOT a family, it composes the flow + foundation paradigms.
 
 Run (CPU):  python scripts/proof_pancellflow.py
 """
@@ -19,7 +19,8 @@ import numpy as np
 import torch
 from scipy import sparse
 
-from sc_flow.families import available_families, build_family
+from sc_flow.families import available_families
+from sc_flow.pancell import PanCellFlow
 from sc_flow.pancell._data import tokenize_batch
 
 PANEL, PROGRAMS, MARKERS = 56, 8, 7  # genes per panel, programs, markers/program/panel
@@ -89,7 +90,7 @@ def run(adata, *, freeze: bool, steps: int = 500, seed: int = 0):
         "trainer": {"lr": 1e-3},
         "seed": seed,
     }
-    builder = build_family("pancell", recipe)  # generic dispatch through the family registry
+    builder = PanCellFlow(recipe)  # a composition, constructed directly — pancell is NOT a family
     hist = LossHistory()
     trainer = pl.Trainer(max_steps=steps, accelerator="cpu", devices=1, callbacks=[hist], logger=False,
                          enable_checkpointing=False, enable_progress_bar=False, enable_model_summary=False)
@@ -118,7 +119,7 @@ def main():
     b_genes = np.flatnonzero(dense(b_only).sum(0) > 0)
     print(f"[data] {adata.shape} | 2 datasets, DISJOINT panels: A uses genes {a_genes.min()}..{a_genes.max()}, "
           f"B uses {b_genes.min()}..{b_genes.max()} (overlap={len(np.intersect1d(a_genes, b_genes))})")
-    print(f"[families] discoverable: {available_families()}\n")
+    print(f"[families] discoverable families: {available_families()}  (pancell is a composition, not one)\n")
 
     ok = True
     for freeze in (False, True):

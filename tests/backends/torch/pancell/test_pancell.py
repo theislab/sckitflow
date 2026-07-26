@@ -7,12 +7,14 @@ from scipy import sparse
 
 from sc_flow._registry import parse
 from sc_flow.concept import GeneEncoderConfig
-from sc_flow.families import available_families, build_family
-from sc_flow.pancell import LinearFMObjectiveConfig, PanCellFlowModel, VelocityMLPConfig
+from sc_flow.families import available_families
+from sc_flow.pancell import LinearFMObjectiveConfig, PanCellFlow, PanCellFlowModel, VelocityMLPConfig
 
 
-def test_families_registered_on_import():
-    assert set(available_families()) >= {"foundation", "pancell"}
+def test_pancell_is_not_a_family():
+    fams = set(available_families())
+    assert {"flow_matching", "foundation"} <= fams  # the two real paradigms are discoverable families
+    assert "pancell" not in fams  # pancell is a composition of them, not a family
 
 
 def test_flow_objective_is_a_component_with_nested_path():
@@ -50,7 +52,7 @@ def _recipe(adata):
 
 
 def test_pancell_builds_and_forwards():
-    b = build_family("pancell", _recipe(_adata()))  # generic family dispatch
+    b = PanCellFlow(_recipe(_adata()))  # a composition, constructed directly (not a family)
     assert isinstance(b.model, PanCellFlowModel)
     batch = next(iter(b.datamodule.train_dataloader()))
     assert set(batch) == {"source_tokens", "source_mask", "target_tokens", "target_mask"}
@@ -62,14 +64,14 @@ def test_pancell_builds_and_forwards():
 def test_frozen_state_encoder_excludes_params_from_grad():
     r = _recipe(_adata())
     r["state_encoder"]["freeze"] = True
-    b = build_family("pancell", r)
+    b = PanCellFlow(r)
     enc_grad = any(p.requires_grad for p in b.model.state_encoder.parameters())
     vel_grad = all(p.requires_grad for p in b.model.velocity.parameters())
     assert not enc_grad and vel_grad  # frozen encoder, trainable velocity
 
 
 def test_pancell_save_records_component_specs(tmp_path):
-    b = build_family("pancell", _recipe(_adata()))
+    b = PanCellFlow(_recipe(_adata()))
     b.save(tmp_path)
     cfg = json.loads((tmp_path / "config.json").read_text())
     assert cfg["family"] == "pancell"

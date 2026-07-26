@@ -2,13 +2,14 @@
 
 Composes the two families: a :class:`sc_flow.concept.GeneEncoder` (from the foundation toolbox) sits in the
 **state-encoder slot** of a flow model, so cells from *different gene panels* map into one latent and a
-rectified-flow velocity transports source→target across datasets — frozen or fine-tuned. Importing this
-package registers the ``"pancell"`` and ``"foundation"`` families.
+rectified-flow velocity transports source→target across datasets — frozen or fine-tuned. This is a
+*composition* of the flow + foundation paradigms, **not** a registered family: construct ``PanCellFlow(recipe)``
+directly.
 """
 
 from __future__ import annotations
 
-from sc_flow.pancell._builder import FoundationFamily, PanCellFlow, PanCellFlowFamily
+from sc_flow.pancell._builder import PanCellFlow
 from sc_flow.pancell._model import PanCellFlowModel, VelocityMLP, VelocityMLPConfig
 from sc_flow.pancell._objective import (
     LinearFMObjective,
@@ -19,8 +20,6 @@ from sc_flow.pancell._objective import (
 
 __all__ = [
     "PanCellFlow",
-    "PanCellFlowFamily",
-    "FoundationFamily",
     "PanCellFlowModel",
     "VelocityMLP",
     "VelocityMLPConfig",

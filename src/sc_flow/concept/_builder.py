@@ -96,6 +96,14 @@ class FoundationModel:
         return list(self._callbacks)
 
     @property
+    def metrics_history(self) -> dict:
+        return {}  # kNN cell-type probe validation (the next addition) will populate this
+
+    @property
+    def trainer_overrides(self) -> dict:
+        return {}  # no bespoke eval cadence yet; the app's base Trainer is used as-is
+
+    @property
     def vocab(self) -> GeneVocab:
         return self._vocab
 

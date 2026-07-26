@@ -1,9 +1,9 @@
-"""``PanCellFlow`` builder + the family registrations (foundation + pancell).
+"""``PanCellFlow`` — the pan-cell flow *composition* (a ``recipe -> builder``; **not** a registered family).
 
-``PanCellFlow`` is a :class:`sc_flow.families.ModelFamily` builder (same contract as ``FlowMatching`` /
-``FoundationModel``). Its recipe carries a **state-encoder slot**: a ``sc_flow.gene_encoder`` config, optionally
-``pretrained`` (warm-start from a saved foundation bundle) and ``freeze`` (linear-probe vs fine-tune). This is
-the cross-toolbox composition made concrete.
+``PanCellFlow`` composes a **foundation** ``sc_flow.gene_encoder`` (the state-encoder slot — optionally
+``pretrained`` from a saved foundation bundle and ``freeze``d) with a rectified-flow velocity + FM objective:
+one encoder gives flow a shared latent across gene panels. It composes the two paradigms rather than being a
+third one, so it is **not** a ``scfit.families`` entry point — construct it directly (``PanCellFlow(recipe)``).
 """
 
 from __future__ import annotations
@@ -14,13 +14,12 @@ from typing import Any
 
 from sc_flow.concept._encoder import GeneEncoderConfig
 from sc_flow.concept._vocab import GeneVocab
-from sc_flow.families import ModelFamily, register_family
 from sc_flow.pancell._data import PanCellDataModule
 from sc_flow.pancell._model import PanCellFlowModel, VelocityMLPConfig
 from sc_flow.pancell._objective import LinearFMObjectiveConfig
 from sc_flow.training import TrainingModule
 
-__all__ = ["PanCellFlow", "PanCellFlowFamily", "FoundationFamily", "PANCELL_FAMILY", "FOUNDATION_FAMILY"]
+__all__ = ["PanCellFlow"]
 
 
 class PanCellFlow:
@@ -93,26 +92,3 @@ class PanCellFlow:
             "objective": self._obj_cfg.to_spec(),  # nests the probability_path spec
             "vocab_genes": list(self._vocab.gene_ids),
         }, indent=2))
-
-
-class PanCellFlowFamily(ModelFamily):
-    name = "pancell"
-
-    def build(self, recipe: dict[str, Any]) -> PanCellFlow:
-        return PanCellFlow(recipe)
-
-
-class FoundationFamily(ModelFamily):
-    name = "foundation"
-
-    def build(self, recipe: dict[str, Any]):
-        from sc_flow.concept import FoundationModel
-
-        return FoundationModel(recipe)
-
-
-# Module-level instances so an entry point can point at them (``module:attr``) and importing this module
-# registers them for editable dev trees. The two paths compose: entry-point discovery in the app, manual
-# registration on import.
-PANCELL_FAMILY = register_family(PanCellFlowFamily())
-FOUNDATION_FAMILY = register_family(FoundationFamily())

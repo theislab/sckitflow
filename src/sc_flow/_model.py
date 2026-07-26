@@ -455,6 +455,13 @@ class FlowMatching:
 
         # Data: describe the streams (target + matched control), split off held-out conditions if configured.
         train_pert, val_pert = self._split_leaves()
+        # A configured split that holds out nothing is a silent no-eval run — fail loudly here. The family
+        # validates its own recipe so the app that drives it stays paradigm-neutral (no flow-specific guard).
+        if self._data.get("split_by") and not val_pert:
+            raise RuntimeError(
+                "data.split_by is set but the held-out condition set is empty — every split key landed in "
+                "train. Check data.split_ratios, and that split_by names a covariate with more than one value."
+            )
         train_loader = self._build_loader(train_pert)
         val_loader = self._build_loader(val_pert) if val_pert else None
 
@@ -728,6 +735,29 @@ class FlowMatching:
     def callbacks(self) -> list[Any]:
         """Held-out perturbation-validation callbacks (empty when no split is configured)."""
         return list(self._callbacks)
+
+    @property
+    def metrics_history(self) -> dict[str, list]:
+        """Validation metric history from the held-out perturbation callback (empty when no split).
+
+        Part of the family-builder contract the app reads uniformly, peer to foundation/pancell."""
+        return dict(self._callbacks[0].metrics_history) if self._callbacks else {}
+
+    @property
+    def trainer_overrides(self) -> dict[str, Any]:
+        """Extra ``Trainer`` kwargs this family's held-out eval needs; the app merges them into its base
+        ``Trainer`` so every family is driven identically — exactly what cf-train's flow runner used to
+        hardcode. No split configured → validation is switched off (``limit_val_batches=0``)."""
+        t = self._trainer
+        if not self._callbacks:
+            return {"limit_val_batches": 0}
+        overrides: dict[str, Any] = {
+            "num_sanity_val_steps": 2,
+            "limit_val_batches": int(t.get("n_val_conditions") or 8),
+        }
+        if t.get("valid_freq") is not None:
+            overrides["val_check_interval"] = int(t["valid_freq"])
+        return overrides
 
     # --- persistence -----------------------------------------------------------------------------
 

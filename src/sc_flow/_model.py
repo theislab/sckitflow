@@ -547,8 +547,11 @@ class FlowMatching:
         prefetch = int(s.get("prefetch_factor", 2))
         ctrl_prefetch = int(s.get("ctrl_prefetch_factor", min(prefetch, 2)))
 
-        # Target (primary) stream: chunked reads aligned to stored runs.
+        # Target (primary) stream: chunked reads aligned to stored runs — OR fully materialized in RAM
+        # (``sampler.in_memory``), which is the right choice for a small dataset that fits: it avoids the
+        # per-step zarr reads that otherwise dominate the step (the controls are already in memory).
         primary_preload = max(1, (batch // chunk) * prefetch)
+        primary_in_memory = bool(s.get("in_memory", False))
 
         # Control stream: chunk_size=1 (individual cell sampling). Pre-allocate prefetch batches of cells.
         ctrl_preload = max(1, batch * ctrl_prefetch)
@@ -575,6 +578,7 @@ class FlowMatching:
             p.source, group_by=p.group_by, rep=p.rep_loc,
             weights={lf: 1.0 for lf in pert_leaves},
             label_lookup={lf: p.label_lookup[lf] for lf in pert_leaves},
+            in_memory=primary_in_memory,
             batch_size=batch, chunk_size=chunk, preload_nchunks=primary_preload,
         )
         ctrl = Stream(

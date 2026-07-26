@@ -2,7 +2,7 @@
 
 Two synthetic datasets with **disjoint gene panels** (A: genes 0..55, B: 56..111) express the same
 control/perturbed biology through different genes. The pan-cell model runs both through ONE
-sc_flow.concept.GeneEncoder (state-encoder slot) into one latent, and ONE rectified-flow velocity transports
+scfoundations.GeneEncoder (state-encoder slot) into one latent, and ONE rectified-flow velocity transports
 control→perturbed there. We show: (1) it trains across both panels and the loss drops; (2) the learned flow
 moves control cells toward the perturbed manifold for BOTH datasets (cross-dataset transport in the shared
 space); (3) it works with the encoder fine-tuned AND frozen; (4) it's a composition you construct directly

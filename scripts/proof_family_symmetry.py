@@ -11,7 +11,7 @@ If ``flow_matching`` needed a bespoke branch, this file could not train it with 
 
 import sys
 
-# The "app" imports the registry ONLY — no sc_flow._model, no sc_flow.concept, no torch yet.
+# The "app" imports the registry ONLY — no sc_flow._model, no scfoundations, no torch yet.
 from sc_flow.families import available_families, build_family
 
 assert "torch" not in sys.modules and "sc_flow._model" not in sys.modules, "app pulled in a model at import"

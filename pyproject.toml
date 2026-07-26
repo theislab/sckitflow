@@ -116,7 +116,8 @@ urls.Source = "https://github.com/lorenzo-consoli/sc-flow-tools"
 # their toolboxes (foundation -> sc-concept-tools, flow/pancell -> sc-flow-tools); on this branch all live here.
 [project.entry-points."scfit.families"]
 flow_matching = "sc_flow._model:FlowMatching"
-foundation = "sc_flow.concept._builder:FoundationModel"
+# foundation moved to its own toolbox repo (scfoundations); it declares the `foundation` entry point there.
+# pancell is a composition (not a family), so it has no entry point.
 
 [tool.hatch]
 # binded (and its transitive annbatch fork) are declared as git direct references.

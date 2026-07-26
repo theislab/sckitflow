@@ -12,8 +12,8 @@ import json
 from pathlib import Path
 from typing import Any
 
-from sc_flow.concept._encoder import GeneEncoderConfig
-from sc_flow.concept._vocab import GeneVocab
+from scfoundations._encoder import GeneEncoderConfig
+from scfoundations._vocab import GeneVocab
 from sc_flow.pancell._data import PanCellDataModule
 from sc_flow.pancell._model import PanCellFlowModel, VelocityMLPConfig
 from sc_flow.pancell._objective import LinearFMObjectiveConfig

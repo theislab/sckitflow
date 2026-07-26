@@ -1,6 +1,6 @@
 """Pan-cell flow — flow matching in a foundation encoder's shared latent (cross-dataset composition).
 
-Composes the two families: a :class:`sc_flow.concept.GeneEncoder` (from the foundation toolbox) sits in the
+Composes the two families: a :class:`scfoundations.GeneEncoder` (from the foundation toolbox) sits in the
 **state-encoder slot** of a flow model, so cells from *different gene panels* map into one latent and a
 rectified-flow velocity transports source→target across datasets — frozen or fine-tuned. This is a
 *composition* of the flow + foundation paradigms, **not** a registered family: construct ``PanCellFlow(recipe)``

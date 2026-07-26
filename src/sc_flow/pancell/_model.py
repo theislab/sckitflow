@@ -1,7 +1,7 @@
 """Pan-cell flow model: a foundation encoder in flow's **state-encoder slot** + a velocity field.
 
 The composition that answers "different spaces → one space, then match flow": the shared
-:class:`sc_flow.concept.GeneEncoder` maps raw-count cells from *any* gene panel into one latent, and the
+:class:`scfoundations.GeneEncoder` maps raw-count cells from *any* gene panel into one latent, and the
 velocity field transports source→target *in that latent*. Because the encoder is a
 :class:`sc_flow.training.ArchitectureConfig` Component and the velocity is another, both are portable and
 the encoder can be loaded pretrained + frozen or fine-tuned (its params are simply in / out of the optimizer).

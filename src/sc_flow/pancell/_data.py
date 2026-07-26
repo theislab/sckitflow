@@ -1,7 +1,7 @@
 """Data path for pan-cell flow: control/perturbed populations → source/target token batches.
 
 Single-view rank tokenization (the *whole* cell, unlike the contrastive two-view split), over a shared
-:class:`sc_flow.concept.GeneVocab`. Control and perturbed cells may come from different datasets / panels —
+:class:`scfoundations.GeneVocab`. Control and perturbed cells may come from different datasets / panels —
 they share the vocab, so the encoder maps them into one latent. Independent-coupling sampling (a random
 control paired with a random perturbed) is enough for rectified flow.
 """
@@ -13,8 +13,8 @@ import numpy as np
 import torch
 from scipy import sparse
 
-from sc_flow.concept._tokenize import rank_encode
-from sc_flow.concept._vocab import PAD_TOKEN, GeneVocab
+from scfoundations._tokenize import rank_encode
+from scfoundations._vocab import PAD_TOKEN, GeneVocab
 
 __all__ = ["tokenize_batch", "PanCellDataModule"]
 

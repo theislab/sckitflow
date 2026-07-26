@@ -6,7 +6,7 @@ import torch
 from scipy import sparse
 
 from sc_flow._registry import parse
-from sc_flow.concept import GeneEncoderConfig
+from scfoundations import GeneEncoderConfig
 from sc_flow.families import available_families
 from sc_flow.pancell import LinearFMObjectiveConfig, PanCellFlow, PanCellFlowModel, VelocityMLPConfig
 

@@ -9,17 +9,20 @@ third one, so it is **not** a ``scfit.families`` entry point — construct it di
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
 from scfoundations._encoder import GeneEncoderConfig
-from scfoundations._vocab import GeneVocab
+from scfoundations._vocab import NUM_SPECIAL, GeneVocab
 from sc_flow.pancell._data import PanCellDataModule
 from sc_flow.pancell._model import PanCellFlowModel, VelocityMLPConfig
 from sc_flow.pancell._objective import LinearFMObjectiveConfig
 from sc_flow.training import TrainingModule
 
 __all__ = ["PanCellFlow"]
+
+logger = logging.getLogger(__name__)
 
 
 class PanCellFlow:
@@ -73,11 +76,40 @@ class PanCellFlow:
         return self._model
 
     def _load_encoder(self, encoder, path: Path) -> None:
+        """Warm-start the state encoder from a saved foundation bundle, remapping gene embeddings by IDENTITY.
+
+        The bundle's gene vocabulary usually differs from this run's (union) vocabulary — the panels differ —
+        so the ``gene_embedding`` table is remapped row-by-row on gene id (a shared gene keeps its pretrained
+        embedding; a new gene stays freshly initialized), while the vocab-independent backbone (transformer,
+        CLS) loads directly. Tensors with an incompatible shape (e.g. a different ``dim_model``) are skipped.
+        """
         from safetensors.torch import load_file
 
-        w = load_file(str(path / "model.safetensors"))
-        bb = {k[len("backbone.") :]: v for k, v in w.items() if k.startswith("backbone.")}
-        encoder.load_state_dict(bb or w, strict=False)
+        weights = load_file(str(path / "model.safetensors"))
+        weights = {k[len("backbone.") :]: v for k, v in weights.items() if k.startswith("backbone.")} or weights
+
+        emb_key = "gene_embedding.weight"
+        if emb_key in weights:
+            pre_genes = json.loads((path / "config.json").read_text()).get("vocab_genes", [])
+            pre_row = {g: NUM_SPECIAL + i for i, g in enumerate(pre_genes)}
+            pre_emb, target = weights[emb_key], encoder.gene_embedding.weight.data.clone()
+            if pre_emb.shape[1] == target.shape[1]:  # same dim_model → remap rows by gene id
+                target[:NUM_SPECIAL] = pre_emb[:NUM_SPECIAL]
+                hits = 0
+                for i, gene in enumerate(self._vocab.gene_ids):
+                    row = pre_row.get(gene)
+                    if row is not None and row < pre_emb.shape[0]:
+                        target[NUM_SPECIAL + i], hits = pre_emb[row], hits + 1
+                weights[emb_key] = target
+                logger.info("pancell warm-start: transferred %d/%d gene embeddings from %s",
+                            hits, self._vocab.n_genes, path)
+            else:
+                del weights[emb_key]  # incompatible dim_model — keep fresh embeddings
+
+        sd = encoder.state_dict()
+        compatible = {k: v for k, v in weights.items() if k in sd and sd[k].shape == v.shape}
+        encoder.load_state_dict(compatible, strict=False)
+        logger.info("pancell warm-start: loaded %d/%d encoder tensors from %s", len(compatible), len(sd), path)
 
     def save(self, out: str | Path) -> None:
         from safetensors.torch import save_file

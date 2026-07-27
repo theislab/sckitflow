@@ -12,7 +12,6 @@ import pandas as pd
 from anndata import AnnData
 from tqdm import tqdm
 
-from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
 from sc_flow._types import PredictionData
 from sc_flow.data._composite import MatchedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
@@ -77,7 +76,6 @@ class SCFlow:
         *args,
         method_cls: type[BaseMethod] | None = None,
         method_id: str | None = None,
-        backend: Literal["jax", "torch"] = "torch",
         **kwargs,
     ) -> None:
         # check that data was prepared
@@ -94,9 +92,6 @@ class SCFlow:
         self._view_on_condition_space = self.__class__._view_on_condition_space_cls
         self._condition_state_key = self.__class__._condition_state_key_cls
 
-        # register backend
-        self._backend = backend
-
         # get method cls
         if method_cls is None and method_id is None:
             msg = "At least one of `method_id` or `method_cls` should be specified."
@@ -104,15 +99,7 @@ class SCFlow:
 
         # use registry when method not provided
         if method_cls is None:
-            # get registry for current backend
-            if backend == "torch":
-                from sc_flow.backends.torch.methods import METHODS_REGISTRY
-            elif backend == "jax":
-                from sc_flow.backends.jax.methods import METHODS_REGISTRY
-            else:
-                from sc_flow._runtime import raise_runtime_error_on_backend_not_supported
-
-                raise_runtime_error_on_backend_not_supported(backend)
+            from sc_flow.backends.torch.methods import METHODS_REGISTRY
 
             # get method from registry
             if method_id not in METHODS_REGISTRY:
@@ -340,45 +327,30 @@ class SCFlow:
         return self._method.predict(node, *args, **kwargs)
 
     def _to_numpy(self, tensor: Any) -> np.ndarray:
-        """
-        Convert a backend-specific tensor to a numpy array.
-
-        :param tensor: A tensor from the current backend (e.g., torch.Tensor or jnp.ndarray).
-        :return: numpy array
-        """
+        """Convert a torch tensor (or array-like) to a numpy array."""
         if tensor is None:
             return None
-        if self._backend == "torch":
-            import torch
+        import torch
 
-            if isinstance(tensor, torch.Tensor):
-                return tensor.detach().cpu().numpy()
-            return np.array(tensor)
-        elif self._backend == "jax":
-            return np.array(tensor)
-        else:
-            raise ValueError(f"Unsupported backend: {self._backend}")
+        if isinstance(tensor, torch.Tensor):
+            return tensor.detach().cpu().numpy()
+        return np.array(tensor)
 
     def to_device(self, device: str) -> None:
         """Move the underlying PyTorch module and optimizer state to the specified device."""
-        if self._backend == "jax":
-            raise NotImplementedError("Device moving is currently supported only for the torch backend.")
-        elif self._backend == "torch":
-            import torch
+        import torch
 
-            self._method._module.to(device)
-            if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
-                opt = self._trainer.opt_manager.optimizer
-                for param_group in opt.param_groups:
-                    for param in param_group["params"]:
-                        if param.device.type != device.split(":")[0]:
-                            param.data = param.data.to(device)
-                for state in opt.state.values():
-                    for k, v in state.items():
-                        if isinstance(v, torch.Tensor) and v.device.type != device.split(":")[0]:
-                            state[k] = v.to(device)
-        else:
-            raise_runtime_error_on_backend_not_supported(self._backend)
+        self._method._module.to(device)
+        if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
+            opt = self._trainer.opt_manager.optimizer
+            for param_group in opt.param_groups:
+                for param in param_group["params"]:
+                    if param.device.type != device.split(":")[0]:
+                        param.data = param.data.to(device)
+            for state in opt.state.values():
+                for k, v in state.items():
+                    if isinstance(v, torch.Tensor) and v.device.type != device.split(":")[0]:
+                        state[k] = v.to(device)
 
     def train(
         self,
@@ -491,15 +463,9 @@ class SCFlow:
         optim_config = OptimConfig(**optim_kwargs)
 
         # create optimization manager
-        if self._backend == "torch":
-            from sc_flow.backends.torch.methods._opt import TorchOptimizationManager
+        from sc_flow.backends.torch.methods._opt import TorchOptimizationManager
 
-            opt_manager = TorchOptimizationManager.from_config(self._method._module, optim_config)
-        elif self._backend == "jax":
-            # Placeholder for future JAX support
-            raise NotImplementedError("JAX optimization manager not yet implemented.")
-        else:
-            raise_runtime_error_on_backend_not_supported(self._backend)
+        opt_manager = TorchOptimizationManager.from_config(self._method._module, optim_config)
 
         # initialize trainer
         if self._trainer is None:
@@ -631,17 +597,16 @@ class SCFlow:
             path.unlink()
 
         # Move model to CPU before pickling
-        if self._backend == "torch":
-            import torch
+        import torch
 
-            self._method._module.cpu()
-            # Fixed: access optimizer via trainer, not via method
-            if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
-                opt = self._trainer.opt_manager.optimizer
-                for state in opt.state.values():
-                    for k, v in state.items():
-                        if isinstance(v, torch.Tensor):
-                            state[k] = v.cpu()
+        self._method._module.cpu()
+        # Fixed: access optimizer via trainer, not via method
+        if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
+            opt = self._trainer.opt_manager.optimizer
+            for state in opt.state.values():
+                for k, v in state.items():
+                    if isinstance(v, torch.Tensor):
+                        state[k] = v.cpu()
 
         # unload preprocessing context
         self.dm.unload_preproc()
@@ -705,16 +670,11 @@ class SCFlow:
             model._dims_registry = cls._dims_registry
             model._is_paired_setting = cls._is_paired_setting_cls
 
-        # Move to desired device if using PyTorch
-        if model._backend == "torch" and map_location is not None:
+        # Move to desired device if requested
+        if map_location is not None:
             model.to_device(map_location)
 
         return model
-
-    @property
-    def backend(self) -> str:
-        """Returns the backend the model was initialized on."""
-        return self._backend
 
     @property
     def dm(self) -> DataManager:

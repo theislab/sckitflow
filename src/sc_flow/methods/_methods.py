@@ -8,15 +8,6 @@ from sc_flow.data._manager import DataManager
 from sc_flow.data.containers._state import StateData
 
 if TYPE_CHECKING:
-    # jax backend
-    from sc_flow.backends.jax._types import TMatchFn as JaxMatchFn
-    from sc_flow.backends.jax._types import TNoiseSamplerFn as JaxNoiseSampler
-    from sc_flow.backends.jax._types import TTimeSamplerFn as JaxTimeSampler
-    from sc_flow.backends.jax.nn import BaseModule as JaxModule
-    from sc_flow.backends.jax.probability_paths import BaseProbabilityPath as JaxProbabilityPath
-    from sc_flow.backends.jax.solvers import BaseSolver as JaxSolver
-
-    # torch backend
     from sc_flow.backends.torch._types import TMatchFn as TorchMatchFn
     from sc_flow.backends.torch._types import TNoiseSamplerFn as TorchNoiseSampler
     from sc_flow.backends.torch._types import TTimeSamplerFn as TorchTimeSampler
@@ -28,7 +19,7 @@ __all__ = ["BaseMethod", "BaseGenerativeFlow"]
 
 
 class BaseMethod(abc.ABC):
-    _module_cls: type[JaxModule | TorchModule] | None = None
+    _module_cls: type[TorchModule] | None = None
 
     def __init__(
         self,
@@ -71,7 +62,7 @@ class BaseMethod(abc.ABC):
         pass
 
     @property
-    def module(self) -> JaxModule | TorchModule | None:
+    def module(self) -> TorchModule | None:
         return self._module
 
     @property
@@ -88,7 +79,7 @@ class BaseMethod(abc.ABC):
 
 
 class BaseGenerativeFlow(BaseMethod):
-    _default_solver_cls: type[JaxSolver | TorchSolver] | None = None
+    _default_solver_cls: type[TorchSolver] | None = None
 
     def __init__(
         self,
@@ -96,10 +87,10 @@ class BaseGenerativeFlow(BaseMethod):
         dm: DataManager,
         is_paired_setting: bool,
         *args,
-        probability_path: JaxProbabilityPath | TorchProbabilityPath | None = None,
-        match_fn: JaxMatchFn | TorchMatchFn | None = None,
-        noise_sampler: JaxNoiseSampler | TorchNoiseSampler | None = None,
-        time_sampler: JaxTimeSampler | TorchTimeSampler | None = None,
+        probability_path: TorchProbabilityPath | None = None,
+        match_fn: TorchMatchFn | None = None,
+        noise_sampler: TorchNoiseSampler | None = None,
+        time_sampler: TorchTimeSampler | None = None,
         generate_from_noise: bool = False,
         **kwargs,
     ) -> None:
@@ -123,17 +114,17 @@ class BaseGenerativeFlow(BaseMethod):
         return self._generate_from_noise
 
     @property
-    def probability_path(self) -> JaxProbabilityPath | TorchProbabilityPath | None:
+    def probability_path(self) -> TorchProbabilityPath | None:
         return self._probability_path
 
     @property
-    def match_fn(self) -> JaxMatchFn | TorchMatchFn | None:
+    def match_fn(self) -> TorchMatchFn | None:
         return self._match_fn
 
     @property
-    def noise_sampler(self) -> JaxNoiseSampler | TorchNoiseSampler | None:
+    def noise_sampler(self) -> TorchNoiseSampler | None:
         return self._noise_sampler
 
     @property
-    def time_sampler(self) -> JaxTimeSampler | TorchTimeSampler | None:
+    def time_sampler(self) -> TorchTimeSampler | None:
         return self._time_sampler

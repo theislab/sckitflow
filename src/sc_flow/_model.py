@@ -34,6 +34,8 @@ import lightning.pytorch as pl
 import numpy as np
 import torch
 
+from sc_flow._weighting import build_weighting
+
 __all__ = ["FlowMatching", "FlowMatchingConfig"]
 
 logger = logging.getLogger(__name__)
@@ -137,6 +139,7 @@ class _Problem:
     dims: _Dims
     pert_leaf_min_run: dict[tuple, int]  # pert leaf -> shortest contiguous on-disk run (per path); for min_runs_per_leaf
     ctrl_source: Any = None  # optional separate control store (e.g. controls.zarr)
+
 
 
 def _min_run_per_leaf(source: Any, group_by: Sequence[str]) -> dict[tuple, int]:
@@ -576,7 +579,7 @@ class FlowMatching:
 
         primary = Stream(
             p.source, group_by=p.group_by, rep=p.rep_loc,
-            weights={lf: 1.0 for lf in pert_leaves},
+            weights=build_weighting(s.get("leaf_weighting"), leaves=pert_leaves, group_by=p.group_by),
             label_lookup={lf: p.label_lookup[lf] for lf in pert_leaves},
             in_memory=primary_in_memory,
             batch_size=batch, chunk_size=chunk, preload_nchunks=primary_preload,

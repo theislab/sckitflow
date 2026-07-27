@@ -154,7 +154,7 @@ envs.hatch-test.overrides.matrix.deps.env-vars = [
 # stays installable as a git dependency downstream (e.g. cf-train on the cluster); a `../scfit` path
 # source gets rewritten to a bogus git subdirectory when consumed.
 [tool.uv.sources]
-scfit = { git = "https://github.com/theislab/scfit.git", rev = "c6477871a4d8373d02ece40b0a4cf992eba64b6d" }
+scfit = { git = "https://github.com/theislab/scfit.git", rev = "06ab91b43d06ef0431fc9b3e3827db776dda9900" }
 
 [tool.ruff]
 line-length = 120

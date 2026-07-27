@@ -47,7 +47,7 @@ optional-dependencies.all = [
 # commit until scfoundations is published; it is a PRIVATE repo, so a git+https install needs a token (same
 # as theislab/scfit). The `scfoundations @ git+…` direct URL is permitted by allow-direct-references (below).
 optional-dependencies.pancell = [
-  "scfoundations @ git+https://github.com/selmanozleyen/scfoundations.git@eba0a1d77e3c5172b4b09b0a3665fa5c2907f693",
+  "scfoundations @ git+https://github.com/selmanozleyen/scfoundations.git@a0803a826f7d619c6852c72a593758c1363ef513",
 ]
 # GPU install: the OT coupling runs on-device (torch reps -> JAX via zero-copy DLPack -> ott sinkhorn/GW
 # -> back to torch), so BOTH torch and jax must be CUDA builds matching the node's driver. This extra adds

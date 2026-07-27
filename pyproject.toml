@@ -32,10 +32,6 @@ dependencies = [
   "wandb",
 ]
 optional-dependencies.all = [
-  "diffrax",
-  "flax",
-  "jax",
-  "ott-jax",
   "torch",
 ]
 
@@ -59,17 +55,8 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
-optional-dependencies.jax = [
-  "diffrax",
-  "flax",
-  "jax",
-  "ott-jax",
-]
 optional-dependencies.test = [
   "coverage",
-  "diffrax",
-  "jax",
-  "ott-jax",
   "pot",
   "pytest",
   "pytest-cov",

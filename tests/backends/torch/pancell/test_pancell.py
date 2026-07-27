@@ -8,7 +8,7 @@ from scipy import sparse
 from sc_flow._registry import parse
 from scfoundations import GeneEncoderConfig
 from sc_flow.families import available_families
-from sc_flow.pancell import LinearFMObjectiveConfig, PanCellFlow, PanCellFlowModel, VelocityMLPConfig
+from sc_flow.pancell import LinearFMObjectiveConfig, LinearPathConfig, PanCellFlow, PanCellFlowModel, VelocityMLPConfig
 
 
 def test_pancell_is_not_a_family():
@@ -23,6 +23,24 @@ def test_flow_objective_is_a_component_with_nested_path():
     assert spec["type"] == "flow.fm_linear"
     assert spec["config"]["probability_path"]["type"] == "flow.path.linear"  # nested Component
     assert parse(spec) == cfg
+
+
+def test_linear_path_matches_canonical_dirac_path():
+    """pancell's minimal ``LinearPath`` (sigma=0) must agree exactly with the flow family's canonical
+    ``LinearDiracProbabilityPath``. The two are kept as separate implementations on purpose: pancell stays
+    decoupled from the heavy ``sc_flow.flow`` subsystem (importing it drags OTFM/GENOT + optional jax/ott),
+    so it re-derives the 4-line linear path rather than importing the 6-variant hierarchy. This locks the
+    two against silent numerical drift.
+    """
+    from sc_flow.flow.probability_paths import LinearDiracProbabilityPath
+
+    path = LinearPathConfig(sigma=0.0).build()  # pancell's minimal, flow-subsystem-free path
+    canonical = LinearDiracProbabilityPath(sigma=0.0)  # the full flow-family hierarchy
+    torch.manual_seed(0)
+    x0, x1, t = torch.randn(8, 5), torch.randn(8, 5), torch.rand(8, 1)
+    xt = path.xt(x0, x1, t)
+    assert torch.allclose(xt, canonical.compute_xt(t, x0, x1))
+    assert torch.allclose(path.ut(x0, x1, t), canonical.compute_ut(t, xt, x0, x1))
 
 
 def test_velocity_config_roundtrips_and_forwards():

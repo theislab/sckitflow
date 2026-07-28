@@ -202,6 +202,11 @@ class DataManager:
             condition_covariates_decoder_context_dict=condition_covariates_decoder_context_dict,
         )
 
+    @property
+    def _view_on_condition_space(self) -> bool:
+        """Returns whether the distribution data is to be viewed on the condition space."""
+        return self._condition_state_key is not None
+
     def _get_source_key(
         self,
         control_values_dict: dict[str, str] | None = None,
@@ -278,7 +283,7 @@ class DataManager:
         apply_transformations: bool = False,
         require_target_state: bool = True,
     ) -> DistributionData:
-        if self.view_on_condition_space and self._condition_state_key is None:
+        if self._view_on_condition_space and self._condition_state_key is None:
             raise ValueError("When modeling on the condition space, the state key should be provided")
 
         state_data: StateData | None = self._get_state_data(adata) if require_target_state else None
@@ -307,7 +312,7 @@ class DataManager:
         if apply_transformations:
             distribution_data = self._preproc.transform(distribution_data)
 
-        if self.view_on_condition_space:
+        if self._view_on_condition_space:
             return distribution_data.view_on_condition_space(self._condition_state_key)
         return distribution_data
 
@@ -332,7 +337,7 @@ class DataManager:
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> NestedData:
         # optionally allow paired settings on condition space
-        if self.view_on_condition_space and not self._allow_paired_settings_on_condition_view:
+        if self._view_on_condition_space and not self._allow_paired_settings_on_condition_view:
             source_key = None
             matched_keys = None
         else:
@@ -660,8 +665,3 @@ class DataManager:
     def condition_state_key(self) -> str | None:
         """Returns the key used to define the condition covariates to be viewed as state."""
         return self._condition_state_key
-
-    @property
-    def view_on_condition_space(self) -> bool:
-        """Returns whether the distribution data is to be viewed on the condition space."""
-        return self._condition_state_key is not None

@@ -1,5 +1,5 @@
 from collections.abc import Callable, Collection, Mapping
-from typing import Any
+from typing import Any, TypedDict, Unpack
 
 import numpy as np
 import pandas as pd
@@ -28,153 +28,132 @@ from sc_flow.external._context import ExternalModelContext
 from sc_flow.preprocessing._preproc import DataPreprocessor
 from sc_flow.preprocessing.transforms._base import BaseTransform
 
-__all__ = ["DataManager"]
+__all__ = ["DataManagerKwargs", "DataManager"]
+
+
+class DataManagerKwargs(TypedDict, total=False):
+    """Keyword arguments accepted by :class:`DataManager`."""
+
+    sample_rep: str | None
+    """String identifier for the state representation. When provided, it should appear as key in
+    `.obsm` attribute of annotated data objects. Otherwise, the representation will fall back to
+    `.X`. Defaults to `None`."""
+
+    conditions: dict[str, Collection[str]] | None
+    """Mapping from each condition level to the corresponding columns, used to initialize the
+    conditioning data schema. Defaults to `None`."""
+
+    conditions_reps: dict[str, str] | None
+    """Mapping from each condition level to the corresponding representation, used to initialize the
+    conditioning data schema. Defaults to `None`."""
+
+    conditions_covariates: Collection[str] | None
+    """Collection of continuous condition covariates, used to initialize the conditioning data
+    schema. Defaults to `None`."""
+
+    control_values_dict: dict[str, str] | None
+    """Dictionary mapping each condition level to the corresponding value used to indicate control
+    observations. Defaults to `None`."""
+
+    condition_state_key: str | None
+    """The key for the continuous condition covariates to be viewed as state when
+    `view_on_condition_space` is `True`. This argument is ignored otherwise. Defaults to `None`."""
+
+    target_categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None
+    """Mapping indicating the encoding used to transform categorical target covariates, used to
+    initialize the target data schema. Defaults to `None`."""
+
+    target_continuous_covs: Collection[str] | None
+    """Collection of string identifiers for the continuous target covariates, used to initialize the
+    target data schema. Defaults to `None`."""
+
+    groups: Collection[str] | None
+    """Collection of string identifiers for grouping columns, used to initialize the grouping data
+    schema. Defaults to `None`."""
+
+    groups_reps: dict[str, str] | None
+    """Mapping for pre-computed representations of grouping covariates, used to initialize the target
+    data schema. Defaults to `None`."""
+
+    groups_encoding: dict[str, TargetCovariatesEncodingId | None] | None
+    """Mapping for transformations on grouping covariates, used to initialize the target data schema.
+    Defaults to `None`."""
+
+    groups_encoding_transform_fn: dict[str, Callable] | None
+    """Forward encoding transform per group. Defaults to `None`."""
+
+    groups_encoding_inverse_transform_fn: dict[str, Callable] | None
+    """Inverse encoding transform per group. Defaults to `None`."""
+
+    n_shared_dims: int | None
+    """The number of shared dimensions to be considered when matching distributions over
+    incomparable spaces, used to initialize the coupling data schema. Defaults to `None`."""
+
+    source_rep: str | None
+    """String identifier for the state representation of source states, used when matching
+    distributions over incomparable spaces. Used to initialize the coupling data schema.
+    Defaults to `None`."""
+
+    matched_keys: dict[tuple[Any], tuple[Any]] | None
+    """Optional keys used to identify the source and corresponding target groups in the case of
+    fixed matches. When passed, takes precedence over `source_key`. Defaults to `None`, in which
+    case falls back to one-to-many coupling."""
+
+    state_transform: BaseTransform | None
+    """The transformation to be applied to the state data. Defaults to `None`."""
+
+    state_encoder_context: ExternalModelContext | None
+    """The context for optional encoder models of state data. Defaults to `None`."""
+
+    state_decoder_context: ExternalModelContext | None
+    """The context for optional decoder models of state data. Defaults to `None`."""
+
+    state_preproc_repr_name: str | None
+    """Identifier for the variable names after preprocessing. Defaults to `None`."""
+
+    condition_covariates_transform_dict: dict[str, BaseTransform] | None
+    """Optional dictionary mapping each continuous covariate to its respective transformation object.
+    Defaults to `None`."""
+
+    condition_covariates_encoder_context_dict: dict[str, ExternalModelContext] | None
+    """Optional dictionary mapping each continuous covariate to its respective encoder context.
+    Defaults to `None`."""
+
+    condition_covariates_decoder_context_dict: dict[str, ExternalModelContext] | None
+    """Optional dictionary mapping each continuous covariate to its respective decoder context.
+    Defaults to `None`."""
 
 
 class DataManager:
     """Class for managing data configurations."""
 
-    def __init__(
-        self,
-        sample_rep: str | None = None,
-        conditions: dict[str, Collection[str]] | None = None,
-        conditions_reps: dict[str, str] | None = None,
-        conditions_covariates: Collection[str] | None = None,
-        control_values_dict: dict[str, str] | None = None,
-        condition_state_key: str | None = None,
-        target_categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
-        target_continuous_covs: Collection[str] | None = None,
-        groups: Collection[str] | None = None,
-        groups_reps: dict[str, str] | None = None,
-        groups_encoding: dict[str, TargetCovariatesEncodingId | None] | None = None,
-        groups_encoding_transform_fn: dict[str, Callable] | None = None,
-        groups_encoding_inverse_transform_fn: dict[str, Callable] | None = None,
-        n_shared_dims: int | None = None,
-        source_rep: str | None = None,
-        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
-        state_transform: BaseTransform | None = None,
-        state_encoder_context: ExternalModelContext | None = None,
-        state_decoder_context: ExternalModelContext | None = None,
-        state_preproc_repr_name: str | None = None,
-        condition_covariates_transform_dict: dict[str, BaseTransform] | None = None,
-        condition_covariates_encoder_context_dict: dict[str, ExternalModelContext] | None = None,
-        condition_covariates_decoder_context_dict: dict[str, ExternalModelContext] | None = None,
-    ) -> None:
-        """Initializes the object.
+    def __init__(self, **kwargs: Unpack[DataManagerKwargs]) -> None:
+        """Initializes the object. See :class:`DataManagerKwargs` for parameter descriptions."""
+        self._control_values_dict = kwargs.get("control_values_dict")
+        self._condition_state_key = kwargs.get("condition_state_key")
+        self._matched_keys = kwargs.get("matched_keys")
 
-        :param sample_rep: String identifier for the state representation.
-            When provided, it should appear as key in `.obsm` attribute of annotated data objects.
-            Otherwise, the representation will fall back to `.X`. Defaults to `None`.
-        :type sample_rep: class: `str | None`
-
-        :param conditions: Mapping from each condition level to the corresponding columns,
-            used to initialize the conditioning data schema. Defaults to `None`.
-        :type conditions: class: `dict[str, Collection[str]] | None`
-
-        :param conditions_reps: Mapping from each condition level to the corresponding representation,
-            used to initialize the conditioning dat aschema. Defaults to `None`.
-        :type conditions_reps: class: `dict[str, str] | None`
-
-        :param conditions_covariates: Collection of continuous condition covariates,
-            used to initialize the conditioning data schema. Defaults to `None`.
-        :type conditions_covariates: class: `Collection[str] | None`
-
-        :param control_values_dict: Dictionary mapping each condition level to the
-            corresponding value used to indicate control observations. Defaults to `None`.
-        :type control_values_dict: class: `dict[str, str] | None`
-
-        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
-            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
-            Defaults to `None`.
-        :type condition_state_key: `str | None`
-
-        :param target_categorical_covs_dict: Mapping indicating the encoding used to tranform categorical
-            target covariates, used to initialize the target data schema. Defaults to `None`.
-        :type target_categorical_covs_dict: class: `Mapping[str, TargetCovariatesEncodingId] | None = None`
-
-        :param target_continuous_covs: Collection of string identifiers for the continuous target covariates,
-            used to initialize the target data schema. Defaults to `None`.
-        :type target_continuous_covs: class: `Mapping[str, TargetCovariatesEncodingId] | None = None`
-
-        :param groups: Collection of string identifiers for grouping columns, used to initialize the
-            grouping data schema. Defaults to `None`.
-        :type groups: class: `Collection[str] | None`
-
-        :param groups_reps: Mapping for pre-computed representations of grouping covariates,
-            used to initialize the target data schema. Defaults to `None`.
-        :type groups_reps: class: `dict[str, str] | None`
-
-        :param groups_encoding: Mapping for tranformations on grouping covariates,
-            used to initialize the target data schema. Defaults to `None`.
-        :type groups_encoding: class: `dict[str, TargetCovariatesEncodingId | None] | None`
-
-        :param n_shared_dims: The number of shared dimensions to be considered when matching
-            distributions over incomparable spaces, used to initialize the
-            coupling data schema. Defaults to `None`.
-        :type n_shared_dims: class: `int | None`
-
-        :param source_rep: String identifier for the state representation of source states,
-            used when matching distributions over incomparable spaces. Used to initialize
-            the coupling data schema. Defaults to `None`.
-        :type source_rep: class: `str | None`
-
-        :param matched_keys: Optional keys used to identify the source  and
-            corresponding target groups in the case of fixed matches.
-            When passed, takes precedence over :param: `source_key`.
-            Defaults to `None`, in which case falls back to one to many coupling.
-        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
-
-        :param state_transform: The transformation to be applied to the state data.
-            Defaults to `None`.
-        :type state_transform: class: `BaseTransform | None`
-
-        :param state_encoder_context: The context for optional encoder models of state data.
-            Defaults to `None`.
-        :type state_encoder_context: class: `ExternalModelContext | None`
-
-        :param state_decoder_context: The context for optional decoder models of state data.
-            Defaults to `None`.
-        :type state_decoder_context: class: `ExternalModelContext | None`
-
-        :param state_preproc_repr_name: Identifier for the variable names after preprocessing.
-            Defaults to `None`.
-        :type state_preproc_repr_name: class: `str | None`
-
-        :param condition_covariates_transform_dict: Optional dictionary mapping each continuous
-            covariates to their respective transformation object. Defaults to `None`.
-        :type condition_covariates_transform_dict: class: `dict[str, BaseTransform] | None`
-
-        :param condition_covariates_encoder_context_dict: Optional dictionary mapping each continuous
-            covariates to their respective encoder context. Defaults to `None`.
-        :type condition_covariates_encoder_context_dict: class `dict[str, ExternalModelContext] | None`
-
-        :param condition_covariates_decoder_context_dict: Optional dictionary mapping each continuous
-            covariates to their respective decoder context. Defaults to `None`.
-        :type condition_covariates_decoder_context_dict: class `dict[str, ExternalModelContext] | None`
-        """
-        self._control_values_dict = control_values_dict
-        self._condition_state_key = condition_state_key
-        self._matched_keys = matched_keys
-
-        self._state_data_schema = StateDataSchema(sample_rep=sample_rep)
+        self._state_data_schema = StateDataSchema(sample_rep=kwargs.get("sample_rep"))
         self._condition_data_schema = ConditionDataSchema(
-            conditions=conditions,
-            conditions_reps=conditions_reps,
-            conditions_covariates=conditions_covariates,
+            conditions=kwargs.get("conditions"),
+            conditions_reps=kwargs.get("conditions_reps"),
+            conditions_covariates=kwargs.get("conditions_covariates"),
         )
         self._coupling_data_schema = CouplingDataSchema(
-            source_rep=source_rep, target_rep=sample_rep, n_shared_dims=n_shared_dims
+            source_rep=kwargs.get("source_rep"),
+            target_rep=kwargs.get("sample_rep"),
+            n_shared_dims=kwargs.get("n_shared_dims"),
         )
         self._target_data_schema = ResponseDataSchema(
-            categorical_covs_dict=target_categorical_covs_dict,
-            continuous_covs=target_continuous_covs,
+            categorical_covs_dict=kwargs.get("target_categorical_covs_dict"),
+            continuous_covs=kwargs.get("target_continuous_covs"),
         )
         self._groups_data_schema = GroupsDataSchema(
-            groups=groups,
-            groups_reps=groups_reps,
-            groups_encoding=groups_encoding,
-            groups_encoding_transform_fn=groups_encoding_transform_fn,
-            groups_encoding_inverse_transform_fn=groups_encoding_inverse_transform_fn,
+            groups=kwargs.get("groups"),
+            groups_reps=kwargs.get("groups_reps"),
+            groups_encoding=kwargs.get("groups_encoding"),
+            groups_encoding_transform_fn=kwargs.get("groups_encoding_transform_fn"),
+            groups_encoding_inverse_transform_fn=kwargs.get("groups_encoding_inverse_transform_fn"),
         )
         self._indexer = HierarchicalIndexer(
             groups_cols=self._groups_data_schema.groups,
@@ -182,14 +161,14 @@ class DataManager:
         )
         self._selector = IndexSelector.init_from_indexer(self._indexer)
         self._preproc = DataPreprocessor(
-            conditions_covariates=conditions_covariates,
-            state_transform=state_transform,
-            state_encoder_context=state_encoder_context,
-            state_decoder_context=state_decoder_context,
-            state_preproc_repr_name=state_preproc_repr_name,
-            condition_covariates_transform_dict=condition_covariates_transform_dict,
-            condition_covariates_encoder_context_dict=condition_covariates_encoder_context_dict,
-            condition_covariates_decoder_context_dict=condition_covariates_decoder_context_dict,
+            conditions_covariates=kwargs.get("conditions_covariates"),
+            state_transform=kwargs.get("state_transform"),
+            state_encoder_context=kwargs.get("state_encoder_context"),
+            state_decoder_context=kwargs.get("state_decoder_context"),
+            state_preproc_repr_name=kwargs.get("state_preproc_repr_name"),
+            condition_covariates_transform_dict=kwargs.get("condition_covariates_transform_dict"),
+            condition_covariates_encoder_context_dict=kwargs.get("condition_covariates_encoder_context_dict"),
+            condition_covariates_decoder_context_dict=kwargs.get("condition_covariates_decoder_context_dict"),
         )
 
     @property
@@ -531,7 +510,7 @@ class DataManager:
     def get_data_dimensionalities(
         self,
         adata: AnnData,
-        view_on_condition_space: bool = False,
+        view_on_condition_space: bool = False,  # TODO: delete
         fit_preproc: bool = False,
         apply_transformations: bool = False,
     ) -> DataDimensionalitiesRegistry:

@@ -3,8 +3,9 @@ import tarfile
 import tempfile
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Literal, overload
+from typing import Any, Literal, Unpack, overload
 
 import cloudpickle
 import numpy as np
@@ -14,8 +15,7 @@ from tqdm import tqdm
 
 from sc_flow._types import PredictionData
 from sc_flow.data._composite import MatchedData
-from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
-from sc_flow.data._manager import DataManager
+from sc_flow.data._manager import DataManager, DataManagerKwargs
 from sc_flow.data.samplers._train import FTrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
 from sc_flow.methods._methods import BaseMethod
@@ -23,74 +23,47 @@ from sc_flow.methods._opt import OptimConfig
 from sc_flow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sc_flow.trainer._trainer import Trainer
 
-__all__ = ["SCFlow"]
+__all__ = ["Model"]
 
 
-class SCFlow:
-    _dm_cls: DataManager | None = None
-    _dims_registry: DataDimensionalitiesRegistry | None = None
-    _is_paired_setting_cls: bool = False
-    _view_on_condition_space_cls: bool = False
-    _condition_state_key_cls: str | None = None
+@dataclass(frozen=True)
+class ModelConfig:
+    dm: DataManager
 
     @classmethod
-    def register_adata(
+    def from_adata(
         cls,
         adata: AnnData,
-        view_on_condition_space: bool = False,
-        condition_state_key: str | None = None,
-        **kwargs,
-    ) -> None:
-        """Registers the input adata as a class attribute using the provided schema settings.
+        **dm_kwargs: Unpack[DataManagerKwargs],
+    ) -> "Model":
+        """"""  # noqa
+        dm = DataManager(**dm_kwargs)
+        # dims_registry = dm.get_data_dimensionalities(
+        #     adata,
+        #     fit_preproc=True,
+        #     apply_transformations=True,
+        # )
+        # is_paired_setting = dm.control_values_dict is not None or dm.matched_keys is not None
+        # compile data
+        # data_dims
 
-        :param adata: The input adata to register.
-        :type adata: class: `AnnData`
-
-        :param view_on_condition_space: Whether to model condiion as states.
-            Defaults to `False`.
-        :type view_on_condition_space: class: `bool`
-
-        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
-            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
-            Defaults to `None`.
-        :type condition_state_key: `str | None`
-
-        :param **kwargs: Other key-word arguments used to initialize the `DataManager`.
-        :type **kwargs: class: `dict[str, Any]`
-        """
-        # initialize data manager
-        cls._dm_cls = DataManager(**kwargs)
-        cls._dims_registry = cls._dm_cls.get_data_dimensionalities(
-            adata,
-            view_on_condition_space=view_on_condition_space,
-            condition_state_key=condition_state_key,
-            fit_preproc=True,
-            apply_transformations=True,
+        return cls(
+            dm=dm,
+            # data_dims=datadims,
         )
-        cls._is_paired_setting_cls = cls._dm_cls.control_values_dict is not None or cls._dm_cls.matched_keys is not None
-        cls._view_on_condition_space_cls = view_on_condition_space
-        cls._condition_state_key_cls = condition_state_key
 
+
+class Model:
     def __init__(
         self,
+        config: ModelConfig,
         *args,
         method_cls: type[BaseMethod] | None = None,
         method_id: str | None = None,
         **kwargs,
     ) -> None:
-        # check that data was prepared
-        if self.__class__._dm_cls is None:
-            raise RuntimeError(
-                f"Data has not been registered with {self.__class__.__name__}. "
-                "Please call .register_adata(adata, ...) before initializing the model."
-            )
-
-        # register class attributes to instance
-        self._dm = self.__class__._dm_cls
-        self._dims_registry = self.__class__._dims_registry
-        self._is_paired_setting = self.__class__._is_paired_setting_cls
-        self._view_on_condition_space = self.__class__._view_on_condition_space_cls
-        self._condition_state_key = self.__class__._condition_state_key_cls
+        # store config
+        self._config = config
 
         # get method cls
         if method_cls is None and method_id is None:
@@ -476,7 +449,12 @@ class SCFlow:
 
         # train model
         self._trainer.train(
-            train_sampler, *args, val_samplers_dict=val_samplers_dict, n_train_steps=n_train_steps, valid_freq=valid_freq, **kwargs
+            train_sampler,
+            *args,
+            val_samplers_dict=val_samplers_dict,
+            n_train_steps=n_train_steps,
+            valid_freq=valid_freq,
+            **kwargs,
         )
 
     def predict(
@@ -628,7 +606,7 @@ class SCFlow:
         adata: AnnData | None = None,
         map_location: str | None = None,
         **register_kwargs,
-    ) -> "SCFlow":
+    ) -> "Model":
         """
         Load a saved model from a tarball.
 
@@ -636,7 +614,7 @@ class SCFlow:
         :param adata: Optional AnnData to re‑register if the saved model does not contain data.
         :param map_location: For PyTorch models, map to a device (e.g., 'cuda:0').
         :param register_kwargs: Additional arguments for register_adata if adata is provided.
-        :return: Loaded SCFlow instance.
+        :return: Loaded Model instance.
         """
         path = Path(filepath)
         if not path.exists():

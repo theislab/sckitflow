@@ -52,7 +52,6 @@ class DataManager:
         n_shared_dims: int | None = None,
         source_rep: str | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
-        allow_paired_settings_on_condition_view: bool = False,
         state_transform: BaseTransform | None = None,
         state_encoder_context: ExternalModelContext | None = None,
         state_decoder_context: ExternalModelContext | None = None,
@@ -125,14 +124,6 @@ class DataManager:
             Defaults to `None`, in which case falls back to one to many coupling.
         :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
 
-        :param allow_paired_settings_on_condition_view: Whether to allow paired settings
-            when viewing the distribution on the conditoin space. Defaults to `False`,
-            in which case the condition space view will fall back to the unpaired
-            conditional generation setting regardless of the configurations
-            set for the state space view
-            (namely :param: `control_values_dict` and :param: `matched_keys`).
-        :type allow_paired_settings_on_condition_view: class: `bool`
-
         :param state_transform: The transformation to be applied to the state data.
             Defaults to `None`.
         :type state_transform: class: `BaseTransform | None`
@@ -164,7 +155,6 @@ class DataManager:
         self._control_values_dict = control_values_dict
         self._condition_state_key = condition_state_key
         self._matched_keys = matched_keys
-        self._allow_paired_settings_on_condition_view = allow_paired_settings_on_condition_view
 
         self._state_data_schema = StateDataSchema(sample_rep=sample_rep)
         self._condition_data_schema = ConditionDataSchema(
@@ -336,18 +326,14 @@ class DataManager:
         control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> NestedData:
-        # optionally allow paired settings on condition space
-        if self._view_on_condition_space and not self._allow_paired_settings_on_condition_view:
-            source_key = None
-            matched_keys = None
+        # ---- Get control values and matched keys ----
+        if control_values_dict:
+            source_key = self._get_source_key(control_values_dict)
         else:
-            if control_values_dict:
-                source_key = self._get_source_key(control_values_dict)
-            else:
-                source_key = self.source_key
+            source_key = self.source_key
 
-            if matched_keys is None:
-                matched_keys = self.matched_keys
+        if matched_keys is None:
+            matched_keys = self.matched_keys
 
         self._assert_sorted(data)
         mapped_index = self._get_mapped_index(data.ann_df)

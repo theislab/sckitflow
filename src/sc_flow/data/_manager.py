@@ -41,6 +41,7 @@ class DataManager:
         conditions_reps: dict[str, str] | None = None,
         conditions_covariates: Collection[str] | None = None,
         control_values_dict: dict[str, str] | None = None,
+        condition_state_key: str | None = None,
         target_categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None = None,
         target_continuous_covs: Collection[str] | None = None,
         groups: Collection[str] | None = None,
@@ -82,6 +83,11 @@ class DataManager:
         :param control_values_dict: Dictionary mapping each condition level to the
             corresponding value used to indicate control observations. Defaults to `None`.
         :type control_values_dict: class: `dict[str, str] | None`
+
+        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
+            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
+            Defaults to `None`.
+        :type condition_state_key: `str | None`
 
         :param target_categorical_covs_dict: Mapping indicating the encoding used to tranform categorical
             target covariates, used to initialize the target data schema. Defaults to `None`.
@@ -156,6 +162,7 @@ class DataManager:
         :type condition_covariates_decoder_context_dict: class `dict[str, ExternalModelContext] | None`
         """
         self._control_values_dict = control_values_dict
+        self._condition_state_key = condition_state_key
         self._matched_keys = matched_keys
         self._allow_paired_settings_on_condition_view = allow_paired_settings_on_condition_view
 
@@ -267,13 +274,11 @@ class DataManager:
     def _get_distribution_data(
         self,
         adata: AnnData,
-        view_on_condition_space: bool = False,
-        condition_state_key: str | None = None,
         fit_preproc: bool = False,
         apply_transformations: bool = False,
         require_target_state: bool = True,
     ) -> DistributionData:
-        if view_on_condition_space and condition_state_key is None:
+        if self.view_on_condition_space and self._condition_state_key is None:
             raise ValueError("When modeling on the condition space, the state key should be provided")
 
         state_data: StateData | None = self._get_state_data(adata) if require_target_state else None
@@ -302,8 +307,8 @@ class DataManager:
         if apply_transformations:
             distribution_data = self._preproc.transform(distribution_data)
 
-        if view_on_condition_space:
-            return distribution_data.view_on_condition_space(condition_state_key)
+        if self.view_on_condition_space:
+            return distribution_data.view_on_condition_space(self._condition_state_key)
         return distribution_data
 
     def _get_mapped_index(self, ann_df: pd.DataFrame) -> MappedLevelIndex:
@@ -323,12 +328,11 @@ class DataManager:
     def _get_matched_distributions(
         self,
         data: DistributionData,
-        view_on_condition_space: bool = False,
         control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> NestedData:
         # optionally allow paired settings on condition space
-        if view_on_condition_space and not self._allow_paired_settings_on_condition_view:
+        if self.view_on_condition_space and not self._allow_paired_settings_on_condition_view:
             source_key = None
             matched_keys = None
         else:
@@ -359,7 +363,6 @@ class DataManager:
     def get_matched_distributions(
         self,
         data: DistributionData,
-        view_on_condition_space: bool = False,
         control_values_dict: dict[str, str] | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
     ) -> NestedData:
@@ -392,7 +395,6 @@ class DataManager:
         """
         return self._get_matched_distributions(
             data,
-            view_on_condition_space=view_on_condition_space,
             control_values_dict=control_values_dict,
             matched_keys=matched_keys,
         )
@@ -400,8 +402,6 @@ class DataManager:
     def get_distribution_data(
         self,
         adata: AnnData,
-        view_on_condition_space: bool = False,
-        condition_state_key: str | None = None,
         fit_preproc: bool = False,
         apply_transformations: bool = False,
         require_target_state: bool = True,
@@ -410,15 +410,6 @@ class DataManager:
 
         :param adata: The annotated data object to compile.
         :type adata: class: `AnnData`
-
-        :param view_on_condition_space: Whether to model condiion as states.
-            Defaults to `False`.
-        :type view_on_condition_space: class: `bool`
-
-        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
-            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
-            Defaults to `None`.
-        :type condition_state_key: `str | None`
 
         :param fit_preproc: Whether to fit the preprocessing module on the compiled data. Defaults to `False`.
         :type fit_preproc: class: `bool`
@@ -435,8 +426,6 @@ class DataManager:
         """
         return self._get_distribution_data(
             adata,
-            view_on_condition_space=view_on_condition_space,
-            condition_state_key=condition_state_key,
             fit_preproc=fit_preproc,
             apply_transformations=apply_transformations,
             require_target_state=require_target_state,
@@ -476,8 +465,6 @@ class DataManager:
         self,
         adata: AnnData,
         sort: bool = False,
-        view_on_condition_space: bool = False,
-        condition_state_key: str | None = None,
         fit_preproc: bool = False,
         apply_transformations: bool = False,
         control_values_dict: dict[str, str] | None = None,
@@ -539,15 +526,13 @@ class DataManager:
             adata = self.sort_adata(adata)
         data: DistributionData = self._get_distribution_data(
             adata,
-            view_on_condition_space=view_on_condition_space,
-            condition_state_key=condition_state_key,
+            condition_state_key=self._condition_state_key,
             fit_preproc=fit_preproc,
             apply_transformations=apply_transformations,
             require_target_state=require_target_state,
         )
         return self._get_matched_distributions(
             data,
-            view_on_condition_space=view_on_condition_space,
             control_values_dict=control_values_dict,
             matched_keys=matched_keys,
         )
@@ -556,7 +541,6 @@ class DataManager:
         self,
         adata: AnnData,
         view_on_condition_space: bool = False,
-        condition_state_key: str | None = None,
         fit_preproc: bool = False,
         apply_transformations: bool = False,
     ) -> DataDimensionalitiesRegistry:
@@ -583,8 +567,7 @@ class DataManager:
         """
         data: DistributionData = self._get_distribution_data(
             adata,
-            view_on_condition_space=view_on_condition_space,
-            condition_state_key=condition_state_key,
+            condition_state_key=self.condition_state_key,
             fit_preproc=fit_preproc,
             apply_transformations=apply_transformations,
         )
@@ -592,14 +575,11 @@ class DataManager:
         feature_names = self._get_feature_names(
             adata,
             n_features,
-            view_on_condition_space=view_on_condition_space,
-            condition_state_key=condition_state_key,
+            condition_state_key=self.condition_state_key,
         )
         return self._get_data_dimensionalities(data, feature_names)
 
-    def get_feature_names(
-        self, adata: AnnData, view_on_condition_space: bool = False, condition_state_key: str | None = None
-    ) -> pd.Index:
+    def get_feature_names(self, adata: AnnData, view_on_condition_space: bool = False) -> pd.Index:
         """Registers the feature names from the input data according to the current schema.
 
         :param adata: The annotated data object which to extract the feature names from.
@@ -615,7 +595,7 @@ class DataManager:
         :type condition_state_key: `str | None`
         """
         n_features = self._get_state_data(adata).X.shape[1]
-        return self._get_feature_names(adata, n_features, view_on_condition_space, condition_state_key)
+        return self._get_feature_names(adata, n_features, view_on_condition_space, self._condition_state_key)
 
     def unload_preproc(self) -> None:
         """Unload any external models used in preprocessing."""
@@ -675,3 +655,13 @@ class DataManager:
     def preproc(self) -> DataPreprocessor:
         """Returns the underlying data preprocessing module."""
         return self._preproc
+
+    @property
+    def condition_state_key(self) -> str | None:
+        """Returns the key used to define the condition covariates to be viewed as state."""
+        return self._condition_state_key
+
+    @property
+    def view_on_condition_space(self) -> bool:
+        """Returns whether the distribution data is to be viewed on the condition space."""
+        return self._condition_state_key is not None

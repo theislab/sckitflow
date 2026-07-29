@@ -30,12 +30,15 @@ class ModelBuilder:
     """Two-step builder for a :class:`Model`.
 
     Step one (:meth:`from_adata`) prepares the *data* side: it initializes the
-    :class:`DataManager` from the schema keyword arguments and fits the
-    preprocessing pipeline to derive the data dimensionalities. Step two
-    (:meth:`build`) attaches the *method* and returns a ready-to-train
-    :class:`Model`. Keeping the two concerns in separate calls avoids mixing
-    data-schema configuration with method/module configuration, and lets you
-    inspect :attr:`data_dims` before choosing method parameters.
+    :class:`DataManager` from the schema keyword arguments and derives the data
+    dimensionalities. Step two (:meth:`build`) attaches the *method* and returns
+    a ready-to-train :class:`Model`. Keeping the two concerns in separate calls
+    avoids mixing data-schema configuration with method/module configuration, and
+    lets you inspect :attr:`data_dims` before choosing method parameters.
+
+    Any preprocessing of the state representation (e.g. PCA, normalization) must
+    be done by the caller *before* :meth:`from_adata`, and the resulting
+    representation passed via the ``sample_rep`` keyword argument.
     """
 
     def __init__(
@@ -55,21 +58,19 @@ class ModelBuilder:
     ) -> "ModelBuilder":
         """Prepare the data side of a model from an annotated data object.
 
-        Initializes the :class:`DataManager` from ``dm_kwargs`` and fits the
-        preprocessing pipeline on ``adata`` to derive the data dimensionalities.
+        Initializes the :class:`DataManager` from ``dm_kwargs`` and derives the
+        data dimensionalities from ``adata``.
 
-        :param adata: The annotated data object used to fit the schema.
+        :param adata: The annotated data object used to fit the schema. Any
+            preprocessing of the state representation must already have been
+            applied by the caller.
         :type adata: class: `AnnData`
 
         :param dm_kwargs: Keyword arguments forwarded to :class:`DataManager`.
             See :class:`DataManagerKwargs` for the accepted options.
         """
         dm = DataManager(**dm_kwargs)
-        data_dims = dm.get_data_dimensionalities(
-            adata,
-            fit_preproc=True,
-            apply_transformations=True,
-        )
+        data_dims = dm.get_data_dimensionalities(adata)
         return cls(dm, data_dims)
 
     @property
@@ -499,14 +500,12 @@ class Model:
         train_tree = self._dm.compile_adata(
             train_adata,
             sort=sort,
-            apply_transformations=True,
         )
         if val_adatas_dict is not None:
             val_trees_dict = {
                 val_id: self._dm.compile_adata(
                     val_adata,
                     sort=sort,
-                    apply_transformations=True,
                 )
                 for val_id, val_adata in val_adatas_dict.items()
             }
@@ -625,7 +624,6 @@ class Model:
             sort=sort,
             control_values_dict=control_values_dict,
             matched_keys=matched_keys,
-            apply_transformations=True,
             require_target_state=require_target_state,
         )
         tree_flat: tuple[MatchedData] = tree.flatten()
@@ -683,9 +681,6 @@ class Model:
                 for k, v in state.items():
                     if isinstance(v, torch.Tensor):
                         state[k] = v.cpu()
-
-        # unload preprocessing context
-        self.dm.unload_preproc()
 
         # Save self as a tarball containing a single pickle file
         with tarfile.open(filepath, "w:gz") as tar:

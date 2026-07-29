@@ -1,5 +1,6 @@
 import os
 import tempfile
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import numpy as np
@@ -155,7 +156,7 @@ class TestModel:
     def test_direct_init_from_dm_and_dims(self, adata: AnnData):
         """Model can be constructed directly from a data manager and dimensionalities."""
         dm = DataManager()
-        data_dims = dm.get_data_dimensionalities(adata)
+        data_dims = dm.get_data_dimensionalities(adata, fit_preproc=True, apply_transformations=True)
         model = Model(dm, data_dims, method_cls=DummyMethod)
         assert model.dm is dm
         assert model._dims_registry is data_dims
@@ -898,3 +899,79 @@ class TestModelPredictControlValues:
         model = _make_model(adata, dm_kwargs=self._base_dm_kwargs())
         with pytest.raises(KeyError, match="nonexistent"):
             model.predict(adata, sort=True, control_values_dict={"drug": "nonexistent"})
+
+
+class TestModelPreprocessingIntegration:
+    """Verify that the preprocessing pipeline is used correctly by Model."""
+
+    def test_builder_fits_and_transforms(self, adata):
+        """ModelBuilder.from_adata must call get_data_dimensionalities with
+        fit_preproc=True and apply_transformations=True."""
+        with patch.object(DataManager, "get_data_dimensionalities", return_value=MagicMock()) as mock_method:
+            _make_model(adata)
+        mock_method.assert_called_once()
+        call_kwargs = mock_method.call_args.kwargs
+        assert call_kwargs["fit_preproc"] is True
+        assert call_kwargs["apply_transformations"] is True
+
+    def test_train_applies_transformations_without_refitting(self, adata, mock_optim_manager):
+        """train() calls compile_adata with apply_transformations=True and never re-fits."""
+        model = _make_model(adata)
+
+        with (
+            patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
+            patch.object(model._dm._preproc._state_preproc, "fit") as fit_spy,
+        ):
+            with patch("sc_flow._model.Trainer"):
+                model.train(adata, n_train_steps=5, sort=True)
+
+        # compile_adata called once for train data
+        compile_spy.assert_called_once()
+        assert compile_spy.call_args.kwargs["apply_transformations"] is True
+        # fit_preproc should not be passed (defaults to False)
+        assert compile_spy.call_args.kwargs.get("fit_preproc", False) is False
+        fit_spy.assert_not_called()
+
+    def test_predict_applies_transformations_without_refitting(self, adata):
+        """predict() calls compile_adata with apply_transformations=True and never re-fits."""
+        model = _make_model(adata)
+
+        with (
+            patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
+            patch.object(model._dm._preproc._state_preproc, "fit") as fit_spy,
+        ):
+            model.predict(adata, sort=True)
+
+        compile_spy.assert_called_once()
+        assert compile_spy.call_args.kwargs["apply_transformations"] is True
+        assert compile_spy.call_args.kwargs.get("fit_preproc", False) is False
+        fit_spy.assert_not_called()
+
+    def test_train_with_validation_also_transforms(self, adata, mock_optim_manager):
+        """Validation data must also be compiled with apply_transformations=True."""
+        model = _make_model(adata)
+        val_adata = adata.copy()
+
+        with patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy:
+            with patch("sc_flow._model.Trainer"):
+                model.train(adata, val_adatas_dict={"val": val_adata}, n_train_steps=5, sort=True)
+
+        # compile_adata called for train + validation
+        assert compile_spy.call_count == 2
+        for call in compile_spy.call_args_list:
+            assert call.kwargs["apply_transformations"] is True
+            assert call.kwargs.get("fit_preproc", False) is False
+
+    def test_save_unloads_preprocessing_context(self, adata):
+        """save() must call dm.unload_preproc() to unload external models."""
+        model = _make_model(adata)
+
+        with patch.object(model.dm, "unload_preproc") as mock_unload, patch("cloudpickle.dump") as _:
+            with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+                tmp_path = tmp.name
+            try:
+                model.save(tmp_path, allow_overwrite=True)
+            finally:
+                Path(tmp_path).unlink(missing_ok=True)
+
+        mock_unload.assert_called_once()

@@ -4,8 +4,8 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
-from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._composite import MatchedData, NestedData
+from sc_flow.data._group_encoders import GroupEncoder, Label, OneHot
 from sc_flow.data._mixins import BatchMixin, MappedLevelIndex
 from sc_flow.data.containers import CategoricalData, CouplingData, DistributionData, MixedTypeData, StateData
 
@@ -33,22 +33,23 @@ def verify_repr(
     data: CategoricalData,
     uns_keys_to_nunique_prefix_and_dim: dict[str, tuple[int, str, int]],
     conditions_reps: dict[str, str] | None = None,
-    groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
+    groups_encoding: dict[str, GroupEncoder | str] | None = None,
 ) -> None:
     if conditions_reps is not None:
         for condition, value in conditions_reps.items():
             assert value in data.repr_dict
             verify_repr_shape(data, condition, uns_keys_to_nunique_prefix_and_dim)
     if groups_encoding is not None:
-        for cov, encoder_id in groups_encoding.items():
+        for cov, encoder in groups_encoding.items():
             assert cov in data.categorical_encoders
-            encoder = data.categorical_encoders[cov]
-            if encoder_id == "one-hot":
-                assert isinstance(encoder, OneHotEncoder)
-            if encoder_id == "label":
-                assert isinstance(encoder, LabelEncoder)
-            if encoder_id == "identity":
-                assert isinstance(encoder, FunctionTransformer)
+            built = data.categorical_encoders[cov]
+            # accepts both GroupEncoder instances (groups) and string ids (response/target)
+            if isinstance(encoder, OneHot) or encoder == "one-hot":
+                assert isinstance(built, OneHotEncoder)
+            elif isinstance(encoder, Label) or encoder == "label":
+                assert isinstance(built, LabelEncoder)
+            else:  # functional encoders (Identity / Log1p / Affine) or "functional"/"identity"
+                assert isinstance(built, FunctionTransformer)
 
 
 def verify_categorical_data(
@@ -56,7 +57,7 @@ def verify_categorical_data(
     expected_df_cols: Collection[str],
     uns_keys_to_nunique_prefix_and_dim: dict[str, tuple[int, str, int]],
     conditions_reps: dict[str, str] | None = None,
-    groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
+    groups_encoding: dict[str, GroupEncoder | str] | None = None,
 ) -> None:
     assert set(data.ann_df.columns) == set(expected_df_cols)
     verify_repr(

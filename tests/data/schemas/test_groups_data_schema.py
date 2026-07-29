@@ -1,10 +1,9 @@
 from collections.abc import Collection
-from typing import get_args
 
 import pytest
 from anndata import AnnData
 
-from sc_flow._types import TargetCovariatesEncodingId
+from sc_flow.data._group_encoders import GroupEncoder, OneHot
 from sc_flow.data.containers import CategoricalData
 from sc_flow.data.schemas import GroupsDataSchema
 
@@ -18,30 +17,16 @@ class TestGroupsDataSchema:
         self,
         groups: Collection[str] | None,
         groups_reps: dict[str, str] | None,
-        groups_encoding: dict[str, TargetCovariatesEncodingId] | None,
+        groups_encoding: dict[str, GroupEncoder] | None,
     ) -> bool:
-        if groups is None and (groups_reps is not None or groups_encoding is not None):
+        # The schema requires reps/encoding keys to partition exactly the group columns.
+        reps_keys = set() if groups_reps is None else set(groups_reps)
+        enc_keys = set() if groups_encoding is None else set(groups_encoding)
+        if groups is None:
+            return not reps_keys and not enc_keys
+        if reps_keys & enc_keys:
             return False
-        elif groups is not None and (groups_reps is None and groups_encoding is None):
-            return False
-        elif groups is not None and groups_reps is not None and groups_encoding is not None:
-            shared_keys = set(groups_reps.keys()).intersection(set(groups_encoding.keys()))
-            all_keys = set(groups_reps.keys()).union(set(groups_encoding.keys()))
-            if len(shared_keys) > 0:
-                return False
-        elif groups is not None and groups_reps is not None and groups_encoding is None:
-            all_keys = set(groups_reps.keys())
-            if all_keys != set(groups):
-                return False
-        elif groups is not None and groups_reps is None and groups_encoding is not None:
-            all_keys = set(groups_encoding.keys())
-            if all_keys != set(groups):
-                return False
-        if groups_encoding is not None:
-            for v in groups_encoding.values():
-                if v not in get_args(TargetCovariatesEncodingId):
-                    return False
-        return True
+        return reps_keys | enc_keys == set(groups)
 
     @pytest.mark.parametrize(
         "groups",
@@ -56,13 +41,13 @@ class TestGroupsDataSchema:
     )
     @pytest.mark.parametrize(
         "groups_encoding",
-        [None, {"source_split": "source_split"}, {inval_key: "source_split"}],
+        [None, {"source_split": OneHot()}, {inval_key: OneHot()}],
     )
     def test_init(
         self,
         groups: Collection[str] | None,
         groups_reps: dict[str, str] | None,
-        groups_encoding: dict[str, TargetCovariatesEncodingId] | None,
+        groups_encoding: dict[str, GroupEncoder] | None,
     ) -> None:
         is_valid_args = self._is_valid_args(
             groups,
@@ -98,7 +83,7 @@ class TestGroupsDataSchema:
         "groups_encoding",
         [
             None,
-            {"source_split": "one-hot"},
+            {"source_split": OneHot()},
         ],
     )
     def test_get_data(
@@ -107,7 +92,7 @@ class TestGroupsDataSchema:
         uns_keys_to_nunique_prefix_and_dim: dict[str, tuple[int, str, int]],
         groups: Collection[str] | None,
         groups_reps: dict[str, str] | None,
-        groups_encoding: dict[str, TargetCovariatesEncodingId] | None,
+        groups_encoding: dict[str, GroupEncoder] | None,
     ) -> None:
         is_valid_args = self._is_valid_args(
             groups,

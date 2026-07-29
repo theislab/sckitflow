@@ -1,4 +1,4 @@
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Collection, Mapping
 from typing import Any
 
 import numpy as np
@@ -9,6 +9,7 @@ from sc_flow._constants import ORIGINAL_INDEX_KEY
 from sc_flow._types import TargetCovariatesEncodingId
 from sc_flow.data._composite import NestedData
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
+from sc_flow.data._group_encoders import GroupEncoder
 from sc_flow.data._mixins import MappedLevelIndex
 from sc_flow.data.containers._categorical import CategoricalData
 from sc_flow.data.containers._coupling import CouplingData
@@ -45,9 +46,7 @@ class DataManager:
         target_continuous_covs: Collection[str] | None = None,
         groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
-        groups_encoding: dict[str, TargetCovariatesEncodingId | None] | None = None,
-        groups_encoding_transform_fn: dict[str, Callable] | None = None,
-        groups_encoding_inverse_transform_fn: dict[str, Callable] | None = None,
+        groups_encoding: dict[str, GroupEncoder] | None = None,
         n_shared_dims: int | None = None,
         source_rep: str | None = None,
         matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
@@ -99,9 +98,11 @@ class DataManager:
             used to initialize the target data schema. Defaults to `None`.
         :type groups_reps: class: `dict[str, str] | None`
 
-        :param groups_encoding: Mapping for tranformations on grouping covariates,
-            used to initialize the target data schema. Defaults to `None`.
-        :type groups_encoding: class: `dict[str, TargetCovariatesEncodingId | None] | None`
+        :param groups_encoding: Mapping from each group column to a
+            :class:`~sc_flow.data._group_encoders.GroupEncoder` (e.g. ``OneHot()``, ``Label()``,
+            ``Affine(scale=2.0)``). Encoders are serializable dataclasses that build their fitted
+            transformer on demand. Defaults to `None`.
+        :type groups_encoding: class: `dict[str, GroupEncoder] | None`
 
         :param n_shared_dims: The number of shared dimensions to be considered when matching
             distributions over incomparable spaces, used to initialize the
@@ -176,8 +177,6 @@ class DataManager:
             groups=groups,
             groups_reps=groups_reps,
             groups_encoding=groups_encoding,
-            groups_encoding_transform_fn=groups_encoding_transform_fn,
-            groups_encoding_inverse_transform_fn=groups_encoding_inverse_transform_fn,
         )
         self._indexer = HierarchicalIndexer(
             groups_cols=self._groups_data_schema.groups,

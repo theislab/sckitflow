@@ -760,11 +760,7 @@ class Model:
 
     @property
     def is_paired_setting(self) -> bool:
-        """Whether the data was registered in a paired setting.
-
-        Derived from the data manager: a paired setting is one where either
-        control values or explicit matched keys were configured.
-        """
+        """Whether the data was registered in a paired setting."""
         return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
 
     @property

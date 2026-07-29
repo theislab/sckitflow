@@ -173,7 +173,6 @@ class DataManager:
 
     @property
     def _view_on_condition_space(self) -> bool:
-        """Returns whether the distribution data is to be viewed on the condition space."""
         return self._condition_state_key is not None
 
     def _get_source_key(

@@ -25,14 +25,12 @@ class BaseMethod(abc.ABC):
         self,
         dims_registry: DataDimensionalitiesRegistry,
         dm: DataManager,
-        is_paired_setting: bool,
         *args,
         **kwargs,
     ) -> None:
         # initialize attributes
         self._dims_registry = dims_registry
         self._dm = dm
-        self._is_paired_setting = is_paired_setting
 
         # check module is passed
         if self._module_cls is None:
@@ -75,7 +73,12 @@ class BaseMethod(abc.ABC):
 
     @property
     def is_paired_setting(self) -> bool:
-        return self._is_paired_setting
+        """Whether the data manager describes a paired setting.
+
+        Derived from the data manager: a paired setting is one where either
+        control values or explicit matched keys were configured.
+        """
+        return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
 
 
 class BaseGenerativeFlow(BaseMethod):
@@ -85,7 +88,6 @@ class BaseGenerativeFlow(BaseMethod):
         self,
         dims_registry: DataDimensionalitiesRegistry,
         dm: DataManager,
-        is_paired_setting: bool,
         *args,
         probability_path: TorchProbabilityPath | None = None,
         match_fn: TorchMatchFn | None = None,
@@ -95,7 +97,7 @@ class BaseGenerativeFlow(BaseMethod):
         **kwargs,
     ) -> None:
         # initialize parent class
-        super().__init__(dims_registry, dm, is_paired_setting, *args, **kwargs)
+        super().__init__(dims_registry, dm, *args, **kwargs)
 
         # set attributes
         self._probability_path = probability_path
@@ -105,7 +107,7 @@ class BaseGenerativeFlow(BaseMethod):
 
         # automatically fall back to noise generation when
         # no control values are provided
-        if not self._is_paired_setting:
+        if not self.is_paired_setting:
             generate_from_noise = True
         self._generate_from_noise = generate_from_noise
 

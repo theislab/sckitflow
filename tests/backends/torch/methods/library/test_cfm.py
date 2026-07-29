@@ -37,11 +37,13 @@ def cfm_instance():
     dims_reg.feature_names = ["g1", "g2"]
     dims_reg.n_features = 2
     dm = Mock()
+    dm.control_values_dict = None
+    dm.matched_keys = None
 
     original_module_cls = CFM._module_cls
     CFM._module_cls = DummyModule
 
-    cfm = CFM(dims_registry=dims_reg, dm=dm, is_paired_setting=False, dtype=torch.float32, device_id="cpu")
+    cfm = CFM(dims_registry=dims_reg, dm=dm, dtype=torch.float32, device_id="cpu")
 
     CFM._module_cls = original_module_cls
     cfm._module.forward = Mock(return_value=torch.randn(4, 2))

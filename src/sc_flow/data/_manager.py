@@ -193,14 +193,10 @@ class DataManager:
         self,
         adata: AnnData,
         n_features: int,
-        view_on_condition_space: bool = False,
-        condition_state_key: str | None = None,
     ) -> pd.Index:
         """Determines feature names based on the state representation used."""
-        if view_on_condition_space:
-            if condition_state_key is None:
-                raise ValueError("condition_state_key required when view_on_condition_space=True")
-            sample_rep = condition_state_key
+        if self._view_on_condition_space:
+            sample_rep = self._condition_state_key
         else:
             sample_rep = self._state_data_schema.sample_rep
             if sample_rep is None and self._preproc.state_preproc is not None:
@@ -252,9 +248,6 @@ class DataManager:
         apply_transformations: bool = False,
         require_target_state: bool = True,
     ) -> DistributionData:
-        if self._view_on_condition_space and self._condition_state_key is None:
-            raise ValueError("When modeling on the condition space, the state key should be provided")
-
         state_data: StateData | None = self._get_state_data(adata) if require_target_state else None
         condition_data: MixedTypeData = self._get_condition_data(adata)
         response_data: MixedTypeData = self._get_target_data(adata)
@@ -340,10 +333,6 @@ class DataManager:
 
         :param data: The distribution data container for the whole population.
         :type data: class: `DistributionData`
-
-        :param view_on_condition_space: Whether to model condiion as states.
-            Defaults to `False`.
-        :type view_on_condition_space: class: `bool`
 
         :param control_values_dict: Optional dictionary mapping each condition
             level to the corresponding value used to indicate control observations.
@@ -453,15 +442,6 @@ class DataManager:
             is raised otherwise.
         :type sort: class: `bool`
 
-        :param view_on_condition_space: Whether to model condiion as states.
-            Defaults to `False`.
-        :type view_on_condition_space: class: `bool`
-
-        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
-            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
-            Defaults to `None`.
-        :type condition_state_key: `str | None`
-
         :param fit_preproc: Whether to fit the preprocessing module on the compiled data. Defaults to `False`.
         :type fit_preproc: class: `bool`
 
@@ -496,7 +476,6 @@ class DataManager:
             adata = self.sort_adata(adata)
         data: DistributionData = self._get_distribution_data(
             adata,
-            condition_state_key=self._condition_state_key,
             fit_preproc=fit_preproc,
             apply_transformations=apply_transformations,
             require_target_state=require_target_state,
@@ -510,7 +489,6 @@ class DataManager:
     def get_data_dimensionalities(
         self,
         adata: AnnData,
-        view_on_condition_space: bool = False,  # TODO: delete
         fit_preproc: bool = False,
         apply_transformations: bool = False,
     ) -> DataDimensionalitiesRegistry:
@@ -518,15 +496,6 @@ class DataManager:
 
         :param adata: The annotated data object which to extract the dimensionalities from.
         :type adata: class: `AnnData`
-
-        :param view_on_condition_space: Whether to model condiion as states.
-            Defaults to `False`.
-        :type view_on_condition_space: class: `bool`
-
-        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
-            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
-            Defaults to `None`.
-        :type condition_state_key: `str | None`
 
         :param fit_preproc: Whether to fit the preprocessing module on the compiled data. Defaults to `False`.
         :type fit_preproc: class: `bool`
@@ -537,35 +506,21 @@ class DataManager:
         """
         data: DistributionData = self._get_distribution_data(
             adata,
-            condition_state_key=self.condition_state_key,
             fit_preproc=fit_preproc,
             apply_transformations=apply_transformations,
         )
         n_features = data.state_data.X.shape[1]
-        feature_names = self._get_feature_names(
-            adata,
-            n_features,
-            condition_state_key=self.condition_state_key,
-        )
+        feature_names = self._get_feature_names(adata, n_features)
         return self._get_data_dimensionalities(data, feature_names)
 
-    def get_feature_names(self, adata: AnnData, view_on_condition_space: bool = False) -> pd.Index:
+    def get_feature_names(self, adata: AnnData) -> pd.Index:
         """Registers the feature names from the input data according to the current schema.
 
         :param adata: The annotated data object which to extract the feature names from.
         :type adata: class: `AnnData`
-
-        :param view_on_condition_space: Whether to model condiion as states.
-            Defaults to `False`.
-        :type view_on_condition_space: class: `bool`
-
-        :param condition_state_key: The key for the continuous condition covariates to be viewed as state
-            when :param: `view_on_condition_space` is `True`. This argument is ignored otherwise.
-            Defaults to `None`.
-        :type condition_state_key: `str | None`
         """
         n_features = self._get_state_data(adata).X.shape[1]
-        return self._get_feature_names(adata, n_features, view_on_condition_space, self._condition_state_key)
+        return self._get_feature_names(adata, n_features)
 
     def unload_preproc(self) -> None:
         """Unload any external models used in preprocessing."""

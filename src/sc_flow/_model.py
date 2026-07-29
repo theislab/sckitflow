@@ -3,7 +3,6 @@ import tarfile
 import tempfile
 from collections import defaultdict
 from collections.abc import Sequence
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Literal, Unpack, overload
 
@@ -15,6 +14,7 @@ from tqdm import tqdm
 
 from sc_flow._types import PredictionData
 from sc_flow.data._composite import MatchedData
+from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager, DataManagerKwargs
 from sc_flow.data.samplers._train import FTrainSampler
 from sc_flow.data.samplers._validation import FValidationSampler
@@ -23,71 +23,175 @@ from sc_flow.methods._opt import OptimConfig
 from sc_flow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sc_flow.trainer._trainer import Trainer
 
-__all__ = ["Model"]
+__all__ = ["Model", "ModelBuilder"]
 
 
-@dataclass(frozen=True)
-class ModelConfig:
-    dm: DataManager
+class ModelBuilder:
+    """Two-step builder for a :class:`Model`.
+
+    Step one (:meth:`from_adata`) prepares the *data* side: it initializes the
+    :class:`DataManager` from the schema keyword arguments and fits the
+    preprocessing pipeline to derive the data dimensionalities. Step two
+    (:meth:`build`) attaches the *method* and returns a ready-to-train
+    :class:`Model`. Keeping the two concerns in separate calls avoids mixing
+    data-schema configuration with method/module configuration, and lets you
+    inspect :attr:`data_dims` before choosing method parameters.
+    """
+
+    def __init__(
+        self,
+        dm: DataManager,
+        data_dims: DataDimensionalitiesRegistry,
+    ) -> None:
+        """See :meth:`from_adata` for the usual entry point."""
+        self._dm = dm
+        self._data_dims = data_dims
 
     @classmethod
     def from_adata(
         cls,
         adata: AnnData,
         **dm_kwargs: Unpack[DataManagerKwargs],
-    ) -> "Model":
-        """"""  # noqa
-        dm = DataManager(**dm_kwargs)
-        # dims_registry = dm.get_data_dimensionalities(
-        #     adata,
-        #     fit_preproc=True,
-        #     apply_transformations=True,
-        # )
-        # is_paired_setting = dm.control_values_dict is not None or dm.matched_keys is not None
-        # compile data
-        # data_dims
+    ) -> "ModelBuilder":
+        """Prepare the data side of a model from an annotated data object.
 
-        return cls(
-            dm=dm,
-            # data_dims=datadims,
+        Initializes the :class:`DataManager` from ``dm_kwargs`` and fits the
+        preprocessing pipeline on ``adata`` to derive the data dimensionalities.
+
+        :param adata: The annotated data object used to fit the schema.
+        :type adata: class: `AnnData`
+
+        :param dm_kwargs: Keyword arguments forwarded to :class:`DataManager`.
+            See :class:`DataManagerKwargs` for the accepted options.
+        """
+        dm = DataManager(**dm_kwargs)
+        data_dims = dm.get_data_dimensionalities(
+            adata,
+            fit_preproc=True,
+            apply_transformations=True,
+        )
+        return cls(dm, data_dims)
+
+    @property
+    def dm(self) -> DataManager:
+        """The fitted data manager."""
+        return self._dm
+
+    @property
+    def data_dims(self) -> DataDimensionalitiesRegistry:
+        """The data dimensionalities derived from the registration data."""
+        return self._data_dims
+
+    def build(
+        self,
+        *args,
+        method: BaseMethod | None = None,
+        method_cls: type[BaseMethod] | None = None,
+        method_id: str | None = None,
+        **kwargs,
+    ) -> "Model":
+        """Attach a method and return a ready-to-train :class:`Model`.
+
+        Either pass an already-constructed ``method`` instance, or select a
+        method via ``method_cls`` / ``method_id`` and let it be constructed
+        from the prepared data manager and dimensionalities using ``args`` /
+        ``kwargs``.
+
+        :param method: A pre-built method instance. When provided,
+            ``method_cls`` / ``method_id`` and any extra ``args`` / ``kwargs``
+            are ignored. Defaults to `None`.
+        :type method: class: `BaseMethod | None`
+
+        :param method_cls: The method class to instantiate. Mutually exclusive
+            with ``method_id``. Defaults to `None`.
+        :type method_cls: class: `type[BaseMethod] | None`
+
+        :param method_id: Identifier of a registered method to instantiate.
+            Mutually exclusive with ``method_cls``. Defaults to `None`.
+        :type method_id: class: `str | None`
+
+        :param args: Extra positional arguments forwarded to the method.
+        :param kwargs: Extra keyword arguments forwarded to the method.
+        """
+        return Model(
+            self._dm,
+            self._data_dims,
+            *args,
+            method=method,
+            method_cls=method_cls,
+            method_id=method_id,
+            **kwargs,
         )
 
 
 class Model:
     def __init__(
         self,
-        config: ModelConfig,
+        dm: DataManager,
+        data_dims: DataDimensionalitiesRegistry,
         *args,
+        method: BaseMethod | None = None,
         method_cls: type[BaseMethod] | None = None,
         method_id: str | None = None,
         **kwargs,
     ) -> None:
-        # store config
-        self._config = config
+        """Initialize a model from a fitted data manager and its dimensionalities.
 
-        # get method cls
-        if method_cls is None and method_id is None:
-            msg = "At least one of `method_id` or `method_cls` should be specified."
-            raise ValueError(msg)
+        Usually constructed through :class:`ModelBuilder` rather than directly.
 
-        # use registry when method not provided
-        if method_cls is None:
-            from sc_flow.backends.torch.methods import METHODS_REGISTRY
+        :param dm: The fitted data manager describing the data schema.
+        :type dm: class: `DataManager`
 
-            # get method from registry
-            if method_id not in METHODS_REGISTRY:
-                msg = f"Method {method_id} not supported, possible options are {list(METHODS_REGISTRY.keys())}."
-                raise KeyError(msg)
-            method_cls = METHODS_REGISTRY[method_id]
+        :param data_dims: The data dimensionalities derived from the registration
+            data (see :meth:`DataManager.get_data_dimensionalities`).
+        :type data_dims: class: `DataDimensionalitiesRegistry`
 
-        # initialize method
-        self._method: BaseMethod = method_cls(
-            self._dims_registry,
-            self._dm,
-            self._is_paired_setting,
-            *args,
-            **kwargs,
-        )
+        :param method: A pre-built method instance. When provided,
+            ``method_cls`` / ``method_id`` and any extra ``args`` / ``kwargs``
+            are ignored. Defaults to `None`.
+        :type method: class: `BaseMethod | None`
+
+        :param method_cls: The method class to instantiate. Mutually exclusive
+            with ``method_id``. Defaults to `None`.
+        :type method_cls: class: `type[BaseMethod] | None`
+
+        :param method_id: Identifier of a registered method to instantiate.
+            Mutually exclusive with ``method_cls``. Defaults to `None`.
+        :type method_id: class: `str | None`
+
+        :param args: Extra positional arguments forwarded to the method.
+        :param kwargs: Extra keyword arguments forwarded to the method.
+        """
+        # store data manager and dimensionalities
+        self._dm = dm
+        self._dims_registry = data_dims
+
+        # use the provided method instance when given
+        if method is not None:
+            self._method: BaseMethod = method
+        else:
+            # get method cls
+            if method_cls is None and method_id is None:
+                msg = "At least one of `method`, `method_id` or `method_cls` should be specified."
+                raise ValueError(msg)
+
+            # use registry when method not provided
+            if method_cls is None:
+                from sc_flow.backends.torch.methods import METHODS_REGISTRY
+
+                # get method from registry
+                if method_id not in METHODS_REGISTRY:
+                    msg = f"Method {method_id} not supported, possible options are {list(METHODS_REGISTRY.keys())}."
+                    raise KeyError(msg)
+                method_cls = METHODS_REGISTRY[method_id]
+
+            # initialize method
+            self._method = method_cls(
+                self._dims_registry,
+                self._dm,
+                *args,
+                **kwargs,
+            )
 
         # prepare attributes
         self._trainer: Trainer | None = None
@@ -395,8 +499,6 @@ class Model:
         train_tree = self._dm.compile_adata(
             train_adata,
             sort=sort,
-            view_on_condition_space=self._view_on_condition_space,
-            condition_state_key=self._condition_state_key,
             apply_transformations=True,
         )
         if val_adatas_dict is not None:
@@ -404,8 +506,6 @@ class Model:
                 val_id: self._dm.compile_adata(
                     val_adata,
                     sort=sort,
-                    view_on_condition_space=self._view_on_condition_space,
-                    condition_state_key=self._condition_state_key,
                     apply_transformations=True,
                 )
                 for val_id, val_adata in val_adatas_dict.items()
@@ -523,8 +623,6 @@ class Model:
         tree = self._dm.compile_adata(
             adata,
             sort=sort,
-            view_on_condition_space=self._view_on_condition_space,
-            condition_state_key=self._condition_state_key,
             control_values_dict=control_values_dict,
             matched_keys=matched_keys,
             apply_transformations=True,
@@ -611,9 +709,11 @@ class Model:
         Load a saved model from a tarball.
 
         :param filepath: Path to the saved tarball.
-        :param adata: Optional AnnData to re‑register if the saved model does not contain data.
+        :param adata: Optional AnnData used to rebuild the data manager and
+            dimensionalities when the saved model should be re-registered.
         :param map_location: For PyTorch models, map to a device (e.g., 'cuda:0').
-        :param register_kwargs: Additional arguments for register_adata if adata is provided.
+        :param register_kwargs: Additional keyword arguments forwarded to
+            :class:`DataManager` when ``adata`` is provided.
         :return: Loaded Model instance.
         """
         path = Path(filepath)
@@ -640,13 +740,12 @@ class Model:
             with open(Path(tmpdir) / "model.pkl", "rb") as f:
                 model = cloudpickle.load(f)
 
-        # If an AnnData is provided, re‑register it (overwrites the saved data manager if any)
+        # If an AnnData is provided, rebuild the data manager and dimensionalities
+        # from it (overwrites the saved ones).
         if adata is not None:
-            cls.register_adata(adata, **register_kwargs)
-            # Replace the instance's data manager with the newly registered one
-            model._dm = cls._dm_cls
-            model._dims_registry = cls._dims_registry
-            model._is_paired_setting = cls._is_paired_setting_cls
+            builder = ModelBuilder.from_adata(adata, **register_kwargs)
+            model._dm = builder.dm
+            model._dims_registry = builder.data_dims
 
         # Move to desired device if requested
         if map_location is not None:
@@ -661,8 +760,12 @@ class Model:
 
     @property
     def is_paired_setting(self) -> bool:
-        """Whether the data was registered in a paired setting."""
-        return self._is_paired_setting
+        """Whether the data was registered in a paired setting.
+
+        Derived from the data manager: a paired setting is one where either
+        control values or explicit matched keys were configured.
+        """
+        return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
 
     @property
     def method(self) -> BaseMethod:
@@ -675,11 +778,6 @@ class Model:
         return self._trainer
 
     @property
-    def view_on_condition_space(self) -> bool:
-        """Return whether the model is operating on the condition space."""
-        return self._view_on_condition_space
-
-    @property
     def condition_state_key(self) -> str | None:
         """Return the key used to extract the state from the condition."""
-        return self._condition_state_key
+        return self._dm.condition_state_key

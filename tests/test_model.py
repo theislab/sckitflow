@@ -8,7 +8,7 @@ import pandas as pd
 import pytest
 from anndata import AnnData
 
-from sc_flow import SCFlow
+from sc_flow import Model, ModelBuilder
 from sc_flow.data._manager import DataManager
 from sc_flow.methods._methods import BaseMethod
 
@@ -66,10 +66,9 @@ class DummyPredictionData:
 class DummyMethod(BaseMethod):
     _module_cls = None
 
-    def __init__(self, dims_registry, dm, is_paired_setting, *args, **kwargs):
+    def __init__(self, dims_registry, dm, *args, **kwargs):
         self._dims_registry = dims_registry
         self._dm = dm
-        self._is_paired_setting = is_paired_setting
         self._module = DummyModule()
         self._train_mode = True
 
@@ -99,6 +98,15 @@ class DummyMethod(BaseMethod):
 
 
 # -----------------------------------------------------------------------------
+# Helper to build a model with the instance-based API
+# -----------------------------------------------------------------------------
+def _make_model(adata: AnnData, method_cls=DummyMethod, dm_kwargs=None, **method_kwargs) -> Model:
+    """Build a Model from an AnnData using the two-step ModelBuilder flow."""
+    builder = ModelBuilder.from_adata(adata, **(dm_kwargs or {}))
+    return builder.build(method_cls=method_cls, **method_kwargs)
+
+
+# -----------------------------------------------------------------------------
 # Fixture to mock the optimization manager creation (only for tests that need it)
 # -----------------------------------------------------------------------------
 @pytest.fixture
@@ -114,88 +122,84 @@ def mock_optim_manager():
 # -----------------------------------------------------------------------------
 # Test suite
 # -----------------------------------------------------------------------------
-class TestSCFlow:
-    """Test suite for SCFlow orchestration class."""
+class TestModel:
+    """Test suite for the Model orchestration class."""
 
     # --------------------------------------------------------------------------
-    # Registration and Initialization
+    # Construction and Initialization
     # --------------------------------------------------------------------------
-    def test_register_adata_sets_class_attributes(self, adata: AnnData):
-        SCFlow.register_adata(adata)
-        assert isinstance(SCFlow._dm_cls, DataManager)
-        assert SCFlow._dims_registry is not None
-        assert SCFlow._is_paired_setting_cls is False
-        assert SCFlow._dims_registry.feature_names is not None
-        assert len(SCFlow._dims_registry.feature_names) == adata.n_vars
+    def test_builder_builds_dm_and_dims(self, adata: AnnData):
+        model = _make_model(adata)
+        assert isinstance(model.dm, DataManager)
+        assert model._dims_registry is not None
+        assert model.is_paired_setting is False
+        assert model._dims_registry.feature_names is not None
+        assert len(model._dims_registry.feature_names) == adata.n_vars
 
-    def test_register_adata_with_control_key_sets_paired_true(self, adata: AnnData):
-        SCFlow.register_adata(adata, control_values_dict={"drugA": "control"})
-        assert SCFlow._is_paired_setting_cls is True
+    def test_builder_exposes_dm_and_dims(self, adata: AnnData):
+        builder = ModelBuilder.from_adata(adata)
+        assert isinstance(builder.dm, DataManager)
+        assert builder.data_dims is not None
+        assert len(builder.data_dims.feature_names) == adata.n_vars
 
-    def test_init_copies_class_attrs_to_instance(self, adata: AnnData):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
-        assert model._dm is SCFlow._dm_cls
-        assert model._dims_registry is SCFlow._dims_registry
-        assert model._is_paired_setting is SCFlow._is_paired_setting_cls
+    def test_build_with_method_instance(self, adata: AnnData):
+        """build(method=...) attaches a pre-built method instance verbatim."""
+        builder = ModelBuilder.from_adata(adata)
+        method = DummyMethod(builder.data_dims, builder.dm)
+        model = builder.build(method=method)
+        assert model.method is method
 
-    def test_init_raises_without_registration(self):
-        SCFlow._dm_cls = None
-        with pytest.raises(RuntimeError, match="Data has not been registered"):
-            SCFlow(method_cls=DummyMethod)
+    def test_control_key_sets_paired_true(self, adata: AnnData):
+        model = _make_model(adata, dm_kwargs={"control_values_dict": {"drugA": "control"}})
+        assert model.is_paired_setting is True
+
+    def test_direct_init_from_dm_and_dims(self, adata: AnnData):
+        """Model can be constructed directly from a data manager and dimensionalities."""
+        dm = DataManager()
+        data_dims = dm.get_data_dimensionalities(adata, fit_preproc=True, apply_transformations=True)
+        model = Model(dm, data_dims, method_cls=DummyMethod)
+        assert model.dm is dm
+        assert model._dims_registry is data_dims
+
+    def test_init_raises_without_method(self, adata: AnnData):
+        with pytest.raises(ValueError, match="At least one of"):
+            _make_model(adata, method_cls=None)
 
     # --------------------------------------------------------------------------
-    # Method Resolution and Backend Handling
+    # Method Resolution
     # --------------------------------------------------------------------------
     def test_method_id_resolves_to_registered_class(self, adata: AnnData, monkeypatch):
         mock_registry = {"cfm": DummyMethod}
         monkeypatch.setattr("sc_flow.backends.torch.methods.METHODS_REGISTRY", mock_registry)
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_id="cfm", backend="torch")
+        model = _make_model(adata, method_cls=None, method_id="cfm")
         assert isinstance(model.method, DummyMethod)
 
-    def test_unsupported_backend_raises_error(self, adata: AnnData, monkeypatch):
+    def test_unsupported_method_id_raises_error(self, adata: AnnData, monkeypatch):
         mock_registry = {"cfm": DummyMethod}
         monkeypatch.setattr("sc_flow.backends.torch.methods.METHODS_REGISTRY", mock_registry)
-        SCFlow.register_adata(adata)
-        with pytest.raises(RuntimeError, match="not supported"):
-            SCFlow(method_id="cfm", backend="tensorflow")
-
-    def test_backend_property(self, adata: AnnData):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
-        assert model.backend == "torch"
+        with pytest.raises(KeyError, match="not supported"):
+            _make_model(adata, method_cls=None, method_id="does_not_exist")
 
     # --------------------------------------------------------------------------
     # _to_numpy Conversion
     # --------------------------------------------------------------------------
     def test_to_numpy_with_torch_tensor(self, adata: AnnData):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata)
         torch = pytest.importorskip("torch")
         t = torch.tensor([1.0, 2.0, 3.0])
         arr = model._to_numpy(t)
         assert isinstance(arr, np.ndarray)
         np.testing.assert_array_equal(arr, np.array([1.0, 2.0, 3.0]))
 
-    def test_to_numpy_with_jax_array(self, adata: AnnData):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="jax")
-        jnp = pytest.importorskip("jax.numpy")
-        arr = model._to_numpy(jnp.array([1.0, 2.0]))
-        assert isinstance(arr, np.ndarray)
-
     def test_to_numpy_returns_none_for_none(self, adata: AnnData):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod)
+        model = _make_model(adata)
         assert model._to_numpy(None) is None
 
     # --------------------------------------------------------------------------
     # Training Orchestration (with mocking)
     # --------------------------------------------------------------------------
     def test_train_calls_trainer_and_sets_mode(self, adata: AnnData, mock_optim_manager):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata)
         with patch("sc_flow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
             set_train_mode_spy = MagicMock(wraps=model.method.set_train_mode)
@@ -213,16 +217,14 @@ class TestSCFlow:
             assert call_kwargs["valid_freq"] == 5
 
     def test_train_with_validation_samplers(self, adata: AnnData, mock_optim_manager):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod)
+        model = _make_model(adata)
         with patch("sc_flow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
             val_adatas = {"val1": adata, "val2": adata}
             model.train(adata, val_adatas_dict=val_adatas, n_train_steps=5, sort=True)
 
-            args, _ = mock_trainer.train.call_args
-            assert len(args) >= 2
-            val_samplers = args[1]
+            call_kwargs = mock_trainer.train.call_args.kwargs
+            val_samplers = call_kwargs["val_samplers_dict"]
             assert isinstance(val_samplers, dict)
             assert set(val_samplers.keys()) == {"val1", "val2"}
 
@@ -230,8 +232,7 @@ class TestSCFlow:
     # Prediction Pipeline
     # --------------------------------------------------------------------------
     def test_predict_returns_anndata_with_correct_shape(self, adata: AnnData):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod)
+        model = _make_model(adata)
         pred_adata = model.predict(adata, sort=True)
         assert isinstance(pred_adata, AnnData)
         assert pred_adata.n_obs == adata.n_obs
@@ -240,8 +241,7 @@ class TestSCFlow:
 
     def test_predict_without_target_state(self, adata: AnnData):
         """predict(require_target_state=False) works on an AnnData with no `.X`."""
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod)
+        model = _make_model(adata)
 
         # only `.obs` is needed - no expression data, no obsm sample representation
         no_state_adata = AnnData(obs=pd.DataFrame(index=adata.obs_names[:5]))
@@ -252,29 +252,26 @@ class TestSCFlow:
         assert pred_adata.n_obs == 5
         assert pred_adata.n_vars == adata.n_vars
 
-    def test_predict_with_return_tensors(self, adata: AnnData):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod)
-        result = model.predict(adata, return_tensors=True, sort=True)
+    def test_predict_with_return_raw(self, adata: AnnData):
+        model = _make_model(adata)
+        result = model.predict(adata, return_raw=True, sort=True)
         assert isinstance(result, tuple) and len(result) == 2
         pred_adata, pred_data = result
         assert isinstance(pred_adata, AnnData)
-        assert hasattr(pred_data, "samples") and hasattr(pred_data, "traj")
+        assert hasattr(pred_data, "X") and hasattr(pred_data, "traj")
 
     def test_predict_empty_tree_returns_empty_anndata(self, adata: AnnData, monkeypatch):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod)
+        model = _make_model(adata)
         mock_tree = MagicMock()
         mock_tree.flatten.return_value = ()
-        # The lambda must accept any keyword arguments (sort, view_on_condition_space, ...)
+        # The lambda must accept any keyword arguments (sort, control_values_dict, ...)
         monkeypatch.setattr(model._dm, "compile_adata", lambda x, **kwargs: mock_tree)
         pred_adata = model.predict(adata, sort=True)
         assert pred_adata.n_obs == 0
         assert pred_adata.n_vars == adata.n_vars
 
     def test_predict_sets_eval_mode(self, adata: AnnData):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod)
+        model = _make_model(adata)
         set_train_mode_spy = MagicMock(wraps=model.method.set_train_mode)
         model.method.set_train_mode = set_train_mode_spy
         model.predict(adata, sort=True)
@@ -284,12 +281,12 @@ class TestSCFlow:
     # Properties
     # --------------------------------------------------------------------------
     def test_properties(self, adata: AnnData, mock_optim_manager):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod)
+        model = _make_model(adata)
         assert isinstance(model.dm, DataManager)
         assert model.is_paired_setting is False
         assert isinstance(model.method, BaseMethod)
         assert model.trainer is None
+        assert model.condition_state_key is None
         with patch("sc_flow._model.Trainer") as _mock_trainer_cls:
             model.train(adata, n_train_steps=1, sort=True)
         assert model.trainer is not None
@@ -298,15 +295,14 @@ class TestSCFlow:
     # Save / Load (without mocking the optimizer manager)
     # --------------------------------------------------------------------------
     def test_save_load_and_predict(self, adata):
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata)
         pred1 = model.predict(adata, sort=True)
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp_path = tmp.name
         model.save(tmp_path, allow_overwrite=True)
 
-        loaded = SCFlow.load(tmp_path, map_location="cpu")
+        loaded = Model.load(tmp_path, map_location="cpu")
         pred2 = loaded.predict(adata, sort=True)
 
         np.testing.assert_array_equal(pred1.X, pred2.X)
@@ -333,8 +329,8 @@ class TestSCFlow:
         class RealDummyMethod(BaseMethod):
             _module_cls = RealDummyModule
 
-            def __init__(self, dims_registry, dm, is_paired_setting, *args, **kwargs):
-                super().__init__(dims_registry, dm, is_paired_setting, *args, **kwargs)
+            def __init__(self, dims_registry, dm, *args, **kwargs):
+                super().__init__(dims_registry, dm, *args, **kwargs)
 
             def extract_state_data(self, matched_distr):
                 from sc_flow.data.containers._state import StateData
@@ -366,59 +362,42 @@ class TestSCFlow:
 
                 return DummyPredictionData(samples)
 
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=RealDummyMethod, backend="torch")
+        model = _make_model(adata, method_cls=RealDummyMethod)
         model.train(adata, n_train_steps=5, train_batch_size=4, sort=True)
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp_path = tmp.name
         model.save(tmp_path, allow_overwrite=True)
 
-        loaded = SCFlow.load(tmp_path, map_location="cpu")
+        loaded = Model.load(tmp_path, map_location="cpu")
         loaded.train(adata, n_train_steps=5, train_batch_size=4)
 
         os.unlink(tmp_path)
 
 
-class TestSCFlowConditionSpace:
-    """Test SCFlow with view_on_condition_space=True using adata."""
+class TestModelConditionSpace:
+    """Test Model with the condition-space view (condition_state_key set)."""
 
-    def test_register_adata_with_condition_space(self, adata: AnnData):
-        """Registering with condition space should set class attributes."""
+    def _condition_space_dm_kwargs(self) -> dict:
+        return {
+            "condition_state_key": "X_repr",
+            "conditions": {"drug": ("drugA",)},
+            "conditions_reps": {"drug": "drug"},
+            "conditions_covariates": ["X_repr"],
+            "groups": ("source_split",),
+            "groups_reps": {"source_split": "source_split"},
+        }
+
+    def test_from_adata_with_condition_space(self, adata: AnnData):
+        """Building with a condition_state_key exposes it on the model."""
         adata = _add_continuous_covariate(adata)
-        SCFlow.register_adata(
-            adata,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-        )
-        assert SCFlow._view_on_condition_space_cls is True
-        assert SCFlow._condition_state_key_cls == "X_repr"
-        # Clean up class attributes for subsequent tests
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
+        model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
+        assert model.condition_state_key == "X_repr"
 
     def test_train_with_condition_space(self, adata: AnnData, mock_optim_manager):
-        """Training with condition space should correctly transform the data."""
+        """Training with the condition-space view correctly compiles the data."""
         adata = _add_continuous_covariate(adata)
-        SCFlow.register_adata(
-            adata,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-        )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
 
         # Create a spy on compile_adata to record calls while preserving original behavior
         original_compile = model._dm.compile_adata
@@ -429,36 +408,16 @@ class TestSCFlowConditionSpace:
             mock_trainer = mock_trainer_cls.return_value
             model.train(adata, n_train_steps=10, train_batch_size=32, sort=True)
 
-            # Verify compile_adata was called with the correct flags
+            # Verify compile_adata was called; the condition-space view is driven
+            # by the data manager's condition_state_key attribute.
             mock_compile.assert_called_once()
-            _, called_kwargs = mock_compile.call_args
-            assert called_kwargs["view_on_condition_space"] is True
-            assert called_kwargs["condition_state_key"] == "X_repr"
-
-            # Also ensure training was invoked (optional, but good)
+            assert model.condition_state_key == "X_repr"
             mock_trainer.train.assert_called_once()
 
-        # Clean up class attributes for subsequent tests
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
-
     def test_predict_with_condition_space(self, adata: AnnData):
-        """Predict with condition space should yield predictions with correct shape."""
+        """Predict with condition space yields predictions with correct shape."""
         adata = _add_continuous_covariate(adata)
-        SCFlow.register_adata(
-            adata,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-        )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
         pred_adata = model.predict(adata, sort=True)
 
         assert isinstance(pred_adata, AnnData)
@@ -466,74 +425,25 @@ class TestSCFlowConditionSpace:
         # The feature dimension should now be the continuous covariate's dimension
         assert pred_adata.n_vars == adata.obsm["X_repr"].shape[1]
 
-        # Clean up
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
-
     def test_save_load_with_condition_space(self, adata: AnnData):
-        """Save and load model that was configured with condition space."""
+        """Save and load a model configured with the condition-space view."""
         adata = _add_continuous_covariate(adata)
-        SCFlow.register_adata(
-            adata,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-        )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
         pred1 = model.predict(adata, sort=True)
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp_path = tmp.name
         model.save(tmp_path, allow_overwrite=True)
 
-        # Load with the same adata (must re-register)
-        loaded = SCFlow.load(
-            tmp_path,
-            adata=adata,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-        )
+        # Load with the same adata (rebuild the data manager)
+        loaded = Model.load(tmp_path, adata=adata, **self._condition_space_dm_kwargs())
         pred2 = loaded.predict(adata)
 
         np.testing.assert_array_equal(pred1.X, pred2.X)
         os.unlink(tmp_path)
 
-        # Clean up
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
 
-
-class TestSCFlowPredictCombinations:
-    @pytest.fixture(autouse=True)
-    def _reset_class_state(self):
-        """Ensure SCFlow class attributes are clean before/after each test."""
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
-        yield
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
-
+class TestModelPredictCombinations:
     @pytest.mark.parametrize(
         "has_cont_cond, has_cat_cond, has_groups, has_source, view_on_condition_space",
         [
@@ -642,20 +552,17 @@ class TestSCFlowPredictCombinations:
             adata.uns[dummy_col] = {"control": np.random.randn(2), "treatment": np.random.randn(2)}
             control_values_dict = {dummy_col: "control"}
 
-        # Register the data
-        SCFlow.register_adata(
-            adata,
-            view_on_condition_space=view_on_condition_space,
-            condition_state_key=cont_key if view_on_condition_space else None,
-            conditions=conditions,
-            conditions_reps=conditions_reps,
-            conditions_covariates=conditions_covariates,
-            groups=groups,
-            groups_reps=groups_reps,
-            control_values_dict=control_values_dict,
-        )
-
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        # Build the model with the requested schema
+        dm_kwargs = {
+            "condition_state_key": cont_key if view_on_condition_space else None,
+            "conditions": conditions,
+            "conditions_reps": conditions_reps,
+            "conditions_covariates": conditions_covariates,
+            "groups": groups,
+            "groups_reps": groups_reps,
+            "control_values_dict": control_values_dict,
+        }
+        model = _make_model(adata, dm_kwargs=dm_kwargs)
 
         # Capture the matched distribution
         captured_matched_distr = []
@@ -691,7 +598,7 @@ class TestSCFlowPredictCombinations:
         if view_on_condition_space:
             expected_n_vars = adata.obsm[cont_key].shape[1]
         else:
-            expected_n_vars = len(SCFlow._dims_registry.feature_names)
+            expected_n_vars = len(model._dims_registry.feature_names)
         assert pred_adata.n_vars == expected_n_vars
 
         # 3. If view_on_condition_space, verify condition_data contents
@@ -745,24 +652,16 @@ class TestSCFlowPredictCombinations:
         unique_group = adata.obs[group_col].unique()
         adata.uns[group_col] = {val: np.random.randn(2) for val in unique_group}
 
-        conditions = {cat_cond_col: (cat_cond_col,)}
-        conditions_reps = {cat_cond_col: cat_cond_col}
-        conditions_covariates = [cond_state_key, cond_key]
-        groups = (group_col,)
-        groups_reps = {group_col: group_col}
+        dm_kwargs = {
+            "condition_state_key": cond_state_key,
+            "conditions": {cat_cond_col: (cat_cond_col,)},
+            "conditions_reps": {cat_cond_col: cat_cond_col},
+            "conditions_covariates": [cond_state_key, cond_key],
+            "groups": (group_col,),
+            "groups_reps": {group_col: group_col},
+        }
 
-        SCFlow.register_adata(
-            adata,
-            view_on_condition_space=True,
-            condition_state_key=cond_state_key,
-            conditions=conditions,
-            conditions_reps=conditions_reps,
-            conditions_covariates=conditions_covariates,
-            groups=groups,
-            groups_reps=groups_reps,
-        )
-
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata, dm_kwargs=dm_kwargs)
 
         # Use DataManager.sort_adata to get the sorted version of adata
         # This matches the internal sorting when sort=True is passed to predict.
@@ -803,23 +702,8 @@ class TestSCFlowPredictCombinations:
             assert group_col in match.target_distr.groups_data.ann_df.columns
 
 
-class TestSCFlowPredictMatchedKeys:
-    """Test the matched_keys argument in SCFlow.predict."""
-
-    @pytest.fixture(autouse=True)
-    def _reset_class_state(self):
-        """Ensure SCFlow class attributes are clean before/after each test."""
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
-        yield
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
+class TestModelPredictMatchedKeys:
+    """Test the matched_keys argument in Model.predict."""
 
     def _setup_paired_data(self, adata, has_continuous=False):
         """Create a paired dataset with drug condition and cell_line groups."""
@@ -845,23 +729,23 @@ class TestSCFlowPredictMatchedKeys:
     def test_predict_with_matched_keys_override(self, adata):
         """Passing matched_keys to predict overrides the instance's matched_keys."""
         adata = self._setup_paired_data(adata)
-        # Register with instance matched_keys
+        # Build with instance matched_keys
         instance_keys = {("control",): ("treatment",)}
-        SCFlow.register_adata(
+        model = _make_model(
             adata,
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            control_values_dict={"drug": "control"},
-            matched_keys=instance_keys,
+            dm_kwargs={
+                "conditions": {"drug": ("drugA",)},
+                "conditions_reps": {"drug": "drug"},
+                "groups": ("source_split",),
+                "groups_reps": {"source_split": "source_split"},
+                "control_values_dict": {"drug": "control"},
+                "matched_keys": instance_keys,
+            },
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
         # Override with different keys at predict time
         override_keys = {("control",): ("treatment",)}  # same for simplicity; could be different
         pred_adata = model.predict(adata, sort=True, matched_keys=override_keys)
         # Check that only treatment rows are predicted (since pairing uses override)
-        # In this simple setup, target condition should be 'treatment'
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
 
@@ -869,16 +753,17 @@ class TestSCFlowPredictMatchedKeys:
         """When matched_keys=None, the instance's matched_keys is used."""
         adata = self._setup_paired_data(adata)
         instance_keys = {("control",): ("treatment",)}
-        SCFlow.register_adata(
+        model = _make_model(
             adata,
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            control_values_dict={"drug": "control"},
-            matched_keys=instance_keys,
+            dm_kwargs={
+                "conditions": {"drug": ("drugA",)},
+                "conditions_reps": {"drug": "drug"},
+                "groups": ("source_split",),
+                "groups_reps": {"source_split": "source_split"},
+                "control_values_dict": {"drug": "control"},
+                "matched_keys": instance_keys,
+            },
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
         pred_adata = model.predict(adata, sort=True, matched_keys=None)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
@@ -888,113 +773,61 @@ class TestSCFlowPredictMatchedKeys:
         adata = self._setup_paired_data(adata)
         # No control_values_dict, only matched_keys
         keys = {("control",): ("treatment",)}
-        SCFlow.register_adata(
+        model = _make_model(
             adata,
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            matched_keys=keys,  # no control_values_dict
+            dm_kwargs={
+                "conditions": {"drug": ("drugA",)},
+                "conditions_reps": {"drug": "drug"},
+                "groups": ("source_split",),
+                "groups_reps": {"source_split": "source_split"},
+                "matched_keys": keys,  # no control_values_dict
+            },
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
         pred_adata = model.predict(adata, sort=True, matched_keys=keys)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
 
-    def test_predict_matched_keys_on_condition_view_paired_enabled(self, adata):
-        """With view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
-        matched_keys are honored."""
+    def test_predict_matched_keys_honored_on_condition_view(self, adata):
+        """With a condition_state_key set, matched_keys are honored."""
         adata = self._setup_paired_data(adata, has_continuous=True)
         keys = {("control",): ("treatment",)}
-        SCFlow.register_adata(
+        model = _make_model(
             adata,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            control_values_dict={"drug": "control"},
-            matched_keys=keys,
-            allow_paired_settings_on_condition_view=True,
+            dm_kwargs={
+                "condition_state_key": "X_repr",
+                "conditions": {"drug": ("drugA",)},
+                "conditions_reps": {"drug": "drug"},
+                "conditions_covariates": ["X_repr"],
+                "groups": ("source_split",),
+                "groups_reps": {"source_split": "source_split"},
+                "control_values_dict": {"drug": "control"},
+                "matched_keys": keys,
+            },
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
-        pred_adata = model.predict(
-            adata,
-            sort=True,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            matched_keys=keys,
-        )
+        pred_adata = model.predict(adata, sort=True, matched_keys=keys)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
-
-    def test_predict_matched_keys_on_condition_view_paired_disabled(self, adata):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
-        matched_keys are ignored → no source, full dataset predicted."""
-        adata = self._setup_paired_data(adata, has_continuous=True)
-        keys = {("control",): ("treatment",)}
-        SCFlow.register_adata(
-            adata,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            control_values_dict={"drug": "control"},
-            matched_keys=keys,
-            allow_paired_settings_on_condition_view=False,  # disabled
-        )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
-        pred_adata = model.predict(
-            adata,
-            sort=True,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            matched_keys=keys,
-        )
-        # With pairing disabled, no source → all cells predicted (both control and treatment)
-        # So we should see both conditions in output.
-        assert pred_adata.n_obs == len(adata)
-        assert set(pred_adata.obs["drugA"].unique()) == {"control", "treatment"}
 
     def test_predict_matched_keys_invalid_target_raises(self, adata):
         """If matched_keys contains a target key not present in the data, an error should be raised."""
         adata = self._setup_paired_data(adata)
         keys = {("control",): ("nonexistent",)}
-        SCFlow.register_adata(
+        model = _make_model(
             adata,
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            control_values_dict={"drug": "control"},
+            dm_kwargs={
+                "conditions": {"drug": ("drugA",)},
+                "conditions_reps": {"drug": "drug"},
+                "groups": ("source_split",),
+                "groups_reps": {"source_split": "source_split"},
+                "control_values_dict": {"drug": "control"},
+            },
         )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
         with pytest.raises(KeyError, match="nonexistent"):
             model.predict(adata, sort=True, matched_keys=keys)
 
 
-class TestSCFlowPredictControlValues:
-    """Test the control_values_dict argument in SCFlow.predict."""
-
-    @pytest.fixture(autouse=True)
-    def _reset_class_state(self):
-        """Ensure SCFlow class attributes are clean before/after each test."""
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
-        yield
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
+class TestModelPredictControlValues:
+    """Test the control_values_dict argument in Model.predict."""
 
     def _setup_paired_data(self, adata, has_continuous=False):
         """Create a paired dataset with drug condition and source_split groups."""
@@ -1012,18 +845,21 @@ class TestSCFlowPredictControlValues:
             adata.obsm["X_repr"] = np.random.randn(n_obs, 5)
         return adata
 
+    def _base_dm_kwargs(self, control_values_dict=None):
+        dm_kwargs = {
+            "conditions": {"drug": ("drugA",)},
+            "conditions_reps": {"drug": "drug"},
+            "groups": ("source_split",),
+            "groups_reps": {"source_split": "source_split"},
+        }
+        if control_values_dict is not None:
+            dm_kwargs["control_values_dict"] = control_values_dict
+        return dm_kwargs
+
     def test_predict_control_values_override(self, adata):
         """Passing control_values_dict to predict overrides the instance's control_values_dict."""
         adata = self._setup_paired_data(adata)
-        SCFlow.register_adata(
-            adata,
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            control_values_dict={"drug": "control"},
-        )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata, dm_kwargs=self._base_dm_kwargs({"drug": "control"}))
         override_dict = {"drug": "control"}  # same value; test that override is used
         pred_adata = model.predict(adata, sort=True, control_values_dict=override_dict)
         assert pred_adata.n_obs > 0
@@ -1032,15 +868,7 @@ class TestSCFlowPredictControlValues:
     def test_predict_control_values_none_uses_instance(self, adata):
         """When control_values_dict=None, the instance's control_values_dict is used."""
         adata = self._setup_paired_data(adata)
-        SCFlow.register_adata(
-            adata,
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            control_values_dict={"drug": "control"},
-        )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata, dm_kwargs=self._base_dm_kwargs({"drug": "control"}))
         pred_adata = model.predict(adata, sort=True, control_values_dict=None)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
@@ -1048,112 +876,39 @@ class TestSCFlowPredictControlValues:
     def test_predict_control_values_without_instance(self, adata):
         """When instance has no control_values_dict, a custom dict works."""
         adata = self._setup_paired_data(adata)
-        SCFlow.register_adata(
-            adata,
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            # no control_values_dict
-        )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata, dm_kwargs=self._base_dm_kwargs())
         custom_dict = {"drug": "control"}
         pred_adata = model.predict(adata, sort=True, control_values_dict=custom_dict)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
 
-    def test_predict_control_values_on_condition_view_paired_enabled(self, adata):
-        """With view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
-        control_values_dict is honored."""
+    def test_predict_control_values_honored_on_condition_view(self, adata):
+        """With a condition_state_key set, control_values_dict is honored."""
         adata = self._setup_paired_data(adata, has_continuous=True)
-        SCFlow.register_adata(
-            adata,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=True,
-        )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
-        pred_adata = model.predict(
-            adata,
-            sort=True,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            control_values_dict={"drug": "control"},
-        )
+        dm_kwargs = self._base_dm_kwargs({"drug": "control"})
+        dm_kwargs["condition_state_key"] = "X_repr"
+        dm_kwargs["conditions_covariates"] = ["X_repr"]
+        model = _make_model(adata, dm_kwargs=dm_kwargs)
+        pred_adata = model.predict(adata, sort=True, control_values_dict={"drug": "control"})
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
-
-    def test_predict_control_values_on_condition_view_paired_disabled(self, adata):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
-        control_values_dict is ignored → all cells predicted."""
-        adata = self._setup_paired_data(adata, has_continuous=True)
-        SCFlow.register_adata(
-            adata,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-            control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=False,
-        )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
-        pred_adata = model.predict(
-            adata,
-            sort=True,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            control_values_dict={"drug": "control"},
-        )
-        assert pred_adata.n_obs == len(adata)
-        assert set(pred_adata.obs["drugA"].unique()) == {"control", "treatment"}
 
     def test_predict_control_values_invalid_control_raises(self, adata):
         """If control_values_dict contains a value not present in the data, an error should be raised."""
         adata = self._setup_paired_data(adata)
-        SCFlow.register_adata(
-            adata,
-            conditions={"drug": ("drugA",)},
-            conditions_reps={"drug": "drug"},
-            groups=("source_split",),
-            groups_reps={"source_split": "source_split"},
-        )
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata, dm_kwargs=self._base_dm_kwargs())
         with pytest.raises(KeyError, match="nonexistent"):
             model.predict(adata, sort=True, control_values_dict={"drug": "nonexistent"})
 
 
-class TestSCFlowPreprocessingIntegration:
-    """Verify that the preprocessing pipeline is used correctly by SCFlow."""
+class TestModelPreprocessingIntegration:
+    """Verify that the preprocessing pipeline is used correctly by Model."""
 
-    @pytest.fixture(autouse=True)
-    def _reset_class_state(self):
-        """Ensure SCFlow class attributes are clean before/after each test."""
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
-        yield
-        SCFlow._dm_cls = None
-        SCFlow._dims_registry = None
-        SCFlow._is_paired_setting_cls = False
-        SCFlow._view_on_condition_space_cls = False
-        SCFlow._condition_state_key_cls = None
-
-    def test_register_adata_fits_and_transforms(self, adata):
-        """register_adata must call get_data_dimensionalities with fit_preproc=True
-        and apply_transformations=True."""
+    def test_builder_fits_and_transforms(self, adata):
+        """ModelBuilder.from_adata must call get_data_dimensionalities with
+        fit_preproc=True and apply_transformations=True."""
         with patch.object(DataManager, "get_data_dimensionalities", return_value=MagicMock()) as mock_method:
-            SCFlow.register_adata(adata)
+            _make_model(adata)
         mock_method.assert_called_once()
         call_kwargs = mock_method.call_args.kwargs
         assert call_kwargs["fit_preproc"] is True
@@ -1161,8 +916,7 @@ class TestSCFlowPreprocessingIntegration:
 
     def test_train_applies_transformations_without_refitting(self, adata, mock_optim_manager):
         """train() calls compile_adata with apply_transformations=True and never re-fits."""
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata)
 
         with (
             patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
@@ -1180,8 +934,7 @@ class TestSCFlowPreprocessingIntegration:
 
     def test_predict_applies_transformations_without_refitting(self, adata):
         """predict() calls compile_adata with apply_transformations=True and never re-fits."""
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod)
+        model = _make_model(adata)
 
         with (
             patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy,
@@ -1196,8 +949,7 @@ class TestSCFlowPreprocessingIntegration:
 
     def test_train_with_validation_also_transforms(self, adata, mock_optim_manager):
         """Validation data must also be compiled with apply_transformations=True."""
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod)
+        model = _make_model(adata)
         val_adata = adata.copy()
 
         with patch.object(model._dm, "compile_adata", wraps=model._dm.compile_adata) as compile_spy:
@@ -1212,8 +964,7 @@ class TestSCFlowPreprocessingIntegration:
 
     def test_save_unloads_preprocessing_context(self, adata):
         """save() must call dm.unload_preproc() to unload external models."""
-        SCFlow.register_adata(adata)
-        model = SCFlow(method_cls=DummyMethod, backend="torch")
+        model = _make_model(adata)
 
         with patch.object(model.dm, "unload_preproc") as mock_unload, patch("cloudpickle.dump") as _:
             with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:

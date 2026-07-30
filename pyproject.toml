@@ -24,6 +24,7 @@ dependencies = [
   "anndata",
   "cloudpickle",
   "omegaconf",
+  "scfit",
   "scikit-learn",
   "session-info2",
   "tqdm",
@@ -73,6 +74,9 @@ optional-dependencies.torch = [
 urls.Documentation = "https://sc-flow-tools.readthedocs.io/"
 urls.Homepage = "https://github.com/lorenzo-consoli/sc-flow-tools"
 urls.Source = "https://github.com/lorenzo-consoli/sc-flow-tools"
+
+[tool.uv.sources]
+scfit = { path = "../scfit", editable = true }
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/sc_flow" ]

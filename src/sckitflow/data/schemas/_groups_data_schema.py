@@ -5,7 +5,7 @@ from anndata import AnnData
 
 from sckitflow._types import TargetCovariatesEncoderCls
 from sckitflow._utils import check_sequence_query_against_reference
-from sckitflow.data._group_encoders import GroupEncoder, GroupEncoderContext
+from sckitflow.data._group_encoders import GroupEncoder, GroupEncoderContext, GroupEncoderId, as_group_encoder
 from sckitflow.data._mixins import MappedArray
 from sckitflow.data.containers._categorical import CategoricalData
 from sckitflow.data.schemas._base_schema import StrictDataSchema
@@ -20,7 +20,7 @@ class GroupsDataSchema(StrictDataSchema):
         self,
         groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
-        groups_encoding: dict[str, GroupEncoder] | None = None,
+        groups_encoding: dict[str, GroupEncoder | GroupEncoderId] | None = None,
     ) -> None:
         """Initializes the data schema.
 
@@ -37,12 +37,17 @@ class GroupsDataSchema(StrictDataSchema):
         :param groups_encoding: Dictionary mapping each group column to a
             :class:`~sckitflow.data._group_encoders.GroupEncoder` (e.g. ``OneHot()``, ``Label()``,
             ``Affine(scale=2.0)``). Encoders are frozen dataclasses that build their fitted
-            transformer on demand, so they carry no callables and stay serializable. Defaults to `None`.
-        :type groups_encoding: class: `dict[str, GroupEncoder] | None`
+            transformer on demand, so they carry no callables and stay serializable. The string ids
+            ``"label"`` / ``"one-hot"`` are also accepted as shorthand for the parameter-free encoders and
+            are coerced to components here; pass an instance for anything parameterized. Defaults to `None`.
+        :type groups_encoding: class: `dict[str, GroupEncoder | GroupEncoderId] | None`
         """
         self._groups = [] if groups is None else groups
         self._groups_reps = {} if groups_reps is None else groups_reps
-        self._groups_encoders: dict[str, GroupEncoder] = {} if groups_encoding is None else groups_encoding
+        # Strings are accepted at this boundary only -- everything downstream holds components.
+        self._groups_encoders: dict[str, GroupEncoder] = (
+            {} if groups_encoding is None else {col: as_group_encoder(enc) for col, enc in groups_encoding.items()}
+        )
         super().__init__()
 
     def _verify_args(self) -> None:
@@ -57,10 +62,6 @@ class GroupsDataSchema(StrictDataSchema):
         if len(shared_keys):
             msg = "Each group column should have only one representation"
             raise ValueError(msg)
-        for col, enc in self._groups_encoders.items():
-            if not isinstance(enc, GroupEncoder):
-                msg = f"groups_encoding[{col!r}] must be a GroupEncoder instance, got {type(enc).__name__}."
-                raise ValueError(msg)
 
     def _verify_groups(self, adata: AnnData) -> None:
         """Verifies the :attr:`self.groups` attribute on the input data.

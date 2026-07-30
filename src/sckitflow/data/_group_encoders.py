@@ -19,6 +19,7 @@ fails loudly rather than producing quietly wrong codes.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Literal
 
 import numpy as np
 from scfit.registry import Component
@@ -26,7 +27,20 @@ from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncod
 
 from sckitflow._types import TargetCovariatesEncoderCls
 
-__all__ = ["GroupEncoder", "GroupEncoderContext", "Identity", "Label", "OneHot", "Affine", "Log1p"]
+__all__ = [
+    "GroupEncoder",
+    "GroupEncoderContext",
+    "GroupEncoderId",
+    "Identity",
+    "Label",
+    "OneHot",
+    "Affine",
+    "Log1p",
+    "as_group_encoder",
+]
+
+#: String ids accepted at the public interfaces as a shorthand for the parameter-free encoders.
+GroupEncoderId = Literal["label", "one-hot"]
 
 
 @dataclass(frozen=True)
@@ -80,9 +94,7 @@ class OneHot(GroupEncoder, type_id="group_encoder.one_hot"):
         # handle_unknown="error" is sklearn's default; set explicitly because pinning a vocabulary makes
         # "what happens to an unlisted category" a load-bearing decision -- it must fail loudly.
         categories = "auto" if self.categories is None else [list(self.categories)]
-        return OneHotEncoder(categories=categories, handle_unknown="error").fit(
-            np.asarray(context.data).reshape(-1, 1)
-        )
+        return OneHotEncoder(categories=categories, handle_unknown="error").fit(np.asarray(context.data).reshape(-1, 1))
 
 
 @dataclass(frozen=True)
@@ -122,3 +134,34 @@ class Affine(GroupEncoder, type_id="group_encoder.affine"):
             inverse_func=lambda x: (x - b) / s,
             check_inverse=False,
         ).fit(context.data)
+
+
+#: The string ids, mapped to their component equivalent. Deliberately only the parameter-free encoders:
+#: the legacy ``"functional"`` id carried its transform in the separate ``groups_encoding_transform_fn``
+#: callables, so with those gone it has no meaning as a string -- pass :class:`Identity`, :class:`Log1p`
+#: or :class:`Affine` explicitly instead.
+_ENCODER_BY_ID: dict[str, type[GroupEncoder]] = {
+    "label": Label,
+    "one-hot": OneHot,
+}
+
+
+def as_group_encoder(value: GroupEncoder | GroupEncoderId) -> GroupEncoder:
+    """Coerces a string encoder id into a :class:`GroupEncoder`, passing instances through.
+
+    Strings are a convenience accepted only at the public interfaces (``DataManager`` /
+    ``GroupsDataSchema``); everything downstream stores components. Only the parameter-free encoders have
+    string ids -- reach for the instance (``Affine(scale=2.0)``, ``OneHot(categories=(...))``) when you need
+    parameters or a pinned vocabulary.
+
+    :param value: A :class:`GroupEncoder` instance, or one of ``"label"`` / ``"one-hot"``.
+    :type value: class: `GroupEncoder | GroupEncoderId`
+    """
+    if isinstance(value, GroupEncoder):
+        return value
+    try:
+        encoder_cls = _ENCODER_BY_ID[value]
+    except (KeyError, TypeError):
+        msg = f"Group encoder {value!r} not available. Pass a GroupEncoder instance or one of {sorted(_ENCODER_BY_ID)}."
+        raise ValueError(msg) from None
+    return encoder_cls()

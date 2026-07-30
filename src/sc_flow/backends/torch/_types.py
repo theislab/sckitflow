@@ -94,7 +94,7 @@ class SolverConfig(NamedTuple):
     remaining_kwargs: dict[str, Any]
 
 
-@dataclass
+@dataclass(frozen=True)
 class StepData:
     target_state: torch.Tensor | None = None
     target_coupling_lin: torch.Tensor | None = None
@@ -108,7 +108,7 @@ class StepData:
     source_group_data: dict[str, torch.Tensor] | None = None
 
 
-@dataclass
+@dataclass(frozen=True)
 class PredictionData(PredictionData):
     """Stores prediction data for Flow Models
 

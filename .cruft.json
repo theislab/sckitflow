@@ -4,13 +4,13 @@
   "checkout": null,
   "context": {
     "cookiecutter": {
-      "project_name": "sc-flow-tools",
-      "package_name": "sc_flow",
+      "project_name": "sckitflow",
+      "package_name": "sckitflow",
       "project_description": "Flow Matching tool-box for Single Cell Data.",
       "author_full_name": "Lorenzo Consoli",
       "author_email": "lorenzo.consoli@helmholtz-munich.de",
-      "github_user": "lorenzo-consoli",
-      "github_repo": "sc-flow-tools",
+      "github_user": "theislab",
+      "github_repo": "sckitflow",
       "license": "BSD 3-Clause License",
       "ide_integration": false,
       "_copy_without_render": [

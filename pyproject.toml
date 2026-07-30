@@ -3,7 +3,7 @@ build-backend = "hatchling.build"
 requires = [ "hatchling" ]
 
 [project]
-name = "sc-flow-tools"
+name = "sckitflow"
 version = "0.0.1"
 description = "Flow Matching tool-box for Single Cell Data."
 readme = "README.md"
@@ -14,19 +14,25 @@ maintainers = [
 authors = [
   { name = "Lorenzo Consoli" },
 ]
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 classifiers = [
   "Programming Language :: Python :: 3 :: Only",
-  "Programming Language :: Python :: 3.10",
-  "Programming Language :: Python :: 3.11",
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
   "anndata",
-  # for debug logging (referenced from the issue template)
+  "cloudpickle",
+  "omegaconf",
+  "scikit-learn",
   "session-info2",
+  "tqdm",
+  "wandb",
 ]
+optional-dependencies.all = [
+  "torch",
+]
+
 optional-dependencies.dev = [
   "pre-commit",
   "twine>=4.0.2",
@@ -49,15 +55,27 @@ optional-dependencies.doc = [
 ]
 optional-dependencies.test = [
   "coverage",
+  "pot",
   "pytest",
+  "pytest-cov",
+  "scanpy",
+  "torch",
+  "torchdiffeq",
+  "torchsde",
+]
+optional-dependencies.torch = [
+  "pot",         # noqa
+  "torch",
+  "torchdiffeq",
+  "torchsde",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
-urls.Documentation = "https://sc-flow-tools.readthedocs.io/"
-urls.Homepage = "https://github.com/lorenzo-consoli/sc-flow-tools"
-urls.Source = "https://github.com/lorenzo-consoli/sc-flow-tools"
+urls.Documentation = "https://sckitflow.readthedocs.io/"
+urls.Homepage = "https://github.com/theislab/sckitflow"
+urls.Source = "https://github.com/theislab/sckitflow"
 
 [tool.hatch.build.targets.wheel]
-packages = [ "src/sc_flow" ]
+packages = [ "src/sckitflow" ]
 
 [tool.hatch.envs.default]
 installer = "uv"
@@ -72,7 +90,7 @@ scripts.clean = "git clean -fdX -- {args:docs}"
 # Test the lowest and highest supported Python versions with normal deps
 [[tool.hatch.envs.hatch-test.matrix]]
 deps = [ "stable" ]
-python = [ "3.10", "3.13" ]
+python = [ "3.12", "3.13" ]
 
 # Test the newest supported Python version also with pre-release deps
 [[tool.hatch.envs.hatch-test.matrix]]
@@ -137,7 +155,7 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = [ "sc_flow" ]
+source = [ "sckitflow" ]
 omit = [
   "**/test_*.py",
 ]

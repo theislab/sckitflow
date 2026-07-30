@@ -24,7 +24,6 @@ dependencies = [
   "anndata",
   "cloudpickle",
   "omegaconf",
-  "scfit>=0.0.4",
   "scikit-learn",
   "session-info2",
   "tqdm",

@@ -1,12 +1,12 @@
-from collections.abc import Collection, Mapping
+from collections.abc import Callable, Collection, Mapping
 
 import pandas as pd
 from anndata import AnnData
 
-from sckitflow._types import TargetCovariatesEncoderCls
+from sckitflow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
 from sckitflow._utils import check_sequence_query_against_reference
-from sckitflow.data._group_encoders import GroupEncoder, GroupEncoderContext
 from sckitflow.data._mixins import MappedArray
+from sckitflow.data._utils import get_covariates_encoders_from_dict
 from sckitflow.data.containers._categorical import CategoricalData
 from sckitflow.data.schemas._base_schema import StrictDataSchema
 
@@ -20,7 +20,9 @@ class GroupsDataSchema(StrictDataSchema):
         self,
         groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
-        groups_encoding: dict[str, GroupEncoder] | None = None,
+        groups_encoding: dict[str, TargetCovariatesEncodingId] | None = None,
+        groups_encoding_transform_fn: dict[str, Callable] | None = None,
+        groups_encoding_inverse_transform_fn: dict[str, Callable] | None = None,
     ) -> None:
         """Initializes the data schema.
 
@@ -34,33 +36,49 @@ class GroupsDataSchema(StrictDataSchema):
             of the corresponding column in `.obs`. Defaults to `None`.
         :type groups_reps: class: `dict[str, str] | None`
 
-        :param groups_encoding: Dictionary mapping each group column to a
-            :class:`~sckitflow.data._group_encoders.GroupEncoder` (e.g. ``OneHot()``, ``Label()``,
-            ``Affine(scale=2.0)``). Encoders are frozen dataclasses that build their fitted
-            transformer on demand, so they carry no callables and stay serializable. Defaults to `None`.
-        :type groups_encoding: class: `dict[str, GroupEncoder] | None`
+        :param groups_encoding: Dictionary mapping column identifiers in :param: `groups`
+            to the corresponding label indicating the transformation to apply.
+            Defaults to `None`.
+        :type groups_encoding: class: `dict[str, TargetCovariatesEncodingId] | None`
+
+        :param groups_encoding_transform_fn: Dictionary mapping column identifiers in :param: `groups`
+            to the corresponding function used to define functional tranformations.
+            This is only used for column identifiers that appear in :param: `groups_encoding` and whose
+            corresponding value is `"fuctional"`. Defaults to `None`, in which case it will be set
+            to the identity function.
+        :type groups_encoding_transform_fn: class: `dict[str, Callable] | None`
+
+        :param groups_encoding_inverse_transform_fn: Dictionary mapping column identifiers in :param: `groups`
+            to the corresponding function used to define inverse functional tranformations.
+            This is only used for column identifiers that appear in :param: `groups_encoding` and whose
+            corresponding value is `"fuctional"`. Defaults to `None`, in which case it will be set
+            to the identity function.
+        :type groups_encoding_inverse_transform_fn: class: `dict[str, Callable] | None`
         """
         self._groups = [] if groups is None else groups
         self._groups_reps = {} if groups_reps is None else groups_reps
-        self._groups_encoders: dict[str, GroupEncoder] = {} if groups_encoding is None else groups_encoding
+        self._groups_encoding = {} if groups_encoding is None else groups_encoding
+        self._groups_encoding_transform_fn = (
+            {} if groups_encoding_transform_fn is None else groups_encoding_transform_fn
+        )
+        self._groups_encoding_inverse_transform_fn = (
+            {} if groups_encoding_inverse_transform_fn is None else groups_encoding_inverse_transform_fn
+        )
         super().__init__()
 
     def _verify_args(self) -> None:
         """Verifies the validity of the arguments set at initialization."""
         check_sequence_query_against_reference(
             self._groups,
-            set(self._groups_reps.keys()).union(self._groups_encoders.keys()),
+            set(self._groups_reps.keys()).union(set(self._groups_encoding.keys())),
             allow_missing_from_query=False,
             allow_missing_from_reference=False,
         )
-        shared_keys = set(self._groups_reps.keys()).intersection(self._groups_encoders.keys())
+        shared_keys = set(self._groups_reps.keys()).intersection(self._groups_encoding.keys())
         if len(shared_keys):
             msg = "Each group column should have only one representation"
             raise ValueError(msg)
-        for col, enc in self._groups_encoders.items():
-            if not isinstance(enc, GroupEncoder):
-                msg = f"groups_encoding[{col!r}] must be a GroupEncoder instance, got {type(enc).__name__}."
-                raise ValueError(msg)
+        self._check_is_valid_encoder_id_dict(self._groups_encoding)
 
     def _verify_groups(self, adata: AnnData) -> None:
         """Verifies the :attr:`self.groups` attribute on the input data.
@@ -119,11 +137,12 @@ class GroupsDataSchema(StrictDataSchema):
         """
         covs_df_dict: pd.DataFrame = self._get_covs_df(adata)
         repr_dict: dict[str, MappedArray] = self._get_covs_repr_dict(adata)
-        # Each encoder fits its own transformer from the column values at fit time.
-        encoders_dict: Mapping[str, TargetCovariatesEncoderCls] = {
-            col: enc.build(GroupEncoderContext(covs_df_dict.loc[:, col].values))
-            for col, enc in self._groups_encoders.items()
-        }
+        encoders_dict: Mapping[str, TargetCovariatesEncoderCls] = get_covariates_encoders_from_dict(
+            self._groups_encoding,
+            covs_df_dict,
+            fn_dict=self._groups_encoding_transform_fn,
+            inverse_fn_dict=self._groups_encoding_inverse_transform_fn,
+        )
         return CategoricalData.from_pandas(
             covs_df_dict,
             repr_dict=repr_dict,
@@ -142,9 +161,19 @@ class GroupsDataSchema(StrictDataSchema):
         return self._groups_reps
 
     @property
-    def groups_encoders(self) -> dict[str, GroupEncoder]:
-        """Exposes the `groups_encoding` encoders set at initialization."""
-        return self._groups_encoders
+    def groups_encoding(self) -> dict[str, TargetCovariatesEncodingId]:
+        """Exposes to `groups_encoding` parameter set at initialization."""
+        return self._groups_encoding
+
+    @property
+    def groups_encoding_transform_fn(self) -> dict[str, Callable]:
+        """Exposes to `groups_encoding_transform_fn` parameter set at initialization."""
+        return self._groups_encoding_transform_fn
+
+    @property
+    def groups_encoding_inverse_transform_fn(self) -> dict[str, Callable]:
+        """Exposes to `groups_encoding_inverse_transform_fn` parameter set at initialization."""
+        return self._groups_encoding_inverse_transform_fn
 
     @property
     def categorical_reps_map(self) -> dict[str, str]:

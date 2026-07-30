@@ -7,9 +7,9 @@ import pandas as pd
 import pytest
 from anndata import AnnData
 
-from sc_flow import Model, ModelBuilder
-from sc_flow.data._manager import DataManager
-from sc_flow.methods._methods import BaseMethod
+from sckitflow import Model, ModelBuilder
+from sckitflow.data._manager import DataManager
+from sckitflow.methods._methods import BaseMethod
 
 
 # -----------------------------------------------------------------------------
@@ -73,7 +73,7 @@ class DummyMethod(BaseMethod):
 
     def extract_state_data(self, matched_distr):
         """Return dummy StateData from the target state of the matched distribution."""
-        from sc_flow.data.containers._state import StateData
+        from sckitflow.data.containers._state import StateData
 
         # Dummy state: zeros with correct number of observations and feature dimension
         n_obs = len(matched_distr.target_distr.ann_df)
@@ -111,7 +111,7 @@ def _make_model(adata: AnnData, method_cls=DummyMethod, dm_kwargs=None, **method
 @pytest.fixture
 def mock_optim_manager():
     """Prevent real optimizer creation in tests that don't need real training."""
-    with patch("sc_flow.backends.torch.methods._opt.TorchOptimizationManager.from_config") as mock:
+    with patch("sckitflow.backends.torch.methods._opt.TorchOptimizationManager.from_config") as mock:
         mock_manager = MagicMock()
         mock_manager.step = MagicMock()
         mock.return_value = mock_manager
@@ -169,13 +169,13 @@ class TestModel:
     # --------------------------------------------------------------------------
     def test_method_id_resolves_to_registered_class(self, adata: AnnData, monkeypatch):
         mock_registry = {"cfm": DummyMethod}
-        monkeypatch.setattr("sc_flow.backends.torch.methods.METHODS_REGISTRY", mock_registry)
+        monkeypatch.setattr("sckitflow.backends.torch.methods.METHODS_REGISTRY", mock_registry)
         model = _make_model(adata, method_cls=None, method_id="cfm")
         assert isinstance(model.method, DummyMethod)
 
     def test_unsupported_method_id_raises_error(self, adata: AnnData, monkeypatch):
         mock_registry = {"cfm": DummyMethod}
-        monkeypatch.setattr("sc_flow.backends.torch.methods.METHODS_REGISTRY", mock_registry)
+        monkeypatch.setattr("sckitflow.backends.torch.methods.METHODS_REGISTRY", mock_registry)
         with pytest.raises(KeyError, match="not supported"):
             _make_model(adata, method_cls=None, method_id="does_not_exist")
 
@@ -199,7 +199,7 @@ class TestModel:
     # --------------------------------------------------------------------------
     def test_train_calls_trainer_and_sets_mode(self, adata: AnnData, mock_optim_manager):
         model = _make_model(adata)
-        with patch("sc_flow._model.Trainer") as mock_trainer_cls:
+        with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
             set_train_mode_spy = MagicMock(wraps=model.method.set_train_mode)
             model.method.set_train_mode = set_train_mode_spy
@@ -217,7 +217,7 @@ class TestModel:
 
     def test_train_with_validation_samplers(self, adata: AnnData, mock_optim_manager):
         model = _make_model(adata)
-        with patch("sc_flow._model.Trainer") as mock_trainer_cls:
+        with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
             val_adatas = {"val1": adata, "val2": adata}
             model.train(adata, val_adatas_dict=val_adatas, n_train_steps=5, sort=True)
@@ -286,7 +286,7 @@ class TestModel:
         assert isinstance(model.method, BaseMethod)
         assert model.trainer is None
         assert model.condition_state_key is None
-        with patch("sc_flow._model.Trainer") as _mock_trainer_cls:
+        with patch("sckitflow._model.Trainer") as _mock_trainer_cls:
             model.train(adata, n_train_steps=1, sort=True)
         assert model.trainer is not None
 
@@ -332,7 +332,7 @@ class TestModel:
                 super().__init__(dims_registry, dm, *args, **kwargs)
 
             def extract_state_data(self, matched_distr):
-                from sc_flow.data.containers._state import StateData
+                from sckitflow.data.containers._state import StateData
 
                 n_obs = len(matched_distr.target_distr.ann_df)
                 n_feat = len(self._dims_registry.feature_names)
@@ -403,7 +403,7 @@ class TestModelConditionSpace:
         mock_compile = MagicMock(wraps=original_compile)
         model._dm.compile_adata = mock_compile
 
-        with patch("sc_flow._model.Trainer") as mock_trainer_cls:
+        with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
             model.train(adata, n_train_steps=10, train_batch_size=32, sort=True)
 

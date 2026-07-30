@@ -1,7 +1,7 @@
 import torch
 from torch import Tensor, nn
 
-from sc_flow.backends.torch.nn import BaseVelocityField
+from sckitflow.backends.torch.nn import BaseVelocityField
 
 
 class DummyVelocityField(BaseVelocityField):

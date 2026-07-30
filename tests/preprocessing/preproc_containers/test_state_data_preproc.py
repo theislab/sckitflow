@@ -2,13 +2,13 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sc_flow.data.containers._categorical import CategoricalData
-from sc_flow.data.containers._coupling import CouplingData
-from sc_flow.data.containers._distribution import DistributionData
-from sc_flow.data.containers._mixed_type import MixedTypeData
-from sc_flow.data.containers._state import StateData
-from sc_flow.preprocessing.preproc_containers._state_data_preproc import StatePreprocessing
-from sc_flow.preprocessing.transforms._base import BaseTransform, TransformParams
+from sckitflow.data.containers._categorical import CategoricalData
+from sckitflow.data.containers._coupling import CouplingData
+from sckitflow.data.containers._distribution import DistributionData
+from sckitflow.data.containers._mixed_type import MixedTypeData
+from sckitflow.data.containers._state import StateData
+from sckitflow.preprocessing.preproc_containers._state_data_preproc import StatePreprocessing
+from sckitflow.preprocessing.transforms._base import BaseTransform, TransformParams
 
 
 # -----------------------------------------------------------------------------

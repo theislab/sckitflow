@@ -2,8 +2,8 @@ import numpy as np
 import pytest
 from anndata import AnnData
 
-from sc_flow.data.containers import CouplingData, StateData
-from sc_flow.data.schemas import CouplingDataSchema
+from sckitflow.data.containers import CouplingData, StateData
+from sckitflow.data.schemas import CouplingDataSchema
 
 invalid_key = "invalid_key"
 

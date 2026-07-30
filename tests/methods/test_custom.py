@@ -3,7 +3,7 @@ from unittest.mock import Mock, patch
 import pytest
 import torch  # needed for the raw tensor in predict wrapper
 
-from sc_flow.methods._custom import register_method
+from sckitflow.methods._custom import register_method
 
 
 # -----------------------------------------------------------------------------
@@ -26,7 +26,7 @@ class DummyTorchGenerativeFlow:
 def mock_torch_registry():
     """Provide a mock METHODS_REGISTRY dictionary."""
     registry = {}
-    with patch("sc_flow.backends.torch.methods.METHODS_REGISTRY", registry):
+    with patch("sckitflow.backends.torch.methods.METHODS_REGISTRY", registry):
         yield registry
 
 
@@ -34,8 +34,8 @@ def mock_torch_registry():
 def mock_torch_base_classes():
     """Patch the base classes with dummy classes that accept arguments."""
     with (
-        patch("sc_flow.backends.torch.methods._base.TorchBaseMethod", DummyTorchBaseMethod),
-        patch("sc_flow.backends.torch.methods._base.TorchGenerativeFlow", DummyTorchGenerativeFlow),
+        patch("sckitflow.backends.torch.methods._base.TorchBaseMethod", DummyTorchBaseMethod),
+        patch("sckitflow.backends.torch.methods._base.TorchGenerativeFlow", DummyTorchGenerativeFlow),
     ):
         yield DummyTorchBaseMethod, DummyTorchGenerativeFlow
 
@@ -49,7 +49,7 @@ def mock_prediction_data():
             self.samples = samples
             self.traj = traj
 
-    with patch("sc_flow.backends.torch._types.PredictionData", DummyPredictionData):
+    with patch("sckitflow.backends.torch._types.PredictionData", DummyPredictionData):
         yield DummyPredictionData
 
 

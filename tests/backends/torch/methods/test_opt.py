@@ -1,8 +1,8 @@
 import torch
 
-from sc_flow.backends.torch.methods._opt import TorchOptimizationManager
-from sc_flow.backends.torch.nn._modules import BaseModule
-from sc_flow.methods._opt import OptimConfig
+from sckitflow.backends.torch.methods._opt import TorchOptimizationManager
+from sckitflow.backends.torch.nn._modules import BaseModule
+from sckitflow.methods._opt import OptimConfig
 
 
 # -----------------------------------------------------------------------------

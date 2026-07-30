@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from sc_flow.data.grouping import QueryFactory
+from sckitflow.data.grouping import QueryFactory
 
 invalid_level_name = "invalid_level"
 

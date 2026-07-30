@@ -6,7 +6,7 @@ from unittest.mock import patch
 import cloudpickle
 import pytest
 
-from sc_flow.external._context import ExternalModelContext
+from sckitflow.external._context import ExternalModelContext
 
 
 # -----------------------------------------------------------------------------

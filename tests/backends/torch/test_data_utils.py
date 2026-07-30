@@ -4,11 +4,11 @@ import numpy as np
 import pytest
 import torch
 
-from sc_flow.backends.torch import _data_utils as data_utils
-from sc_flow.backends.torch._types import StepData
-from sc_flow.data._composite import MatchedDistributions
-from sc_flow.data._mixins import BatchMixin
-from sc_flow.data.containers import CouplingData, DistributionData, StateData
+from sckitflow.backends.torch import _data_utils as data_utils
+from sckitflow.backends.torch._types import StepData
+from sckitflow.data._composite import MatchedDistributions
+from sckitflow.data._mixins import BatchMixin
+from sckitflow.data.containers import CouplingData, DistributionData, StateData
 
 
 @pytest.fixture

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from sc_flow.data.containers import CategoricalData
+from sckitflow.data.containers import CategoricalData
 
 
 # Dummy encoder that returns a fixed 2D array of ones (shape: (n_samples, 1))

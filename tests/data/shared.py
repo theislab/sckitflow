@@ -4,10 +4,10 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
-from sc_flow._types import TargetCovariatesEncodingId
-from sc_flow.data._composite import MatchedData, NestedData
-from sc_flow.data._mixins import BatchMixin, MappedLevelIndex
-from sc_flow.data.containers import CategoricalData, CouplingData, DistributionData, MixedTypeData, StateData
+from sckitflow._types import TargetCovariatesEncodingId
+from sckitflow.data._composite import MatchedData, NestedData
+from sckitflow.data._mixins import BatchMixin, MappedLevelIndex
+from sckitflow.data.containers import CategoricalData, CouplingData, DistributionData, MixedTypeData, StateData
 
 __all__ = [
     "verify_repr_shape",

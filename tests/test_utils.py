@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 import pytest
 
-from sc_flow._utils import (
+from sckitflow._utils import (
     get_fn_args_names_and_types,
     get_fn_kwargs_names_and_types,
     verify_fn_args,

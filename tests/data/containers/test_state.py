@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from sc_flow.data.containers import StateData
+from sckitflow.data.containers import StateData
 
 
 class TestStateData:

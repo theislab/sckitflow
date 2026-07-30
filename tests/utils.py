@@ -1,4 +1,4 @@
-from sc_flow._runtime import (
+from sckitflow._runtime import (
     raise_runtime_error_on_backend_failed_import,
     raise_runtime_error_on_backend_not_supported,
     set_jax_import_failed,
@@ -8,18 +8,18 @@ from sc_flow._runtime import (
 
 def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):
     # set_backend(backend)
-    from sc_flow._runtime import BACKEND
+    from sckitflow._runtime import BACKEND
 
     print(BACKEND)
     if BACKEND == "torch":
         try:
-            from sc_flow.backends.torch.nn._modules import MLP
+            from sckitflow.backends.torch.nn._modules import MLP
         except (ImportError, ModuleNotFoundError):
             set_torch_import_failed(True)
             raise_runtime_error_on_backend_failed_import()
     elif BACKEND == "jax":
         try:
-            from sc_flow.backends.jax.nn._modules import MLP
+            from sckitflow.backends.jax.nn._modules import MLP
         except (ImportError, ModuleNotFoundError):
             set_jax_import_failed(True)
             raise_runtime_error_on_backend_failed_import()
@@ -31,8 +31,8 @@ def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):
         from torch.nn import Module
         from torch.nn.functional import mse_loss
 
-        from sc_flow.backends.torch.nn._modules import MLP
-        from sc_flow.backends.torch.probability_paths import LinearGaussianProbabilityPath
+        from sckitflow.backends.torch.nn._modules import MLP
+        from sckitflow.backends.torch.probability_paths import LinearGaussianProbabilityPath
 
         class MethodClassTorch(Module):
             def __init__(self, network, prob_path, time_sampler) -> None:
@@ -73,8 +73,8 @@ def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):
         from flax import linen as nn
         from jax import Array, random
 
-        from sc_flow.backends.jax.nn._modules import MLP
-        from sc_flow.backends.jax.probability_paths._probability_paths import LinearGaussianProbabilityPath
+        from sckitflow.backends.jax.nn._modules import MLP
+        from sckitflow.backends.jax.probability_paths._probability_paths import LinearGaussianProbabilityPath
 
         class MethodClassJAX(nn.Module):
             def __init__(

@@ -3,7 +3,7 @@ from typing import TYPE_CHECKING, Literal
 import pytest
 
 if TYPE_CHECKING:
-    from sc_flow.backends.torch.probability_paths._probability_paths import (
+    from sckitflow.backends.torch.probability_paths._probability_paths import (
         BaseProbabilityPath as TorchBaseProbabilityPath,
     )
 

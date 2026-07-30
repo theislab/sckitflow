@@ -1,8 +1,8 @@
 import pytest
 import torch
 
-from sc_flow._runtime import set_backend
-from sc_flow.backends.torch.probability_paths._probability_paths import (
+from sckitflow._runtime import set_backend
+from sckitflow.backends.torch.probability_paths._probability_paths import (
     BaseProbabilityPath,
     LinearDiracProbabilityPath,
     LinearGaussianProbabilityPath,

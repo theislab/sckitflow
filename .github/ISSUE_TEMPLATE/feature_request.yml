@@ -1,5 +1,5 @@
 name: Feature request
-description: Propose a new feature for sc-flow-tools
+description: Propose a new feature for sckitflow
 labels: enhancement
 body:
   - type: textarea

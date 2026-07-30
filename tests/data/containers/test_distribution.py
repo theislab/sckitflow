@@ -3,8 +3,8 @@ import pandas as pd
 import pytest
 from anndata import AnnData
 
-from sc_flow.data._mixins import BatchMixin
-from sc_flow.data.containers import (
+from sckitflow.data._mixins import BatchMixin
+from sckitflow.data.containers import (
     CategoricalData,
     CouplingData,
     DistributionData,

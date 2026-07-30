@@ -19,7 +19,7 @@ class DriftWrapperVF:
 
 @pytest.fixture
 def SDESolver():
-    from sc_flow.backends.torch.solvers._sde_solver import SDESolver
+    from sckitflow.backends.torch.solvers._sde_solver import SDESolver
 
     return SDESolver
 

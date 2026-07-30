@@ -17,9 +17,9 @@ from tests.data.conftest import (
     _make_obs,
 )
 
-from sc_flow._constants import CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
-from sc_flow.data.grouping._indexer import HierarchicalIndexer
-from sc_flow.data.grouping._selector import IndexSelector
+from sckitflow._constants import CONDITION_LEVEL_NAME, GROUP_LEVEL_NAME
+from sckitflow.data.grouping._indexer import HierarchicalIndexer
+from sckitflow.data.grouping._selector import IndexSelector
 
 
 def _build(obs: pd.DataFrame, groups_cols, conditions_cols):

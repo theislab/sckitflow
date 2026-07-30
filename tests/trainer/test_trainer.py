@@ -4,9 +4,9 @@ from unittest.mock import MagicMock, Mock, patch
 import numpy as np
 import pandas as pd
 
-from sc_flow.methods._methods import BaseMethod
-from sc_flow.methods._opt import BaseOptManager
-from sc_flow.trainer._trainer import Trainer
+from sckitflow.methods._methods import BaseMethod
+from sckitflow.methods._opt import BaseOptManager
+from sckitflow.trainer._trainer import Trainer
 
 
 # -----------------------------------------------------------------------------
@@ -164,7 +164,7 @@ class TestTrainer:
         assert isinstance(result["val1"], pd.DataFrame)
         assert len(result["val1"]) == 1
 
-    @patch("sc_flow.trainer._trainer.tqdm")
+    @patch("sckitflow.trainer._trainer.tqdm")
     def test_train_calls_callbacks(self, mock_tqdm):
         mock_pbar = MagicMock()
         mock_pbar.__iter__.return_value = range(3)
@@ -183,7 +183,7 @@ class TestTrainer:
         assert len(callback.train_step_calls) == 3
         assert len(callback.train_end_calls) == 1
 
-    @patch("sc_flow.trainer._trainer.tqdm")
+    @patch("sckitflow.trainer._trainer.tqdm")
     def test_train_with_validation(self, mock_tqdm):
         mock_pbar = MagicMock()
         mock_pbar.__iter__.return_value = range(5)

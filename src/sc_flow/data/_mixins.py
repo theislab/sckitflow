@@ -1,17 +1,17 @@
 from collections.abc import Callable, Collection, Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Generic
 
 import numpy as np
 
-from sc_flow.data._abc import DataT, DataTree, DataTreeT
+from sc_flow.data._abc import DataT, DataTree, DataTreeT, KeyT
 
-__all__ = ["MappedTree", "MappedLevelIndex", "MappedArray", "BatchMixin"]
+__all__ = ["MappedTree", "MappedLevelIndex", "MappedArray", "BatchMixin", "NumpyMixin"]
 
 
 @dataclass(frozen=True)
-class MappedTree(DataTree):
+class MappedTree(DataTree[DataT], Generic[KeyT, DataT]):
     """"""  # noqa
 
     _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = str
@@ -126,7 +126,7 @@ class MappedArray(MappedTree):
 
 
 @dataclass(frozen=True)
-class BatchMixin(MappedArray):
+class BatchMixin(MappedTree[KeyT, DataT], Generic[KeyT, DataT]):
     """"""  # noqa
 
     _MIN_DIMS: ClassVar[int] = 1
@@ -153,8 +153,8 @@ class BatchMixin(MappedArray):
 
     def _verify_shape(
         self,
-        key: str,
-        data: np.ndarray,
+        key: KeyT,
+        data: DataT,
     ) -> None:
         """"""  # noqa
         # we need at least self._minimum_dims + 1 dimensions
@@ -187,3 +187,7 @@ class BatchMixin(MappedArray):
             reference_array = next(iter(self.mapping.values()))
             return reference_array.shape[: self._MIN_DIMS]
         return []
+
+
+class NumpyMixin(BatchMixin[str, np.ndarray]):
+    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = np.ndarray | np.generic

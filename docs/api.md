@@ -3,8 +3,8 @@
 ## Preprocessing
 
 ```{eval-rst}
-.. module:: sc_flow.pp
-.. currentmodule:: sc_flow
+.. module:: sckitflow.pp
+.. currentmodule:: sckitflow
 
 .. autosummary::
     :toctree: generated
@@ -16,8 +16,8 @@
 ## Tools
 
 ```{eval-rst}
-.. module:: sc_flow.tl
-.. currentmodule:: sc_flow
+.. module:: sckitflow.tl
+.. currentmodule:: sckitflow
 
 .. autosummary::
     :toctree: generated
@@ -28,8 +28,8 @@
 ## Plotting
 
 ```{eval-rst}
-.. module:: sc_flow.pl
-.. currentmodule:: sc_flow
+.. module:: sckitflow.pl
+.. currentmodule:: sckitflow
 
 .. autosummary::
     :toctree: generated

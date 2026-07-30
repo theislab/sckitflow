@@ -5,7 +5,7 @@ from sklearn.metrics import pairwise_distances
 
 pytest.importorskip("torchmetrics")
 
-from sc_flow.backends.torch.metrics._metrics import EnergyDistance, MaximumMeanDiscrepancy
+from sckitflow.backends.torch.metrics._metrics import EnergyDistance, MaximumMeanDiscrepancy
 
 
 def _compute_energy_distance_sklearn(pred: np.ndarray, target: np.ndarray) -> float:

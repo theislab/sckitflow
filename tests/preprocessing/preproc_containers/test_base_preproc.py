@@ -1,9 +1,9 @@
 import numpy as np
 import pytest
 
-from sc_flow.data.containers import DistributionData, StateData
-from sc_flow.preprocessing.preproc_containers._base_preproc import BasePreprocessing
-from sc_flow.preprocessing.transforms._base import BaseTransform, TransformParams
+from sckitflow.data.containers import DistributionData, StateData
+from sckitflow.preprocessing.preproc_containers._base_preproc import BasePreprocessing
+from sckitflow.preprocessing.transforms._base import BaseTransform, TransformParams
 
 
 # -----------------------------------------------------------------------------

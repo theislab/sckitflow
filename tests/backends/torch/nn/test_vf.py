@@ -4,9 +4,9 @@ from typing import Any
 import pytest
 import torch
 
-from sc_flow._types import TimeFeaturesId
-from sc_flow.backends.torch._types import TTimeFeaturesFn
-from sc_flow.backends.torch.nn._vf import (
+from sckitflow._types import TimeFeaturesId
+from sckitflow.backends.torch._types import TTimeFeaturesFn
+from sckitflow.backends.torch.nn._vf import (
     MLPVelocity,
 )
 

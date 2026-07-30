@@ -1,8 +1,8 @@
 import pytest
 
-pytest.importorskip("sc_flow.dataset.toy_data.dummy")
+pytest.importorskip("sckitflow.dataset.toy_data.dummy")
 
-from sc_flow.dataset.toy_data import dummy
+from sckitflow.dataset.toy_data import dummy
 
 
 def test_blobs():

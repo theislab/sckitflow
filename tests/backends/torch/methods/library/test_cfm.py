@@ -4,8 +4,8 @@ import numpy as np
 import pytest
 import torch
 
-from sc_flow.backends.torch._types import PredictionData, StepData
-from sc_flow.backends.torch.methods.library._cfm import CFM
+from sckitflow.backends.torch._types import PredictionData, StepData
+from sckitflow.backends.torch.methods.library._cfm import CFM
 
 
 # -----------------------------------------------------------------------------
@@ -68,7 +68,7 @@ class TestCFM:
         assert cfm_instance._noise_sampler is not None
         assert cfm_instance._time_sampler is not None
         assert cfm_instance._probability_path is not None
-        from sc_flow.backends.torch.coupling._coupling import independent_coupling
+        from sckitflow.backends.torch.coupling._coupling import independent_coupling
 
         assert cfm_instance._match_fn == independent_coupling
 
@@ -210,7 +210,7 @@ class TestCFM:
             source_group_data=torch.randn(4, 3),  # tensor
         )
 
-        with patch("sc_flow.backends.torch.methods._base.extract_step_data", return_value=step_data):
+        with patch("sckitflow.backends.torch.methods._base.extract_step_data", return_value=step_data):
             cfm_instance._match_fn = lambda source_lin, target_lin, source_quad, target_quad: (
                 np.arange(4),
                 np.arange(4),

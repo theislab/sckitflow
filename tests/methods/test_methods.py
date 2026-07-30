@@ -2,9 +2,9 @@ from unittest.mock import Mock
 
 import pytest
 
-from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
-from sc_flow.data._manager import DataManager
-from sc_flow.methods._methods import BaseGenerativeFlow, BaseMethod
+from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
+from sckitflow.data._manager import DataManager
+from sckitflow.methods._methods import BaseGenerativeFlow, BaseMethod
 
 
 # -----------------------------------------------------------------------------

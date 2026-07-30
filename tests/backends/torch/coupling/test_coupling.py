@@ -4,7 +4,7 @@ import torch
 
 pytest.importorskip("ot")
 
-from sc_flow.backends.torch.coupling import (
+from sckitflow.backends.torch.coupling import (
     independent_coupling,
     ot_linear_coupling,
     ot_quadratic_coupling,

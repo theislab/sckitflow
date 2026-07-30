@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from sc_flow.backends.torch._utils import (
+from sckitflow.backends.torch._utils import (
     broadcast_to_target_shape,
     ensure_2d_tensor_with_singleton_trailing_dim,
     make_concatenation_possible,

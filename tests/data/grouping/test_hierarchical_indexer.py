@@ -4,8 +4,8 @@ import pandas as pd
 import pytest
 from anndata import AnnData
 
-from sc_flow.data._utils import convert_to_categorical_in_place
-from sc_flow.data.grouping._indexer import HierarchicalIndexer
+from sckitflow.data._utils import convert_to_categorical_in_place
+from sckitflow.data.grouping._indexer import HierarchicalIndexer
 
 wrong_key = "wrong_key"
 

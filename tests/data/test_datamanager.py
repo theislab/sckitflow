@@ -6,14 +6,14 @@ from tests.data.conftest import (
     N_DRUGS,
 )
 
-from sc_flow._constants import ORIGINAL_INDEX_KEY
-from sc_flow.data._composite import MatchedData, NestedData
-from sc_flow.data._manager import DataManager
-from sc_flow.data.containers._categorical import CategoricalData
-from sc_flow.data.containers._coupling import CouplingData
-from sc_flow.data.containers._distribution import DistributionData
-from sc_flow.data.containers._mixed_type import MixedTypeData
-from sc_flow.data.containers._state import StateData
+from sckitflow._constants import ORIGINAL_INDEX_KEY
+from sckitflow.data._composite import MatchedData, NestedData
+from sckitflow.data._manager import DataManager
+from sckitflow.data.containers._categorical import CategoricalData
+from sckitflow.data.containers._coupling import CouplingData
+from sckitflow.data.containers._distribution import DistributionData
+from sckitflow.data.containers._mixed_type import MixedTypeData
+from sckitflow.data.containers._state import StateData
 
 
 def _make_manager(**overrides) -> DataManager:

@@ -3,7 +3,7 @@ import torch
 import torchsde
 from torch import Tensor
 
-from sc_flow.backends.torch.solvers._sde_solver import SDESolver
+from sckitflow.backends.torch.solvers._sde_solver import SDESolver
 
 
 def _wrap(diffusion_fn, df_kwargs: dict | None = None):

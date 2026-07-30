@@ -3,9 +3,9 @@ from unittest.mock import Mock
 import pytest
 import torch
 
-from sc_flow.backends.torch._types import PredictionData, StepData
-from sc_flow.backends.torch.methods._base import TorchBaseMethod, TorchGenerativeFlow
-from sc_flow.backends.torch.nn._modules import BaseModule
+from sckitflow.backends.torch._types import PredictionData, StepData
+from sckitflow.backends.torch.methods._base import TorchBaseMethod, TorchGenerativeFlow
+from sckitflow.backends.torch.nn._modules import BaseModule
 
 
 # -----------------------------------------------------------------------------

@@ -80,7 +80,7 @@ def test_register_flow_method_success(mock_torch_registry, mock_torch_base_class
     assert registered_cls._default_solver_cls == UserFlow.default_solver_cls
 
     # Check that the __init__ correctly sets probability_path from user's class
-    _instance = registered_cls(dims_registry=Mock(), dm=Mock(), is_paired_setting=False)
+    _instance = registered_cls(dims_registry=Mock(), dm=Mock())
     assert True
 
 
@@ -141,7 +141,7 @@ def test_register_flow_with_user_init(mock_torch_registry, mock_torch_base_class
             init_called = True
 
     registered_cls = mock_torch_registry["flow_with_init"]
-    _instance = registered_cls(dims_registry=Mock(), dm=Mock(), is_paired_setting=False)
+    _instance = registered_cls(dims_registry=Mock(), dm=Mock())
     assert init_called
 
 
@@ -208,7 +208,7 @@ def test_register_general_predict_wrapper(mock_torch_registry, mock_torch_base_c
             return torch.randn(4, 2)  # raw tensor
 
     registered_cls = mock_torch_registry["wrap_test"]
-    instance = registered_cls(dims_registry=Mock(), dm=Mock(), is_paired_setting=False)
+    instance = registered_cls(dims_registry=Mock(), dm=Mock())
     matched = Mock()
     result = instance.predict(matched)
     # Check that the result is an instance of PredictionData
@@ -310,7 +310,7 @@ def test_no_user_init_does_not_call_extra_init(mock_torch_registry, mock_torch_b
 
     registered_cls = mock_torch_registry["no_init"]
     # Should not raise any error
-    _instance = registered_cls(dims_registry=Mock(), dm=Mock(), is_paired_setting=False)
+    _instance = registered_cls(dims_registry=Mock(), dm=Mock())
     assert True
 
 
@@ -330,7 +330,7 @@ def test_probability_path_cls_not_set(mock_torch_registry, mock_torch_base_class
 
     registered_cls = mock_torch_registry["no_prob_path"]
     # No error; the __init__ does not add probability_path
-    _instance = registered_cls(dims_registry=Mock(), dm=Mock(), is_paired_setting=False)
+    _instance = registered_cls(dims_registry=Mock(), dm=Mock())
     assert True
 
 

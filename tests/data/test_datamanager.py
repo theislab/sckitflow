@@ -1,5 +1,3 @@
-from unittest.mock import patch
-
 import numpy as np
 import pytest
 from anndata import AnnData
@@ -16,7 +14,6 @@ from sc_flow.data.containers._coupling import CouplingData
 from sc_flow.data.containers._distribution import DistributionData
 from sc_flow.data.containers._mixed_type import MixedTypeData
 from sc_flow.data.containers._state import StateData
-from sc_flow.preprocessing.preproc_containers._state_data_preproc import StatePreprocessing
 
 
 def _make_manager(**overrides) -> DataManager:
@@ -261,12 +258,12 @@ class TestSourceKey:
 
 class TestConditionSpaceView:
     def test_get_distribution_data_with_condition_space(self, adata_small: AnnData):
-        manager = _make_manager_with_continuous()
+        manager = _make_manager_with_continuous(condition_state_key="X_repr")
         # ensure X_repr exists in obsm
         if "X_repr" not in adata_small.obsm:
             adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
 
-        distr = manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="X_repr")
+        distr = manager.get_distribution_data(adata_small)
         # state_data becomes the continuous covariate
         assert isinstance(distr.state_data, StateData)
         np.testing.assert_array_equal(distr.state_data.X, adata_small.obsm["X_repr"])
@@ -287,19 +284,17 @@ class TestConditionSpaceView:
 
     def test_get_distribution_data_invalid_condition_state_key(self, adata_small: AnnData):
         # Use a manager without continuous covariates – only categorical conditions.
-        manager = _make_manager()  # from the fixture, no `conditions_covariates`
         # The condition_data has only categorical covariates (drug).
+        manager = _make_manager(condition_state_key="invalid_key")
         with pytest.raises(KeyError, match="Key invalid_key not found"):
-            manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="invalid_key")
+            manager.get_distribution_data(adata_small)
 
     def test_get_data_dimensionalities_with_condition_space(self, adata_small: AnnData):
-        manager = _make_manager_with_continuous()
+        manager = _make_manager_with_continuous(condition_state_key="X_repr")
         if "X_repr" not in adata_small.obsm:
             adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
 
-        dims = manager.get_data_dimensionalities(
-            adata_small, view_on_condition_space=True, condition_state_key="X_repr"
-        )
+        dims = manager.get_data_dimensionalities(adata_small)
         # state dimension comes from continuous covariate
         assert dims.state_dim == adata_small.obsm["X_repr"].shape[1]
         # condition has a categorical part (drug) so categorical dim should be present
@@ -309,42 +304,29 @@ class TestConditionSpaceView:
 
 
 class TestConditionSpacePairedSettings:
-    """Test the allow_paired_settings_on_condition_view flag."""
+    """Pairing is honored regardless of whether the view is on the condition space.
 
-    def test_paired_disabled_by_default_on_condition_view(self, adata_small: AnnData):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False (default),
-        the source_key / matched_keys are ignored, so no source distribution appears in MatchedData."""
-        # Add continuous covariate
-        if "X_repr" not in adata_small.obsm:
-            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+    (There is no longer an ``allow_paired_settings_on_condition_view`` flag; the
+    condition-space view is enabled by setting ``condition_state_key``.)
+    """
 
-        # Create manager with control values (paired setting) but allow_paired_settings_on_condition_view=False
-        manager = DataManager(
-            conditions={"drug": ("drug",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("cell_line",),
-            groups_reps={"cell_line": "cell_line"},
-            control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=False,
-        )
-        # Compile with view_on_condition_space=True
-        nested = manager.compile_adata(
-            adata_small, sort=True, view_on_condition_space=True, condition_state_key="X_repr"
-        )
+    @staticmethod
+    def _has_source(nested) -> bool:
+        found = False
 
-        # Flatten and check that none of the MatchedData nodes have a source distribution
-        def check_no_source(node):
+        def visit(node):
+            nonlocal found
             if isinstance(node, NestedData):
                 for v in node.mapping.values():
-                    check_no_source(v)
-            else:
-                assert node.source is None
+                    visit(v)
+            elif node.source is not None:
+                found = True
 
-        check_no_source(nested)
+        visit(nested)
+        return found
 
-    def test_paired_enabled_on_condition_view(self, adata_small: AnnData):
-        """When allow_paired_settings_on_condition_view=True, pairing works as usual."""
+    def test_paired_honored_on_condition_view(self, adata_small: AnnData):
+        """A paired setting is honored when viewing on the condition space."""
         if "X_repr" not in adata_small.obsm:
             adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
 
@@ -355,50 +337,22 @@ class TestConditionSpacePairedSettings:
             groups=("cell_line",),
             groups_reps={"cell_line": "cell_line"},
             control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=True,
+            condition_state_key="X_repr",
         )
-        nested = manager.compile_adata(
-            adata_small, sort=True, view_on_condition_space=True, condition_state_key="X_repr"
-        )
-        # Check that some MatchedData nodes have source
-        has_source = False
+        nested = manager.compile_adata(adata_small, sort=True)
+        assert self._has_source(nested)
 
-        def check_source_present(node):
-            nonlocal has_source
-            if isinstance(node, NestedData):
-                for v in node.mapping.values():
-                    check_source_present(v)
-            else:
-                if node.source is not None:
-                    has_source = True
-
-        check_source_present(nested)
-        assert has_source
-
-    def test_paired_setting_without_condition_view_ignores_flag(self, adata_small: AnnData):
-        """When view_on_condition_space=False, the flag has no effect; pairing works."""
+    def test_paired_honored_without_condition_view(self, adata_small: AnnData):
+        """A paired setting is honored in the default (state-space) view."""
         manager = DataManager(
             conditions={"drug": ("drug",)},
             conditions_reps={"drug": "drug"},
             groups=("cell_line",),
             groups_reps={"cell_line": "cell_line"},
             control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=False,  # should be ignored
         )
-        nested = manager.compile_adata(adata_small, sort=True, view_on_condition_space=False)
-        has_source = False
-
-        def check_source(node):
-            nonlocal has_source
-            if isinstance(node, NestedData):
-                for v in node.mapping.values():
-                    check_source(v)
-            else:
-                if node.source is not None:
-                    has_source = True
-
-        check_source(nested)
-        assert has_source  # pairing still active
+        nested = manager.compile_adata(adata_small, sort=True)
+        assert self._has_source(nested)
 
 
 class TestMatchedKeys:
@@ -492,9 +446,8 @@ class TestMatchedKeys:
                     break
         assert found, "No treatment target found (expected pairing based on control_values_dict)"
 
-    def test_compile_adata_matched_keys_ignored_on_condition_view_when_paired_disabled(self, adata_small: AnnData):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
-        matched_keys are ignored (no pairing)."""
+    def test_compile_adata_matched_keys_honored_on_condition_view(self, adata_small: AnnData):
+        """matched_keys are honored when viewing on the condition space."""
         if "X_repr" not in adata_small.obsm:
             adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
 
@@ -505,44 +458,10 @@ class TestMatchedKeys:
             groups=("cell_line",),
             groups_reps={"cell_line": "cell_line"},
             control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=False,
+            condition_state_key="X_repr",
         )
         override_keys = {("control",): ("aspirin",)}
-        nested = manager.compile_adata(
-            adata_small,
-            sort=True,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            matched_keys=override_keys,
-        )
-        leaves = self._collect_leaves(nested)
-        # No source should be present (pairing disabled)
-        for leaf in leaves:
-            assert leaf.source is None
-
-    def test_compile_adata_matched_keys_honored_on_condition_view_when_paired_enabled(self, adata_small: AnnData):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
-        matched_keys are used."""
-        if "X_repr" not in adata_small.obsm:
-            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
-
-        manager = DataManager(
-            conditions={"drug": ("drug",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("cell_line",),
-            groups_reps={"cell_line": "cell_line"},
-            control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=True,
-        )
-        override_keys = {("control",): ("aspirin",)}
-        nested = manager.compile_adata(
-            adata_small,
-            sort=True,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            matched_keys=override_keys,
-        )
+        nested = manager.compile_adata(adata_small, sort=True, matched_keys=override_keys)
         leaves = self._collect_leaves(nested)
         # Check that target condition is 'aspirin' for all leaves
         for leaf in leaves:
@@ -614,11 +533,8 @@ class TestMatchedKeys:
                     break
         assert found, "No treatment target found (expected pairing based on control_values_dict)"
 
-    def test_get_matched_distributions_matched_keys_ignored_on_condition_view_when_paired_disabled(
-        self, adata_small: AnnData
-    ):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
-        matched_keys are ignored."""
+    def test_get_matched_distributions_matched_keys_honored_on_condition_view(self, adata_small: AnnData):
+        """matched_keys are honored when viewing on the condition space."""
         if "X_repr" not in adata_small.obsm:
             adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
 
@@ -629,37 +545,12 @@ class TestMatchedKeys:
             groups=("cell_line",),
             groups_reps={"cell_line": "cell_line"},
             control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=False,
+            condition_state_key="X_repr",
         )
         adata_small = manager.sort_adata(adata_small)
-        distr = manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="X_repr")
+        distr = manager.get_distribution_data(adata_small)
         override_keys = {("control",): ("aspirin",)}
-        nested = manager.get_matched_distributions(distr, view_on_condition_space=True, matched_keys=override_keys)
-        leaves = self._collect_leaves(nested)
-        for leaf in leaves:
-            assert leaf.source is None
-
-    def test_get_matched_distributions_matched_keys_honored_on_condition_view_when_paired_enabled(
-        self, adata_small: AnnData
-    ):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
-        matched_keys are used."""
-        if "X_repr" not in adata_small.obsm:
-            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
-
-        manager = DataManager(
-            conditions={"drug": ("drug",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("cell_line",),
-            groups_reps={"cell_line": "cell_line"},
-            control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=True,
-        )
-        adata_small = manager.sort_adata(adata_small)
-        distr = manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="X_repr")
-        override_keys = {("control",): ("aspirin",)}
-        nested = manager.get_matched_distributions(distr, view_on_condition_space=True, matched_keys=override_keys)
+        nested = manager.get_matched_distributions(distr, matched_keys=override_keys)
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
             if leaf.target is not None:
@@ -756,9 +647,8 @@ class TestControlValues:
                 target_cond = self._get_condition_value(leaf.target)
                 assert target_cond != "control"
 
-    def test_compile_adata_control_values_ignored_on_condition_view_when_paired_disabled(self, adata_small: AnnData):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
-        control_values_dict is ignored (no pairing)."""
+    def test_compile_adata_control_values_honored_on_condition_view(self, adata_small: AnnData):
+        """control_values_dict is honored when viewing on the condition space."""
         if "X_repr" not in adata_small.obsm:
             adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
 
@@ -769,39 +659,11 @@ class TestControlValues:
             groups=("cell_line",),
             groups_reps={"cell_line": "cell_line"},
             control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=False,
+            condition_state_key="X_repr",
         )
         nested = manager.compile_adata(
             adata_small,
             sort=True,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
-            control_values_dict={"drug": "control"},
-        )
-        leaves = self._collect_leaves(nested)
-        for leaf in leaves:
-            assert leaf.source is None
-
-    def test_compile_adata_control_values_honored_on_condition_view_when_paired_enabled(self, adata_small: AnnData):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
-        control_values_dict is used."""
-        if "X_repr" not in adata_small.obsm:
-            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
-
-        manager = DataManager(
-            conditions={"drug": ("drug",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("cell_line",),
-            groups_reps={"cell_line": "cell_line"},
-            control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=True,
-        )
-        nested = manager.compile_adata(
-            adata_small,
-            sort=True,
-            view_on_condition_space=True,
-            condition_state_key="X_repr",
             control_values_dict={"drug": "control"},
         )
         leaves = self._collect_leaves(nested)
@@ -878,11 +740,8 @@ class TestControlValues:
                 target_cond = self._get_condition_value(leaf.target)
                 assert target_cond != "control"
 
-    def test_get_matched_distributions_control_values_ignored_on_condition_view_when_paired_disabled(
-        self, adata_small: AnnData
-    ):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=False,
-        control_values_dict is ignored."""
+    def test_get_matched_distributions_control_values_honored_on_condition_view(self, adata_small: AnnData):
+        """control_values_dict is honored when viewing on the condition space."""
         if "X_repr" not in adata_small.obsm:
             adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
 
@@ -893,39 +752,11 @@ class TestControlValues:
             groups=("cell_line",),
             groups_reps={"cell_line": "cell_line"},
             control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=False,
+            condition_state_key="X_repr",
         )
         adata_small = manager.sort_adata(adata_small)
-        distr = manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="X_repr")
-        nested = manager.get_matched_distributions(
-            distr, view_on_condition_space=True, control_values_dict={"drug": "control"}
-        )
-        leaves = self._collect_leaves(nested)
-        for leaf in leaves:
-            assert leaf.source is None
-
-    def test_get_matched_distributions_control_values_honored_on_condition_view_when_paired_enabled(
-        self, adata_small: AnnData
-    ):
-        """When view_on_condition_space=True and allow_paired_settings_on_condition_view=True,
-        control_values_dict is used."""
-        if "X_repr" not in adata_small.obsm:
-            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
-
-        manager = DataManager(
-            conditions={"drug": ("drug",)},
-            conditions_reps={"drug": "drug"},
-            conditions_covariates=["X_repr"],
-            groups=("cell_line",),
-            groups_reps={"cell_line": "cell_line"},
-            control_values_dict={"drug": "control"},
-            allow_paired_settings_on_condition_view=True,
-        )
-        adata_small = manager.sort_adata(adata_small)
-        distr = manager.get_distribution_data(adata_small, view_on_condition_space=True, condition_state_key="X_repr")
-        nested = manager.get_matched_distributions(
-            distr, view_on_condition_space=True, control_values_dict={"drug": "control"}
-        )
+        distr = manager.get_distribution_data(adata_small)
+        nested = manager.get_matched_distributions(distr, control_values_dict={"drug": "control"})
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
             if leaf.source is not None:
@@ -934,151 +765,3 @@ class TestControlValues:
             if leaf.target is not None:
                 target_cond = self._get_condition_value(leaf.target)
                 assert target_cond != "control"
-
-
-class TestPreprocessingIntegration:
-    """Tests that the DataManager correctly delegates to StatePreprocessing."""
-
-    # ── flag‑driven paths ────────────────────────────────────────────
-
-    def test_get_distribution_data_no_preproc_flags(self, adata_small: AnnData):
-        """Without flags, StatePreprocessing methods are never called."""
-        dm = _make_manager()
-        with (
-            patch.object(StatePreprocessing, "fit") as mock_fit,
-            patch.object(StatePreprocessing, "transform") as mock_transform,
-        ):
-            dm.get_distribution_data(adata_small)
-        mock_fit.assert_not_called()
-        mock_transform.assert_not_called()
-
-    def test_get_distribution_data_fit_preproc_only(self, adata_small: AnnData):
-        dm = _make_manager()
-        with (
-            patch.object(StatePreprocessing, "fit") as mock_fit,
-            patch.object(StatePreprocessing, "transform") as mock_transform,
-        ):
-            dm.get_distribution_data(adata_small, fit_preproc=True)
-        mock_fit.assert_called_once()
-        mock_transform.assert_not_called()
-
-    def test_get_distribution_data_apply_transformations_only(self, adata_small: AnnData):
-        dm = _make_manager()
-        with (
-            patch.object(StatePreprocessing, "fit") as mock_fit,
-            patch.object(StatePreprocessing, "transform") as mock_transform,
-        ):
-            dm.get_distribution_data(adata_small, apply_transformations=True)
-        mock_fit.assert_not_called()
-        mock_transform.assert_called_once()
-
-    def test_get_distribution_data_both_flags(self, adata_small: AnnData):
-        dm = _make_manager()
-        with (
-            patch.object(StatePreprocessing, "fit") as mock_fit,
-            patch.object(StatePreprocessing, "transform") as mock_transform,
-        ):
-            dm.get_distribution_data(adata_small, fit_preproc=True, apply_transformations=True)
-        mock_fit.assert_called_once()
-        mock_transform.assert_called_once()
-
-    # same for compile_adata (flags are forwarded)
-
-    def test_compile_adata_no_preproc_flags(self, adata_small: AnnData):
-        dm = _make_manager()
-        with (
-            patch.object(StatePreprocessing, "fit") as mock_fit,
-            patch.object(StatePreprocessing, "transform") as mock_transform,
-        ):
-            dm.compile_adata(adata_small, sort=True)
-        mock_fit.assert_not_called()
-        mock_transform.assert_not_called()
-
-    def test_compile_adata_fit_preproc(self, adata_small: AnnData):
-        dm = _make_manager()
-        with (
-            patch.object(StatePreprocessing, "fit") as mock_fit,
-            patch.object(StatePreprocessing, "transform") as mock_transform,
-        ):
-            dm.compile_adata(adata_small, sort=True, fit_preproc=True)
-        mock_fit.assert_called_once()
-        mock_transform.assert_not_called()
-
-    def test_compile_adata_apply_transformations(self, adata_small: AnnData):
-        """apply_transformations without prior fit → RuntimeError"""
-        dm = _make_manager()
-        with pytest.raises(RuntimeError, match="Preprocessing not fitted"):
-            dm.compile_adata(adata_small, sort=True, apply_transformations=True)
-
-    def test_compile_adata_both_flags(self, adata_small: AnnData):
-        """Both flags → fit and transform are called, pipeline succeeds."""
-        dm = _make_manager()
-        # Let transform return the original data so compile_adata can continue
-        with (
-            patch.object(StatePreprocessing, "fit") as mock_fit,
-            patch.object(StatePreprocessing, "transform", side_effect=lambda data: data) as mock_transform,
-        ):
-            nested = dm.compile_adata(adata_small, sort=True, fit_preproc=True, apply_transformations=True)
-        mock_fit.assert_called_once()
-        mock_transform.assert_called_once()
-        assert nested is not None
-
-    # get_data_dimensionalities also supports the flags
-
-    def test_get_data_dimensionalities_flags(self, adata_small: AnnData):
-        dm = _make_manager()
-        with (
-            patch.object(StatePreprocessing, "fit") as mock_fit,
-            patch.object(StatePreprocessing, "transform") as mock_transform,
-        ):
-            dm.get_data_dimensionalities(adata_small, fit_preproc=True, apply_transformations=True)
-        mock_fit.assert_called_once()
-        mock_transform.assert_called_once()
-
-    # ── lazy ExternalModelContext (optional but valuable) ─────────────
-    def test_external_model_context_not_loaded_on_init(self):
-        from sc_flow.external._context import ExternalModelContext
-
-        encoder_ctx = ExternalModelContext(model_path="dummy.pkl")
-        # Patch the load method with a spy so we can assert it was not called
-        with patch.object(encoder_ctx, "load", wraps=encoder_ctx.load) as spy:
-            DataManager(state_encoder_context=encoder_ctx)
-        spy.assert_not_called()
-
-    # ── transform actually works (simple integration check) ───────────
-    # Use a real BaseTransform subclass that is a no‑op / identity to
-    # verify that fit and transform are called on the actual data.
-    def test_full_roundtrip_with_transform(self, adata_small: AnnData):
-        from sc_flow.preprocessing.transforms._base import BaseTransform
-
-        class DummyTransform(BaseTransform):
-            is_fitted: bool = True
-
-            def fit(self, X, **kwargs):
-                pass
-
-            def transform(self, X, **kwargs):
-                return X
-
-            def inverse_transform(self, X, **kwargs):
-                return X
-
-        dm = DataManager(
-            conditions={"drug": ("drug",)},
-            conditions_reps={"drug": "drug"},
-            groups=("cell_line",),
-            groups_reps={"cell_line": "cell_line"},
-            state_transform=DummyTransform(),
-        )
-        # Fit and transform in one call – we force is_fitted to True
-        # with patch.object(dm._state_preproc, 'is_fitted', True):
-        dist = dm.get_distribution_data(adata_small, fit_preproc=True, apply_transformations=True)
-        assert isinstance(dist, DistributionData)
-        # Identity transform – data unchanged
-        np.testing.assert_array_equal(dist.state_data.X, adata_small.X)
-
-    def test_unload_preproc_delegation(self):
-        dm = _make_manager()
-        with patch.object(StatePreprocessing, "unload") as mock_unload:
-            dm.unload_preproc()
-        mock_unload.assert_called_once()

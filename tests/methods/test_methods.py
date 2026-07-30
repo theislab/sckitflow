@@ -18,6 +18,9 @@ class ConcreteMethod(BaseMethod):
     def set_train_mode(self, mode: bool) -> None:
         self._train_mode = mode
 
+    def extract_state_data(self, state_data):
+        return state_data
+
     def train_step(self, *args, **kwargs):
         return 0, {"loss": 0.0}
 
@@ -33,6 +36,9 @@ class ConcreteGenerativeFlow(BaseGenerativeFlow):
 
     def set_train_mode(self, mode: bool) -> None:
         pass
+
+    def extract_state_data(self, state_data):
+        return state_data
 
     def train_step(self, *args, **kwargs):
         return 0, {}
@@ -56,6 +62,15 @@ def mock_dims_registry():
 def mock_data_manager():
     dm = Mock(spec=DataManager)
     dm.control_values_dict = None
+    dm.matched_keys = None
+    return dm
+
+
+@pytest.fixture
+def mock_paired_data_manager():
+    dm = Mock(spec=DataManager)
+    dm.control_values_dict = {"drug": "control"}
+    dm.matched_keys = None
     return dm
 
 
@@ -68,25 +83,30 @@ class TestBaseMethod:
     def test_abstract_class_cannot_be_instantiated(self):
         """BaseMethod should raise TypeError if abstract methods not implemented."""
         with pytest.raises(TypeError):
-            BaseMethod(dims_registry=Mock(), dm=Mock(), is_paired_setting=False)
+            BaseMethod(dims_registry=Mock(), dm=Mock())
 
     def test_concrete_method_instantiation(self, mock_dims_registry, mock_data_manager):
         """Concrete subclass should be instantiable and set attributes correctly."""
-        method = ConcreteMethod(mock_dims_registry, mock_data_manager, False)
+        method = ConcreteMethod(mock_dims_registry, mock_data_manager)
         assert method._dims_registry is mock_dims_registry
         assert method._dm is mock_data_manager
-        assert method._is_paired_setting is False
+        assert method.is_paired_setting is False  # derived from the data manager
         assert method._module is not None  # from _module_cls.init_from_dims_registry
 
-    def test_properties_return_correct_values(self, mock_dims_registry, mock_data_manager):
-        method = ConcreteMethod(mock_dims_registry, mock_data_manager, True)
+    def test_is_paired_setting_derived_from_dm(self, mock_dims_registry, mock_paired_data_manager):
+        """is_paired_setting is derived from the data manager's control/matched config."""
+        method = ConcreteMethod(mock_dims_registry, mock_paired_data_manager)
+        assert method.is_paired_setting is True
+
+    def test_properties_return_correct_values(self, mock_dims_registry, mock_paired_data_manager):
+        method = ConcreteMethod(mock_dims_registry, mock_paired_data_manager)
         assert method.module is not None
-        assert method.dm is mock_data_manager
+        assert method.dm is mock_paired_data_manager
         assert method.dims_registry is mock_dims_registry
         assert method.is_paired_setting is True
 
     def test_set_train_mode(self, mock_dims_registry, mock_data_manager):
-        method = ConcreteMethod(mock_dims_registry, mock_data_manager, False)
+        method = ConcreteMethod(mock_dims_registry, mock_data_manager)
         method.set_train_mode(True)
         assert method._train_mode is True
         method.set_train_mode(False)
@@ -101,7 +121,7 @@ class TestBaseGenerativeFlow:
 
     def test_init_defaults(self, mock_dims_registry, mock_data_manager):
         """Default attributes should be None when not provided."""
-        flow = ConcreteGenerativeFlow(mock_dims_registry, mock_data_manager, False)
+        flow = ConcreteGenerativeFlow(mock_dims_registry, mock_data_manager)
         assert flow._probability_path is None
         assert flow._match_fn is None
         assert flow._noise_sampler is None
@@ -109,30 +129,28 @@ class TestBaseGenerativeFlow:
         assert flow.generate_from_noise is True
 
     def test_generate_from_noise_forced_when_unpaired(self, mock_dims_registry, mock_data_manager):
-        """When is_paired_setting=False, generate_from_noise should be forced to True."""
+        """When the data manager is unpaired, generate_from_noise should be forced to True."""
         flow = ConcreteGenerativeFlow(
             mock_dims_registry,
             mock_data_manager,
-            False,
             generate_from_noise=False,  # user tries to set False
         )
         # In BaseGenerativeFlow.__init__, if not paired, generate_from_noise becomes True
         assert flow.generate_from_noise is True
 
-    def test_generate_from_noise_respected_when_paired(self, mock_dims_registry, mock_data_manager):
+    def test_generate_from_noise_respected_when_paired(self, mock_dims_registry, mock_paired_data_manager):
         """When paired, generate_from_noise can be set to False."""
-        flow = ConcreteGenerativeFlow(mock_dims_registry, mock_data_manager, True, generate_from_noise=False)
+        flow = ConcreteGenerativeFlow(mock_dims_registry, mock_paired_data_manager, generate_from_noise=False)
         assert flow.generate_from_noise is False
 
-    def test_properties_return_assigned_values(self, mock_dims_registry, mock_data_manager):
+    def test_properties_return_assigned_values(self, mock_dims_registry, mock_paired_data_manager):
         prob_path = Mock()
         match_fn = Mock()
         noise_sampler = Mock()
         time_sampler = Mock()
         flow = ConcreteGenerativeFlow(
             mock_dims_registry,
-            mock_data_manager,
-            True,
+            mock_paired_data_manager,
             probability_path=prob_path,
             match_fn=match_fn,
             noise_sampler=noise_sampler,

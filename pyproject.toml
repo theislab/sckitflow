@@ -3,7 +3,7 @@ build-backend = "hatchling.build"
 requires = [ "hatchling" ]
 
 [project]
-name = "sc-flow-tools"
+name = "sckitflow"
 version = "0.0.1"
 description = "Flow Matching tool-box for Single Cell Data."
 readme = "README.md"
@@ -70,12 +70,12 @@ optional-dependencies.torch = [
   "torchsde",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
-urls.Documentation = "https://sc-flow-tools.readthedocs.io/"
-urls.Homepage = "https://github.com/lorenzo-consoli/sc-flow-tools"
-urls.Source = "https://github.com/lorenzo-consoli/sc-flow-tools"
+urls.Documentation = "https://sckitflow.readthedocs.io/"
+urls.Homepage = "https://github.com/theislab/sckitflow"
+urls.Source = "https://github.com/theislab/sckitflow"
 
 [tool.hatch.build.targets.wheel]
-packages = [ "src/sc_flow" ]
+packages = [ "src/sckitflow" ]
 
 [tool.hatch.envs.default]
 installer = "uv"
@@ -155,7 +155,7 @@ addopts = [
 ]
 
 [tool.coverage.run]
-source = [ "sc_flow" ]
+source = [ "sckitflow" ]
 omit = [
   "**/test_*.py",
 ]

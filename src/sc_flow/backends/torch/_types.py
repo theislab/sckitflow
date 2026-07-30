@@ -1,6 +1,6 @@
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, Protocol, TypeVar
 
 import numpy as np
 import torch
@@ -17,12 +17,12 @@ except (ImportError, TypeError):
     NumpyArray = np.ndarray
 
 from sc_flow._types import PredictionData
+from sc_flow.data import mixins
+from sc_flow.data.containers import BaseData
 
 ShapeLike = Sequence[int] | torch.Size
 
 TensorLike = torch.Tensor | np.ndarray
-
-MappedTensor = dict[str, torch.Tensor]
 
 TVfFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
@@ -94,7 +94,21 @@ class SolverConfig(NamedTuple):
     remaining_kwargs: dict[str, Any]
 
 
-@dataclass
+@dataclass(frozen=True)
+class StepData:
+    target_state: torch.Tensor | None = None
+    target_coupling_lin: torch.Tensor | None = None
+    target_coupling_quad: torch.Tensor | None = None
+    target_condition_data: BaseData | dict[str, torch.Tensor] | None = None
+    target_group_data: BaseData | dict[str, torch.Tensor] | None = None
+    source_state: torch.Tensor | None = None
+    source_coupling_lin: torch.Tensor | None = None
+    source_coupling_quad: torch.Tensor | None = None
+    source_condition_data: dict[str, torch.Tensor] | None = None
+    source_group_data: dict[str, torch.Tensor] | None = None
+
+
+@dataclass(frozen=True)
 class PredictionData(PredictionData):
     """Stores prediction data for Flow Models
 
@@ -152,3 +166,17 @@ class PredictionData(PredictionData):
     @property
     def has_traj(self) -> bool:
         return self.traj is not None
+
+
+@dataclass(frozen=True)
+class MappedTensor(mixins.MappedTree):
+    """"""  # noqa
+
+    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = torch.Tensor
+
+
+@dataclass(frozen=True)
+class TensorMixin(mixins.BatchMixin[str, torch.Tensor]):
+    """"""  # noqa
+
+    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = torch.Tensor

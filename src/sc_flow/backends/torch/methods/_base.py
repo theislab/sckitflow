@@ -1,20 +1,14 @@
 import abc
-from typing import Any, Literal, TypeVar
+from typing import Any, TypeVar
 
 import torch
 
-from sc_flow.backends.torch._types import PredictionData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
-from sc_flow.backends.torch.methods._utils import StepData
+from sc_flow.backends.torch._data_utils import extract_step_data
+from sc_flow.backends.torch._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
 from sc_flow.backends.torch.nn._modules import BaseModule
 from sc_flow.backends.torch.probability_paths import BaseProbabilityPath
 from sc_flow.backends.torch.solvers import BaseSolver
 from sc_flow.data._composite import MatchedDistributions
-from sc_flow.data._mixins import BatchMixin
-from sc_flow.data.containers._categorical import CategoricalData
-from sc_flow.data.containers._coupling import CouplingData
-from sc_flow.data.containers._distribution import DistributionData
-from sc_flow.data.containers._mixed_type import MixedTypeData
-from sc_flow.data.containers._state import StateData
 from sc_flow.methods._methods import BaseGenerativeFlow, BaseMethod
 
 __all__ = ["TorchBaseMethod", "TorchGenerativeFlow"]
@@ -53,105 +47,90 @@ class TorchBaseMethod(BaseMethod):
             return data
         return data[idx]
 
-    def _batchmixin_to_torch(self, batch_mixin: BatchMixin) -> dict[str, torch.Tensor]:
-        return {k: torch.from_numpy(v).to(self._dtype).to(self._device_id) for k, v in batch_mixin.mapping.items()}
+    @abc.abstractmethod
+    def _step_fn(
+        self,
+        step_data: StepData,
+        *args,
+        **kwargs,
+    ) -> tuple[torch.Tensor, dict[str, Any]]: ...
+
+    @abc.abstractmethod
+    def _predict(
+        self,
+        step_data: StepData,
+        *args,
+        **kwargs,
+    ) -> PredictionData: ...
+
+    def _train_step_forward(
+        self,
+        step_data: StepData,
+        *args,
+        **kwargs,
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        step_data = self._match_observations(step_data)
+        return self._step_fn(
+            step_data,
+            *args,
+            **kwargs,
+        )
+
+    def _match_observations(
+        self,
+        step_data: StepData,
+    ) -> StepData:
+        return step_data
 
     def set_train_mode(self, mode: bool) -> None:
+        """"""  # noqa
         if mode:
             self.module.train()
         else:
             self.module.eval()
 
-    def _extract_state_data(
-        self,
-        state_data: StateData | None,
-    ) -> torch.Tensor | None:
-        if state_data is None:
-            return None
-        X_state = state_data.X
-        X_state = torch.from_numpy(X_state).to(self._dtype).to(self._device_id)
-        return X_state
-
-    def _extract_coupling_data(
-        self,
-        distribution_data: DistributionData,
-        mode: Literal["source", "target"],
-    ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-        # retrieve coupling data
-        coupling_data: CouplingData = getattr(distribution_data, f"{mode}_coupling_data")
-
-        # parse coupling data
-        state_lin: StateData | None = coupling_data.state_lin
-        state_quad: StateData | None = coupling_data.state_quad
-
-        # get states for linear term
-        X_lin = self._extract_state_data(state_lin)
-        X_quad = self._extract_state_data(state_quad)
-        return X_lin, X_quad
-
-    def _extract_distribution_data(
-        self, distribution_data: DistributionData, mode: Literal["source", "target"]
-    ) -> tuple[Any]:
-        coupling_lin, coupling_quad = self._extract_coupling_data(distribution_data, mode)
-        state_data = self._extract_state_data(distribution_data.state_data)
-        condition_data = distribution_data.condition_data
-        groups_data = distribution_data.groups_data
-        return (coupling_lin, coupling_quad, state_data, condition_data, groups_data)
-
-    def _get_tensor_dict_from_data(self, data: MixedTypeData | CategoricalData | None) -> dict[str, torch.Tensor]:
-        if data is None:
-            return {}
-        group_reps_dict = data.extract_reps()
-        return self._batchmixin_to_torch(group_reps_dict)
-
-    def _extract_step_data(
+    def train_step(
         self,
         matched_distr: MatchedDistributions,
-    ) -> StepData:
-        # parse dictionary of matched distributions
-        source_data_dict: DistributionData | None = matched_distr.source_distribution
-        target_data_dict: DistributionData | None = matched_distr.target_distribution
+        *args,
+        **kwargs,
+    ) -> dict[str, Any]:
+        """Single step function of the solver.
 
-        # parse target data dictionary
-        if target_data_dict is not None:
-            (target_coupling_lin, target_coupling_quad, target_state_data, target_condition_data, target_group_data) = (
-                self._extract_distribution_data(target_data_dict, "target")
-            )
-            target_n_obs = len(target_data_dict)
+        :param matched_distr: Input `MatchedDistributions` object.
+        :type matched_distr: dict[str, torch.Tensor]
+        """
+        step_data = extract_step_data(matched_distr, device=self._device_id, dtype=self._dtype)
+        return self._train_step_forward(step_data, *args, **kwargs)
+
+    def predict(
+        self,
+        data: MatchedDistributions | StepData,
+        *args,
+        no_grad: bool = True,
+        **kwargs,
+    ) -> PredictionData:
+        """Prediction on node."""
+        # extract step data and prepare latent state
+        if isinstance(data, MatchedDistributions):
+            data = extract_step_data(data, device=self._device_id, dtype=self._dtype)
+        if not isinstance(data, StepData):
+            raise ValueError(f"Data is of the wrong type, expected `StepData`, but {type(data)} found.")
+
+        # optionally stop gradients
+        if no_grad:
+            with torch.no_grad():
+                return self._predict(
+                    data,
+                    *args,
+                    **kwargs,
+                )
         else:
-            target_coupling_lin = None
-            target_coupling_quad = None
-            target_state_data = None
-            target_condition_data = None
-            target_group_data = None
-            target_n_obs = 0
-
-        # optionally parse target data dictionary
-        if source_data_dict is not None:
-            (source_coupling_lin, source_coupling_quad, source_state_data, source_condition_data, source_group_data) = (
-                self._extract_distribution_data(source_data_dict, "source")
+            return self._predict(
+                data,
+                *args,
+                **kwargs,
             )
-        else:
-            source_coupling_lin = None
-            source_coupling_quad = None
-            source_state_data = None
-            source_condition_data = None
-            source_group_data = None
-
-        # return structured output
-        return StepData(
-            target_state_data,
-            target_coupling_lin,
-            target_coupling_quad,
-            target_condition_data,
-            target_group_data,
-            source_state_data,
-            source_coupling_lin,
-            source_coupling_quad,
-            source_condition_data,
-            source_group_data,
-            target_n_obs,
-        )
 
 
 class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
@@ -177,22 +156,6 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
             **kwargs,
         )
 
-    @abc.abstractmethod
-    def _step_fn(
-        self,
-        step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> tuple[torch.Tensor, dict[str, Any]]: ...
-
-    @abc.abstractmethod
-    def _predict(
-        self,
-        step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> PredictionData: ...
-
     def _call_match_fn_safe(
         self,
         source_lin: torch.Tensor | None,
@@ -215,7 +178,7 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
         )
         return src_idxs, tgt_idxs
 
-    def _extract_matched_observations(
+    def _match_observations(
         self,
         step_data: StepData,
     ) -> StepData:
@@ -260,61 +223,16 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
             source_group_data=source_group_data,
         )
 
-    def _train_step_forward(
+    @abc.abstractmethod
+    def _predict(
         self,
         step_data: StepData,
         *args,
+        solver_cls: type[BaseSolver] | None = None,
+        solver_kwargs: dict[str, Any] | None = None,
+        return_trajectory: bool = False,
+        n_steps: int = 100,
+        latent: torch.Tensor | None = None,
+        n_samples: int | None = None,
         **kwargs,
-    ) -> tuple[torch.Tensor, dict[str, Any]]:
-        step_data = self._extract_matched_observations(step_data)
-        return self._step_fn(
-            step_data,
-            *args,
-            **kwargs,
-        )
-
-    def extract_state_data(
-        self,
-        state_data: StateData | None,
-    ) -> torch.Tensor | None:
-        return self._extract_state_data(state_data)
-
-    def train_step(
-        self,
-        matched_distr: MatchedDistributions,
-        *args,
-        **kwargs,
-    ) -> dict[str, Any]:
-        """Single step function of the solver.
-
-        :param matched_distr: Input `MatchedDistributions` object.
-        :type matched_distr: dict[str, torch.Tensor]
-        """
-        step_data = self._extract_step_data(matched_distr)
-        return self._train_step_forward(step_data, *args, **kwargs)
-
-    def predict(
-        self,
-        matched_distr: MatchedDistributions,
-        *args,
-        no_grad: bool = True,
-        **kwargs,
-    ) -> PredictionData:
-        """Prediction on node."""
-        # extract step data and prepare latent state
-        step_data = self._extract_step_data(matched_distr)
-
-        # optionally stop gradients
-        if no_grad:
-            with torch.no_grad():
-                return self._predict(
-                    step_data,
-                    *args,
-                    **kwargs,
-                )
-        else:
-            return self._predict(
-                step_data,
-                *args,
-                **kwargs,
-            )
+    ) -> PredictionData: ...

@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 
 from sc_flow.data._dims_registry import DataDimensionalitiesRegistry
 from sc_flow.data._manager import DataManager
-from sc_flow.data.containers._state import StateData
 
 if TYPE_CHECKING:
     from sc_flow.backends.torch._types import TMatchFn as TorchMatchFn
@@ -42,13 +41,6 @@ class BaseMethod(abc.ABC):
     @abc.abstractmethod
     def set_train_mode(self, mode: bool) -> None:
         """Set the underlying module to training (True) or evaluation (False) mode."""
-        pass
-
-    @abc.abstractmethod
-    def extract_state_data(
-        self,
-        state_data: StateData | None,
-    ) -> Any | None:
         pass
 
     @abc.abstractmethod

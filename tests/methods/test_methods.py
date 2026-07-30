@@ -18,9 +18,6 @@ class ConcreteMethod(BaseMethod):
     def set_train_mode(self, mode: bool) -> None:
         self._train_mode = mode
 
-    def extract_state_data(self, state_data):
-        return state_data
-
     def train_step(self, *args, **kwargs):
         return 0, {"loss": 0.0}
 
@@ -36,9 +33,6 @@ class ConcreteGenerativeFlow(BaseGenerativeFlow):
 
     def set_train_mode(self, mode: bool) -> None:
         pass
-
-    def extract_state_data(self, state_data):
-        return state_data
 
     def train_step(self, *args, **kwargs):
         return 0, {}

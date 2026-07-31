@@ -50,7 +50,7 @@ jobs:
       # `--locked` fails the job if `uv.lock` is out of date with `pyproject.toml`,
       # rather than silently re-resolving and making the run non-reproducible.
       - name: Install package with test extra
-        run: uv sync --locked --extra test
+        run: uv sync --locked --extra test --extra cpu
       - name: Run slow tests
         env:
           MPLBACKEND: agg

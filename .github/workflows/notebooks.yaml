@@ -26,6 +26,10 @@ jobs:
   notebooks:
     name: Execute docs notebooks
     runs-on: ubuntu-latest
+    env:
+      # Documentation examples must remain runnable on ordinary CPU-only machines.
+      # This also prevents a GPU-enabled self-hosted runner from changing their behavior.
+      CUDA_VISIBLE_DEVICES: ""
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,7 +44,7 @@ jobs:
       # `--locked` fails the job if `uv.lock` is out of date with `pyproject.toml`,
       # rather than silently re-resolving and making the run non-reproducible.
       - name: Install package with notebooks extra
-        run: uv sync --locked --extra notebooks
+        run: uv sync --locked --extra notebooks --extra cpu
       - name: Execute notebooks
         env:
           MPLBACKEND: agg

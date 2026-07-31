@@ -51,6 +51,9 @@ jobs:
   # Run tests through hatch. Spawns a separate runner for each environment defined in the hatch matrix obtained above.
   test:
     needs: get-environments
+    env:
+      # Hatch delegates installation to uv; keep its PyTorch selection CPU-only too.
+      UV_TORCH_BACKEND: cpu
 
     strategy:
       fail-fast: false

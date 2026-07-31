@@ -34,6 +34,14 @@ optional-dependencies.all = [
   "sckitflow[logging,torch]",
 ]
 
+# Accelerator selectors for uv-managed development and CI environments.
+optional-dependencies.cpu = [
+  "torch>=2.2",
+]
+optional-dependencies.cu130 = [
+  "torch>=2.2",
+]
+
 optional-dependencies.dev = [
   "pre-commit",
   "twine>=4.0.2",
@@ -83,10 +91,37 @@ optional-dependencies.torch = [
   "torchmetrics>=1.4",
   "torchsde>=0.2.6",
 ]
+
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://sckitflow.readthedocs.io/"
 urls.Homepage = "https://github.com/theislab/sckitflow"
 urls.Source = "https://github.com/theislab/sckitflow"
+
+# Accelerator-specific sources are selected only when their matching extra is
+# enabled. The generic `torch` extra remains accelerator-neutral.
+[tool.uv]
+conflicts = [
+  [
+    { extra = "cpu" },
+    { extra = "cu130" },
+  ],
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu130", extra = "cu130" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/sckitflow" ]
@@ -115,7 +150,7 @@ deps = [ "pre" ]
 python = [ "3.13" ]
 
 [tool.hatch.envs.hatch-test]
-features = [ "test" ]
+features = [ "cpu", "test" ]
 
 [tool.hatch.envs.hatch-test.overrides]
 # If the matrix variable `deps` is set to "pre",

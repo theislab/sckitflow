@@ -1,6 +1,7 @@
 from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
+import pytest
 import torch
 
 from sckitflow.trainer._callbacks import (
@@ -75,15 +76,17 @@ class TestBaseCallback:
 
 
 class TestComputationalCallback:
-    def test_computational_callback_type(self):
+    def test_is_only_computational(self):
         cb = ComputationalCallback()
-        assert cb.callback_type == "computational"
+        assert isinstance(cb, BaseCallback)
+        assert not isinstance(cb, LoggingCallback)
 
 
 class TestLoggingCallback:
-    def test_logging_callback_type(self):
+    def test_is_only_logging(self):
         cb = LoggingCallback()
-        assert cb.callback_type == "logging"
+        assert isinstance(cb, BaseCallback)
+        assert not isinstance(cb, ComputationalCallback)
 
 
 # -----------------------------------------------------------------------------
@@ -262,10 +265,8 @@ class TestWandBLogger:
 # -----------------------------------------------------------------------------
 class TestTrainingCallbacks:
     def test_init(self):
-        cb1 = Mock(spec=BaseCallback)
-        cb1.callback_type = "logging"
-        cb2 = Mock(spec=BaseCallback)
-        cb2.callback_type = "logging"
+        cb1 = Mock(spec=LoggingCallback)
+        cb2 = Mock(spec=LoggingCallback)
 
         training_cb = TrainingCallbacks([cb1, cb2])
 
@@ -273,9 +274,36 @@ class TestTrainingCallbacks:
         assert len(training_cb._computational) == 0
         assert len(training_cb._logging) == 2
 
+    def test_init_splits_by_class(self):
+        computational_cb = ComputationalCallback()
+        logging_cb = LoggingCallback()
+
+        training_cb = TrainingCallbacks([computational_cb, logging_cb])
+
+        assert training_cb._computational == [computational_cb]
+        assert training_cb._logging == [logging_cb]
+
+    def test_init_accepts_dual_role_callback(self):
+        # Subclassing both is the supported way to opt into both roles.
+        class BothKinds(ComputationalCallback, LoggingCallback):
+            pass
+
+        cb = BothKinds()
+        training_cb = TrainingCallbacks([cb])
+
+        assert training_cb._computational == [cb]
+        assert training_cb._logging == [cb]
+
+    def test_init_rejects_unclassified_callback(self):
+        class Unclassified(BaseCallback):
+            pass
+
+        with pytest.raises(TypeError, match="must subclass ComputationalCallback or LoggingCallback"):
+            TrainingCallbacks([Unclassified()])
+
     def test_on_train_begin(self):
-        cb1 = Mock(spec=BaseCallback)
-        cb2 = Mock(spec=BaseCallback)
+        cb1 = Mock(spec=ComputationalCallback)
+        cb2 = Mock(spec=LoggingCallback)
         training_cb = TrainingCallbacks([cb1, cb2])
 
         trainer = Mock()
@@ -287,7 +315,6 @@ class TestTrainingCallbacks:
     def test_on_train_step(self):
         computational_cb = ComputationalCallback()
         logging_cb = Mock(spec=LoggingCallback)
-        logging_cb.callback_type = "logging"
 
         training_cb = TrainingCallbacks([computational_cb, logging_cb])
 
@@ -304,7 +331,6 @@ class TestTrainingCallbacks:
 
         computational_cb = DummyComputational()
         logging_cb = Mock(spec=LoggingCallback)
-        logging_cb.callback_type = "logging"
 
         training_cb = TrainingCallbacks([computational_cb, logging_cb])
 
@@ -318,8 +344,8 @@ class TestTrainingCallbacks:
         assert args[3] == {"computed_metric": 0.99}
 
     def test_on_train_end(self):
-        cb1 = Mock(spec=BaseCallback)
-        cb2 = Mock(spec=BaseCallback)
+        cb1 = Mock(spec=ComputationalCallback)
+        cb2 = Mock(spec=LoggingCallback)
         training_cb = TrainingCallbacks([cb1, cb2])
 
         trainer = Mock()

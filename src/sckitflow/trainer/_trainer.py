@@ -91,16 +91,21 @@ class Trainer:
         # Store raw predictions in logs
         self._append_val_log(val_id, metrics_dict)
 
-    def _get_logs_df(self, logs_dict: dict[str, Any] | None) -> pd.DataFrame:
-        """Return training logs as a pandas DataFrame."""
-        if logs_dict is None:
+    def _get_logs_df(self, logs: list[dict[str, Any]] | None) -> pd.DataFrame:
+        """Return logs as a pandas DataFrame indexed by training step.
+
+        `step` becomes the index rather than a column, so the remaining columns are
+        all metrics and plot against the step count directly.
+        """
+        if logs is None:
             return pd.DataFrame()
-        log_df = pd.DataFrame(logs_dict)
+        log_df = pd.DataFrame(logs)
         if "step" in log_df.columns:
             idx = log_df["step"]
             log_df.index = idx
             log_df.index.name = "step"
-            log_df = log_df.drop(columns=["step"], axis=1)
+            # `columns=` already implies the axis; passing both is a pandas error.
+            log_df = log_df.drop(columns=["step"])
         return log_df
 
     def train(
@@ -162,7 +167,8 @@ class Trainer:
     def get_val_logs_df(self, val_id: str | None = None) -> pd.DataFrame | dict[str, pd.DataFrame]:
         """Return validation logs as a pandas DataFrame."""
         if val_id is not None:
-            return self._get_logs_df(self._val_logs[val_id])
+            # `.get` so an unknown id yields an empty frame instead of a KeyError.
+            return self._get_logs_df(self._val_logs.get(val_id))
         return {vid: self._get_logs_df(logs) for vid, logs in self._val_logs.items()}
 
     @property

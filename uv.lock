@@ -2424,6 +2424,18 @@ wheels = [
 ]
 
 [[package]]
+name = "pytest-split"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pytest" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/2f/16/8af4c5f2ceb3640bb1f78dfdf5c184556b10dfe9369feaaad7ff1c13f329/pytest_split-0.11.0.tar.gz", hash = "sha256:8ebdb29cc72cc962e8eb1ec07db1eeb98ab25e215ed8e3216f6b9fc7ce0ec2b5", size = 13421, upload-time = "2026-02-03T09:14:31.469Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ae/a1/d4423657caaa8be9b31e491592b49cebdcfd434d3e74512ce71f6ec39905/pytest_split-0.11.0-py3-none-any.whl", hash = "sha256:899d7c0f5730da91e2daf283860eb73b503259cb416851a65599368849c7f382", size = 11911, upload-time = "2026-02-03T09:14:33.708Z" },
+]
+
+[[package]]
 name = "pytest-xdist"
 version = "3.8.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2921,12 +2933,24 @@ logging = [
     { name = "omegaconf" },
     { name = "wandb" },
 ]
+notebooks = [
+    { name = "ipykernel" },
+    { name = "matplotlib" },
+    { name = "nbclient" },
+    { name = "nbformat" },
+    { name = "pot" },
+    { name = "torch" },
+    { name = "torchdiffeq" },
+    { name = "torchmetrics" },
+    { name = "torchsde" },
+]
 test = [
     { name = "coverage" },
     { name = "omegaconf" },
     { name = "pot" },
     { name = "pytest" },
     { name = "pytest-cov" },
+    { name = "pytest-split" },
     { name = "pytest-xdist" },
     { name = "scanpy" },
     { name = "torch" },
@@ -2950,8 +2974,12 @@ requires-dist = [
     { name = "coverage", marker = "extra == 'test'" },
     { name = "docutils", marker = "extra == 'doc'", specifier = ">=0.8,!=0.18.*,!=0.19.*" },
     { name = "ipykernel", marker = "extra == 'doc'" },
+    { name = "ipykernel", marker = "extra == 'notebooks'" },
     { name = "ipython", marker = "extra == 'doc'" },
+    { name = "matplotlib", marker = "extra == 'notebooks'" },
     { name = "myst-nb", marker = "extra == 'doc'", specifier = ">=1.1" },
+    { name = "nbclient", marker = "extra == 'notebooks'" },
+    { name = "nbformat", marker = "extra == 'notebooks'" },
     { name = "numpy", specifier = ">=1.26" },
     { name = "omegaconf", marker = "extra == 'all'" },
     { name = "omegaconf", marker = "extra == 'logging'" },
@@ -2959,12 +2987,14 @@ requires-dist = [
     { name = "pandas", specifier = ">=2" },
     { name = "pandas", marker = "extra == 'doc'" },
     { name = "pot", marker = "extra == 'all'", specifier = ">=0.9" },
+    { name = "pot", marker = "extra == 'notebooks'", specifier = ">=0.9" },
     { name = "pot", marker = "extra == 'test'", specifier = ">=0.9" },
     { name = "pot", marker = "extra == 'torch'", specifier = ">=0.9" },
     { name = "pre-commit", marker = "extra == 'dev'" },
     { name = "pytest", marker = "extra == 'test'" },
     { name = "pytest-cov", marker = "extra == 'test'" },
-    { name = "pytest-xdist", marker = "extra == 'test'" },
+    { name = "pytest-split", marker = "extra == 'test'" },
+    { name = "pytest-xdist", marker = "extra == 'test'", specifier = ">=3" },
     { name = "scanpy", marker = "extra == 'test'", specifier = ">=1.10" },
     { name = "scikit-learn", specifier = ">=1.4" },
     { name = "scipy", specifier = ">=1.12" },
@@ -2977,15 +3007,19 @@ requires-dist = [
     { name = "sphinxcontrib-bibtex", marker = "extra == 'doc'", specifier = ">=1" },
     { name = "sphinxext-opengraph", marker = "extra == 'doc'" },
     { name = "torch", marker = "extra == 'all'", specifier = ">=2.2" },
+    { name = "torch", marker = "extra == 'notebooks'", specifier = ">=2.2" },
     { name = "torch", marker = "extra == 'test'", specifier = ">=2.2" },
     { name = "torch", marker = "extra == 'torch'", specifier = ">=2.2" },
     { name = "torchdiffeq", marker = "extra == 'all'", specifier = ">=0.2.4" },
+    { name = "torchdiffeq", marker = "extra == 'notebooks'", specifier = ">=0.2.4" },
     { name = "torchdiffeq", marker = "extra == 'test'", specifier = ">=0.2.4" },
     { name = "torchdiffeq", marker = "extra == 'torch'", specifier = ">=0.2.4" },
     { name = "torchmetrics", marker = "extra == 'all'", specifier = ">=1.4" },
+    { name = "torchmetrics", marker = "extra == 'notebooks'", specifier = ">=1.4" },
     { name = "torchmetrics", marker = "extra == 'test'", specifier = ">=1.4" },
     { name = "torchmetrics", marker = "extra == 'torch'", specifier = ">=1.4" },
     { name = "torchsde", marker = "extra == 'all'", specifier = ">=0.2.6" },
+    { name = "torchsde", marker = "extra == 'notebooks'", specifier = ">=0.2.6" },
     { name = "torchsde", marker = "extra == 'test'", specifier = ">=0.2.6" },
     { name = "torchsde", marker = "extra == 'torch'", specifier = ">=0.2.6" },
     { name = "tqdm", specifier = ">=4.66" },
@@ -2994,7 +3028,7 @@ requires-dist = [
     { name = "wandb", marker = "extra == 'logging'" },
     { name = "wandb", marker = "extra == 'test'" },
 ]
-provides-extras = ["all", "dev", "doc", "logging", "test", "torch"]
+provides-extras = ["all", "dev", "doc", "logging", "notebooks", "test", "torch"]
 
 [[package]]
 name = "scverse-misc"

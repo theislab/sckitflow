@@ -77,9 +77,10 @@ class TestMixins:
         self,
         function: Callable[[Any], Any],
         output_value_type: type[Any] | None,
+        monkeypatch: pytest.MonkeyPatch,
     ) -> None:
         # initialize mixin
-        MappedTree._REQUIRED_VALUE_TYPE = float
+        monkeypatch.setattr(MappedTree, "_REQUIRED_VALUE_TYPE", float)
         mixin_orig = MappedTree(float_data_dict())
 
         # fail cases

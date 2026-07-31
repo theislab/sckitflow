@@ -44,6 +44,9 @@ def get_toy_dataset(dataset_name: str, **kwargs):
     ValueError : If dataset_name is not recognized
     """
     # Instantiate the appropriate dataset class
+    if dataset_name not in _DUMMY_DATASETS_CLS_REGISTRY:
+        valid = ", ".join(sorted(_DUMMY_DATASETS_CLS_REGISTRY))
+        raise ValueError(f"Unknown dataset name {dataset_name!r}. Valid options are: {valid}.")
     dataset_class = _DUMMY_DATASETS_CLS_REGISTRY[dataset_name]
     adata = dataset_class(**kwargs)
 

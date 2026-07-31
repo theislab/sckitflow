@@ -1,9 +1,6 @@
 import numpy as np
-import pytest
 
-pytest.importorskip("sckitflow.data.preprocessing")
-
-from sckitflow.data.preprocessing import PCATransform, ZScoreTransform
+from sckitflow.preprocessing.transforms import PCATransform, ZScoreTransform
 
 
 class TestPreprocessingPipeline:

@@ -70,7 +70,8 @@ class Trainer:
         """Run validation on a sampler and store predictions."""
         predictions_dict = {}
         for node in sampler:
-            target = self._method.extract_state_data(node.target_distr.state_data)
+            # Kept as the raw `StateData`; the `.X` unwrapping below turns it into an array.
+            target = node.target_distr.state_data
             preds = self._method.predict(node, *args, **kwargs)
             # Extract the actual data from PredictionData object
             if hasattr(preds, "samples"):
@@ -86,9 +87,9 @@ class Trainer:
 
         # Trigger callbacks with the predictions dictionary
         metrics_dict = self._callbacks.on_valid_step(self, step, val_id, predictions_dict, **kwargs)
-        metrics_dict.update({"step": self._current_step})
+        metrics_dict.update({"step": step})
 
-        # Store raw predictions in logs
+        # Store the metrics computed by the callbacks, tagged with the validation step.
         self._append_val_log(val_id, metrics_dict)
 
     def _get_logs_df(self, logs: list[dict[str, Any]] | None) -> pd.DataFrame:
@@ -165,7 +166,10 @@ class Trainer:
         return self._get_logs_df(self._train_logs)
 
     def get_val_logs_df(self, val_id: str | None = None) -> pd.DataFrame | dict[str, pd.DataFrame]:
-        """Return validation logs as a pandas DataFrame."""
+        """Return validation logs as a pandas DataFrame.
+
+        An unknown ``val_id`` yields an empty frame, mirroring the empty-logs case.
+        """
         if val_id is not None:
             # `.get` so an unknown id yields an empty frame instead of a KeyError.
             return self._get_logs_df(self._val_logs.get(val_id))

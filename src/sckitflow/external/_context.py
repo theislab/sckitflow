@@ -50,8 +50,9 @@ class ExternalModelContext:
         # ---- Validate arguments ----
         if model is None and model_path is None:
             raise ValueError("At least one of model or model_path should be passed")
-        if model is not None and model_path is not None:
-            raise ValueError("Only one of 'model' or 'model_path' can be provided.")
+        # `model` and `model_path` may both be given: `model` acts as the initially
+        # populated cache and `model_path` as the source that `reload()` re-reads from.
+        # This is also the state a path-only context reaches after its first `load()`.
 
         # ---- Set arguments ----
         self._model: Any = model

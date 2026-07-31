@@ -2,9 +2,7 @@ import numpy as np
 import pytest
 from scipy.sparse import csr_matrix
 
-pytest.importorskip("sckitflow.data.preprocessing")
-
-from sckitflow.data.preprocessing import ZScoreTransform
+from sckitflow.preprocessing.transforms import ZScoreTransform
 
 
 class TestZScoreTransform:

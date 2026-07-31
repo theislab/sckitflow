@@ -232,6 +232,9 @@ class TrainingCallbacks(BaseCallback):
         self._computational = [cb for cb in callbacks if cb.callback_type == "computational"]
         self._logging = [cb for cb in callbacks if cb.callback_type == "logging"]
 
+    def __len__(self) -> int:
+        return len(self.callbacks)
+
     def on_train_begin(self, trainer: "Trainer", **kwargs) -> None:
         for cb in self.callbacks:
             cb.on_train_begin(trainer, **kwargs)

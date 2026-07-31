@@ -78,6 +78,8 @@ jobs:
           MPLBACKEND: agg
           PLATFORM: ${{ matrix.os }}
           DISPLAY: :42
+          # Without this the xdist workers record nothing and the report comes back empty.
+          COVERAGE_PROCESS_START: pyproject.toml
         # `slow`-marked tests run in the separate, sharded `test-slow.yaml` workflow.
         run: uvx hatch run ${{ matrix.env.name }}:run-cov -- -m "not slow" -n auto --dist worksteal
       - name: generate coverage report

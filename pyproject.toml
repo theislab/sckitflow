@@ -177,6 +177,9 @@ markers = [
 
 [tool.coverage.run]
 source = [ "sckitflow" ]
+# The test job runs under pytest-xdist, so each worker is a separate process and needs
+# its own data file for `coverage combine` to pick it up.
+parallel = true
 omit = [
   "**/test_*.py",
 ]

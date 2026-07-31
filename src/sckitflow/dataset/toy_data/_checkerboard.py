@@ -1,4 +1,4 @@
-import scanpy as sc
+from anndata import AnnData
 from sklearn import datasets
 
 from sckitflow.dataset.toy_data._base import BaseDummyDataset
@@ -59,13 +59,13 @@ class CheckerboardDataset(BaseDummyDataset):
             shuffle=shuffle,
         )
 
-    def _generate(self, random_state, n_samples, n_features, n_clusters, noise, minval, maxval, shuffle) -> sc.AnnData:
+    def _generate(self, random_state, n_samples, n_features, n_clusters, noise, minval, maxval, shuffle) -> AnnData:
         """
         Generate a checkerboard pattern of clusters.
 
         Returns
         -------
-        adata : sc.AnnData
+        adata : AnnData
             Dataset with checkerboard pattern, row/column cluster assignments & metadata
         """
         # Step 1: Generate checkerboard data

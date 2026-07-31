@@ -5,6 +5,10 @@ from torch import Tensor
 
 from sckitflow.backends.torch.solvers._sde_solver import SDESolver
 
+# Numerical-integration convergence and stochastic-statistics checks: the
+# heaviest cluster in the suite by an order of magnitude.
+pytestmark = pytest.mark.slow
+
 
 def _wrap(diffusion_fn, df_kwargs: dict | None = None):
     """Use SDESolver._get_diffusion_fn_wrapper without calling __init__."""

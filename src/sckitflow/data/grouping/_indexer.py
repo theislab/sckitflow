@@ -77,7 +77,8 @@ class HierarchicalIndexer:
 
         for level_name, level_cols in self._registry.items():
             check_sequence_query_against_reference(
-                level_cols, df.columns,
+                level_cols,
+                df.columns,
                 allow_missing_from_query=True,
                 allow_missing_from_reference=False,
             )
@@ -85,8 +86,7 @@ class HierarchicalIndexer:
                 series = df[col]
                 if not hasattr(series, "cat"):
                     raise TypeError(
-                        f"Column '{col}' must be Categorical. "
-                        f"Cast with: df['{col}'] = df['{col}'].astype('category')"
+                        f"Column '{col}' must be Categorical. Cast with: df['{col}'] = df['{col}'].astype('category')"
                     )
                 all_levels.append(series.cat.categories)
                 all_codes.append(series.cat.codes.values)

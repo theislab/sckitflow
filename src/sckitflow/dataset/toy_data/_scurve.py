@@ -1,4 +1,4 @@
-import scanpy as sc
+from anndata import AnnData
 from sklearn import datasets
 
 from sckitflow.dataset.toy_data._base import BaseDummyDataset
@@ -31,13 +31,13 @@ class SCurveDataset(BaseDummyDataset):
         """Initialization"""
         super().__init__(random_state, n_samples, noise=noise)
 
-    def _generate(self, random_state, n_samples, noise) -> sc.AnnData:
+    def _generate(self, random_state, n_samples, noise) -> AnnData:
         """
         Generate S-Curve dataset.
 
         Returns
         -------
-        adata : sc.AnnData
+        adata : AnnData
             Dataset with two interleaving half-circles labeled as class 0 and 1
         """
         # Step 1: Generate moons using sklearn

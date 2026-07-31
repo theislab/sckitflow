@@ -151,11 +151,12 @@ class TestNestedData:
         # Compare scalar attributes
         source_a = data[leaf_index.mapping[("a",)]]
         source_c = data[leaf_index.mapping[("c",)]]
-        assert len(actual.mapping[key].source) == len(source_a)
-        assert actual.mapping[key].source.state_data.X[0] == source_a.state_data.X[0]
-        # Ensure source_key=("c",) was ignored by checking against slice contents
-        assert len(actual.mapping[key].source) != len(source_c)
-        assert actual.mapping[key].source.state_data.X[0] != source_c.state_data.X[0]
+        actual_source = actual.mapping[key].source
+        assert len(actual_source) == len(source_a)
+        # Ensure source_key=("c",) was ignored by comparing slice contents. All three
+        # leaf slices are the same length, so only the values can tell them apart.
+        assert np.array_equal(actual_source.state_data.X, source_a.state_data.X)
+        assert not np.array_equal(actual_source.state_data.X, source_c.state_data.X)
 
     def test_init_tree_with_matched_keys_nested(self):
         """Test a nested tree with one branch only (to avoid missing keys)."""

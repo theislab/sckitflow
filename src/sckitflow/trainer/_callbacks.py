@@ -18,7 +18,12 @@ __all__ = [
 
 
 class BaseCallback:
-    callback_type: Literal["computational", "logging"] = "computational"
+    """Base hooks shared by every callback.
+
+    Do not subclass this directly -- pick :class:`ComputationalCallback` or
+    :class:`LoggingCallback`, which is how :class:`TrainingCallbacks` decides
+    what each callback is sent.
+    """
 
     def on_train_begin(self, trainer: "Trainer", **kwargs) -> None:
         pass
@@ -36,11 +41,18 @@ class BaseCallback:
 
 
 class ComputationalCallback(BaseCallback):
-    callback_type = "computational"
+    """Derives values from the raw validation predictions.
+
+    Receives ``predictions_dict`` on `on_valid_step` and returns metrics.
+    """
 
 
 class LoggingCallback(BaseCallback):
-    callback_type = "logging"
+    """Reports already-computed values; never produces metrics itself.
+
+    Receives the metrics the computational callbacks returned, and is the only
+    kind sent `on_train_step`.
+    """
 
 
 class MetricsCallback(ComputationalCallback):
@@ -229,8 +241,21 @@ class TrainingCallbacks(BaseCallback):
 
     def __init__(self, callbacks: Sequence[BaseCallback]) -> None:
         self.callbacks = callbacks
-        self._computational = [cb for cb in callbacks if cb.callback_type == "computational"]
-        self._logging = [cb for cb in callbacks if cb.callback_type == "logging"]
+        # Dispatch by class. A callback may subclass both to receive both roles.
+        self._computational = [cb for cb in callbacks if isinstance(cb, ComputationalCallback)]
+        self._logging = [cb for cb in callbacks if isinstance(cb, LoggingCallback)]
+
+        # Anything that is neither would silently never be called, so reject it here.
+        unclassified = [cb for cb in callbacks if not isinstance(cb, ComputationalCallback | LoggingCallback)]
+        if unclassified:
+            names = ", ".join(sorted({type(cb).__name__ for cb in unclassified}))
+            raise TypeError(
+                f"Callbacks must subclass ComputationalCallback or LoggingCallback, got: {names}. "
+                "Subclassing BaseCallback directly leaves the callback out of every dispatched hook."
+            )
+
+    def __len__(self) -> int:
+        return len(self.callbacks)
 
     def on_train_begin(self, trainer: "Trainer", **kwargs) -> None:
         for cb in self.callbacks:

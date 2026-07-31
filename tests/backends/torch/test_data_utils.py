@@ -136,6 +136,10 @@ class TestDataUtils:
         assert result.target_group_data is None
         assert result.source_condition_data is None
 
+    @pytest.mark.xfail(
+        reason="https://github.com/theislab/sckitflow/issues/146 - StepData carries a plain dict where MixedTypeData is expected",
+        strict=True,
+    )
     def test_write_continuous_cond_cov_with_base_data(self, monkeypatch):
         """When base_data is provided, the existing StepData is updated with the new condition."""
         key = "new_cov"

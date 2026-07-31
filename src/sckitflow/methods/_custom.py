@@ -83,14 +83,31 @@ def register_method(
 
             class_dict["__init__"] = __init__
 
+            # `TorchBaseMethod` declares `_step_fn` and `_predict` abstract, and a
+            # "general" method overrides their public callers (`train_step`, `predict`)
+            # outright -- but the abstract slots still have to be filled or the class
+            # cannot be instantiated at all.
+            def _step_fn(self, step_data, *args, **kwargs):
+                raise NotImplementedError(
+                    f"{user_cls.__name__} is registered as a 'general' method and implements "
+                    "`train_step` directly, so `_step_fn` is never used."
+                )
+
+            def _predict(self, step_data, *args, **kwargs):
+                raise NotImplementedError(
+                    f"{user_cls.__name__} is registered as a 'general' method and implements "
+                    "`predict` directly, so `_predict` is never used."
+                )
+
+            class_dict["_step_fn"] = _step_fn
+            class_dict["_predict"] = _predict
+
             # Wrap predict output into PredictionData
             def predict(self, matched_distr, *args, **kwargs):
                 raw_output = user_cls.predict(self, matched_distr, *args, **kwargs)
                 if isinstance(raw_output, PredictionDataClass):
                     return raw_output
-                if hasattr(raw_output, "samples"):
-                    return raw_output
-                return PredictionDataClass(samples=raw_output, traj=None)
+                return PredictionDataClass(X=raw_output, traj=None)
 
             class_dict["predict"] = predict
 

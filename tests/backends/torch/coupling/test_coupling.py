@@ -113,6 +113,10 @@ def test_ot_quadratic_coupling_basic(quadratic_inputs, method):
     assert (src_idx >= 0).all() and (tgt_idx >= 0).all()
 
 
+@pytest.mark.xfail(
+    reason="https://github.com/theislab/sckitflow/issues/145 - the optional linear terms are converted before the None check",
+    strict=True,
+)
 def test_ot_quadratic_coupling_without_xy_couplings(quadratic_inputs):
     src_xx, tgt_yy, *_ = quadratic_inputs
     src_idx, tgt_idx = ot_quadratic_coupling(

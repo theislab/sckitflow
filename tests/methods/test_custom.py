@@ -45,8 +45,9 @@ def mock_prediction_data():
     """Provide a dummy PredictionData class."""
 
     class DummyPredictionData:
-        def __init__(self, samples, traj=None):
-            self.samples = samples
+        # Mirrors the real `PredictionData`, whose payload field is `X`.
+        def __init__(self, X, traj=None):
+            self.X = X
             self.traj = traj
 
     with patch("sckitflow.backends.torch._types.PredictionData", DummyPredictionData):
@@ -213,7 +214,7 @@ def test_register_general_predict_wrapper(mock_torch_registry, mock_torch_base_c
     result = instance.predict(matched)
     # Check that the result is an instance of PredictionData
     assert isinstance(result, mock_prediction_data)
-    assert hasattr(result, "samples")
+    assert hasattr(result, "X")
     assert result.traj is None
 
 

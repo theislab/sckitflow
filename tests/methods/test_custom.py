@@ -67,7 +67,7 @@ def test_register_flow_method_success(mock_torch_registry, mock_torch_base_class
         default_solver_cls = Mock()
         probability_path_cls = Mock()
 
-        def compute_loss(self, step_data, *args, **kwargs):
+        def step_fn(self, step_data, *args, **kwargs):
             pass
 
         def predict(self, step_data, *args, **kwargs):
@@ -91,16 +91,16 @@ def test_register_flow_missing_module_cls(mock_torch_registry, mock_torch_base_c
 
         @register_method("bad_flow", backend="torch", category="flow")
         class BadFlow:
-            def compute_loss(self):
+            def step_fn(self):
                 pass
 
             def predict(self):
                 pass
 
 
-def test_register_flow_missing_compute_loss(mock_torch_registry, mock_torch_base_classes):
-    """Missing compute_loss raises TypeError."""
-    with pytest.raises(TypeError, match="must define a 'compute_loss' method"):
+def test_register_flow_missing_step_fn(mock_torch_registry, mock_torch_base_classes):
+    """Missing step_fn raises TypeError."""
+    with pytest.raises(TypeError, match="must define a 'step_fn' method"):
 
         @register_method("bad_flow", backend="torch", category="flow")
         class BadFlow:
@@ -118,7 +118,7 @@ def test_register_flow_missing_predict(mock_torch_registry, mock_torch_base_clas
         class BadFlow:
             module_cls = Mock()
 
-            def compute_loss(self):
+            def step_fn(self):
                 pass
 
 
@@ -131,7 +131,7 @@ def test_register_flow_with_user_init(mock_torch_registry, mock_torch_base_class
     class UserFlow:
         module_cls = Mock()
 
-        def compute_loss(self):
+        def step_fn(self):
             pass
 
         def predict(self):
@@ -228,7 +228,7 @@ def test_duplicate_registration_error(mock_torch_registry, mock_torch_base_class
     class First:
         module_cls = Mock()
 
-        def compute_loss(self):
+        def step_fn(self):
             pass
 
         def predict(self):
@@ -240,7 +240,7 @@ def test_duplicate_registration_error(mock_torch_registry, mock_torch_base_class
         class Second:
             module_cls = Mock()
 
-            def compute_loss(self):
+            def step_fn(self):
                 pass
 
             def predict(self):
@@ -255,7 +255,7 @@ def test_unsupported_backend():
         class Dummy:
             module_cls = Mock()
 
-            def compute_loss(self):
+            def step_fn(self):
                 pass
 
             def predict(self):
@@ -270,7 +270,7 @@ def test_unsupported_category(mock_torch_registry):
         class Dummy:
             module_cls = Mock()
 
-            def compute_loss(self):
+            def step_fn(self):
                 pass
 
             def predict(self):
@@ -285,7 +285,7 @@ def test_jax_backend_not_implemented():
         class Dummy:
             module_cls = Mock()
 
-            def compute_loss(self):
+            def step_fn(self):
                 pass
 
             def predict(self):
@@ -303,7 +303,7 @@ def test_no_user_init_does_not_call_extra_init(mock_torch_registry, mock_torch_b
     class NoInit:
         module_cls = Mock()
 
-        def compute_loss(self):
+        def step_fn(self):
             pass
 
         def predict(self):
@@ -323,7 +323,7 @@ def test_probability_path_cls_not_set(mock_torch_registry, mock_torch_base_class
     class NoProbPath:
         module_cls = Mock()
 
-        def compute_loss(self):
+        def step_fn(self):
             pass
 
         def predict(self):
@@ -345,7 +345,7 @@ def test_decorator_returns_original_class(mock_torch_registry, mock_torch_base_c
     class Original:
         module_cls = Mock()
 
-        def compute_loss(self):
+        def step_fn(self):
             pass
 
         def predict(self):

@@ -63,14 +63,14 @@ class Trainer:
         self,
         sampler: FValidationSampler,
         val_id: str,
-        step: int,
         *args,
         **kwargs,
     ) -> None:
         """Run validation on a sampler and store predictions."""
         predictions_dict = {}
         for node in sampler:
-            target = self._method.extract_state_data(node.target_distr.state_data)
+            # Kept as the raw `StateData`; the `.X` unwrapping below turns it into an array.
+            target = node.target_distr.state_data
             preds = self._method.predict(node, *args, **kwargs)
             # Extract the actual data from PredictionData object
             if hasattr(preds, "samples"):
@@ -85,22 +85,27 @@ class Trainer:
             predictions_dict[node_id] = {"predictions": preds_array, "targets": target_array}
 
         # Trigger callbacks with the predictions dictionary
-        metrics_dict = self._callbacks.on_valid_step(self, step, val_id, predictions_dict, **kwargs)
+        metrics_dict = self._callbacks.on_valid_step(self, self._current_step, val_id, predictions_dict, **kwargs)
         metrics_dict.update({"step": self._current_step})
 
-        # Store raw predictions in logs
+        # Store the metrics computed by the callbacks, tagged with the validation step.
         self._append_val_log(val_id, metrics_dict)
 
-    def _get_logs_df(self, logs_dict: dict[str, Any] | None) -> pd.DataFrame:
-        """Return training logs as a pandas DataFrame."""
-        if logs_dict is None:
+    def _get_logs_df(self, logs: list[dict[str, Any]] | None) -> pd.DataFrame:
+        """Return logs as a pandas DataFrame indexed by training step.
+
+        `step` becomes the index rather than a column, so the remaining columns are
+        all metrics and plot against the step count directly.
+        """
+        if logs is None:
             return pd.DataFrame()
-        log_df = pd.DataFrame(logs_dict)
+        log_df = pd.DataFrame(logs)
         if "step" in log_df.columns:
             idx = log_df["step"]
             log_df.index = idx
             log_df.index.name = "step"
-            log_df = log_df.drop(columns=["step"], axis=1)
+            # `columns=` already implies the axis; passing both is a pandas error.
+            log_df = log_df.drop(columns=["step"])
         return log_df
 
     def train(
@@ -123,7 +128,9 @@ class Trainer:
         # Call on_train_begin
         self._callbacks.on_train_begin(self, **cb_kwargs)
 
-        pbar = tqdm(range(1, n_train_steps + 1))
+        start_step = self._current_step + 1
+        stop_step = start_step + n_train_steps
+        pbar = tqdm(range(start_step, stop_step))
         for self._current_step in pbar:
             # Sample nodes and perform training steps
             nodes = train_sampler.sample()
@@ -138,16 +145,16 @@ class Trainer:
             self._callbacks.on_train_step(self, self._current_step, step_dict, **cb_kwargs)
 
             # Update progress bar description
-            if ((self._current_step + 1) % pbar_freq == 0) and (self._current_step > 0):
+            if self._current_step % pbar_freq == 0:
                 msg = "| " + " | ".join(
                     f"{k}:{v:.4f}" if isinstance(v, float) else f"{k}:{v}" for k, v in step_dict.items()
                 )
                 pbar.set_description(msg)
 
             # Validation step
-            if ((self._current_step + 1) % valid_freq == 0) and (self._current_step > 0) and do_validation:
+            if self._current_step % valid_freq == 0 and do_validation:
                 for val_id, val_sampler in val_samplers_dict.items():
-                    self._run_val_on_sampler(val_sampler, val_id, self._current_step, **cb_kwargs)
+                    self._run_val_on_sampler(val_sampler, val_id, **cb_kwargs)
 
         # Call on_train_end
         self._callbacks.on_train_end(self, **cb_kwargs)
@@ -160,9 +167,13 @@ class Trainer:
         return self._get_logs_df(self._train_logs)
 
     def get_val_logs_df(self, val_id: str | None = None) -> pd.DataFrame | dict[str, pd.DataFrame]:
-        """Return validation logs as a pandas DataFrame."""
+        """Return validation logs as a pandas DataFrame.
+
+        An unknown ``val_id`` yields an empty frame, mirroring the empty-logs case.
+        """
         if val_id is not None:
-            return self._get_logs_df(self._val_logs[val_id])
+            # `.get` so an unknown id yields an empty frame instead of a KeyError.
+            return self._get_logs_df(self._val_logs.get(val_id))
         return {vid: self._get_logs_df(logs) for vid, logs in self._val_logs.items()}
 
     @property

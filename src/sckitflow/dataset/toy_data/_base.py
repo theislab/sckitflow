@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 import numpy as np
-import scanpy as sc
+from anndata import AnnData
 
 
 class BaseDummyDataset(ABC):
@@ -21,7 +21,7 @@ class BaseDummyDataset(ABC):
 
     Attributes
     ----------
-    adata : sc.AnnData
+    adata : AnnData
         Generated dataset in AnnData format
 
     dataset_name : str
@@ -41,7 +41,7 @@ class BaseDummyDataset(ABC):
         self.random_state = random_state
         self.adata = self._generate(random_state, n_samples, **kwargs)
 
-    def _create_anndata(self, X: np.ndarray, y: np.ndarray | None = None, y_type: str | None = None) -> sc.AnnData:
+    def _create_anndata(self, X: np.ndarray, y: np.ndarray | None = None, y_type: str | None = None) -> AnnData:
         """
         Convert numpy arrays into AnnData format
 
@@ -55,11 +55,11 @@ class BaseDummyDataset(ABC):
 
         Returns
         -------
-        adata : sc.AnnData
+        adata : AnnData
             Annotated data object with standardized structure
         """
         # Step 1: Create the core AnnData structure
-        adata = sc.AnnData(X=X)
+        adata = AnnData(X=X)
 
         # Step 2: Add cluster labels if provided
         # Labels are stored as strings for categorical data
@@ -85,7 +85,7 @@ class BaseDummyDataset(ABC):
         return self._dataset_name
 
     @abstractmethod
-    def _generate(self, **kwargs) -> sc.AnnData:
+    def _generate(self, **kwargs) -> AnnData:
         """
         Generate the dataset with specific parameters.
 
@@ -96,7 +96,7 @@ class BaseDummyDataset(ABC):
 
         Returns
         -------
-        adata : sc.AnnData
+        adata : AnnData
             Generated dataset wrapped as AnnData
         """
         raise NotImplementedError

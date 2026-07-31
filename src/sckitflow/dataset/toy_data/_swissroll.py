@@ -1,4 +1,4 @@
-import scanpy as sc
+from anndata import AnnData
 from sklearn import datasets
 
 from sckitflow.dataset.toy_data._base import BaseDummyDataset
@@ -35,13 +35,13 @@ class SwissRollDataset(BaseDummyDataset):
         """Initialization"""
         super().__init__(random_state, n_samples, noise=noise, hole=hole)
 
-    def _generate(self, random_state, n_samples, noise, hole) -> sc.AnnData:
+    def _generate(self, random_state, n_samples, noise, hole) -> AnnData:
         """
         Generate Swiss Roll dataset.
 
         Returns
         -------
-        adata : sc.AnnData
+        adata : AnnData
             Dataset with two interleaving half-circles labeled as class 0 and 1
         """
         # Step 1: Generate moons using sklearn

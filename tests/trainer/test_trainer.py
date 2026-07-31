@@ -6,6 +6,7 @@ import pandas as pd
 
 from sckitflow.methods._methods import BaseMethod
 from sckitflow.methods._opt import BaseOptManager
+from sckitflow.trainer._callbacks import ComputationalCallback, LoggingCallback
 from sckitflow.trainer._trainer import Trainer
 
 
@@ -22,10 +23,10 @@ class DummyMethod(BaseMethod):
     def set_train_mode(self, mode):
         self._train_mode = mode
 
-    def train_step(self, node):
+    def train_step(self, node, *args, **kwargs):
         return 0.5, {"loss": 0.5, "accuracy": 0.8}
 
-    def predict(self, node):
+    def predict(self, node, *args, **kwargs):
         return np.random.randn(10, 5)
 
 
@@ -44,7 +45,8 @@ class DummyValidationSampler:
         return iter([Mock(), Mock()])
 
 
-class RecordingCallback:
+class RecordingCallback(LoggingCallback):
+    # Logging: `TrainingCallbacks` only forwards `on_train_step` to logging callbacks.
     def __init__(self):
         self.train_begin_calls = []
         self.train_step_calls = []
@@ -62,6 +64,16 @@ class RecordingCallback:
 
     def on_train_end(self, trainer, **kwargs):
         self.train_end_calls.append((trainer, kwargs))
+
+
+class RecordingComputationalCallback(ComputationalCallback):
+    # Computational callbacks are the ones handed the raw predictions dict.
+    def __init__(self):
+        self.valid_step_calls = []
+
+    def on_valid_step(self, trainer, step, val_id, predictions_dict, **kwargs):
+        self.valid_step_calls.append((trainer, step, val_id, predictions_dict, kwargs))
+        return {"dummy_metric": 1.0}
 
 
 # -----------------------------------------------------------------------------
@@ -104,16 +116,25 @@ class TestTrainer:
         method = DummyMethod()
         opt_manager = DummyOptManager()
         callback = RecordingCallback()
-        trainer = Trainer(method, opt_manager, [callback])
+        metric_cb = RecordingComputationalCallback()
+        trainer = Trainer(method, opt_manager, [metric_cb, callback])
+        trainer._current_step = 5
 
         sampler = DummyValidationSampler()
-        trainer._run_val_on_sampler(sampler, "test_val", step=5)
+        trainer._run_val_on_sampler(sampler, "test_val")
 
-        # Check that val log was appended
+        # The val log holds the metrics the callbacks computed, tagged with the step.
         assert "test_val" in trainer._val_logs
         assert len(trainer._val_logs["test_val"]) == 1
-        assert "predictions" in trainer._val_logs["test_val"][0]
-        assert trainer._val_logs["test_val"][0]["step"] == 5
+        log_entry = trainer._val_logs["test_val"][0]
+        assert log_entry["dummy_metric"] == 1.0
+        assert log_entry["step"] == 5
+
+        # The raw predictions/targets reach the computational callback, one entry per node.
+        assert len(metric_cb.valid_step_calls) == 1
+        predictions_dict = metric_cb.valid_step_calls[0][3]
+        assert len(predictions_dict) == 2
+        assert all(set(v) == {"predictions", "targets"} for v in predictions_dict.values())
 
         # Check callback was called
         assert len(callback.valid_step_calls) == 1
@@ -135,7 +156,11 @@ class TestTrainer:
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 2
         assert "loss" in df.columns
-        assert "step" in df.columns
+        # `step` becomes the index, so the columns are metrics only.
+        assert df.index.name == "step"
+        assert "step" not in df.columns
+        assert list(df.index) == [0, 1]
+        assert list(df["loss"]) == [0.5, 0.3]
 
     def test_get_val_logs_df_single(self):
         trainer = Trainer(DummyMethod(), DummyOptManager())
@@ -185,9 +210,7 @@ class TestTrainer:
 
     @patch("sckitflow.trainer._trainer.tqdm")
     def test_train_with_validation(self, mock_tqdm):
-        mock_pbar = MagicMock()
-        mock_pbar.__iter__.return_value = range(5)
-        mock_tqdm.return_value = mock_pbar
+        mock_tqdm.side_effect = lambda steps: steps
 
         method = DummyMethod()
         opt_manager = DummyOptManager()
@@ -197,11 +220,27 @@ class TestTrainer:
         train_sampler = DummySampler()
         val_samplers = {"val1": DummyValidationSampler()}
 
-        trainer.train(train_sampler, val_samplers, n_train_steps=5, valid_freq=2)
+        trainer.train(train_sampler, val_samplers_dict=val_samplers, n_train_steps=5, valid_freq=2)
 
-        # Should have validation calls at steps 1 and 3 (0-indexed)
+        # Validation frequency is based on cumulative completed training steps.
         valid_calls = callback.valid_step_calls
-        assert len(valid_calls) >= 2
+        assert [call[1] for call in valid_calls] == [2, 4]
+
+    @patch("sckitflow.trainer._trainer.tqdm")
+    def test_train_continues_from_current_step(self, mock_tqdm):
+        mock_tqdm.side_effect = lambda steps: steps
+
+        callback = RecordingCallback()
+        trainer = Trainer(DummyMethod(), DummyOptManager(), [RecordingComputationalCallback(), callback])
+        train_sampler = DummySampler()
+        val_samplers = {"val1": DummyValidationSampler()}
+
+        trainer.train(train_sampler, val_samplers_dict=val_samplers, n_train_steps=3, valid_freq=2)
+        trainer.train(train_sampler, val_samplers_dict=val_samplers, n_train_steps=3, valid_freq=2)
+
+        assert trainer.current_step == 6
+        assert [call[1] for call in callback.train_step_calls] == [1, 2, 3, 4, 5, 6]
+        assert list(trainer.get_val_logs_df("val1").index) == [2, 4, 6]
 
     def test_properties(self):
         method = DummyMethod()

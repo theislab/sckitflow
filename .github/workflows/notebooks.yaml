@@ -1,0 +1,47 @@
+name: Notebooks
+
+# Executes every notebook under docs/notebooks/ end to end. All four are
+# self-contained (no external downloads, no GPU) and the two that train do so
+# for a couple of thousand cheap steps, so the whole job is a minute or two.
+# Keep it that way: a notebook that needs a GPU or a real training run does not
+# belong on this path.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: "0 5 1,15 * *"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash -euo pipefail {0}
+
+jobs:
+  notebooks:
+    name: Execute docs notebooks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: blob:none
+          # hatch-vcs derives the version from tags, so the full history is needed.
+          fetch-depth: 0
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+          cache-dependency-glob: uv.lock
+      # `--locked` fails the job if `uv.lock` is out of date with `pyproject.toml`,
+      # rather than silently re-resolving and making the run non-reproducible.
+      - name: Install package with notebooks extra
+        run: uv sync --locked --extra notebooks
+      - name: Execute notebooks
+        env:
+          MPLBACKEND: agg
+        run: uv run ./.run_notebooks.sh

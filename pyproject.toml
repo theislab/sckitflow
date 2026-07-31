@@ -1,10 +1,9 @@
 [build-system]
 build-backend = "hatchling.build"
-requires = [ "hatchling" ]
+requires = [ "hatch-vcs", "hatchling" ]
 
 [project]
 name = "sckitflow"
-version = "0.0.1"
 description = "Flow Matching tool-box for Single Cell Data."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -20,18 +19,19 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
 ]
+dynamic = [ "version" ]
 dependencies = [
-  "anndata",
-  "cloudpickle",
-  "omegaconf",
-  "scfit>=0.0.4",
-  "scikit-learn",
-  "session-info2",
-  "tqdm",
-  "wandb",
+  "anndata>=0.11",
+  "cloudpickle>=3",
+  "numpy>=1.26",
+  "pandas>=2",
+  "scikit-learn>=1.4",
+  "scipy>=1.12",
+  "tqdm>=4.66",
 ]
+# Everything an end user could want, minus the dev/doc/test tooling.
 optional-dependencies.all = [
-  "torch",
+  "sckitflow[logging,torch]",
 ]
 
 optional-dependencies.dev = [
@@ -54,21 +54,34 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
+# Imported lazily inside `sckitflow.trainer._callbacks.WandBLogger`.
+optional-dependencies.logging = [
+  "omegaconf",
+  "wandb",
+]
+# Executes the notebooks under `docs/notebooks/` in CI.
+optional-dependencies.notebooks = [
+  "ipykernel",
+  "matplotlib",
+  "nbclient",
+  "nbformat",
+  "sckitflow[torch]",
+]
 optional-dependencies.test = [
   "coverage",
-  "pot",
   "pytest",
   "pytest-cov",
-  "scanpy",
-  "torch",
-  "torchdiffeq",
-  "torchsde",
+  "pytest-split",             # shards the `slow` job by recorded duration (`.test_durations`)
+  "pytest-xdist>=3",
+  "scanpy>=1.10",             # reference implementation for the PCA transform tests only
+  "sckitflow[logging,torch]", # TestWandBLogger imports omegaconf for real (wandb itself is mocked)
 ]
 optional-dependencies.torch = [
-  "pot",         # noqa
-  "torch",
-  "torchdiffeq",
-  "torchsde",
+  "pot>=0.9",
+  "torch>=2.2",
+  "torchdiffeq>=0.2.4",
+  "torchmetrics>=1.4",
+  "torchsde>=0.2.6",
 ]
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://sckitflow.readthedocs.io/"
@@ -77,6 +90,9 @@ urls.Source = "https://github.com/theislab/sckitflow"
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/sckitflow" ]
+
+[tool.hatch.version]
+source = "vcs"
 
 [tool.hatch.envs.default]
 installer = "uv"
@@ -153,10 +169,17 @@ testpaths = [ "tests" ]
 xfail_strict = true
 addopts = [
   "--import-mode=importlib", # allow using test files with same name
+  "--strict-markers",
+]
+markers = [
+  "slow: deselect with `-m 'not slow'` (large fixtures / long-running training loops)",
 ]
 
 [tool.coverage.run]
 source = [ "sckitflow" ]
+# The test job runs under pytest-xdist, so each worker is a separate process and needs
+# its own data file for `coverage combine` to pick it up.
+parallel = true
 omit = [
   "**/test_*.py",
 ]

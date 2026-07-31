@@ -3,7 +3,8 @@ from typing import TYPE_CHECKING, Literal
 import pytest
 
 if TYPE_CHECKING:
-    from sckitflow.backends.torch.probability_paths._probability_paths import (
+    # Referenced only through the string forward reference below, which ruff cannot see.
+    from sckitflow.backends.torch.probability_paths._probability_paths import (  # noqa: F401
         BaseProbabilityPath as TorchBaseProbabilityPath,
     )
 

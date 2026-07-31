@@ -29,6 +29,19 @@ class BaseProbabilityPath(abc.ABC):
     """
 
     _require_prng: bool
+    is_deterministic: bool
+
+    def __init_subclass__(cls, **kwargs) -> None:
+        """Keep `is_deterministic` in sync with `_require_prng` on every concrete subclass.
+
+        As non-deterministic probability paths require a Pseudo-Random Numbers Generator,
+        this is `False` when such a generator is required. It is a plain class attribute so
+        that it reads the same on the class and on an instance -- stacking `classmethod` on
+        `property` used to do that, but Python 3.13 removed support for chaining them.
+        """
+        super().__init_subclass__(**kwargs)
+        if "_require_prng" in cls.__dict__:
+            cls.is_deterministic = not cls._require_prng
 
     def __init__(
         self,
@@ -181,18 +194,6 @@ class BaseProbabilityPath(abc.ABC):
             return mu_t + sigma_t * noise
         # returning mean for deterministic paths
         return mu_t
-
-    @classmethod
-    @property
-    def is_deterministic(
-        cls,
-    ) -> bool:
-        """Flag indicating whether the probability path is deterministic.
-
-        As non-deterministic probability paths require a Pseudo-Random Numbers Generator,
-        this will return `False` when such generator is not required.
-        """
-        return not cls._require_prng
 
 
 class LinearProbabilityPath(BaseProbabilityPath, abc.ABC):

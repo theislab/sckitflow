@@ -2,6 +2,10 @@ import pytest
 import torch
 from torch import Tensor
 
+# Numerical-integration convergence and stochastic-statistics checks: the
+# heaviest cluster in the suite by an order of magnitude.
+pytestmark = pytest.mark.slow
+
 
 class DriftWrapperVF:
     def __init__(self, drift_fn):

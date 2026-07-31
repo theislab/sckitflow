@@ -7,7 +7,19 @@ from anndata import AnnData, concat
 
 from sckitflow.data._mixins import MappedArray
 
-map_int_to_str = np.vectorize(lambda val, descr: f"{descr}{val}")
+
+def map_int_to_str(values: np.ndarray, descr: str) -> np.ndarray:
+    """Prefix every integer in `values` with `descr`, returning a string array.
+
+    The inputs are low-cardinality label codes, so only the distinct values are
+    formatted and the result is gathered by index -- `np.vectorize` would run the
+    Python-level f-string once per element instead.
+    """
+    values = np.asarray(values)
+    uniques, inverse = np.unique(values, return_inverse=True)
+    labels = np.array([f"{descr}{val}" for val in uniques])
+    return labels[inverse].reshape(values.shape)
+
 
 n_obs_pert = 50_000
 n_obs_ctrl = 10_000

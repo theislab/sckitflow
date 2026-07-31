@@ -36,7 +36,7 @@ def get_toy_dataset(dataset_name: str, **kwargs):
 
     Returns
     -------
-    adata : sc.AnnData
+    adata : AnnData
         Generated dataset wrapped in AnnData format
 
     Raises

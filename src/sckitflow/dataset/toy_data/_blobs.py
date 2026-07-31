@@ -1,4 +1,4 @@
-import scanpy as sc
+from anndata import AnnData
 from sklearn import datasets
 
 from sckitflow.dataset.toy_data._base import BaseDummyDataset
@@ -55,13 +55,13 @@ class BlobsDataset(BaseDummyDataset):
             shuffle=shuffle,
         )
 
-    def _generate(self, random_state, n_samples, n_features, centers, cluster_std, center_box, shuffle) -> sc.AnnData:
+    def _generate(self, random_state, n_samples, n_features, centers, cluster_std, center_box, shuffle) -> AnnData:
         """
         Generate blob-shaped clusters.
 
         Returns
         -------
-        adata : sc.AnnData
+        adata : AnnData
             Dataset with blob clusters, labels & metadata
         """
         # Step 1: Generate the blob data using sklearn

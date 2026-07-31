@@ -1,4 +1,4 @@
-import scanpy as sc
+from anndata import AnnData
 from sklearn import datasets
 
 from sckitflow.dataset.toy_data._base import BaseDummyDataset
@@ -39,13 +39,13 @@ class CirclesDataset(BaseDummyDataset):
         """Initialization"""
         super().__init__(random_state, n_samples, noise=noise, factor=factor, shuffle=shuffle)
 
-    def _generate(self, random_state, n_samples, noise, factor, shuffle) -> sc.AnnData:
+    def _generate(self, random_state, n_samples, noise, factor, shuffle) -> AnnData:
         """
         Generate concentric circles dataset.
 
         Returns
         -------
-        adata : sc.AnnData
+        adata : AnnData
             Dataset with two concentric circles labeled as class 0 and 1
         """
         # Step 1: Generate circles using sklearn

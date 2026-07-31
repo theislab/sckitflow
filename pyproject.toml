@@ -59,11 +59,20 @@ optional-dependencies.logging = [
   "omegaconf",
   "wandb",
 ]
+# Executes the notebooks under `docs/notebooks/` in CI.
+optional-dependencies.notebooks = [
+  "ipykernel",
+  "matplotlib",
+  "nbclient",
+  "nbformat",
+  "sckitflow[torch]",
+]
 optional-dependencies.test = [
   "coverage",
   "pytest",
   "pytest-cov",
-  "pytest-xdist",
+  "pytest-split",             # shards the `slow` job by recorded duration (`.test_durations`)
+  "pytest-xdist>=3",
   "scanpy>=1.10",             # reference implementation for the PCA transform tests only
   "sckitflow[logging,torch]", # TestWandBLogger imports omegaconf for real (wandb itself is mocked)
 ]

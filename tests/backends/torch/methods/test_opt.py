@@ -1,3 +1,4 @@
+import pytest
 import torch
 
 from sckitflow.backends.torch.methods._opt import TorchOptimizationManager
@@ -26,6 +27,7 @@ class DummyModule(BaseModule):
 class TestTorchOptimizationManager:
     """Tests for the TorchOptimizationManager class."""
 
+    @pytest.mark.slow
     def test_from_config_with_pre_created_optimizer(self):
         module = DummyModule()
         optimizer = torch.optim.SGD(module.parameters(), lr=0.01)

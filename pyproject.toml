@@ -95,33 +95,9 @@ optional-dependencies.torch = [
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://sckitflow.readthedocs.io/"
 urls.Homepage = "https://github.com/theislab/sckitflow"
-urls.Source = "https://github.com/theislab/sckitflow"
-
 # Accelerator-specific sources are selected only when their matching extra is
 # enabled. The generic `torch` extra remains accelerator-neutral.
-[tool.uv]
-conflicts = [
-  [
-    { extra = "cpu" },
-    { extra = "cu130" },
-  ],
-]
-
-[tool.uv.sources]
-torch = [
-  { index = "pytorch-cpu", extra = "cpu" },
-  { index = "pytorch-cu130", extra = "cu130" },
-]
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
-explicit = true
-
-[[tool.uv.index]]
-name = "pytorch-cu130"
-url = "https://download.pytorch.org/whl/cu130"
-explicit = true
+urls.Source = "https://github.com/theislab/sckitflow"
 
 [tool.hatch.build.targets.wheel]
 packages = [ "src/sckitflow" ]
@@ -218,6 +194,30 @@ parallel = true
 omit = [
   "**/test_*.py",
 ]
+
+[tool.uv]
+conflicts = [
+  [
+    { extra = "cpu" },
+    { extra = "cu130" },
+  ],
+]
+
+[tool.uv.sources]
+torch = [
+  { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu130", extra = "cu130" },
+]
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu130"
+url = "https://download.pytorch.org/whl/cu130"
+explicit = true
 
 [tool.cruft]
 skip = [

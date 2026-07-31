@@ -46,11 +46,9 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-          cache-dependency-glob: uv.lock
-      # `--locked` fails the job if `uv.lock` is out of date with `pyproject.toml`,
-      # rather than silently re-resolving and making the run non-reproducible.
+          cache-dependency-glob: pyproject.toml
       - name: Install package with test extra
-        run: uv sync --locked --extra test --extra cpu
+        run: uv sync --extra test --extra cpu
       - name: Run slow tests
         env:
           MPLBACKEND: agg

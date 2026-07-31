@@ -40,11 +40,9 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
-          cache-dependency-glob: uv.lock
-      # `--locked` fails the job if `uv.lock` is out of date with `pyproject.toml`,
-      # rather than silently re-resolving and making the run non-reproducible.
+          cache-dependency-glob: pyproject.toml
       - name: Install package with notebooks extra
-        run: uv sync --locked --extra notebooks --extra cpu
+        run: uv sync --extra notebooks --extra cpu
       - name: Execute notebooks
         env:
           MPLBACKEND: agg

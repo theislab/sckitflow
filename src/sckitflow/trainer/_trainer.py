@@ -129,7 +129,9 @@ class Trainer:
         # Call on_train_begin
         self._callbacks.on_train_begin(self, **cb_kwargs)
 
-        pbar = tqdm(range(1, n_train_steps + 1))
+        start_step = self._current_step + 1
+        stop_step = start_step + n_train_steps
+        pbar = tqdm(range(start_step, stop_step))
         for self._current_step in pbar:
             # Sample nodes and perform training steps
             nodes = train_sampler.sample()
@@ -144,14 +146,14 @@ class Trainer:
             self._callbacks.on_train_step(self, self._current_step, step_dict, **cb_kwargs)
 
             # Update progress bar description
-            if ((self._current_step + 1) % pbar_freq == 0) and (self._current_step > 0):
+            if self._current_step % pbar_freq == 0:
                 msg = "| " + " | ".join(
                     f"{k}:{v:.4f}" if isinstance(v, float) else f"{k}:{v}" for k, v in step_dict.items()
                 )
                 pbar.set_description(msg)
 
             # Validation step
-            if ((self._current_step + 1) % valid_freq == 0) and (self._current_step > 0) and do_validation:
+            if self._current_step % valid_freq == 0 and do_validation:
                 for val_id, val_sampler in val_samplers_dict.items():
                     self._run_val_on_sampler(val_sampler, val_id, self._current_step, **cb_kwargs)
 

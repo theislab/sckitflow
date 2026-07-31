@@ -209,9 +209,7 @@ class TestTrainer:
 
     @patch("sckitflow.trainer._trainer.tqdm")
     def test_train_with_validation(self, mock_tqdm):
-        mock_pbar = MagicMock()
-        mock_pbar.__iter__.return_value = range(5)
-        mock_tqdm.return_value = mock_pbar
+        mock_tqdm.side_effect = lambda steps: steps
 
         method = DummyMethod()
         opt_manager = DummyOptManager()
@@ -223,9 +221,25 @@ class TestTrainer:
 
         trainer.train(train_sampler, val_samplers_dict=val_samplers, n_train_steps=5, valid_freq=2)
 
-        # Should have validation calls at steps 1 and 3 (0-indexed)
+        # Validation frequency is based on cumulative completed training steps.
         valid_calls = callback.valid_step_calls
-        assert len(valid_calls) >= 2
+        assert [call[1] for call in valid_calls] == [2, 4]
+
+    @patch("sckitflow.trainer._trainer.tqdm")
+    def test_train_continues_from_current_step(self, mock_tqdm):
+        mock_tqdm.side_effect = lambda steps: steps
+
+        callback = RecordingCallback()
+        trainer = Trainer(DummyMethod(), DummyOptManager(), [RecordingComputationalCallback(), callback])
+        train_sampler = DummySampler()
+        val_samplers = {"val1": DummyValidationSampler()}
+
+        trainer.train(train_sampler, val_samplers_dict=val_samplers, n_train_steps=3, valid_freq=2)
+        trainer.train(train_sampler, val_samplers_dict=val_samplers, n_train_steps=3, valid_freq=2)
+
+        assert trainer.current_step == 6
+        assert [call[1] for call in callback.train_step_calls] == [1, 2, 3, 4, 5, 6]
+        assert list(trainer.get_val_logs_df("val1").index) == [2, 4, 6]
 
     def test_properties(self):
         method = DummyMethod()

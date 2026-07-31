@@ -9,6 +9,10 @@ from torch import Tensor
 
 from sckitflow.backends.torch.solvers._ode_solver import ODESolver
 
+# Numerical-integration convergence and stochastic-statistics checks: the
+# heaviest cluster in the suite by an order of magnitude.
+pytestmark = pytest.mark.slow
+
 
 class PolyTimeVF:
     def __init__(self) -> None:

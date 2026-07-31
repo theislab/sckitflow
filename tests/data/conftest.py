@@ -4,6 +4,7 @@ One small AnnData built from the cartesian product of biological
 vocabulary.  Both ``test_selector`` and ``test_datamanager`` pick
 whichever columns they need -- the extra columns are simply ignored.
 """
+
 import itertools
 
 import numpy as np
@@ -69,10 +70,7 @@ def adata_small() -> AnnData:
 
     uns: dict = {}
     for col, values in ALL_COLUMNS.items():
-        uns[col] = {
-            val: rng.standard_normal((1, REP_DIM)).astype(np.float32)
-            for val in values
-        }
+        uns[col] = {val: rng.standard_normal((1, REP_DIM)).astype(np.float32) for val in values}
 
     ad = AnnData(X=X, obs=obs)
     ad.uns = uns

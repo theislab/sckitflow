@@ -78,7 +78,8 @@ jobs:
           MPLBACKEND: agg
           PLATFORM: ${{ matrix.os }}
           DISPLAY: :42
-        run: uvx hatch run ${{ matrix.env.name }}:run-cov -- -n auto --dist worksteal
+        # `slow`-marked tests run in the separate, sharded `test-slow.yaml` workflow.
+        run: uvx hatch run ${{ matrix.env.name }}:run-cov -- -m "not slow" -n auto --dist worksteal
       - name: generate coverage report
         run: |
           uvx hatch run ${{ matrix.env.name }}:cov-combine

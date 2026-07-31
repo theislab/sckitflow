@@ -8,6 +8,94 @@ from sckitflow.backends.torch.nn._modules import MLP, Resnet1d
 
 output_dim = 32
 
+# Normalization / regularization flags are handled independently of one another by
+# `MLP._make_layer` and `Resnet1d`, so the full cartesian product of the nine boolean
+# axes (512 combinations) adds no coverage over a set that exercises every value of
+# every flag plus the interactions that actually share code paths: batchnorm x
+# layernorm x dropout x bias.
+LAYER_CONFIGS = [
+    pytest.param({}, id="plain"),
+    pytest.param({"bias": False}, id="nobias"),
+    pytest.param({"dropout_p": 0.1}, id="dropout"),
+    pytest.param({"dropout_p": 0.1, "dropout_inplace": True, "bias": False}, id="dropout-inplace"),
+    pytest.param(
+        {"use_batchnorm": True, "batchnorm_affine": True, "batchnorm_track_running_stats": True},
+        id="bn",
+    ),
+    pytest.param(
+        {"use_batchnorm": True, "batchnorm_affine": False, "batchnorm_track_running_stats": True, "bias": False},
+        id="bn-noaffine",
+    ),
+    pytest.param(
+        {
+            "use_batchnorm": True,
+            "batchnorm_affine": True,
+            "batchnorm_track_running_stats": False,
+            "dropout_p": 0.1,
+            "dropout_inplace": True,
+        },
+        id="bn-notrack",
+    ),
+    pytest.param(
+        {
+            "use_batchnorm": True,
+            "batchnorm_affine": False,
+            "batchnorm_track_running_stats": False,
+            "dropout_p": 0.1,
+            "bias": False,
+        },
+        id="bn-noaffine-notrack",
+    ),
+    pytest.param(
+        {"use_layernorm": True, "layernorm_elementwise_affine": True, "layernorm_bias": True},
+        id="ln",
+    ),
+    pytest.param(
+        {
+            "use_layernorm": True,
+            "layernorm_elementwise_affine": True,
+            "layernorm_bias": False,
+            "dropout_p": 0.1,
+        },
+        id="ln-nobias",
+    ),
+    pytest.param(
+        {
+            "use_layernorm": True,
+            "layernorm_elementwise_affine": False,
+            "layernorm_bias": False,
+            "bias": False,
+        },
+        id="ln-noaffine",
+    ),
+    pytest.param(
+        {
+            "use_batchnorm": True,
+            "batchnorm_affine": True,
+            "batchnorm_track_running_stats": True,
+            "use_layernorm": True,
+            "layernorm_elementwise_affine": True,
+            "layernorm_bias": True,
+            "dropout_p": 0.1,
+        },
+        id="bn-ln-dropout",
+    ),
+    pytest.param(
+        {
+            "use_batchnorm": True,
+            "batchnorm_affine": False,
+            "batchnorm_track_running_stats": False,
+            "use_layernorm": True,
+            "layernorm_elementwise_affine": False,
+            "layernorm_bias": False,
+            "dropout_p": 0.1,
+            "dropout_inplace": True,
+            "bias": False,
+        },
+        id="bn-ln-dropout-nobias",
+    ),
+]
+
 
 class TestNNModules:
     _input_dim: int = 2
@@ -16,62 +104,18 @@ class TestNNModules:
     _embedding_dim: int = 16
 
     @pytest.mark.parametrize("hidden_dims", [None, (), (16,), (16, 16)])
-    @pytest.mark.parametrize("activation_cls", [None, torch.nn.ReLU])
-    @pytest.mark.parametrize("final_activation_cls", [None, torch.nn.Identity])
-    @pytest.mark.parametrize("use_batchnorm", [True, False])
-    @pytest.mark.parametrize("batchnorm_eps", [1e-3])
-    @pytest.mark.parametrize("batchnorm_momentum", [1e-2])
-    @pytest.mark.parametrize("batchnorm_affine", [True, False])
-    @pytest.mark.parametrize("batchnorm_track_running_stats", [True, False])
-    @pytest.mark.parametrize("use_layernorm", [True, False])
-    @pytest.mark.parametrize("layernorm_eps", [1e-5])
-    @pytest.mark.parametrize("layernorm_elementwise_affine", [True, False])
-    @pytest.mark.parametrize("layernorm_bias", [True, False])
-    @pytest.mark.parametrize("dropout_p", [0.0, 0.1])
-    @pytest.mark.parametrize("dropout_inplace", [True, False])
-    @pytest.mark.parametrize("activation_cls_kwargs", [None, {}])
-    @pytest.mark.parametrize("final_activation_cls_kwargs", [None, {}])
-    @pytest.mark.parametrize("bias", [True, False])
+    @pytest.mark.parametrize("layer_config", LAYER_CONFIGS)
     def test_mlp(
         self,
         hidden_dims: Sequence[int],
-        activation_cls: type[torch.nn.Module],
-        final_activation_cls: type[torch.nn.Module],
-        use_batchnorm: bool,
-        batchnorm_eps: float,
-        batchnorm_momentum: float,
-        batchnorm_affine: bool,
-        batchnorm_track_running_stats: bool,
-        use_layernorm: bool,
-        layernorm_eps: float,
-        layernorm_elementwise_affine: bool,
-        layernorm_bias: bool,
-        dropout_p: float,
-        dropout_inplace: bool,
-        activation_cls_kwargs: dict[str, Any] | None,
-        final_activation_cls_kwargs: dict[str, Any] | None,
-        bias: bool,
+        layer_config: dict[str, Any],
     ) -> None:
+        use_batchnorm = layer_config.get("use_batchnorm", False)
         mlp = MLP(
             self._input_dim,
             self._output_dim,
             hidden_dims=hidden_dims,
-            activation_cls=activation_cls,
-            final_activation_cls=final_activation_cls,
-            use_batchnorm=use_batchnorm,
-            batchnorm_eps=batchnorm_eps,
-            batchnorm_momentum=batchnorm_momentum,
-            batchnorm_affine=batchnorm_affine,
-            batchnorm_track_running_stats=batchnorm_track_running_stats,
-            use_layernorm=use_layernorm,
-            layernorm_eps=layernorm_eps,
-            layernorm_elementwise_affine=layernorm_elementwise_affine,
-            layernorm_bias=layernorm_bias,
-            dropout_p=dropout_p,
-            dropout_inplace=dropout_inplace,
-            activation_cls_kwargs=activation_cls_kwargs,
-            final_activation_cls_kwargs=final_activation_cls_kwargs,
-            bias=bias,
+            **layer_config,
         )
 
         # case 0: (1, D)
@@ -112,60 +156,47 @@ class TestNNModules:
             output_tensor = mlp(input_tensor)
             return None
 
+    @pytest.mark.parametrize("activation_cls", [None, torch.nn.ReLU])
+    @pytest.mark.parametrize("final_activation_cls", [None, torch.nn.Identity])
+    @pytest.mark.parametrize("activation_cls_kwargs", [None, {}])
+    @pytest.mark.parametrize("final_activation_cls_kwargs", [None, {}])
+    def test_mlp_activations(
+        self,
+        activation_cls: type[torch.nn.Module] | None,
+        final_activation_cls: type[torch.nn.Module] | None,
+        activation_cls_kwargs: dict[str, Any] | None,
+        final_activation_cls_kwargs: dict[str, Any] | None,
+    ) -> None:
+        mlp = MLP(
+            self._input_dim,
+            self._output_dim,
+            hidden_dims=(16, 16),
+            activation_cls=activation_cls,
+            final_activation_cls=final_activation_cls,
+            activation_cls_kwargs=activation_cls_kwargs,
+            final_activation_cls_kwargs=final_activation_cls_kwargs,
+        )
+
+        input_tensor = torch.zeros((self._batch_size, self._input_dim))
+        output_tensor = mlp(input_tensor)
+        assert output_tensor.shape == (self._batch_size, self._output_dim)
+
     @pytest.mark.parametrize("num_resnet_layers", [None, 5])
     @pytest.mark.parametrize("output_dim", [None, output_dim])
-    @pytest.mark.parametrize("activation_cls", [None, torch.nn.SiLU])
-    @pytest.mark.parametrize("use_batchnorm", [True, False])
-    @pytest.mark.parametrize("batchnorm_eps", [1e-3])
-    @pytest.mark.parametrize("batchnorm_momentum", [1e-2])
-    @pytest.mark.parametrize("batchnorm_affine", [True, False])
-    @pytest.mark.parametrize("batchnorm_track_running_stats", [True, False])
-    @pytest.mark.parametrize("use_layernorm", [True, False])
-    @pytest.mark.parametrize("layernorm_eps", [1e-5])
-    @pytest.mark.parametrize("layernorm_elementwise_affine", [True, False])
-    @pytest.mark.parametrize("layernorm_bias", [True, False])
-    @pytest.mark.parametrize("dropout_p", [0.0, 0.1])
-    @pytest.mark.parametrize("dropout_inplace", [True, False])
-    @pytest.mark.parametrize("activation_cls_kwargs", [None, {}])
-    @pytest.mark.parametrize("bias", [True, False])
+    @pytest.mark.parametrize("layer_config", LAYER_CONFIGS)
     def test_resnet1d(
         self,
         num_resnet_layers: int,
         output_dim: int | None,
-        activation_cls: torch.nn.Module | None,
-        use_batchnorm: bool,
-        batchnorm_eps: float,
-        batchnorm_momentum: float,
-        batchnorm_affine: bool,
-        batchnorm_track_running_stats: bool,
-        use_layernorm: bool,
-        layernorm_eps: float,
-        layernorm_elementwise_affine: bool,
-        layernorm_bias: bool,
-        dropout_p: float,
-        dropout_inplace: bool,
-        activation_cls_kwargs: dict[str, Any] | None,
-        bias: bool,
+        layer_config: dict[str, Any],
     ):
+        use_batchnorm = layer_config.get("use_batchnorm", False)
         resnet = Resnet1d(
             self._input_dim,
             self._embedding_dim,
             num_resnet_layers,
             output_dim=output_dim,
-            activation_cls=activation_cls,
-            use_batchnorm=use_batchnorm,
-            batchnorm_eps=batchnorm_eps,
-            batchnorm_momentum=batchnorm_momentum,
-            batchnorm_affine=batchnorm_affine,
-            batchnorm_track_running_stats=batchnorm_track_running_stats,
-            use_layernorm=use_layernorm,
-            layernorm_eps=layernorm_eps,
-            layernorm_elementwise_affine=layernorm_elementwise_affine,
-            layernorm_bias=layernorm_bias,
-            dropout_p=dropout_p,
-            dropout_inplace=dropout_inplace,
-            activation_cls_kwargs=activation_cls_kwargs,
-            bias=bias,
+            **layer_config,
         )
 
         # case 0: x.shape = (1, D), cond.shape = (1, K)
@@ -237,3 +268,23 @@ class TestNNModules:
         ):
             output_tensor = resnet(input_tensor, condition)
             return None
+
+    @pytest.mark.parametrize("activation_cls", [None, torch.nn.SiLU])
+    @pytest.mark.parametrize("activation_cls_kwargs", [None, {}])
+    def test_resnet1d_activations(
+        self,
+        activation_cls: type[torch.nn.Module] | None,
+        activation_cls_kwargs: dict[str, Any] | None,
+    ):
+        resnet = Resnet1d(
+            self._input_dim,
+            self._embedding_dim,
+            5,
+            activation_cls=activation_cls,
+            activation_cls_kwargs=activation_cls_kwargs,
+        )
+
+        input_tensor = torch.zeros((self._batch_size, self._input_dim))
+        condition = torch.zeros((self._batch_size, self._embedding_dim))
+        output_tensor = resnet(input_tensor, condition)
+        assert output_tensor.shape == (self._batch_size, self._input_dim)

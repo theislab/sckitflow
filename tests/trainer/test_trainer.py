@@ -135,7 +135,10 @@ class TestTrainer:
         assert isinstance(df, pd.DataFrame)
         assert len(df) == 2
         assert "loss" in df.columns
-        assert "step" in df.columns
+        # `step` becomes the index, so the columns are metrics only.
+        assert df.index.name == "step"
+        assert "step" not in df.columns
+        assert list(df.index) == [0, 1]
 
     def test_get_val_logs_df_single(self):
         trainer = Trainer(DummyMethod(), DummyOptManager())

@@ -220,16 +220,7 @@ class TestModel:
         with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
             val_adatas = {"val1": adata, "val2": adata}
-            # `val_max_n_obs` defaults to 10_000, which `FValidationSampler` cannot
-            # draw without replacement from a fixture this size. The assertion below
-            # is about sampler wiring, so pin it to the data instead.
-            model.train(
-                adata,
-                val_adatas_dict=val_adatas,
-                n_train_steps=5,
-                sort=True,
-                val_max_n_obs=adata.n_obs,
-            )
+            model.train(adata, val_adatas_dict=val_adatas, n_train_steps=5, sort=True)
 
             call_kwargs = mock_trainer.train.call_args.kwargs
             val_samplers = call_kwargs["val_samplers_dict"]

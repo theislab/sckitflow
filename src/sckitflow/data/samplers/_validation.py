@@ -1,5 +1,7 @@
 from collections.abc import Iterable, Iterator
 
+import numpy as np
+
 from sckitflow._constants import DEFAULT_MAX_N_OBS, DEFAULT_N_GROUPS
 from sckitflow.data._abc import DataT, DataTreeT, MatchedDistributionsT
 from sckitflow.data.samplers._base import FSampler, Sampler
@@ -62,6 +64,28 @@ class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
     def _register_data(self) -> tuple[DataT]:
         """Pre-registres the samples for validation."""
         return self._sample(self._n_nodes, self._max_n_obs)
+
+    def _sample_indices(
+        self,
+        n_obs: int,
+        batch_size: int = DEFAULT_MAX_N_OBS,
+    ) -> np.ndarray:
+        """Draws at most :param: `batch_size` observations from a node.
+
+        :param: `max_n_obs` is a *maximum*, so a node holding fewer observations
+        than that contributes all of them instead of failing validation. Sampling
+        *with* replacement is left alone: asking for more draws than the node holds
+        is well defined there, and deliberate.
+
+        :param n_obs: The number of observations held by the node.
+        :type n_obs: class: `int`
+
+        :param batch_size: The number of observations to load in the batch.
+        :type batch_size: class: `int`
+        """
+        if not self._replace_samples:
+            batch_size = min(batch_size, n_obs)
+        return super()._sample_indices(n_obs, batch_size)
 
     def __len__(self) -> int:
         return len(self._data)

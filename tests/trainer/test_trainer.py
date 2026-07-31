@@ -118,9 +118,10 @@ class TestTrainer:
         callback = RecordingCallback()
         metric_cb = RecordingComputationalCallback()
         trainer = Trainer(method, opt_manager, [metric_cb, callback])
+        trainer._current_step = 5
 
         sampler = DummyValidationSampler()
-        trainer._run_val_on_sampler(sampler, "test_val", step=5)
+        trainer._run_val_on_sampler(sampler, "test_val")
 
         # The val log holds the metrics the callbacks computed, tagged with the step.
         assert "test_val" in trainer._val_logs

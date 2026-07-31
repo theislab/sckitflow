@@ -63,7 +63,6 @@ class Trainer:
         self,
         sampler: FValidationSampler,
         val_id: str,
-        step: int,
         *args,
         **kwargs,
     ) -> None:
@@ -86,8 +85,8 @@ class Trainer:
             predictions_dict[node_id] = {"predictions": preds_array, "targets": target_array}
 
         # Trigger callbacks with the predictions dictionary
-        metrics_dict = self._callbacks.on_valid_step(self, step, val_id, predictions_dict, **kwargs)
-        metrics_dict.update({"step": step})
+        metrics_dict = self._callbacks.on_valid_step(self, self._current_step, val_id, predictions_dict, **kwargs)
+        metrics_dict.update({"step": self._current_step})
 
         # Store the metrics computed by the callbacks, tagged with the validation step.
         self._append_val_log(val_id, metrics_dict)
@@ -155,7 +154,7 @@ class Trainer:
             # Validation step
             if self._current_step % valid_freq == 0 and do_validation:
                 for val_id, val_sampler in val_samplers_dict.items():
-                    self._run_val_on_sampler(val_sampler, val_id, self._current_step, **cb_kwargs)
+                    self._run_val_on_sampler(val_sampler, val_id, **cb_kwargs)
 
         # Call on_train_end
         self._callbacks.on_train_end(self, **cb_kwargs)

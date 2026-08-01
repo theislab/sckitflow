@@ -101,7 +101,7 @@ class BaseProbabilityPath(abc.ABC):
         # sampling noise
         if self._require_prng:
             sigma_t = self.compute_sigma_t(t)
-            noise = torch.randn(*x0.shape, generator=self._prng, device=x0.device)
+            noise = torch.randn(*x0.shape, generator=self._prng).to(device=x0.device, dtype=x0.dtype)
             return mu_t + sigma_t * noise
         # returning mean for deterministic paths
         return mu_t

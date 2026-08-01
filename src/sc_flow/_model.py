@@ -518,6 +518,7 @@ class FlowMatching:
             p.source, group_by=p.group_by, rep=p.rep_loc,
             weights=build_weighting(s.get("leaf_weighting"), leaves=pert_leaves, group_by=p.group_by),
             label_lookup={lf: p.label_lookup[lf] for lf in pert_leaves},
+            in_memory=bool(s.get("in_memory", False)),
             batch_size=batch, chunk_size=chunk, preload_nchunks=primary_preload,
         )
         ctrl = Stream(

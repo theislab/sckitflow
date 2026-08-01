@@ -37,6 +37,7 @@ def log_sinusoidal_time_features(
         msg = "The number of time features should be an even positive integer."
         raise ValueError(msg)
     t = ensure_2d_tensor_with_singleton_trailing_dim(t)
+    t = t * max_period
     freqs = torch.arange(num_time_features // 2, device=t.device) / (num_time_features // 2)
     freqs = -math.log(max_period) * freqs
     t = t * torch.exp(freqs)

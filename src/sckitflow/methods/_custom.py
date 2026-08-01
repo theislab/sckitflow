@@ -14,9 +14,9 @@ def register_method(
 ) -> Callable[[T], T]:
     # Backend‑specific imports
     if backend == "torch":
-        from sckitflow.backends.torch._types import PredictionData as TorchPredictionData
-        from sckitflow.backends.torch.methods import METHODS_REGISTRY
-        from sckitflow.backends.torch.methods._base import TorchBaseMethod, TorchGenerativeFlow
+        from sckitflow.core._types import PredictionData as TorchPredictionData
+        from sckitflow.core.methods import METHODS_REGISTRY
+        from sckitflow.core.methods._base import TorchBaseMethod, TorchGenerativeFlow
 
         PredictionDataClass = TorchPredictionData
 

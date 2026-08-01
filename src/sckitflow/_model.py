@@ -178,7 +178,7 @@ class Model:
 
             # use registry when method not provided
             if method_cls is None:
-                from sckitflow.backends.torch.methods import METHODS_REGISTRY
+                from sckitflow.core.methods import METHODS_REGISTRY
 
                 # get method from registry
                 if method_id not in METHODS_REGISTRY:
@@ -535,7 +535,7 @@ class Model:
         optim_config = OptimConfig(**optim_kwargs)
 
         # create optimization manager
-        from sckitflow.backends.torch.methods._opt import TorchOptimizationManager
+        from sckitflow.core.methods._opt import TorchOptimizationManager
 
         opt_manager = TorchOptimizationManager.from_config(self._method._module, optim_config)
 

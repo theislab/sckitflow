@@ -7,12 +7,12 @@ from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager
 
 if TYPE_CHECKING:
-    from sckitflow.backends.torch._types import TMatchFn as TorchMatchFn
-    from sckitflow.backends.torch._types import TNoiseSamplerFn as TorchNoiseSampler
-    from sckitflow.backends.torch._types import TTimeSamplerFn as TorchTimeSampler
-    from sckitflow.backends.torch.nn import BaseModule as TorchModule
-    from sckitflow.backends.torch.probability_paths import BaseProbabilityPath as TorchProbabilityPath
-    from sckitflow.backends.torch.solvers import BaseSolver as TorchSolver
+    from sckitflow.core._types import TMatchFn as TorchMatchFn
+    from sckitflow.core._types import TNoiseSamplerFn as TorchNoiseSampler
+    from sckitflow.core._types import TTimeSamplerFn as TorchTimeSampler
+    from sckitflow.core.nn import BaseModule as TorchModule
+    from sckitflow.core.probability_paths import BaseProbabilityPath as TorchProbabilityPath
+    from sckitflow.core.solvers import BaseSolver as TorchSolver
 
 __all__ = ["BaseMethod", "BaseGenerativeFlow"]
 

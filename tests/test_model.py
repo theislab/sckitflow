@@ -111,7 +111,7 @@ def _make_model(adata: AnnData, method_cls=DummyMethod, dm_kwargs=None, **method
 @pytest.fixture
 def mock_optim_manager():
     """Prevent real optimizer creation in tests that don't need real training."""
-    with patch("sckitflow.backends.torch.methods._opt.TorchOptimizationManager.from_config") as mock:
+    with patch("sckitflow.core.methods._opt.TorchOptimizationManager.from_config") as mock:
         mock_manager = MagicMock()
         mock_manager.step = MagicMock()
         mock.return_value = mock_manager
@@ -169,13 +169,13 @@ class TestModel:
     # --------------------------------------------------------------------------
     def test_method_id_resolves_to_registered_class(self, adata: AnnData, monkeypatch):
         mock_registry = {"cfm": DummyMethod}
-        monkeypatch.setattr("sckitflow.backends.torch.methods.METHODS_REGISTRY", mock_registry)
+        monkeypatch.setattr("sckitflow.core.methods.METHODS_REGISTRY", mock_registry)
         model = _make_model(adata, method_cls=None, method_id="cfm")
         assert isinstance(model.method, DummyMethod)
 
     def test_unsupported_method_id_raises_error(self, adata: AnnData, monkeypatch):
         mock_registry = {"cfm": DummyMethod}
-        monkeypatch.setattr("sckitflow.backends.torch.methods.METHODS_REGISTRY", mock_registry)
+        monkeypatch.setattr("sckitflow.core.methods.METHODS_REGISTRY", mock_registry)
         with pytest.raises(KeyError, match="not supported"):
             _make_model(adata, method_cls=None, method_id="does_not_exist")
 

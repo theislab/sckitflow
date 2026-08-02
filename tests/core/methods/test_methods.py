@@ -4,7 +4,7 @@ import pytest
 import torch
 
 from sckitflow.core._types import PredictionData, StepData
-from sckitflow.core.methods._base import TorchBaseMethod, TorchGenerativeFlow
+from sckitflow.core.methods._base import BaseMethod, GenerativeFlow
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.data._manager import DataManager
 
@@ -28,24 +28,24 @@ class DummyModule(BaseModule):
 # -----------------------------------------------------------------------------
 # Concrete test subclasses that use DummyModule
 # -----------------------------------------------------------------------------
-class DummyMethod(TorchBaseMethod):
+class DummyMethod(BaseMethod):
     _module_cls = DummyModule
 
-    def _step_fn(self, *args, **kwargs):
+    def compute_loss(self, *args, **kwargs):
         return torch.tensor(0.0), {}
 
-    def _predict(self, *args, **kwargs):
+    def infer(self, *args, **kwargs):
         pass
 
 
-class DummyGenerativeFlow(TorchGenerativeFlow):
+class DummyGenerativeFlow(GenerativeFlow):
     _module_cls = DummyModule
     _default_solver_cls = Mock()
 
-    def _step_fn(self, step_data, *args, **kwargs):
+    def compute_loss(self, step_data, *args, **kwargs):
         return torch.tensor(0.0), {}
 
-    def _predict(self, step_data, *args, **kwargs):
+    def infer(self, step_data, *args, **kwargs):
         return PredictionData(X=torch.randn(1, 2), traj=None)
 
     def train_step(self, *args, **kwargs):
@@ -113,7 +113,7 @@ class TestBaseMethod:
     def test_abstract_class_cannot_be_instantiated(self):
         """BaseMethod should raise TypeError if abstract methods not implemented."""
         with pytest.raises(TypeError):
-            TorchBaseMethod(dims_registry=Mock(), dm=Mock())
+            BaseMethod(dims_registry=Mock(), dm=Mock())
 
     def test_concrete_method_instantiation(self, mock_dims_registry, mock_data_manager):
         """Concrete subclass should be instantiable and set attributes correctly."""
@@ -225,7 +225,7 @@ class TestGenerativeFlow:
 
     def test_train_step_forward(self, torch_gen_flow):
         step_data = Mock()
-        torch_gen_flow._step_fn = Mock(return_value=(torch.tensor(0.5), {"loss": 0.5}))
+        torch_gen_flow.compute_loss = Mock(return_value=(torch.tensor(0.5), {"loss": 0.5}))
         loss, info = torch_gen_flow._train_step_forward(step_data)
         assert loss == 0.5
         assert info["loss"] == 0.5
@@ -244,10 +244,10 @@ class TestGenerativeFlow:
             source_group_data=None,
         )
         pred_data = PredictionData(X=torch.randn(4, 2), traj=None)
-        torch_gen_flow._predict = Mock(return_value=pred_data)
+        torch_gen_flow.infer = Mock(return_value=pred_data)
         result = torch_gen_flow.predict(step_data, no_grad=True)
         assert result is pred_data
-        torch_gen_flow._predict.assert_called_once_with(step_data)
+        torch_gen_flow.infer.assert_called_once_with(step_data)
 
     def test_init_defaults(self, mock_dims_registry, mock_data_manager):
         """Default attributes should be None when not provided."""

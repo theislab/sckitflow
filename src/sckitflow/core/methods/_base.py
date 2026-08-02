@@ -9,28 +9,36 @@ from sckitflow.core.nn._modules import BaseModule
 from sckitflow.core.probability_paths import BaseProbabilityPath
 from sckitflow.core.solvers import BaseSolver
 from sckitflow.data._composite import MatchedDistributions
-from sckitflow.methods._methods import BaseGenerativeFlow, BaseMethod
+from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
+from sckitflow.data._manager import DataManager
 
-__all__ = ["TorchBaseMethod", "TorchGenerativeFlow"]
+__all__ = ["BaseMethod", "GenerativeFlow"]
 
 T = TypeVar("T")
 
 
-class TorchBaseMethod(BaseMethod):
+class BaseMethod(abc.ABC):
     _module_cls: type[BaseModule] | None = None
 
     def __init__(
         self,
+        dims_registry: DataDimensionalitiesRegistry,
+        dm: DataManager,
         *args,
         dtype: torch.dtype = torch.float32,
         device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
         **kwargs,
     ) -> None:
-        # call constructor of parent class
-        super().__init__(
-            *args,
-            **kwargs,
-        )
+        # initialize attributes
+        self._dims_registry = dims_registry
+        self._dm = dm
+
+        # check module is passed
+        if self._module_cls is None:
+            raise NotImplementedError(f"{self.__class__.__name__} must define a `_module_cls` class attribute.")
+
+        # initialize module with dimensionality registry
+        self._module = self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
         # set attributes
         self._dtype = dtype
@@ -40,7 +48,7 @@ class TorchBaseMethod(BaseMethod):
         self._module.to(self._dtype).to(self._device_id)
 
     @staticmethod
-    def _safe_subscript_obj(data: T | None, idx: Any | None) -> T | None:
+    def _safe_subscript_obj(data: T | None, idx: Any | None) -> T | None:  # TODO: Probably remove from here
         if data is None:
             return None
         if idx is None:
@@ -48,7 +56,7 @@ class TorchBaseMethod(BaseMethod):
         return data[idx]
 
     @abc.abstractmethod
-    def _step_fn(
+    def compute_loss(
         self,
         step_data: StepData,
         *args,
@@ -56,7 +64,7 @@ class TorchBaseMethod(BaseMethod):
     ) -> tuple[torch.Tensor, dict[str, Any]]: ...
 
     @abc.abstractmethod
-    def _predict(
+    def infer(
         self,
         step_data: StepData,
         *args,
@@ -70,7 +78,7 @@ class TorchBaseMethod(BaseMethod):
         **kwargs,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
         step_data = self._match_observations(step_data)
-        return self._step_fn(
+        return self.compute_loss(
             step_data,
             *args,
             **kwargs,
@@ -120,24 +128,50 @@ class TorchBaseMethod(BaseMethod):
         # optionally stop gradients
         if no_grad:
             with torch.no_grad():
-                return self._predict(
+                return self.infer(
                     data,
                     *args,
                     **kwargs,
                 )
         else:
-            return self._predict(
+            return self.infer(
                 data,
                 *args,
                 **kwargs,
             )
 
+    @property
+    def module(self) -> BaseModule | None:
+        return self._module
 
-class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
+    @property
+    def dm(self) -> DataManager | None:
+        return self._dm
+
+    @property
+    def dims_registry(self) -> DataDimensionalitiesRegistry | None:
+        return self._dims_registry
+
+    @property
+    def is_paired_setting(self) -> bool:
+        return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
+
+    @property
+    def device_id(self) -> str:
+        return self._device_id
+
+    @property
+    def dtype(self) -> torch.dtype:
+        return self._dtype
+
+
+class GenerativeFlow(BaseMethod):
     _default_solver_cls: type[BaseSolver] | None = None
 
     def __init__(
         self,
+        dims_registry: DataDimensionalitiesRegistry,
+        dm: DataManager,
         *args,
         probability_path: BaseProbabilityPath | None = None,
         match_fn: TMatchFn | None = None,
@@ -146,15 +180,25 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
         generate_from_noise: bool = False,
         **kwargs,
     ) -> None:
+        # call parent constructor
         super().__init__(
+            dims_registry,
+            dm,
             *args,
-            probability_path=probability_path,
-            match_fn=match_fn,
-            noise_sampler=noise_sampler,
-            time_sampler=time_sampler,
-            generate_from_noise=generate_from_noise,
             **kwargs,
         )
+
+        # set attributes
+        self._probability_path = probability_path
+        self._match_fn = match_fn
+        self._noise_sampler = noise_sampler
+        self._time_sampler = time_sampler
+
+        # automatically fall back to noise generation when
+        # no control values are provided
+        if not self.is_paired_setting:
+            generate_from_noise = True
+        self._generate_from_noise = generate_from_noise
 
     def _call_match_fn_safe(
         self,
@@ -224,7 +268,7 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
         )
 
     @abc.abstractmethod
-    def _predict(
+    def infer(
         self,
         step_data: StepData,
         *args,
@@ -236,3 +280,23 @@ class TorchGenerativeFlow(BaseGenerativeFlow, TorchBaseMethod):
         n_samples: int | None = None,
         **kwargs,
     ) -> PredictionData: ...
+
+    @property
+    def generate_from_noise(self) -> bool:
+        return self._generate_from_noise
+
+    @property
+    def probability_path(self) -> BaseProbabilityPath | None:
+        return self._probability_path
+
+    @property
+    def match_fn(self) -> TMatchFn | None:
+        return self._match_fn
+
+    @property
+    def noise_sampler(self) -> TNoiseSamplerFn | None:
+        return self._noise_sampler
+
+    @property
+    def time_sampler(self) -> TTimeSamplerFn | None:
+        return self._time_sampler

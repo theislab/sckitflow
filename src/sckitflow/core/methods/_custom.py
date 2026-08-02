@@ -8,30 +8,22 @@ __all__ = ["register_method"]
 
 def register_method(
     name: str,
-    backend: Literal["torch", "jax"] = "torch",
     *,
     category: Literal["flow", "general"] = "flow",
 ) -> Callable[[T], T]:
     # Backend‑specific imports
-    if backend == "torch":
-        from sckitflow.core._types import PredictionData as TorchPredictionData
-        from sckitflow.core.methods import METHODS_REGISTRY
-        from sckitflow.core.methods._base import TorchBaseMethod, TorchGenerativeFlow
+    from sckitflow.core._types import PredictionData
+    from sckitflow.core.methods import METHODS_REGISTRY
+    from sckitflow.core.methods._base import BaseMethod, GenerativeFlow
 
-        PredictionDataClass = TorchPredictionData
-
-        if category == "flow":
-            BaseClass = TorchGenerativeFlow
-            required_user_methods = ["step_fn", "predict"]
-        elif category == "general":
-            BaseClass = TorchBaseMethod
-            required_user_methods = ["train_step", "predict"]
-        else:
-            raise ValueError(f"Unsupported category: {category}")
-    elif backend == "jax":
-        raise NotImplementedError("JAX backend not yet implemented")
+    if category == "flow":
+        BaseClass = GenerativeFlow
+        required_user_methods = ["step_fn", "predict"]
+    elif category == "general":
+        BaseClass = BaseMethod
+        required_user_methods = ["train_step", "predict"]
     else:
-        raise ValueError(f"Unsupported backend: {backend}")
+        raise ValueError(f"Unsupported category: {category}")
 
     def decorator(user_cls: T) -> T:
         # Validate user class
@@ -50,16 +42,16 @@ def register_method(
             class_dict["_default_solver_cls"] = getattr(user_cls, "default_solver_cls", None)
 
             # Delegate abstract methods to user implementations
-            def _step_fn(self, node, *args, **kwargs):
+            def compute_loss(self, node, *args, **kwargs):
                 """Delegate to user's step_fn method."""
                 return user_cls.step_fn(self, node, *args, **kwargs)
 
-            def _predict(self, node, *args, **kwargs):
+            def infer(self, node, *args, **kwargs):
                 """Delegate to user's predict method."""
                 return user_cls.predict(self, node, *args, **kwargs)
 
-            class_dict["_step_fn"] = _step_fn
-            class_dict["_predict"] = _predict
+            class_dict["compute_loss"] = compute_loss
+            class_dict["infer"] = infer
 
             # Override __init__ to call base __init__ first, then optionally call user's __init__
             def __init__(self, *args, **kwargs):
@@ -83,31 +75,31 @@ def register_method(
 
             class_dict["__init__"] = __init__
 
-            # `TorchBaseMethod` declares `_step_fn` and `_predict` abstract, and a
+            # `BaseMethod` declares `compute_loss` and `infer` abstract, and a
             # "general" method overrides their public callers (`train_step`, `predict`)
             # outright -- but the abstract slots still have to be filled or the class
             # cannot be instantiated at all.
-            def _step_fn(self, step_data, *args, **kwargs):
+            def compute_loss(self, step_data, *args, **kwargs):
                 raise NotImplementedError(
                     f"{user_cls.__name__} is registered as a 'general' method and implements "
-                    "`train_step` directly, so `_step_fn` is never used."
+                    "`train_step` directly, so `compute_loss` is never used."
                 )
 
-            def _predict(self, step_data, *args, **kwargs):
+            def infer(self, step_data, *args, **kwargs):
                 raise NotImplementedError(
                     f"{user_cls.__name__} is registered as a 'general' method and implements "
-                    "`predict` directly, so `_predict` is never used."
+                    "`predict` directly, so `infer` is never used."
                 )
 
-            class_dict["_step_fn"] = _step_fn
-            class_dict["_predict"] = _predict
+            class_dict["compute_loss"] = compute_loss
+            class_dict["infer"] = infer
 
             # Wrap predict output into PredictionData
             def predict(self, matched_distr, *args, **kwargs):
                 raw_output = user_cls.predict(self, matched_distr, *args, **kwargs)
-                if isinstance(raw_output, PredictionDataClass):
+                if isinstance(raw_output, PredictionData):
                     return raw_output
-                return PredictionDataClass(X=raw_output, traj=None)
+                return PredictionData(X=raw_output, traj=None)
 
             class_dict["predict"] = predict
 
@@ -122,7 +114,7 @@ def register_method(
 
         # Register in the backend's method registry
         if name in METHODS_REGISTRY:
-            raise ValueError(f"Method '{name}' already registered for backend '{backend}'.")
+            raise ValueError(f"Method '{name}' already registered.")
         METHODS_REGISTRY[name] = RegisteredMethod
 
         return user_cls

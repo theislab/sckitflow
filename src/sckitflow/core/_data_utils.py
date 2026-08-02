@@ -203,7 +203,7 @@ def prepare_latent_train(
     dtype: torch.dtype | None = None,
     device: torch.device | None = None,
 ) -> torch.Tensor:
-    """Called from _step_fn - always returns single noise per batch element."""
+    """Called from compute_loss - always returns single noise per batch element."""
     if source is None or generate_from_noise:
         samples = noise_sampler(target.shape)
         if dtype:
@@ -223,7 +223,7 @@ def prepare_latent_inference(
     dtype: torch.dtype | None = None,
     device: torch.device | None = None,
 ) -> torch.Tensor:
-    """Called from _predict.
+    """Called from infer.
 
     - If source is given and we are NOT generating from noise, return source unchanged.
     - Otherwise sample noise with shape:

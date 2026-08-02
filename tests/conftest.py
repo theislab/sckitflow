@@ -305,11 +305,11 @@ def dummy_trainloader_jax():
         def sample(self, prng):
             from jax import random
 
-            _, prng_step_fn_source, prng_step_fn_target = random.split(prng, 3)
+            _, prngcompute_loss_source, prngcompute_loss_target = random.split(prng, 3)
             self.sample_calls += 1
             return {
-                "source": random.normal(prng_step_fn_source, (batch_size, output_dim)),
-                "target": random.normal(prng_step_fn_target, (batch_size, output_dim)),
+                "source": random.normal(prngcompute_loss_source, (batch_size, output_dim)),
+                "target": random.normal(prngcompute_loss_target, (batch_size, output_dim)),
             }
 
     return DummyTrainLoaderJax()
@@ -333,25 +333,3 @@ def dummy_valloader_torch():
             }
 
     return DummyValLoaderTorch()
-
-
-@pytest.fixture
-def dummy_valloader_jax():
-    class DummyValLoaderJax:
-        def __init__(self):
-            self.sample_calls = 0
-
-        def sample(self, prng):
-            from jax import random
-
-            _, prng_step_fn_source, prng_step_fn_target = random.split(prng, 3)
-
-            self.sample_calls += 1
-            return {
-                "condA": {
-                    "source": random.normal(prng_step_fn_source, (batch_size, output_dim)),
-                    "target": random.normal(prng_step_fn_target, (batch_size, output_dim)),
-                }
-            }
-
-    return DummyValLoaderJax()

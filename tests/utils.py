@@ -18,7 +18,7 @@ def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):
     from sckitflow.core.nn._modules import MLP
     from sckitflow.core.probability_paths import LinearGaussianProbabilityPath
 
-    class MethodClassTorch(Module):
+    class MethodClass(Module):
         def __init__(self, network, prob_path, time_sampler) -> None:
             super().__init__()
             self.network = network
@@ -48,7 +48,7 @@ def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):
         sigma=sigma,
     )
     time_sampler = rand
-    method = MethodClassTorch(network=network, prob_path=prob_path, time_sampler=time_sampler)
+    method = MethodClass(network=network, prob_path=prob_path, time_sampler=time_sampler)
 
     return method
 

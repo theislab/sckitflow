@@ -14,7 +14,6 @@ __all__ = [
     "group_encoders",
     "mixins",
     "samplers",
-    "structures",
     "utils",
     "schemas",
     "sim",

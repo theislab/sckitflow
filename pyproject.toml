@@ -62,9 +62,9 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
-# Imported lazily inside `sckitflow.trainer._callbacks.WandBLogger`.
+# Backs `lightning.pytorch.loggers.WandbLogger`, which is passed to `Model.train` as
+# `logger=`; Lightning imports it lazily.
 optional-dependencies.logging = [
-  "omegaconf",
   "wandb",
 ]
 # Executes the notebooks under `docs/notebooks/` in CI.
@@ -79,12 +79,13 @@ optional-dependencies.test = [
   "coverage",
   "pytest",
   "pytest-cov",
-  "pytest-split",             # shards the `slow` job by recorded duration (`.test_durations`)
+  "pytest-split",     # shards the `slow` job by recorded duration (`.test_durations`)
   "pytest-xdist>=3",
-  "scanpy>=1.10",             # reference implementation for the PCA transform tests only
-  "sckitflow[logging,torch]", # TestWandBLogger imports omegaconf for real (wandb itself is mocked)
+  "scanpy>=1.10",     # reference implementation for the PCA transform tests only
+  "sckitflow[torch]",
 ]
 optional-dependencies.torch = [
+  "lightning>=2.2",
   "pot>=0.9",
   "torch>=2.2",
   "torchdiffeq>=0.2.4",

@@ -4,7 +4,7 @@ import tempfile
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Literal, Unpack, overload
+from typing import TYPE_CHECKING, Any, Literal, Unpack, overload
 
 import cloudpickle
 import numpy as np
@@ -20,8 +20,10 @@ from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
 from sckitflow.data.samplers._train import FTrainSampler
 from sckitflow.data.samplers._validation import FValidationSampler
-from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sckitflow.trainer._trainer import Trainer
+
+if TYPE_CHECKING:
+    import lightning.pytorch as pl
 
 __all__ = ["Model", "ModelBuilder"]
 
@@ -415,57 +417,55 @@ class Model:
         return np.array(tensor)
 
     def to_device(self, device: str) -> None:
-        """Move the underlying PyTorch module and optimizer state to the specified device."""
-        import torch
+        """Move the method, and everything it owns, to the specified device.
 
-        self._method._module.to(device)
-        if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
-            opt = self._trainer.opt_manager.optimizer
-            for param_group in opt.param_groups:
-                for param in param_group["params"]:
-                    if param.device.type != device.split(":")[0]:
-                        param.data = param.data.to(device)
-            for state in opt.state.values():
-                for k, v in state.items():
-                    if isinstance(v, torch.Tensor) and v.device.type != device.split(":")[0]:
-                        state[k] = v.to(device)
+        Only needed to use the model outside a trainer -- during :meth:`train` the
+        trainer's accelerator decides placement.
+        """
+        self._method.to(device)
 
     def train(
         self,
         train_adata: AnnData,
-        *args,
+        *,
         val_adatas_dict: dict[str, AnnData] | None = None,
-        callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
+        callbacks: Sequence["pl.Callback"] | None = None,
         n_train_steps: int = 100_000,
         valid_freq: int = 1_000,
         train_batch_size: int = 128,
         val_max_n_obs: int = 10_000,
         train_sampler_kwargs: dict[str, Any] | None = None,
         val_sampler_kwargs: dict[str, Any] | None = None,
-        train_kwargs: dict[str, Any] | None = None,
         optim_kwargs: dict[str, Any] | None = None,
+        val_predict_kwargs: dict[str, Any] | None = None,
         sort: bool = False,
-        **kwargs,
+        **trainer_kwargs,
     ) -> None:
         """Trains the model on the input adata.
+
+        Steps are counted in *node-steps*: the train sampler yields one node at a time and
+        each node is one batch and one optimizer step. This is the same gradient schedule
+        as before -- one step per node -- but the count is now per node rather than per
+        round of ``n_nodes``, so a run that previously used ``n_train_steps=N`` with
+        ``n_nodes=k`` corresponds to ``n_train_steps=N * k`` here.
 
         :param train_adata: The train adata.
         :type train_adata: class: `AnnData`
 
-        :param *args: Positional arguments used to call the `.train` method of the trainer class.
-        :type *args: class: `Sequence[Any]`
-
         :param val_adatas_dict: Dictionary containing the validation adatas.
         :type val_adatas_dict: class: `dict[str, AnnData]`
 
-        :param callbacks: Callbacks to be used during training.
-        :type callbacks: class: `TrainingCallbacks | Sequence[BaseCallback] | None`
+        :param callbacks: :class:`lightning.pytorch.Callback` instances to use during
+            training, e.g. :class:`MetricsCallback` or Lightning's own
+            :class:`~lightning.pytorch.callbacks.EarlyStopping` and
+            :class:`~lightning.pytorch.callbacks.ModelCheckpoint`. Defaults to `None`.
+        :type callbacks: class: `Sequence[pl.Callback] | None`
 
-        :param n_train_steps: The number of training steps to train the model over.
-            Defaults to `10_000`
+        :param n_train_steps: The number of node-steps to train the model over.
+            Defaults to `100_000`
         :type n_train_steps: class: `int`
 
-        :param valid_freq: The frequency of the validation steps during training.
+        :param valid_freq: The number of node-steps between validation runs.
             Defaults to `1_000`
         :type valid_freq: class: `int`
 
@@ -483,8 +483,15 @@ class Model:
         :param val_sampler_kwargs: Extra keyword arguments for the validation sampler. Defaults to `None`.
         :type val_sampler_kwargs: class: `dict[str, Any] | None`
 
-        :param optim_kwargs: Keyword arguments to configure for the optimization manager (optimizer, scheduler, etc.). Defaults to `None`.
-        :type optim_kwargs: class: `OptimConfig | None`
+        :param optim_kwargs: Keyword arguments used to build the :class:`OptimConfig`
+            (optimizer, scheduler, learning rate, etc.). Defaults to `None`.
+        :type optim_kwargs: class: `dict[str, Any] | None`
+
+        :param val_predict_kwargs: Keyword arguments forwarded to the method's
+            :meth:`predict` during validation. Needed when prediction requires arguments
+            the sampler cannot supply, e.g. ``n_samples`` for methods that generate from
+            noise. Defaults to `None`.
+        :type val_predict_kwargs: class: `dict[str, Any] | None`
 
         :param sort: If ``True``, create a sorted copy of *adata* via
             :meth:`sort_adata` and compile from that copy.  When setting this one
@@ -493,8 +500,10 @@ class Model:
             is raised otherwise.
         :type sort: class: `bool`
 
-        :param *kwargs: Keyword arguments used to call the `.train` method of the trainer class.
-        :type *kwargs: class: `dict[str, Any]`
+        :param trainer_kwargs: Extra keyword arguments for :class:`Trainer`, and through it
+            :class:`lightning.pytorch.Trainer` -- e.g. ``accelerator``, ``devices``,
+            ``precision``, ``gradient_clip_val``, ``accumulate_grad_batches``.
+        :type trainer_kwargs: class: `dict[str, Any]`
         """
         # compile adata
         train_tree = self._dm.compile_adata(
@@ -529,31 +538,30 @@ class Model:
             for val_id, val_tree in val_trees_dict.items()
         }
 
-        # prepare optimization configurations
+        # configure optimization and validation-time prediction on the method, which is
+        # the `LightningModule` the trainer fits
         if optim_kwargs is None:
             optim_kwargs = {}
-        optim_config = OptimConfig(**optim_kwargs)
+        self._method.optim_config = OptimConfig(**optim_kwargs)
+        self._method.val_predict_kwargs = {} if val_predict_kwargs is None else val_predict_kwargs
 
-        # create optimization manager
-        from sckitflow.core.methods._opt import OptimizationManager
-
-        opt_manager = OptimizationManager.from_config(self._method._module, optim_config)
-
-        # initialize trainer
-        if self._trainer is None:
-            self._trainer = Trainer(self._method, opt_manager, callbacks)
-
-        # module in training mode
-        self._method.set_train_mode(True)
-
-        # train model
-        self._trainer.train(
-            train_sampler,
-            *args,
-            val_samplers_dict=val_samplers_dict,
+        # initialize trainer. `val_ids` fixes the order of the validation dataloaders so
+        # metrics and logs can be attributed back to the right validation set.
+        val_ids = list(val_samplers_dict)
+        self._trainer = Trainer(
             n_train_steps=n_train_steps,
             valid_freq=valid_freq,
-            **kwargs,
+            val_ids=val_ids,
+            callbacks=list(callbacks) if callbacks is not None else None,
+            **trainer_kwargs,
+        )
+
+        # train model. The samplers are iterables of nodes, which Lightning accepts
+        # directly as dataloaders -- one node per batch, no collation.
+        self._trainer.fit(
+            self._method,
+            train_dataloaders=train_sampler,
+            val_dataloaders=[val_samplers_dict[val_id] for val_id in val_ids] or None,
         )
 
     def predict(
@@ -615,8 +623,8 @@ class Model:
         :return: Either an AnnData with predictions, or a tuple (AnnData, PredictionData)
             if `return_raw` is True.
         """
-        # Set module to evaluation mode (backend‑agnostic)
-        self._method.set_train_mode(False)
+        # Set module to evaluation mode
+        self._method.eval()
 
         # Compile the data tree
         tree = self._dm.compile_adata(
@@ -657,9 +665,24 @@ class Model:
 
         return self._aggregate_nodes_pred(all_preds, all_obs, all_obsm, return_raw=return_raw)
 
+    def __getstate__(self) -> dict[str, Any]:
+        """Drops the trainer when pickling.
+
+        A :class:`lightning.pytorch.Trainer` owns loops, loggers and connectors that are
+        not reliably picklable, and none of it is model state -- :meth:`train` builds a
+        fresh one. The method, and with it the module weights, pickles as usual.
+        """
+        state = self.__dict__.copy()
+        state["_trainer"] = None
+        return state
+
     def save(self, filepath: str, allow_overwrite: bool = False) -> None:
         """
         Save the entire model (including registered data) to a tarball.
+
+        The trainer is not saved, so training logs and optimizer state do not survive a
+        round trip; use :class:`~lightning.pytorch.callbacks.ModelCheckpoint` to capture
+        those mid-run.
 
         :param filepath: Output file path (e.g., 'model.tar.gz').
         :param allow_overwrite: If True, overwrite existing file.
@@ -671,16 +694,7 @@ class Model:
             path.unlink()
 
         # Move model to CPU before pickling
-        import torch
-
-        self._method._module.cpu()
-        # Fixed: access optimizer via trainer, not via method
-        if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
-            opt = self._trainer.opt_manager.optimizer
-            for state in opt.state.values():
-                for k, v in state.items():
-                    if isinstance(v, torch.Tensor):
-                        state[k] = v.cpu()
+        self._method.cpu()
 
         # Save self as a tarball containing a single pickle file
         with tarfile.open(filepath, "w:gz") as tar:

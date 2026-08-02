@@ -1,10 +1,12 @@
 import abc
 from typing import Any, TypeVar
 
+import lightning.pytorch as pl
 import torch
 
 from sckitflow.core._data_utils import extract_step_data
 from sckitflow.core._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
+from sckitflow.core.methods._opt import OptimConfig
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.core.probability_paths import BaseProbabilityPath
 from sckitflow.core.solvers import BaseSolver
@@ -17,7 +19,16 @@ __all__ = ["BaseMethod", "GenerativeFlow"]
 T = TypeVar("T")
 
 
-class BaseMethod(abc.ABC):
+class BaseMethod(pl.LightningModule, abc.ABC):
+    """Base class for methods, and the :class:`~lightning.pytorch.LightningModule` that trains them.
+
+    A *node* -- one :class:`MatchedDistributions` of matched source/target observations --
+    is the unit of training: one node in, one optimizer step out. Lightning drives the
+    loop, so subclasses only implement :meth:`compute_loss` (the loss) and :meth:`infer`
+    (inference); ``zero_grad``/``backward``/``step``, device placement, train/eval mode
+    and progress reporting are all handled for them.
+    """
+
     _module_cls: type[BaseModule] | None = None
 
     def __init__(
@@ -26,12 +37,47 @@ class BaseMethod(abc.ABC):
         dm: DataManager,
         *args,
         dtype: torch.dtype = torch.float32,
-        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
+        device_id: str | torch.device | None = None,
+        optim_config: OptimConfig | None = None,
+        val_predict_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
+        """Initializes the method and the module it trains.
+
+        :param dims_registry: The data dimensionalities used to size the module.
+        :type dims_registry: class: `DataDimensionalitiesRegistry`
+
+        :param dm: The fitted data manager describing the data schema.
+        :type dm: class: `DataManager`
+
+        :param dtype: Floating point type the module and the extracted batches use.
+            Defaults to `torch.float32`.
+        :type dtype: class: `torch.dtype`
+
+        :param device_id: (Optional) Device to pin the method to. Leave as `None` -- the
+            default -- when training: the trainer's accelerator decides placement and
+            :attr: `device` follows it. Set it only to use the method standalone, outside
+            a trainer.
+        :type device_id: class: `str | torch.device | None`
+
+        :param optim_config: (Optional) Optimizer/scheduler configuration used by
+            :meth:`configure_optimizers`. Defaults to `None`, in which case a default
+            :class:`OptimConfig` is used. Usually set by :meth:`Model.train`.
+        :type optim_config: class: `OptimConfig | None`
+
+        :param val_predict_kwargs: (Optional) Keyword arguments forwarded to
+            :meth:`predict` during validation. Defaults to `None`. Needed when prediction
+            requires arguments the sampler cannot supply, e.g. ``n_samples`` for methods
+            that generate from noise.
+        :type val_predict_kwargs: class: `dict[str, Any] | None`
+        """
+        super().__init__()
+
         # initialize attributes
         self._dims_registry = dims_registry
         self._dm = dm
+        self.optim_config = OptimConfig() if optim_config is None else optim_config
+        self.val_predict_kwargs = {} if val_predict_kwargs is None else val_predict_kwargs
 
         # check module is passed
         if self._module_cls is None:
@@ -40,12 +86,31 @@ class BaseMethod(abc.ABC):
         # initialize module with dimensionality registry
         self._module = self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
 
-        # set attributes
-        self._dtype = dtype
-        self._device_id = device_id
+        # `.to` keeps `self.dtype`/`self.device` in step, which is what batch extraction
+        # reads -- assigning the underlying attributes directly would not.
+        self.to(dtype)
+        if device_id is not None:
+            self.to(device_id)
 
-        # move module to device
-        self._module.to(self._dtype).to(self._device_id)
+    # -------------------------------------------------------------------------
+    # Subclass contract
+    # -------------------------------------------------------------------------
+    @abc.abstractmethod
+    def compute_loss(
+        self,
+        step_data: StepData,
+        *args,
+        **kwargs,
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Computes the training loss for one node, plus the metrics to log."""
+
+    @abc.abstractmethod
+    def infer(
+        self,
+        step_data: StepData,
+        *args,
+        **kwargs,
+    ) -> PredictionData: ...
 
     @staticmethod
     def _safe_subscript_obj(data: T | None, idx: Any | None) -> T | None:  # TODO: Probably remove from here
@@ -55,21 +120,11 @@ class BaseMethod(abc.ABC):
             return data
         return data[idx]
 
-    @abc.abstractmethod
-    def compute_loss(
+    def _match_observations(
         self,
         step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> tuple[torch.Tensor, dict[str, Any]]: ...
-
-    @abc.abstractmethod
-    def infer(
-        self,
-        step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> PredictionData: ...
+    ) -> StepData:
+        return step_data
 
     def _train_step_forward(
         self,
@@ -84,31 +139,84 @@ class BaseMethod(abc.ABC):
             **kwargs,
         )
 
-    def _match_observations(
+    # -------------------------------------------------------------------------
+    # Lightning hooks
+    # -------------------------------------------------------------------------
+    def transfer_batch_to_device(
         self,
-        step_data: StepData,
-    ) -> StepData:
-        return step_data
+        batch: MatchedDistributions,
+        device: torch.device,
+        dataloader_idx: int,
+    ) -> MatchedDistributions:
+        """Leaves the node on the host instead of moving it to ``device``.
 
-    def set_train_mode(self, mode: bool) -> None:
-        """"""  # noqa
-        if mode:
-            self.module.train()
-        else:
-            self.module.eval()
+        A node is a tree of frozen dataclasses wrapping numpy arrays, which Lightning's
+        default recursive transfer refuses to walk. :func:`extract_step_data` does the
+        tensor conversion and device placement per step instead, so there is nothing to
+        move here.
+        """
+        return batch
 
+    def training_step(self, node: MatchedDistributions, batch_idx: int) -> torch.Tensor:
+        """Runs one training step over a single node.
+
+        Returning the loss is the whole contract: Lightning runs the backward pass and
+        steps the optimizer and scheduler.
+        """
+        loss, logs = self.train_step(node)
+        # `on_step` rather than `on_epoch`: the training stream is unbounded, so there is
+        # only ever one epoch and per-step values are the only meaningful granularity.
+        # `batch_size` is passed explicitly because Lightning cannot infer it from a node.
+        self.log_dict(
+            logs,
+            prog_bar=True,
+            on_step=True,
+            on_epoch=False,
+            batch_size=getattr(node, "n_target_obs", 1),
+        )
+        return loss
+
+    def validation_step(
+        self,
+        node: MatchedDistributions,
+        batch_idx: int,
+        dataloader_idx: int = 0,
+    ) -> dict[str, Any]:
+        """Predicts on a single validation node.
+
+        Returns the raw predictions and targets rather than reducing them here, so metric
+        callbacks can accumulate across nodes before computing.
+        """
+        preds = self.predict(node, **self.val_predict_kwargs)
+        target = node.target_distr.state_data
+        return {
+            "predictions": preds.X,
+            "targets": None if target is None else target.X,
+        }
+
+    def configure_optimizers(self) -> dict[str, Any]:
+        """Builds the optimizer, and optional scheduler, from :attr: `optim_config`."""
+        return self.optim_config.resolve(self.parameters())
+
+    # -------------------------------------------------------------------------
+    # Public API
+    # -------------------------------------------------------------------------
     def train_step(
         self,
         matched_distr: MatchedDistributions,
         *args,
         **kwargs,
-    ) -> dict[str, Any]:
-        """Single step function of the solver.
+    ) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Computes the loss and metrics for one node of matched distributions.
+
+        Kept separate from :meth:`training_step` so methods registered with
+        ``category="general"`` can override the whole step while Lightning still owns the
+        loop.
 
         :param matched_distr: Input `MatchedDistributions` object.
-        :type matched_distr: dict[str, torch.Tensor]
+        :type matched_distr: class: `MatchedDistributions`
         """
-        step_data = extract_step_data(matched_distr, device=self._device_id, dtype=self._dtype)
+        step_data = extract_step_data(matched_distr, device=self.device, dtype=self.dtype)
         return self._train_step_forward(step_data, *args, **kwargs)
 
     def predict(
@@ -121,7 +229,7 @@ class BaseMethod(abc.ABC):
         """Prediction on node."""
         # extract step data and prepare latent state
         if isinstance(data, MatchedDistributions):
-            data = extract_step_data(data, device=self._device_id, dtype=self._dtype)
+            data = extract_step_data(data, device=self.device, dtype=self.dtype)
         if not isinstance(data, StepData):
             raise ValueError(f"Data is of the wrong type, expected `StepData`, but {type(data)} found.")
 
@@ -141,7 +249,7 @@ class BaseMethod(abc.ABC):
             )
 
     @property
-    def module(self) -> BaseModule | None:
+    def module(self) -> BaseModule:
         return self._module
 
     @property
@@ -155,14 +263,6 @@ class BaseMethod(abc.ABC):
     @property
     def is_paired_setting(self) -> bool:
         return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
-
-    @property
-    def device_id(self) -> str:
-        return self._device_id
-
-    @property
-    def dtype(self) -> torch.dtype:
-        return self._dtype
 
 
 class GenerativeFlow(BaseMethod):
@@ -180,13 +280,8 @@ class GenerativeFlow(BaseMethod):
         generate_from_noise: bool = False,
         **kwargs,
     ) -> None:
-        # call parent constructor
-        super().__init__(
-            dims_registry,
-            dm,
-            *args,
-            **kwargs,
-        )
+        # initialize parent class
+        super().__init__(dims_registry, dm, *args, **kwargs)
 
         # set attributes
         self._probability_path = probability_path

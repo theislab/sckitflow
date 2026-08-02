@@ -1,195 +1,115 @@
-from collections.abc import Sequence
 from typing import Any
 
+import lightning.pytorch as pl
 import pandas as pd
-from tqdm import tqdm
 
-from sckitflow.core.methods._base import BaseMethod
-from sckitflow.core.methods._opt import OptimizationManager
-from sckitflow.data.samplers._train import FTrainSampler
-from sckitflow.data.samplers._validation import FValidationSampler
-from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
+from sckitflow.trainer._logger import DataFrameLogger
 
 __all__ = ["Trainer"]
 
 
-class Trainer:
-    """Trainer for the supported methods.
+class Trainer(pl.Trainer):
+    """Lightweight wrapper of :class:`lightning.pytorch.Trainer` with sckitflow defaults.
 
-    :param method: Method class
-    :param opt_manager: Optimization manager
-    :param callbacks: Either a TrainingCallbacks instance, a list of BaseCallback,
-        or None. If a list is given, it will be wrapped in a TrainingCallbacks.
+    Training is measured in *node-steps*: one node -- a single
+    :class:`MatchedDistributions` drawn by the train sampler -- is one batch and one
+    optimizer step. Because the sampler streams nodes without end there is only ever a
+    single epoch, so both ``max_steps`` and ``val_check_interval`` count node-steps and
+    epoch-based settings are switched off.
+
+    :param n_train_steps: Number of node-steps to train for. Maps onto Lightning's
+        ``max_steps``.
+    :type n_train_steps: class: `int`
+
+    :param valid_freq: How many node-steps between validation runs. Maps onto Lightning's
+        ``val_check_interval``.
+    :type valid_freq: class: `int`
+
+    :param val_ids: Identifiers of the validation sets, in the same order as the
+        ``val_dataloaders`` passed to :meth:`fit`. Used to name metrics and to split the
+        recorded logs.
+    :type val_ids: class: `list[str] | None`
+
+    :param logger: Logger(s) to use. Defaults to `None`, in which case a
+        :class:`DataFrameLogger` is installed so the logs are readable via
+        :meth:`get_train_logs_df` without any further configuration.
+    :type logger: class: `Any`
+
+    :param kwargs: Other keyword arguments for :class:`lightning.pytorch.Trainer`.
     """
 
     def __init__(
         self,
-        method: BaseMethod,
-        opt_manager: OptimizationManager,
-        callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
-    ) -> None:
-        self._method = method
-        self._opt_manager = opt_manager
-
-        # Normalize callbacks to a TrainingCallbacks instance
-        if callbacks is None:
-            self._callbacks = TrainingCallbacks([])
-        elif isinstance(callbacks, TrainingCallbacks):
-            self._callbacks = callbacks
-        elif isinstance(callbacks, Sequence):
-            self._callbacks = TrainingCallbacks(callbacks)
-        else:
-            raise TypeError(
-                f"callbacks must be a TrainingCallbacks, a sequence of BaseCallback, or None, got {type(callbacks)}"
-            )
-
-        # Training logs: list of dicts, each dict contains metrics for one training step
-        self._train_logs: list[dict[str, Any]] = []
-        # Validation logs: dict mapping val_id to list of dicts (one per validation run)
-        self._val_logs: dict[str, list[dict[str, Any]]] = {}
-
-        # set current step
-        self._current_step = 0
-
-    def _append_train_log(self, log_dict: dict[str, Any]) -> None:
-        self._train_logs.append(log_dict)
-
-    def _append_val_log(self, val_id: str, log_dict: dict[str, Any]) -> None:
-        if val_id not in self._val_logs:
-            self._val_logs[val_id] = []
-        self._val_logs[val_id].append(log_dict)
-
-    def _run_val_on_sampler(
-        self,
-        sampler: FValidationSampler,
-        val_id: str,
-        *args,
-        **kwargs,
-    ) -> None:
-        """Run validation on a sampler and store predictions."""
-        predictions_dict = {}
-        for node in sampler:
-            # Kept as the raw `StateData`; the `.X` unwrapping below turns it into an array.
-            target = node.target_distr.state_data
-            preds = self._method.predict(node, *args, **kwargs)
-            # Extract the actual data from PredictionData object
-            if hasattr(preds, "samples"):
-                preds_array = preds.samples
-            else:
-                preds_array = preds
-            if hasattr(target, "X"):
-                target_array = target.X
-            else:
-                target_array = target
-            node_id = str(node)  # or use a better identifier
-            predictions_dict[node_id] = {"predictions": preds_array, "targets": target_array}
-
-        # Trigger callbacks with the predictions dictionary
-        metrics_dict = self._callbacks.on_valid_step(self, self._current_step, val_id, predictions_dict, **kwargs)
-        metrics_dict.update({"step": self._current_step})
-
-        # Store the metrics computed by the callbacks, tagged with the validation step.
-        self._append_val_log(val_id, metrics_dict)
-
-    def _get_logs_df(self, logs: list[dict[str, Any]] | None) -> pd.DataFrame:
-        """Return logs as a pandas DataFrame indexed by training step.
-
-        `step` becomes the index rather than a column, so the remaining columns are
-        all metrics and plot against the step count directly.
-        """
-        if logs is None:
-            return pd.DataFrame()
-        log_df = pd.DataFrame(logs)
-        if "step" in log_df.columns:
-            idx = log_df["step"]
-            log_df.index = idx
-            log_df.index.name = "step"
-            # `columns=` already implies the axis; passing both is a pandas error.
-            log_df = log_df.drop(columns=["step"])
-        return log_df
-
-    def train(
-        self,
-        train_sampler: FTrainSampler,
-        *args,
-        val_samplers_dict: dict[str, FValidationSampler] | None = None,
+        *,
         n_train_steps: int = 10_000,
         valid_freq: int = 1_000,
-        pbar_freq: int = 100,
-        cb_kwargs: dict[str, Any] | None = None,
+        val_ids: list[str] | None = None,
+        logger: Any = None,
+        enable_checkpointing: bool = False,
+        num_sanity_val_steps: int = 0,
+        log_every_n_steps: int = 1,
         **kwargs,
     ) -> None:
-        """Trains the model."""
-        do_validation = val_samplers_dict is not None
+        self._df_logger = DataFrameLogger(val_ids=val_ids)
+        if logger is None:
+            logger = self._df_logger
+        elif logger is False:
+            # Explicitly opted out; the DataFrame accessors stay empty.
+            pass
+        elif isinstance(logger, list):
+            logger = [*logger, self._df_logger]
+        else:
+            logger = [logger, self._df_logger]
 
-        # prepare callbacks keywargs
-        cb_kwargs = {} if cb_kwargs is None else cb_kwargs
+        super().__init__(
+            max_steps=n_train_steps,
+            val_check_interval=valid_freq,
+            # The training stream never ends, so epoch boundaries are meaningless:
+            # validation has to be driven purely by `val_check_interval`.
+            check_val_every_n_epoch=None,
+            logger=logger,
+            enable_checkpointing=enable_checkpointing,
+            num_sanity_val_steps=num_sanity_val_steps,
+            # Every node-step reaches the logger, matching the old hand-rolled loop which
+            # recorded one row per node. Raise it to thin out long runs.
+            log_every_n_steps=log_every_n_steps,
+            **kwargs,
+        )
+        self._val_ids = list(val_ids) if val_ids else []
 
-        # Call on_train_begin
-        self._callbacks.on_train_begin(self, **cb_kwargs)
+    @property
+    def val_ids(self) -> list[str]:
+        """Identifiers of the validation sets, positionally matching the val dataloaders.
 
-        start_step = self._current_step + 1
-        stop_step = start_step + n_train_steps
-        pbar = tqdm(range(start_step, stop_step))
-        for self._current_step in pbar:
-            # Sample nodes and perform training steps
-            nodes = train_sampler.sample()
-            step_dict = {}
-            for node in nodes:
-                opt_data, step_dict = self._method.train_step(node, *args, **kwargs)
-                step_dict.update({"step": self._current_step})
-                self._opt_manager.step(opt_data)
-                self._append_train_log(step_dict)
-
-            # Call on_train_step with the step_dict from the last node
-            self._callbacks.on_train_step(self, self._current_step, step_dict, **cb_kwargs)
-
-            # Update progress bar description
-            if self._current_step % pbar_freq == 0:
-                msg = "| " + " | ".join(
-                    f"{k}:{v:.4f}" if isinstance(v, float) else f"{k}:{v}" for k, v in step_dict.items()
-                )
-                pbar.set_description(msg)
-
-            # Validation step
-            if self._current_step % valid_freq == 0 and do_validation:
-                for val_id, val_sampler in val_samplers_dict.items():
-                    self._run_val_on_sampler(val_sampler, val_id, **cb_kwargs)
-
-        # Call on_train_end
-        self._callbacks.on_train_end(self, **cb_kwargs)
+        Read by :class:`MetricsCallback` to name the metrics it computes.
+        """
+        return list(self._val_ids)
 
     # -------------------------------------------------------------------------
     # Log retrieval and DataFrame conversion
     # -------------------------------------------------------------------------
     def get_train_logs_df(self) -> pd.DataFrame:
         """Return training logs as a pandas DataFrame."""
-        return self._get_logs_df(self._train_logs)
+        return self._df_logger.get_train_logs_df()
 
     def get_val_logs_df(self, val_id: str | None = None) -> pd.DataFrame | dict[str, pd.DataFrame]:
         """Return validation logs as a pandas DataFrame.
 
         An unknown ``val_id`` yields an empty frame, mirroring the empty-logs case.
         """
-        if val_id is not None:
-            # `.get` so an unknown id yields an empty frame instead of a KeyError.
-            return self._get_logs_df(self._val_logs.get(val_id))
-        return {vid: self._get_logs_df(logs) for vid, logs in self._val_logs.items()}
+        return self._df_logger.get_val_logs_df(val_id)
 
     @property
     def train_logs_raw(self) -> list[dict[str, Any]]:
         """Raw training logs (list of dicts)."""
-        return self._train_logs
+        return self._df_logger.train_logs_raw
 
     @property
     def val_logs_raw(self) -> dict[str, list[dict[str, Any]]]:
         """Raw validation logs (dict of val_id -> list of dicts)."""
-        return self._val_logs
-
-    @property
-    def opt_manager(self) -> OptimizationManager:
-        return self._opt_manager
+        return self._df_logger.val_logs_raw
 
     @property
     def current_step(self) -> int:
-        return self._current_step
+        """The number of node-steps taken so far."""
+        return self.global_step

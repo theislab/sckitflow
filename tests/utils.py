@@ -9,8 +9,6 @@ if TYPE_CHECKING:
 
 
 def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):
-    # set_backend(backend)
-
     from torch import Tensor, rand
     from torch.nn import Module
     from torch.nn.functional import mse_loss
@@ -47,10 +45,7 @@ def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):
     prob_path = LinearGaussianProbabilityPath(
         sigma=sigma,
     )
-    time_sampler = rand
-    method = MethodClass(network=network, prob_path=prob_path, time_sampler=time_sampler)
-
-    return method
+    return MethodClass(network=network, prob_path=prob_path, time_sampler=rand)
 
 
 def verify_method_output(

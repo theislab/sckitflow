@@ -90,7 +90,8 @@ class TestCFM:
         cfm_instance._probability_path = Mock()
         cfm_instance._probability_path.compute_xt.return_value = torch.randn(4, 2)
         cfm_instance._probability_path.compute_ut.return_value = torch.randn(4, 2)
-        cfm_instance._module = Mock(return_value=torch.randn(4, 2))
+        # `_module` is a registered child module and cannot be swapped for a plain Mock;
+        # the fixture already stubs its `forward`.
         loss, info = cfm_instance.compute_loss(step_data)
         assert isinstance(loss, torch.Tensor)
         assert loss.ndim == 0

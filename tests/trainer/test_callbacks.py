@@ -1,355 +1,247 @@
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import Mock
 
+import lightning.pytorch as pl
 import numpy as np
 import pytest
 import torch
+from torchmetrics import Metric
 
-from sckitflow.trainer._callbacks import (
-    BaseCallback,
-    ComputationalCallback,
-    LoggingCallback,
-    MetricsCallback,
-    TrainingCallbacks,
-    WandBLogger,
-)
+from sckitflow.trainer._callbacks import MetricsCallback
 
 
 # -----------------------------------------------------------------------------
-# Simple mock metrics for testing (no torchmetrics dependency)
+# Helpers
 # -----------------------------------------------------------------------------
-class MockMetric:
+class SumMetric(Metric):
+    """Accumulates ``pred.sum() - target.sum()`` over every update."""
+
     def __init__(self):
-        self._value = 0.0
-        self._count = 0
+        super().__init__()
+        self.add_state("total", default=torch.tensor(0.0), dist_reduce_fx="sum")
+        self.add_state("n", default=torch.tensor(0.0), dist_reduce_fx="sum")
 
-    def update(self, pred, target):
-        if hasattr(pred, "mean"):
-            self._value += ((pred - target) ** 2).mean().item()
-        else:
-            self._value += np.mean((pred - target) ** 2)
-        self._count += 1
+    def update(self, pred: torch.Tensor, target: torch.Tensor) -> None:
+        self.total += pred.sum() - target.sum()
+        self.n += 1
 
-    def compute(self):
-        return self._value / self._count if self._count > 0 else 0.0
-
-    def reset(self):
-        self._value = 0.0
-        self._count = 0
-
-    def to(self, device):
-        return self
+    def compute(self) -> torch.Tensor:
+        return self.total / self.n
 
 
-class MockMMD:
-    def __init__(self, gammas=None):
-        self.gammas = gammas or [1.0, 0.5]
-        self._value = 0.0
-        self._count = 0
+def _outputs(pred, target):
+    return {"predictions": pred, "targets": target}
 
-    def update(self, pred, target):
-        self._value += 0.1
-        self._count += 1
 
-    def compute(self):
-        return self._value / self._count if self._count > 0 else 0.0
+def _feed(callback, outputs, pl_module, dataloader_idx=0, trainer=None):
+    """Drives one validation node through the callback, returning the trainer used."""
+    trainer = trainer if trainer is not None else Mock(val_ids=["valA", "valB"])
+    callback.on_validation_batch_end(trainer, pl_module, outputs, Mock(), 0, dataloader_idx)
+    return trainer
 
-    def reset(self):
-        self._value = 0.0
-        self._count = 0
 
-    def to(self, device):
-        return self
+@pytest.fixture
+def pl_module():
+    module = Mock()
+    module.device = torch.device("cpu")
+    module.log = Mock()
+    return module
 
 
 # -----------------------------------------------------------------------------
-# Test base classes
+# Construction
 # -----------------------------------------------------------------------------
-class TestBaseCallback:
-    def test_base_callback_methods_do_nothing(self):
-        cb = BaseCallback()
-        trainer = Mock()
+class TestMetricsCallbackInit:
+    def test_is_a_lightning_callback(self):
+        assert isinstance(MetricsCallback(metrics={}), pl.Callback)
 
-        cb.on_train_begin(trainer)
-        cb.on_train_step(trainer, 0, {})
-        cb.on_valid_step(trainer, 0, "val", {})
-        cb.on_train_end(trainer)
-
-
-class TestComputationalCallback:
-    def test_is_only_computational(self):
-        cb = ComputationalCallback()
-        assert isinstance(cb, BaseCallback)
-        assert not isinstance(cb, LoggingCallback)
-
-
-class TestLoggingCallback:
-    def test_is_only_logging(self):
-        cb = LoggingCallback()
-        assert isinstance(cb, BaseCallback)
-        assert not isinstance(cb, ComputationalCallback)
-
-
-# -----------------------------------------------------------------------------
-# Tests for MetricsCallback
-# -----------------------------------------------------------------------------
-class TestMetricsCallback:
     def test_init_with_instantiated_metrics(self):
-        cb = MetricsCallback(metrics={"mse": MockMetric(), "mmd": MockMMD(gammas=[1.0, 0.5])}, backend="torch")
-        assert len(cb._metrics) == 2
-        assert isinstance(cb._metrics["mse"], MockMetric)
-        assert isinstance(cb._metrics["mmd"], MockMMD)
-        assert cb._backend == "torch"
+        metric = SumMetric()
+        callback = MetricsCallback(metrics={"sum": metric})
+        assert callback.metrics == {"sum": metric}
 
-    def test_init_with_transforms(self):
-        def transform1(x):
-            return x * 2
+    def test_shared_transforms_apply_to_both_sides(self):
+        fn = Mock()
+        callback = MetricsCallback(metrics={}, transforms=fn)
+        assert callback._pred_transforms == [fn]
+        assert callback._target_transforms == [fn]
 
-        def transform2(x):
-            return x + 1
-
-        cb = MetricsCallback(
-            metrics={"mse": MockMetric()},
-            backend="torch",
-            transforms=transform1,
-            pred_transforms=[transform2],
-            target_transforms=[transform2],
+    def test_side_specific_transforms_override_the_shared_one(self):
+        shared, pred_only, target_only = Mock(), Mock(), Mock()
+        callback = MetricsCallback(
+            metrics={},
+            transforms=shared,
+            pred_transforms=pred_only,
+            target_transforms=target_only,
         )
-        # pred_transforms replaces transforms, so only transform2 (1 item)
-        assert len(cb._pred_transforms) == 1
-        assert len(cb._target_transforms) == 1
-        assert cb._pred_transforms[0] is transform2
-        assert cb._target_transforms[0] is transform2
+        assert callback._pred_transforms == [pred_only]
+        assert callback._target_transforms == [target_only]
 
-    def test_to_list_none(self):
-        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch")
-        result = cb._to_list(None)
-        assert result == []
+    @pytest.mark.parametrize(("given", "expected_len"), [(None, 0), (len, 1)])
+    def test_to_list_normalizes_scalars(self, given, expected_len):
+        assert len(MetricsCallback._to_list(given)) == expected_len
 
-    def test_to_list_callable(self):
-        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch")
-
-        def func(x):
-            return x
-
-        result = cb._to_list(func)
-        assert len(result) == 1
-        assert result[0] is func
-
-    def test_to_list_sequence(self):
-        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch")
-
-        def func1(x):
-            return x
-
-        def func2(x):
-            return x
-
-        result = cb._to_list([func1, func2])
-        assert len(result) == 2
-
-    def test_reset_metrics(self):
-        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch")
-        cb._reset_metrics()
-        assert True
-
-    def test_apply_transforms(self):
-        def transform(x):
-            return x + 1
-
-        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch")
-        result = cb._apply_transforms(5, [transform])
-        assert result == 6
-
-    def test_to_tensor_numpy_torch_backend(self):
-        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch", device="cpu")
-        data = np.array([1.0, 2.0, 3.0])
-        tensor = cb._to_tensor(data)
-        assert isinstance(tensor, torch.Tensor)
-        assert tensor.shape == (3,)
-
-    def test_to_tensor_torch_tensor_torch_backend(self):
-        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch", device="cpu")
-        data = torch.tensor([1.0, 2.0, 3.0])
-        tensor = cb._to_tensor(data)
-        assert tensor is data
-
-    def test_to_tensor_jax_backend_returns_numpy(self):
-        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="jax")
-        data = np.array([1.0, 2.0, 3.0])
-        result = cb._to_tensor(data)
-        assert isinstance(result, np.ndarray)
-        np.testing.assert_array_equal(result, data)
-
-    def test_on_valid_step_torch_backend(self):
-        cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch", device="cpu")
-
-        trainer = Mock()
-        predictions_dict = {
-            "pert1": {"predictions": np.random.randn(10, 5), "targets": np.random.randn(10, 5)},
-            "pert2": {"predictions": np.random.randn(10, 5), "targets": np.random.randn(10, 5)},
-        }
-
-        result = cb.on_valid_step(trainer, step=0, val_id="test", predictions_dict=predictions_dict)
-
-        # Metrics are aggregated across all perturbations, so key is "test_mse"
-        assert "test_mse" in result
-        assert isinstance(result["test_mse"], float)
-
-    def test_on_valid_step_with_transforms(self):
-        def add_one(x):
-            return x + 1
-
-        cb = MetricsCallback(metrics={"mean": MockMetric()}, backend="torch", transforms=add_one, device="cpu")
-
-        trainer = Mock()
-        predictions_dict = {"pert1": {"predictions": np.array([[1.0], [2.0]]), "targets": np.array([[1.0], [2.0]])}}
-
-        result = cb.on_valid_step(trainer, step=0, val_id="test", predictions_dict=predictions_dict)
-        # After transform, values become 2 and 3, metric key is "test_mean"
-        assert "test_mean" in result
-        assert isinstance(result["test_mean"], float)
+    def test_to_list_keeps_sequences(self):
+        fns = [Mock(), Mock()]
+        assert MetricsCallback._to_list(fns) == fns
 
 
 # -----------------------------------------------------------------------------
-# Tests for WandBLogger (patch the lazy import)
+# Tensor conversion
 # -----------------------------------------------------------------------------
-class TestWandBLogger:
-    def test_on_train_begin(self):
-        mock_wandb = MagicMock()
-        mock_wandb.run = MagicMock()
-        mock_wandb.run.name = "test_run"
+class TestToTensor:
+    def test_numpy_is_converted(self):
+        out = MetricsCallback._to_tensor(np.ones((2, 3)), torch.device("cpu"))
+        assert isinstance(out, torch.Tensor)
+        assert out.shape == (2, 3)
+        assert out.dtype is torch.float32
 
-        with patch.dict("sys.modules", {"wandb": mock_wandb}):
-            logger = WandBLogger(project_name="test_project", log_dir="./logs", config={"lr": 0.001})
-            trainer = Mock()
-            logger.on_train_begin(trainer)
+    def test_a_tensor_is_passed_through(self):
+        tensor = torch.ones(2, 3)
+        assert MetricsCallback._to_tensor(tensor, torch.device("cpu")) is tensor
 
-            mock_wandb.login.assert_called_once()
-            mock_wandb.init.assert_called_once()
+    def test_array_likes_are_converted(self):
+        class ArrayLike:
+            def __array__(self, dtype=None):
+                return np.ones((2, 2))
 
-    def test_on_train_step(self):
-        mock_wandb = MagicMock()
+        out = MetricsCallback._to_tensor(ArrayLike(), torch.device("cpu"))
+        assert isinstance(out, torch.Tensor)
+        assert out.shape == (2, 2)
 
-        with patch.dict("sys.modules", {"wandb": mock_wandb}):
-            logger = WandBLogger(project_name="test_project", log_dir="./logs", config={})
-            trainer = Mock()
-            logs = {"loss": 0.5, "accuracy": 0.8}
-            logger.on_train_step(trainer, step=10, logs=logs)
-
-            mock_wandb.log.assert_called_once_with({"train_step": 10, **logs})
-
-    def test_on_valid_step(self):
-        mock_wandb = MagicMock()
-
-        with patch.dict("sys.modules", {"wandb": mock_wandb}):
-            logger = WandBLogger(project_name="test_project", log_dir="./logs", config={})
-            trainer = Mock()
-            metrics = {"mse": 0.25, "mae": 0.4}
-            logger.on_valid_step(trainer, step=10, val_id="val1", predictions_dict=metrics)
-
-            mock_wandb.log.assert_called_once_with({"val_val1_mse": 0.25, "val_val1_mae": 0.4})
-
-    def test_on_train_end(self):
-        mock_wandb = MagicMock()
-
-        with patch.dict("sys.modules", {"wandb": mock_wandb}):
-            logger = WandBLogger(project_name="test_project", log_dir="./logs", config={})
-            trainer = Mock()
-            logger.on_train_end(trainer)
-
-            mock_wandb.finish.assert_called_once()
+    def test_plain_sequences_are_converted(self):
+        out = MetricsCallback._to_tensor([[1.0, 2.0]], torch.device("cpu"))
+        assert isinstance(out, torch.Tensor)
+        assert out.shape == (1, 2)
 
 
 # -----------------------------------------------------------------------------
-# Tests for TrainingCallbacks
+# Accumulation and logging
 # -----------------------------------------------------------------------------
-class TestTrainingCallbacks:
-    def test_init(self):
-        cb1 = Mock(spec=LoggingCallback)
-        cb2 = Mock(spec=LoggingCallback)
+class TestValidationFlow:
+    def test_metrics_accumulate_across_nodes_then_log_once(self, pl_module):
+        callback = MetricsCallback(metrics={"sum": SumMetric()})
 
-        training_cb = TrainingCallbacks([cb1, cb2])
+        trainer = _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module)
+        _feed(callback, _outputs(np.full((2, 2), 3.0), np.zeros((2, 2))), pl_module, trainer=trainer)
+        callback.on_validation_epoch_end(trainer, pl_module)
 
-        assert len(training_cb.callbacks) == 2
-        assert len(training_cb._computational) == 0
-        assert len(training_cb._logging) == 2
+        # (4 - 0) then (12 - 0) over two updates -> mean 8.
+        pl_module.log.assert_called_once()
+        name, value = pl_module.log.call_args.args
+        assert name == "valA_sum"
+        assert value == pytest.approx(8.0)
 
-    def test_init_splits_by_class(self):
-        computational_cb = ComputationalCallback()
-        logging_cb = LoggingCallback()
+    def test_logged_value_is_a_python_scalar(self, pl_module):
+        callback = MetricsCallback(metrics={"sum": SumMetric()})
+        trainer = _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module)
+        callback.on_validation_epoch_end(trainer, pl_module)
 
-        training_cb = TrainingCallbacks([computational_cb, logging_cb])
+        assert isinstance(pl_module.log.call_args.args[1], float)
 
-        assert training_cb._computational == [computational_cb]
-        assert training_cb._logging == [logging_cb]
+    def test_batch_size_is_pinned_so_lightning_never_inspects_a_node(self, pl_module):
+        callback = MetricsCallback(metrics={"sum": SumMetric()})
+        trainer = _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module)
+        callback.on_validation_epoch_end(trainer, pl_module)
 
-    def test_init_accepts_dual_role_callback(self):
-        # Subclassing both is the supported way to opt into both roles.
-        class BothKinds(ComputationalCallback, LoggingCallback):
-            pass
+        assert pl_module.log.call_args.kwargs["batch_size"] == 1
 
-        cb = BothKinds()
-        training_cb = TrainingCallbacks([cb])
+    def test_transforms_are_applied_per_side(self, pl_module):
+        callback = MetricsCallback(
+            metrics={"sum": SumMetric()},
+            pred_transforms=lambda x: x * 2,
+        )
+        trainer = _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module)
+        callback.on_validation_epoch_end(trainer, pl_module)
 
-        assert training_cb._computational == [cb]
-        assert training_cb._logging == [cb]
+        # Predictions doubled: 4 * 2 = 8, targets untouched.
+        assert pl_module.log.call_args.args[1] == pytest.approx(8.0)
 
-    def test_init_rejects_unclassified_callback(self):
-        class Unclassified(BaseCallback):
-            pass
+    def test_state_is_reset_between_validation_runs(self, pl_module):
+        callback = MetricsCallback(metrics={"sum": SumMetric()})
 
-        with pytest.raises(TypeError, match="must subclass ComputationalCallback or LoggingCallback"):
-            TrainingCallbacks([Unclassified()])
+        trainer = _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module)
+        callback.on_validation_epoch_end(trainer, pl_module)
 
-    def test_on_train_begin(self):
-        cb1 = Mock(spec=ComputationalCallback)
-        cb2 = Mock(spec=LoggingCallback)
-        training_cb = TrainingCallbacks([cb1, cb2])
+        callback.on_validation_start(trainer, pl_module)
+        _feed(callback, _outputs(np.full((2, 2), 5.0), np.zeros((2, 2))), pl_module, trainer=trainer)
+        callback.on_validation_epoch_end(trainer, pl_module)
 
-        trainer = Mock()
-        training_cb.on_train_begin(trainer, extra="value")
+        # The second run reports only its own node: 20, not a running total.
+        assert pl_module.log.call_args.args[1] == pytest.approx(20.0)
 
-        cb1.on_train_begin.assert_called_once_with(trainer, extra="value")
-        cb2.on_train_begin.assert_called_once_with(trainer, extra="value")
+    @pytest.mark.parametrize("outputs", [None, {}, {"predictions": None, "targets": np.zeros((2, 2))}])
+    def test_incomplete_outputs_are_skipped(self, pl_module, outputs):
+        callback = MetricsCallback(metrics={"sum": SumMetric()})
+        trainer = _feed(callback, outputs, pl_module)
+        callback.on_validation_epoch_end(trainer, pl_module)
 
-    def test_on_train_step(self):
-        computational_cb = ComputationalCallback()
-        logging_cb = Mock(spec=LoggingCallback)
+        pl_module.log.assert_not_called()
 
-        training_cb = TrainingCallbacks([computational_cb, logging_cb])
 
-        trainer = Mock()
-        logs = {"loss": 0.5}
-        training_cb.on_train_step(trainer, step=5, logs=logs)
+class TestPerDataloaderState:
+    def test_each_validation_set_gets_its_own_metric_state(self, pl_module):
+        """Two validation sets must not pool their accumulated state."""
+        callback = MetricsCallback(metrics={"sum": SumMetric()})
 
-        logging_cb.on_train_step.assert_called_once_with(trainer, 5, logs)
+        trainer = _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module, dataloader_idx=0)
+        _feed(
+            callback,
+            _outputs(np.full((2, 2), 10.0), np.zeros((2, 2))),
+            pl_module,
+            dataloader_idx=1,
+            trainer=trainer,
+        )
+        callback.on_validation_epoch_end(trainer, pl_module)
 
-    def test_on_valid_step(self):
-        class DummyComputational(ComputationalCallback):
-            def on_valid_step(self, trainer, step, val_id, predictions_dict, **kwargs):
-                return {"computed_metric": 0.99}
+        logged = {call.args[0]: call.args[1] for call in pl_module.log.call_args_list}
+        assert logged["valA_sum"] == pytest.approx(4.0)
+        assert logged["valB_sum"] == pytest.approx(40.0)
 
-        computational_cb = DummyComputational()
-        logging_cb = Mock(spec=LoggingCallback)
+    def test_names_come_from_the_trainers_val_ids(self, pl_module):
+        callback = MetricsCallback(metrics={"sum": SumMetric()})
+        trainer = Mock(val_ids=["first", "second"])
 
-        training_cb = TrainingCallbacks([computational_cb, logging_cb])
+        _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module, 1, trainer)
+        callback.on_validation_epoch_end(trainer, pl_module)
 
-        trainer = Mock()
-        predictions = {"test": {"predictions": np.array([1]), "targets": np.array([1])}}
+        assert pl_module.log.call_args.args[0] == "second_sum"
 
-        training_cb.on_valid_step(trainer, step=0, val_id="val", predictions_dict=predictions)
+    def test_positional_fallback_when_no_val_ids_are_available(self, pl_module):
+        callback = MetricsCallback(metrics={"sum": SumMetric()})
+        trainer = Mock(spec=[])  # a plain pl.Trainer has no `val_ids`
 
-        logging_cb.on_valid_step.assert_called_once()
-        args = logging_cb.on_valid_step.call_args[0]
-        assert args[3] == {"computed_metric": 0.99}
+        _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module, 2, trainer)
+        callback.on_validation_epoch_end(trainer, pl_module)
 
-    def test_on_train_end(self):
-        cb1 = Mock(spec=ComputationalCallback)
-        cb2 = Mock(spec=LoggingCallback)
-        training_cb = TrainingCallbacks([cb1, cb2])
+        assert pl_module.log.call_args.args[0] == "val2_sum"
 
-        trainer = Mock()
-        training_cb.on_train_end(trainer)
+    def test_every_dataloader_gets_its_own_copy(self, pl_module):
+        metric = SumMetric()
+        callback = MetricsCallback(metrics={"sum": metric})
 
-        cb1.on_train_end.assert_called_once_with(trainer)
-        cb2.on_train_end.assert_called_once_with(trainer)
+        trainer = _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module, 0)
+        _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module, 1, trainer)
+
+        assert callback._per_loader[0]["sum"] is not metric
+        assert callback._per_loader[1]["sum"] is not metric
+        assert callback._per_loader[0]["sum"] is not callback._per_loader[1]["sum"]
+
+    def test_the_callers_metric_is_never_mutated(self, pl_module):
+        """The template must stay pristine, or later dataloaders inherit its state."""
+        metric = SumMetric()
+        callback = MetricsCallback(metrics={"sum": metric})
+
+        _feed(callback, _outputs(np.full((2, 2), 7.0), np.zeros((2, 2))), pl_module)
+
+        assert metric.total == pytest.approx(0.0)
+        assert metric.n == pytest.approx(0.0)
+
+    def test_a_later_dataloader_does_not_inherit_an_earlier_ones_state(self, pl_module):
+        """Regression: cloning from an already-updated metric pooled the two sets."""
+        callback = MetricsCallback(metrics={"sum": SumMetric()})
+
+        trainer = _feed(callback, _outputs(np.ones((2, 2)), np.zeros((2, 2))), pl_module, 0)
+        _feed(callback, _outputs(np.full((2, 2), 10.0), np.zeros((2, 2))), pl_module, 1, trainer)
+
+        # The second set saw exactly one node, so `n` must be 1 and not 2.
+        assert callback._per_loader[1]["sum"].n == pytest.approx(1.0)

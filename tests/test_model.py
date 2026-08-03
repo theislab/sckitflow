@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 from anndata import AnnData
 
 from sckitflow import Model, ModelBuilder
@@ -14,32 +15,24 @@ from sckitflow.data._manager import DataManager
 
 
 # -----------------------------------------------------------------------------
-# Dummy module (picklable, no recursion) for most tests
+# Dummy module (picklable) for most tests
 # -----------------------------------------------------------------------------
 class DummyModule(BaseModule):
-    """Simple dummy module that mimics the interface but is picklable."""
+    """Minimal real module: Lightning needs parameters to optimize and weights to save."""
 
-    def _make_modules(self, dims_registry, *args, **kwargs):
-        # No real module, just a placeholder
-        return None
+    def __init__(self):
+        super().__init__()
+        self.linear = self._make_modules()
+
+    def _make_modules(self):
+        return torch.nn.Linear(2, 2)
 
     def forward(self, *args, **kwargs):
-        pass
+        return self.linear(torch.zeros(1, 2))
 
-    def cpu(self):
-        return self
-
-    def to(self, device):
-        return self
-
-    def parameters(self):
-        return []  # empty list – but we will mock optimizer creation for most tests
-
-    def train(self):
-        pass
-
-    def eval(self):
-        pass
+    @classmethod
+    def init_from_dims_registry(cls, dims_registry, *args, **kwargs):
+        return cls()
 
 
 # -----------------------------------------------------------------------------
@@ -70,9 +63,6 @@ class DummyPredictionData:
 class DummyMethod(BaseMethod):
     _module_cls = DummyModule
 
-    def __init__(self, dims_registry, dm, *args, **kwargs):
-        super().__init__(dims_registry, dm, *args, **kwargs)
-
     def extract_state_data(self, matched_distr):
         """Return dummy StateData from the target state of the matched distribution."""
         from sckitflow.data.containers._state import StateData
@@ -83,22 +73,21 @@ class DummyMethod(BaseMethod):
         X = np.zeros((n_obs, n_feat))
         return StateData(X)
 
-    def set_train_mode(self, mode: bool):
-        self._train_mode = mode
-
-    def compute_loss(self, *args, **kwargs):
-        import torch
-
-        return torch.tensor(0.0), {"loss": 0.0}
+    def compute_loss(self, step_data, *args, **kwargs):
+        raise AssertionError("`train_step` is overridden, so `compute_loss` is never reached.")
 
     def infer(self, step_data, *args, **kwargs):
+        raise AssertionError("`predict` is overridden, so `infer` is never reached.")
+
+    def train_step(self, matched_distr, *args, **kwargs):
+        # A real loss over real parameters: Lightning runs the backward pass for us, so a
+        # detached constant would fail.
+        loss = self._module().sum()
+        return loss, {"loss": loss.item()}
+
+    def predict(self, matched_distr, *args, **kwargs):
+        n_obs = len(matched_distr.target_distr.ann_df)
         n_feat = len(self._dims_registry.feature_names)
-        if step_data.target_state is not None:
-            n_obs = step_data.target_state.shape[0]
-        else:
-            # `require_target_state=False`: no state tensor, fall back to the group
-            # metadata (always present) to determine how many observations to predict for.
-            n_obs = len(step_data.target_group_data.ann_df)
         samples = np.zeros((n_obs, n_feat))
         return DummyPredictionData(samples)
 
@@ -113,16 +102,13 @@ def _make_model(adata: AnnData, method_cls=DummyMethod, dm_kwargs=None, **method
 
 
 # -----------------------------------------------------------------------------
-# Fixture to mock the optimization manager creation (only for tests that need it)
+# Keep real training runs quiet and CPU-bound
 # -----------------------------------------------------------------------------
-@pytest.fixture
-def mock_optim_manager():
-    """Prevent real optimizer creation in tests that don't need real training."""
-    with patch("sckitflow.core.methods._opt.OptimizationManager.from_config") as mock:
-        mock_manager = MagicMock()
-        mock_manager.step = MagicMock()
-        mock.return_value = mock_manager
-        yield mock_manager
+QUIET_TRAINER = {
+    "accelerator": "cpu",
+    "enable_progress_bar": False,
+    "enable_model_summary": False,
+}
 
 
 # -----------------------------------------------------------------------------
@@ -204,35 +190,68 @@ class TestModel:
     # --------------------------------------------------------------------------
     # Training Orchestration (with mocking)
     # --------------------------------------------------------------------------
-    def test_train_calls_trainer_and_sets_mode(self, adata: AnnData, mock_optim_manager):
+    def test_train_configures_the_trainer_and_fits_the_method(self, adata: AnnData):
         model = _make_model(adata)
         with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
-            set_train_mode_spy = MagicMock(wraps=model.method.set_train_mode)
-            model.method.set_train_mode = set_train_mode_spy
             model.train(adata, n_train_steps=10, valid_freq=5, train_batch_size=32, sort=True)
 
             mock_trainer_cls.assert_called_once()
-            args, _ = mock_trainer_cls.call_args
-            assert args[0] is model.method
-            assert args[1] is mock_optim_manager
-            set_train_mode_spy.assert_called_once_with(True)
-            mock_trainer.train.assert_called_once()
-            call_kwargs = mock_trainer.train.call_args[1]
-            assert call_kwargs["n_train_steps"] == 10
-            assert call_kwargs["valid_freq"] == 5
+            init_kwargs = mock_trainer_cls.call_args.kwargs
+            assert init_kwargs["n_train_steps"] == 10
+            assert init_kwargs["valid_freq"] == 5
+            assert init_kwargs["val_ids"] == []
 
-    def test_train_with_validation_samplers(self, adata: AnnData, mock_optim_manager):
+            # The method itself is the LightningModule that gets fitted.
+            mock_trainer.fit.assert_called_once()
+            assert mock_trainer.fit.call_args.args[0] is model.method
+            assert mock_trainer.fit.call_args.kwargs["train_dataloaders"] is not None
+            assert mock_trainer.fit.call_args.kwargs["val_dataloaders"] is None
+
+    def test_train_sets_the_optim_config_on_the_method(self, adata: AnnData):
+        model = _make_model(adata)
+        with patch("sckitflow._model.Trainer"):
+            model.train(adata, n_train_steps=1, optim_kwargs={"lr": 0.123}, sort=True)
+
+        assert model.method.optim_config.lr == pytest.approx(0.123)
+
+    def test_train_forwards_val_predict_kwargs_to_the_method(self, adata: AnnData):
+        model = _make_model(adata)
+        with patch("sckitflow._model.Trainer"):
+            model.train(adata, n_train_steps=1, val_predict_kwargs={"n_samples": 4}, sort=True)
+
+        assert model.method.val_predict_kwargs == {"n_samples": 4}
+
+    def test_train_with_validation_samplers(self, adata: AnnData):
         model = _make_model(adata)
         with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
             val_adatas = {"val1": adata, "val2": adata}
             model.train(adata, val_adatas_dict=val_adatas, n_train_steps=5, sort=True)
 
-            call_kwargs = mock_trainer.train.call_args.kwargs
-            val_samplers = call_kwargs["val_samplers_dict"]
-            assert isinstance(val_samplers, dict)
-            assert set(val_samplers.keys()) == {"val1", "val2"}
+            # `val_ids` fixes the order, and the dataloaders are passed in that order.
+            val_ids = mock_trainer_cls.call_args.kwargs["val_ids"]
+            assert val_ids == ["val1", "val2"]
+            val_dataloaders = mock_trainer.fit.call_args.kwargs["val_dataloaders"]
+            assert len(val_dataloaders) == 2
+            assert [len(dl) for dl in val_dataloaders] == [len(dl) for dl in val_dataloaders]
+
+    def test_train_passes_extra_kwargs_through_to_the_trainer(self, adata: AnnData):
+        model = _make_model(adata)
+        with patch("sckitflow._model.Trainer") as mock_trainer_cls:
+            model.train(adata, n_train_steps=1, sort=True, gradient_clip_val=0.5)
+
+            assert mock_trainer_cls.call_args.kwargs["gradient_clip_val"] == 0.5
+
+    def test_train_runs_end_to_end_in_node_steps(self, adata: AnnData):
+        """A real fit: `n_train_steps` counts nodes, one optimizer step each."""
+        model = _make_model(adata)
+        model.train(adata, n_train_steps=3, train_batch_size=8, sort=True, **QUIET_TRAINER)
+
+        assert model.trainer.current_step == 3
+        df = model.trainer.get_train_logs_df()
+        assert len(df) == 3
+        assert "loss" in df.columns
 
     # --------------------------------------------------------------------------
     # Prediction Pipeline
@@ -278,15 +297,14 @@ class TestModel:
 
     def test_predict_sets_eval_mode(self, adata: AnnData):
         model = _make_model(adata)
-        set_train_mode_spy = MagicMock(wraps=model.method.set_train_mode)
-        model.method.set_train_mode = set_train_mode_spy
+        model.method.train()
         model.predict(adata, sort=True)
-        set_train_mode_spy.assert_called_once_with(False)
+        assert model.method.training is False
 
     # --------------------------------------------------------------------------
     # Properties
     # --------------------------------------------------------------------------
-    def test_properties(self, adata: AnnData, mock_optim_manager):
+    def test_properties(self, adata: AnnData):
         model = _make_model(adata)
         assert isinstance(model.dm, DataManager)
         assert model.is_paired_setting is False
@@ -296,6 +314,11 @@ class TestModel:
         with patch("sckitflow._model.Trainer") as _mock_trainer_cls:
             model.train(adata, n_train_steps=1, sort=True)
         assert model.trainer is not None
+
+    def test_to_device_moves_the_method(self, adata: AnnData):
+        model = _make_model(adata)
+        model.to_device("cpu")
+        assert model.method.device.type == "cpu"
 
     # --------------------------------------------------------------------------
     # Save / Load (without mocking the optimizer manager)
@@ -315,68 +338,35 @@ class TestModel:
         os.unlink(tmp_path)
 
     def test_save_load_and_continue_training(self, adata):
-        """Test save/load with a real tiny module (not a mock)."""
-        torch = pytest.importorskip("torch")
-
-        # Define a real torch module with parameters
-        class RealDummyModule(torch.nn.Module):
-            def __init__(self):
-                super().__init__()
-                self.linear = torch.nn.Linear(2, 2)
-
-            def forward(self, t, x, condition_dict=None, source=None):
-                return self.linear(x)
-
-            @classmethod
-            def init_from_dims_registry(cls, dims_registry, *args, **kwargs):
-                return cls()
-
-        # Create a proper method class that uses RealDummyModule
-        class RealDummyMethod(BaseMethod):
-            _module_cls = RealDummyModule
-
-            def __init__(self, dims_registry, dm, *args, **kwargs):
-                super().__init__(dims_registry, dm, *args, **kwargs)
-
-            def extract_state_data(self, matched_distr):
-                from sckitflow.data.containers._state import StateData
-
-                n_obs = len(matched_distr.target_distr.ann_df)
-                n_feat = len(self._dims_registry.feature_names)
-                X = np.zeros((n_obs, n_feat))
-                return StateData(X)
-
-            def set_train_mode(self, mode: bool):
-                if mode:
-                    self._module.train()
-                else:
-                    self._module.eval()
-
-            def compute_loss(self, matched_distr, *args, **kwargs):
-                # Create a dummy input that requires grad
-                dummy_x = torch.randn(4, 2, requires_grad=True)
-                t = torch.tensor(0.5, requires_grad=False)
-                output = self._module(t, dummy_x)
-                loss = output.sum()
-                return loss, {"loss": loss.item()}
-
-            def infer(self, matched_distr, *args, **kwargs):
-                n_obs = len(matched_distr.target_distr.ann_df)
-                n_feat = len(self._dims_registry.feature_names)
-                samples = np.zeros((n_obs, n_feat))
-                from tests.test_model import DummyPredictionData
-
-                return DummyPredictionData(samples)
-
-        model = _make_model(adata, method_cls=RealDummyMethod)
-        model.train(adata, n_train_steps=5, train_batch_size=4, sort=True)
+        """Weights survive a round trip, and the loaded model can keep training."""
+        model = _make_model(adata)
+        model.train(adata, n_train_steps=5, train_batch_size=4, sort=True, **QUIET_TRAINER)
+        trained_weights = model.method.module.linear.weight.detach().clone()
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp_path = tmp.name
         model.save(tmp_path, allow_overwrite=True)
 
         loaded = Model.load(tmp_path, map_location="cpu")
-        loaded.train(adata, n_train_steps=5, train_batch_size=4)
+        assert torch.allclose(loaded.method.module.linear.weight, trained_weights)
+
+        loaded.train(adata, n_train_steps=5, train_batch_size=4, **QUIET_TRAINER)
+        assert loaded.trainer.current_step == 5
+
+        os.unlink(tmp_path)
+
+    def test_saved_model_does_not_carry_the_trainer(self, adata):
+        """A `pl.Trainer` is not picklable state; `train()` builds a fresh one."""
+        model = _make_model(adata)
+        model.train(adata, n_train_steps=1, train_batch_size=4, sort=True, **QUIET_TRAINER)
+        assert model.trainer is not None
+
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+            tmp_path = tmp.name
+        model.save(tmp_path, allow_overwrite=True)
+
+        loaded = Model.load(tmp_path, map_location="cpu")
+        assert loaded.trainer is None
 
         os.unlink(tmp_path)
 
@@ -400,7 +390,7 @@ class TestModelConditionSpace:
         model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
         assert model.condition_state_key == "X_repr"
 
-    def test_train_with_condition_space(self, adata: AnnData, mock_optim_manager):
+    def test_train_with_condition_space(self, adata: AnnData):
         """Training with the condition-space view correctly compiles the data."""
         adata = _add_continuous_covariate(adata)
         model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
@@ -418,7 +408,7 @@ class TestModelConditionSpace:
             # by the data manager's condition_state_key attribute.
             mock_compile.assert_called_once()
             assert model.condition_state_key == "X_repr"
-            mock_trainer.train.assert_called_once()
+            mock_trainer.fit.assert_called_once()
 
     def test_predict_with_condition_space(self, adata: AnnData):
         """Predict with condition space yields predictions with correct shape."""

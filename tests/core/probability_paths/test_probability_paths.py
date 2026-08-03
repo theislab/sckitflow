@@ -1,7 +1,6 @@
 import pytest
 import torch
 
-from sckitflow._runtime import set_backend
 from sckitflow.core.probability_paths._probability_paths import (
     BaseProbabilityPath,
     LinearDiracProbabilityPath,
@@ -33,8 +32,6 @@ class TestProbabilityPaths:
         self,
         probability_path_cls: type[BaseProbabilityPath],
     ) -> None:
-        set_backend("torch")
-
         # non deterministic probability paths
         if not probability_path_cls.is_deterministic:
             # initialize with negative sigma
@@ -69,8 +66,6 @@ class TestProbabilityPaths:
         probability_path_cls: BaseProbabilityPath,
         method: str,
     ) -> None:
-        set_backend("torch")
-
         # initialize probability path and retrieving method to test
         probability_path = probability_path_cls(
             1.0, prng=None if probability_path_cls.is_deterministic else torch.random.default_generator

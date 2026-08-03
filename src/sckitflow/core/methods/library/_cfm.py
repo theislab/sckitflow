@@ -40,9 +40,9 @@ class CFM(GenerativeFlow):
 
         # condition data as tensors
         condition_data = get_tensor_dict_from_data(
-            step_data.target_condition_data, device=self._device_id, dtype=self._dtype
+            step_data.target_condition_data, device=self.device, dtype=self.dtype
         )
-        group_data = get_tensor_dict_from_data(step_data.target_group_data, device=self._device_id, dtype=self._dtype)
+        group_data = get_tensor_dict_from_data(step_data.target_group_data, device=self.device, dtype=self.dtype)
         cond = {**condition_data, **group_data}
 
         # latent (noise) – shape (batch_size, dim)
@@ -51,8 +51,8 @@ class CFM(GenerativeFlow):
             target,
             self._noise_sampler,
             generate_from_noise=self._generate_from_noise,
-            dtype=self._dtype,
-            device=self._device_id,
+            dtype=self.dtype,
+            device=self.device,
         )
         batch_size = latent.shape[0]
 
@@ -174,17 +174,15 @@ class CFM(GenerativeFlow):
                 self._noise_sampler,
                 n_samples=n_samples,
                 generate_from_noise=self._generate_from_noise,
-                dtype=self._dtype,
-                device=self._device_id,
+                dtype=self.dtype,
+                device=self.device,
             )
 
         # ----- 2. Build conditioning dict -----
         condition_reps_dict = get_tensor_dict_from_data(
-            step_data.target_condition_data, device=self._device_id, dtype=self._dtype
+            step_data.target_condition_data, device=self.device, dtype=self.dtype
         )
-        group_reps_dict = get_tensor_dict_from_data(
-            step_data.target_group_data, device=self._device_id, dtype=self._dtype
-        )
+        group_reps_dict = get_tensor_dict_from_data(step_data.target_group_data, device=self.device, dtype=self.dtype)
         condition_dict = {**condition_reps_dict, **group_reps_dict}
 
         # ----- 3. Expand conditioning to match latent dimensions -----
@@ -209,7 +207,7 @@ class CFM(GenerativeFlow):
             *args,
             method=method,
             vf_kwargs={"condition_dict": condition_dict, "source": source_expanded},
-            device_id=self._device_id,
+            device_id=self.device,
             **kwargs,
         )
 

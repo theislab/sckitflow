@@ -247,24 +247,6 @@ def test_duplicate_registration_error(mock_torch_registry, mock_torch_base_class
                 pass
 
 
-def test_unsupported_category(mock_torch_registry):
-    """Unsupported category raises ValueError."""
-    with pytest.raises(ValueError, match="Unsupported category"):
-
-        @register_method("bad", category="diffusion")
-        class Dummy:
-            module_cls = Mock()
-
-            def step_fn(self):
-                pass
-
-            def predict(self):
-                pass
-
-
-# -----------------------------------------------------------------------------
-# Edge cases: user class with no __init__ (default object.__init__)
-# -----------------------------------------------------------------------------
 def test_no_user_init_does_not_call_extra_init(mock_torch_registry, mock_torch_base_classes):
     """If user class does not define __init__, only base init is called."""
     mock_base, mock_flow = mock_torch_base_classes
@@ -283,6 +265,21 @@ def test_no_user_init_does_not_call_extra_init(mock_torch_registry, mock_torch_b
     # Should not raise any error
     _instance = registered_cls(dims_registry=Mock(), dm=Mock())
     assert True
+
+
+def test_unsupported_category(mock_torch_registry):
+    """Unsupported category raises ValueError."""
+    with pytest.raises(ValueError, match="Unsupported category"):
+
+        @register_method("bad", category="diffusion")
+        class Dummy:
+            module_cls = Mock()
+
+            def step_fn(self):
+                pass
+
+            def predict(self):
+                pass
 
 
 def test_probability_path_cls_not_set(mock_torch_registry, mock_torch_base_classes):

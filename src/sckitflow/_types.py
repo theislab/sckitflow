@@ -4,7 +4,6 @@ from typing import Any, Literal
 
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
-BackendId = Literal["torch", "jax"]
 ProbabilityPathId = Literal[
     "constant-noise-linear-gaussian",
     "cnlg-pp",

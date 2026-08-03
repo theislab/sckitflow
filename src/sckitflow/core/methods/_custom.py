@@ -11,7 +11,8 @@ def register_method(
     *,
     category: Literal["flow", "general"] = "flow",
 ) -> Callable[[T], T]:
-    # Backend‑specific imports
+    # Imported here rather than at module scope: `sckitflow.core.methods` imports this
+    # module, so a top-level import would be circular.
     from sckitflow.core._types import PredictionData
     from sckitflow.core.methods import METHODS_REGISTRY
     from sckitflow.core.methods._base import BaseMethod, GenerativeFlow
@@ -112,7 +113,7 @@ def register_method(
         RegisteredMethod.__module__ = user_cls.__module__
         RegisteredMethod.__doc__ = user_cls.__doc__
 
-        # Register in the backend's method registry
+        # Register in the method registry
         if name in METHODS_REGISTRY:
             raise ValueError(f"Method '{name}' already registered.")
         METHODS_REGISTRY[name] = RegisteredMethod

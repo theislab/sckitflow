@@ -1,4 +1,7 @@
-from sckitflow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS, MAX_ITER_STEPS
+from collections.abc import Iterator
+from itertools import chain, islice
+
+from sckitflow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
 from sckitflow.data._abc import DataT, DataTreeT, MatchedDistributionsT
 from sckitflow.data.samplers._base import FSampler, Sampler
 
@@ -17,7 +20,7 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
-        max_iter_steps: int = MAX_ITER_STEPS,
+        max_iter_steps: int | None = None,
         **kwargs,
     ) -> None:
         """Initializes the training sampler.
@@ -46,6 +49,13 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
             In order to compute the relative frequency of a node of matched distributions,
             only the target one is considered. Defaults to `True`.
         :type use_nodes_weights: class: `bool`
+
+        :param max_iter_steps: Upper bound on the number of nodes yielded by
+            :meth:`__iter__`. `None` (the default) leaves the stream unbounded, which is
+            what training expects: the number of steps is set on the trainer
+            (``max_steps``) rather than on the sampler. Set it only when iterating the
+            sampler standalone.
+        :type max_iter_steps: class: `int | None`
         """
         super().__init__(
             tree,
@@ -58,22 +68,27 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
         self._n_nodes = n_nodes
         self._max_iter_steps = max_iter_steps
 
-        self._current_iter_step = 0
-
     def sample(self) -> tuple[DataT]:
-        """Samples a batch of data from the tree."""
+        """Samples a round of :attr: `n_nodes` nodes, each holding `batch_size` observations."""
         return self._sample(self._n_nodes, self._batch_size)
 
-    def __iter__(self):
-        return self
+    def __iter__(self) -> Iterator[DataT]:
+        """Yields one node at a time, drawing a fresh round once the current one is spent.
 
-    def __next__(self):
-        if self._current_iter_step < self._max_iter_steps:
-            obj = self.sample()
-            self._current_iter_step += 1
-            return obj
+        A node is the unit of training: one node in, one optimizer step out. Nodes are
+        still drawn a round of :attr: `n_nodes` at a time so that
+        :attr: `replace_nodes` keeps meaning "distinct nodes within a round".
+
+        The stream is re-iterable -- each call builds a fresh generator -- and unbounded
+        unless :attr: `max_iter_steps` says otherwise.
+        """
+        # `iter(callable, sentinel)` keeps calling `sample` (which never returns the
+        # sentinel), so rounds are drawn lazily, one only once the previous is spent.
+        nodes = chain.from_iterable(iter(self.sample, None))
+        if self._max_iter_steps is None:
+            yield from nodes
         else:
-            raise StopIteration
+            yield from islice(nodes, self._max_iter_steps)
 
     @property
     def batch_size(self) -> int:
@@ -84,6 +99,11 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
     def n_nodes(self) -> int:
         """Exposes the :param n_nodes: attribute set at initialization."""
         return self._n_nodes
+
+    @property
+    def max_iter_steps(self) -> int | None:
+        """Exposes the :param max_iter_steps: attribute set at initialization."""
+        return self._max_iter_steps
 
 
 class FTrainSampler(TrainSampler, FSampler):

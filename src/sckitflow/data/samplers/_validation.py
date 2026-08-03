@@ -88,10 +88,11 @@ class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
     def __len__(self) -> int:
         return len(self._data)
 
-    def __getitem__(self, idx: slice) -> tuple[DataT]:
+    def __getitem__(self, idx: int | slice) -> DataT | tuple[DataT]:
         return self._data[idx]
 
     def __iter__(self) -> Iterator[DataT]:
+        """Yields one pre-registered node at a time, matching the training stream."""
         yield from self._data
 
     @property

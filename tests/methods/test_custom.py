@@ -26,7 +26,7 @@ class DummyTorchGenerativeFlow:
 def mock_torch_registry():
     """Provide a mock METHODS_REGISTRY dictionary."""
     registry = {}
-    with patch("sckitflow.backends.torch.methods.METHODS_REGISTRY", registry):
+    with patch("sckitflow.core.methods.METHODS_REGISTRY", registry):
         yield registry
 
 
@@ -34,8 +34,8 @@ def mock_torch_registry():
 def mock_torch_base_classes():
     """Patch the base classes with dummy classes that accept arguments."""
     with (
-        patch("sckitflow.backends.torch.methods._base.TorchBaseMethod", DummyTorchBaseMethod),
-        patch("sckitflow.backends.torch.methods._base.TorchGenerativeFlow", DummyTorchGenerativeFlow),
+        patch("sckitflow.core.methods._base.TorchBaseMethod", DummyTorchBaseMethod),
+        patch("sckitflow.core.methods._base.TorchGenerativeFlow", DummyTorchGenerativeFlow),
     ):
         yield DummyTorchBaseMethod, DummyTorchGenerativeFlow
 
@@ -50,7 +50,7 @@ def mock_prediction_data():
             self.X = X
             self.traj = traj
 
-    with patch("sckitflow.backends.torch._types.PredictionData", DummyPredictionData):
+    with patch("sckitflow.core._types.PredictionData", DummyPredictionData):
         yield DummyPredictionData
 
 

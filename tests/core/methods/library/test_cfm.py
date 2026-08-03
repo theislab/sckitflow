@@ -72,7 +72,7 @@ class TestCFM:
 
         assert cfm_instance._match_fn == independent_coupling
 
-    def testcompute_loss(self, cfm_instance):
+    def test_compute_loss(self, cfm_instance):
         mock_cond = mock_condition_data()
         mock_group = mock_condition_data()
         step_data = StepData(

@@ -3,8 +3,10 @@ name: Test
 on:
   push:
     branches: [main]
+  # Deliberately unfiltered: a stacked PR targets another feature branch, and a
+  # `branches: [main]` filter makes CI silently skip it -- no checks at all, which
+  # reads as "nothing to report" rather than "never ran".
   pull_request:
-    branches: [main]
   schedule:
     - cron: "0 5 1,15 * *"
 

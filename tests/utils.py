@@ -1,12 +1,11 @@
+from __future__ import annotations
+
 from typing import TYPE_CHECKING, Literal
 
 import pytest
 
 if TYPE_CHECKING:
-    # Referenced only through the string forward reference below, which ruff cannot see.
-    from sckitflow.core.probability_paths._probability_paths import (
-        BaseProbabilityPath as BaseProbabilityPath,
-    )
+    from sckitflow.core.probability_paths._probability_paths import BaseProbabilityPath
 
 
 def get_dummy_network(input_dim, output_dim, hidden_dims=(None,), sigma=0.5):

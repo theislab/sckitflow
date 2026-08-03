@@ -72,7 +72,7 @@ class TestCFM:
 
         assert cfm_instance._match_fn == independent_coupling
 
-    def test_compute_loss(self, cfm_instance):
+    def test_step_fn(self, cfm_instance):
         mock_cond = mock_condition_data()
         mock_group = mock_condition_data()
         step_data = StepData(
@@ -91,7 +91,7 @@ class TestCFM:
         cfm_instance._probability_path.compute_xt.return_value = torch.randn(4, 2)
         cfm_instance._probability_path.compute_ut.return_value = torch.randn(4, 2)
         cfm_instance._module = Mock(return_value=torch.randn(4, 2))
-        loss, info = cfm_instance.compute_loss(step_data)
+        loss, info = cfm_instance._step_fn(step_data)
         assert isinstance(loss, torch.Tensor)
         assert loss.ndim == 0
         assert "loss" in info
@@ -112,7 +112,7 @@ class TestCFM:
 
         cfm_instance._default_solver_cls = Mock(return_value=mock_solver)
 
-        pred = cfm_instance.infer(step_data, return_trajectory=False, num_steps=10)
+        pred = cfm_instance._predict(step_data, return_trajectory=False, num_steps=10)
 
         assert isinstance(pred, PredictionData)
         # X should be 2D (batch, dim)
@@ -137,7 +137,7 @@ class TestCFM:
 
         cfm_instance._default_solver_cls = Mock(return_value=mock_solver)
 
-        pred = cfm_instance.infer(step_data, return_trajectory=True, num_steps=10)
+        pred = cfm_instance._predict(step_data, return_trajectory=True, num_steps=10)
 
         # With single sample, _aggregate_predictions adds a sample dimension: traj becomes (10,1,4,2)
         # X should be last step, shape (4,2)
@@ -165,7 +165,7 @@ class TestCFM:
 
         cfm_instance._default_solver_cls = Mock(return_value=mock_solver)
 
-        pred = cfm_instance.infer(step_data, return_trajectory=True, num_steps=n_steps, n_samples=n_samples)
+        pred = cfm_instance._predict(step_data, return_trajectory=True, num_steps=n_steps, n_samples=n_samples)
 
         # After _aggregate_predictions:
         # X = averaged over samples -> shape (batch, dim)
@@ -187,7 +187,7 @@ class TestCFM:
         mock_solver = Mock()
         mock_solver.solve.return_value = torch.randn(4, 2)
         mock_solver_cls.return_value = mock_solver
-        cfm_instance.infer(step_data, solver_cls=mock_solver_cls, num_steps=5)
+        cfm_instance._predict(step_data, solver_cls=mock_solver_cls, num_steps=5)
         mock_solver_cls.assert_called_once()
         call_kwargs = mock_solver_cls.call_args[1]
         assert call_kwargs.get("method") == "euler"
@@ -215,7 +215,7 @@ class TestCFM:
                 np.arange(4),
                 np.arange(4),
             )
-            cfm_instance.compute_loss = Mock(return_value=(torch.tensor(0.5), {"loss": 0.5}))
+            cfm_instance._step_fn = Mock(return_value=(torch.tensor(0.5), {"loss": 0.5}))
 
             loss, log_dict = cfm_instance.train_step(matched_distr)
 

@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from sckitflow.core.methods._opt import OptimConfig, OptimizationManager
+from sckitflow.core.methods._opt import OptimConfig, TorchOptimizationManager
 from sckitflow.core.nn._modules import BaseModule
 
 
@@ -21,23 +21,23 @@ class DummyModule(BaseModule):
 
 
 # -----------------------------------------------------------------------------
-# Test suite for OptimizationManager
+# Test suite for TorchOptimizationManager
 # -----------------------------------------------------------------------------
 class TestTorchOptimizationManager:
-    """Tests for the OptimizationManager class."""
+    """Tests for the TorchOptimizationManager class."""
 
     @pytest.mark.slow
     def test_from_config_with_pre_created_optimizer(self):
         module = DummyModule()
         optimizer = torch.optim.SGD(module.parameters(), lr=0.01)
         config = OptimConfig(optimizer=optimizer)
-        manager = OptimizationManager.from_config(module, config)
+        manager = TorchOptimizationManager.from_config(module, config)
         assert manager._optimizer is optimizer
 
     def test_from_config_with_string_optimizer(self):
         module = DummyModule()
         config = OptimConfig(optimizer_cls="Adam", lr=1e-3, optimizer_kwargs={"weight_decay": 0.01})
-        manager = OptimizationManager.from_config(module, config)
+        manager = TorchOptimizationManager.from_config(module, config)
         assert isinstance(manager._optimizer, torch.optim.Adam)
         assert manager._optimizer.defaults["lr"] == 1e-3
         assert manager._optimizer.defaults["weight_decay"] == 0.01
@@ -45,7 +45,7 @@ class TestTorchOptimizationManager:
     def test_from_config_with_callable_optimizer(self):
         module = DummyModule()
         config = OptimConfig(optimizer_cls=torch.optim.AdamW, lr=2e-4)
-        manager = OptimizationManager.from_config(module, config)
+        manager = TorchOptimizationManager.from_config(module, config)
         assert isinstance(manager._optimizer, torch.optim.AdamW)
         assert manager._optimizer.defaults["lr"] == 2e-4
 
@@ -54,7 +54,7 @@ class TestTorchOptimizationManager:
         optimizer = torch.optim.Adam(module.parameters(), lr=0.001)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10)
         config = OptimConfig(optimizer=optimizer, lr_scheduler=scheduler)
-        manager = OptimizationManager.from_config(module, config)
+        manager = TorchOptimizationManager.from_config(module, config)
         assert manager._lr_scheduler is scheduler
 
     def test_from_config_with_string_scheduler(self):
@@ -62,7 +62,7 @@ class TestTorchOptimizationManager:
         config = OptimConfig(
             optimizer_cls="Adam", lr=0.001, lr_scheduler_cls="StepLR", lr_scheduler_kwargs={"step_size": 10}
         )
-        manager = OptimizationManager.from_config(module, config)
+        manager = TorchOptimizationManager.from_config(module, config)
         assert isinstance(manager._lr_scheduler, torch.optim.lr_scheduler.StepLR)
         # Check that scheduler is attached to the optimizer
         assert manager._lr_scheduler.optimizer is manager._optimizer
@@ -70,7 +70,7 @@ class TestTorchOptimizationManager:
     def test_step(self):
         module = DummyModule()
         optimizer = torch.optim.SGD(module.parameters(), lr=0.1)
-        manager = OptimizationManager(optimizer)
+        manager = TorchOptimizationManager(optimizer)
         x = torch.randn(2, 2)
         loss = module(x).sum()
         # Before step, gradients are None
@@ -85,7 +85,7 @@ class TestTorchOptimizationManager:
         module = DummyModule()
         optimizer = torch.optim.SGD(module.parameters(), lr=0.1)
         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=1)
-        manager = OptimizationManager(optimizer, lr_scheduler=scheduler, lr_scheduler_step="train_step")
+        manager = TorchOptimizationManager(optimizer, lr_scheduler=scheduler, lr_scheduler_step="train_step")
         x = torch.randn(2, 2)
         loss = module(x).sum()
         # Store initial learning rate

@@ -92,7 +92,13 @@ class DummyMethod(BaseMethod):
         return torch.tensor(0.0), {"loss": 0.0}
 
     def infer(self, step_data, *args, **kwargs):
-        n_obs, n_feat = step_data.target_state.shape
+        n_feat = len(self._dims_registry.feature_names)
+        if step_data.target_state is not None:
+            n_obs = step_data.target_state.shape[0]
+        else:
+            # `require_target_state=False`: no state tensor, fall back to the group
+            # metadata (always present) to determine how many observations to predict for.
+            n_obs = len(step_data.target_group_data.ann_df)
         samples = np.zeros((n_obs, n_feat))
         return DummyPredictionData(samples)
 

@@ -45,6 +45,14 @@ class DummyMethod(BaseMethod):
     def infer(self, node, *args, **kwargs):
         return np.random.randn(10, 5)
 
+    def train_step(self, node, *args, **kwargs):
+        # Bypasses `extract_step_data`: these tests exercise Trainer orchestration
+        # with plain `Mock` nodes, not the real data-extraction pipeline.
+        return self.compute_loss(node, *args, **kwargs)
+
+    def predict(self, node, *args, **kwargs):
+        return self.infer(node, *args, **kwargs)
+
 
 class DummyOptManager(OptimizationManager):
     def __init__(self):

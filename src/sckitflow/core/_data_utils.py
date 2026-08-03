@@ -58,7 +58,11 @@ def extract_coupling_data(
 ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
     """Extracts torch tensors from the coupling data."""
     # retrieve coupling data
-    coupling_data: CouplingData = getattr(distribution_data, f"{mode}_coupling_data")
+    coupling_data: CouplingData | None = getattr(distribution_data, f"{mode}_coupling_data")
+
+    # no coupling data available (e.g. inference without a target state)
+    if coupling_data is None:
+        return None, None
 
     # parse coupling data
     state_lin: StateData | None = coupling_data.state_lin

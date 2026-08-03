@@ -4,8 +4,9 @@ import pytest
 import torch
 
 from sckitflow.core._types import PredictionData, StepData
-from sckitflow.core.methods._base import TorchBaseMethod, TorchGenerativeFlow
+from sckitflow.core.methods._base import BaseMethod, GenerativeFlow
 from sckitflow.core.nn._modules import BaseModule
+from sckitflow.data._manager import DataManager
 
 
 # -----------------------------------------------------------------------------
@@ -27,30 +28,24 @@ class DummyModule(BaseModule):
 # -----------------------------------------------------------------------------
 # Concrete test subclasses that use DummyModule
 # -----------------------------------------------------------------------------
-class DummyTorchMethod(TorchBaseMethod):
+class DummyMethod(BaseMethod):
     _module_cls = DummyModule
 
-    def _step_fn(self, *args, **kwargs):
+    def compute_loss(self, *args, **kwargs):
         return torch.tensor(0.0), {}
 
-    def _predict(self, *args, **kwargs):
-        pass
-
-    def _compute_loss(self, *args, **kwargs):
-        pass
-
-    def _predict(self, *args, **kwargs):
+    def infer(self, *args, **kwargs):
         pass
 
 
-class DummyTorchGenerativeFlow(TorchGenerativeFlow):
+class DummyGenerativeFlow(GenerativeFlow):
     _module_cls = DummyModule
     _default_solver_cls = Mock()
 
-    def _step_fn(self, step_data, *args, **kwargs):
+    def compute_loss(self, step_data, *args, **kwargs):
         return torch.tensor(0.0), {}
 
-    def _predict(self, step_data, *args, **kwargs):
+    def infer(self, step_data, *args, **kwargs):
         return PredictionData(X=torch.randn(1, 2), traj=None)
 
     def train_step(self, *args, **kwargs):
@@ -75,7 +70,7 @@ def mock_data_manager():
 
 @pytest.fixture
 def torch_method(mock_dims_registry, mock_data_manager):
-    method = DummyTorchMethod(
+    method = DummyMethod(
         dims_registry=mock_dims_registry,
         dm=mock_data_manager,
         dtype=torch.float32,
@@ -86,7 +81,7 @@ def torch_method(mock_dims_registry, mock_data_manager):
 
 @pytest.fixture
 def torch_gen_flow(mock_dims_registry, mock_data_manager):
-    flow = DummyTorchGenerativeFlow(
+    flow = DummyGenerativeFlow(
         dims_registry=mock_dims_registry,
         dm=mock_data_manager,
         dtype=torch.float32,
@@ -96,11 +91,51 @@ def torch_gen_flow(mock_dims_registry, mock_data_manager):
     return flow
 
 
+@pytest.fixture
+def mock_paired_data_manager():
+    dm = Mock(spec=DataManager)
+    dm.control_values_dict = {"drug": "control"}
+    dm.matched_keys = None
+    return dm
+
+
 # -----------------------------------------------------------------------------
-# Test suite for TorchBaseMethod
+# Test suite for BaseMethod
 # -----------------------------------------------------------------------------
-class TestTorchBaseMethod:
-    """Tests for TorchBaseMethod utility methods."""
+class TestBaseMethod:
+    """Tests for BaseMethod utility methods."""
+
+    def test_abstract_class_cannot_be_instantiated(self):
+        """BaseMethod should raise TypeError if abstract methods not implemented."""
+        with pytest.raises(TypeError):
+            BaseMethod(dims_registry=Mock(), dm=Mock())
+
+    def test_concrete_method_instantiation(self, mock_dims_registry, mock_data_manager):
+        """Concrete subclass should be instantiable and set attributes correctly."""
+        method = DummyMethod(mock_dims_registry, mock_data_manager)
+        assert method._dims_registry is mock_dims_registry
+        assert method._dm is mock_data_manager
+        assert method.is_paired_setting is False  # derived from the data manager
+        assert method._module is not None  # from _module_cls.init_from_dims_registry
+
+    def test_is_paired_setting_derived_from_dm(self, mock_dims_registry, mock_paired_data_manager):
+        """is_paired_setting is derived from the data manager's control/matched config."""
+        method = DummyMethod(mock_dims_registry, mock_paired_data_manager)
+        assert method.is_paired_setting is True
+
+    def test_properties_return_correct_values(self, mock_dims_registry, mock_paired_data_manager):
+        method = DummyMethod(mock_dims_registry, mock_paired_data_manager)
+        assert method.module is not None
+        assert method.dm is mock_paired_data_manager
+        assert method.dims_registry is mock_dims_registry
+        assert method.is_paired_setting is True
+
+    def test_set_train_mode(self, mock_dims_registry, mock_data_manager):
+        method = DummyMethod(mock_dims_registry, mock_data_manager)
+        method.set_train_mode(True)
+        assert method._train_mode is True
+        method.set_train_mode(False)
+        assert method._train_mode is False
 
     def test_safe_subscript_obj(self, torch_method):
         data = torch.tensor([1, 2, 3, 4])
@@ -110,20 +145,12 @@ class TestTorchBaseMethod:
         assert torch_method._safe_subscript_obj(None, idx) is None
         assert torch_method._safe_subscript_obj(data, None) is data
 
-    def test_set_train_mode(self, torch_method):
-        torch_method.module.train = Mock()
-        torch_method.module.eval = Mock()
-        torch_method.set_train_mode(True)
-        torch_method.module.train.assert_called_once()
-        torch_method.set_train_mode(False)
-        torch_method.module.eval.assert_called_once()
-
 
 # -----------------------------------------------------------------------------
-# Test suite for TorchGenerativeFlow
+# Test suite for GenerativeFlow
 # -----------------------------------------------------------------------------
-class TestTorchGenerativeFlow:
-    """Tests for TorchGenerativeFlow matching and training logic."""
+class TestGenerativeFlow:
+    """Tests for GenerativeFlow matching and training logic."""
 
     def test_call_match_fn_safe_no_source(self, torch_gen_flow):
         src_lin = src_quad = None
@@ -191,7 +218,7 @@ class TestTorchGenerativeFlow:
 
     def test_train_step_forward(self, torch_gen_flow):
         step_data = Mock()
-        torch_gen_flow._step_fn = Mock(return_value=(torch.tensor(0.5), {"loss": 0.5}))
+        torch_gen_flow.compute_loss = Mock(return_value=(torch.tensor(0.5), {"loss": 0.5}))
         loss, info = torch_gen_flow._train_step_forward(step_data)
         assert loss == 0.5
         assert info["loss"] == 0.5
@@ -210,7 +237,51 @@ class TestTorchGenerativeFlow:
             source_group_data=None,
         )
         pred_data = PredictionData(X=torch.randn(4, 2), traj=None)
-        torch_gen_flow._predict = Mock(return_value=pred_data)
+        torch_gen_flow.infer = Mock(return_value=pred_data)
         result = torch_gen_flow.predict(step_data, no_grad=True)
         assert result is pred_data
-        torch_gen_flow._predict.assert_called_once_with(step_data)
+        torch_gen_flow.infer.assert_called_once_with(step_data)
+
+    def test_init_defaults(self, mock_dims_registry, mock_data_manager):
+        """Default attributes should be None when not provided."""
+        flow = DummyGenerativeFlow(mock_dims_registry, mock_data_manager)
+        assert flow._probability_path is None
+        assert flow._match_fn is None
+        assert flow._noise_sampler is None
+        assert flow._time_sampler is None
+        assert flow.generate_from_noise is True
+
+    def test_generate_from_noise_forced_when_unpaired(self, mock_dims_registry, mock_data_manager):
+        """When the data manager is unpaired, generate_from_noise should be forced to True."""
+        flow = DummyGenerativeFlow(
+            mock_dims_registry,
+            mock_data_manager,
+            generate_from_noise=False,  # user tries to set False
+        )
+        # In BaseGenerativeFlow.__init__, if not paired, generate_from_noise becomes True
+        assert flow.generate_from_noise is True
+
+    def test_generate_from_noise_respected_when_paired(self, mock_dims_registry, mock_paired_data_manager):
+        """When paired, generate_from_noise can be set to False."""
+        flow = DummyGenerativeFlow(mock_dims_registry, mock_paired_data_manager, generate_from_noise=False)
+        assert flow.generate_from_noise is False
+
+    def test_properties_return_assigned_values(self, mock_dims_registry, mock_paired_data_manager):
+        prob_path = Mock()
+        match_fn = Mock()
+        noise_sampler = Mock()
+        time_sampler = Mock()
+        flow = DummyGenerativeFlow(
+            mock_dims_registry,
+            mock_paired_data_manager,
+            probability_path=prob_path,
+            match_fn=match_fn,
+            noise_sampler=noise_sampler,
+            time_sampler=time_sampler,
+            generate_from_noise=True,
+        )
+        assert flow.probability_path is prob_path
+        assert flow.match_fn is match_fn
+        assert flow.noise_sampler is noise_sampler
+        assert flow.time_sampler is time_sampler
+        assert flow.generate_from_noise is True

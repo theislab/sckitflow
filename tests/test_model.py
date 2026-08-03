@@ -8,15 +8,20 @@ import pytest
 from anndata import AnnData
 
 from sckitflow import Model, ModelBuilder
+from sckitflow.core.methods._base import BaseMethod
+from sckitflow.core.nn._modules import BaseModule
 from sckitflow.data._manager import DataManager
-from sckitflow.methods._methods import BaseMethod
 
 
 # -----------------------------------------------------------------------------
 # Dummy module (picklable, no recursion) for most tests
 # -----------------------------------------------------------------------------
-class DummyModule:
+class DummyModule(BaseModule):
     """Simple dummy module that mimics the interface but is picklable."""
+
+    def _make_modules(self, dims_registry, *args, **kwargs):
+        # No real module, just a placeholder
+        return None
 
     def forward(self, *args, **kwargs):
         pass
@@ -63,13 +68,10 @@ class DummyPredictionData:
 
 
 class DummyMethod(BaseMethod):
-    _module_cls = None
+    _module_cls = DummyModule
 
     def __init__(self, dims_registry, dm, *args, **kwargs):
-        self._dims_registry = dims_registry
-        self._dm = dm
-        self._module = DummyModule()
-        self._train_mode = True
+        super().__init__(dims_registry, dm, *args, **kwargs)
 
     def extract_state_data(self, matched_distr):
         """Return dummy StateData from the target state of the matched distribution."""
@@ -84,14 +86,19 @@ class DummyMethod(BaseMethod):
     def set_train_mode(self, mode: bool):
         self._train_mode = mode
 
-    def train_step(self, *args, **kwargs):
+    def compute_loss(self, *args, **kwargs):
         import torch
 
         return torch.tensor(0.0), {"loss": 0.0}
 
-    def predict(self, matched_distr, *args, **kwargs):
-        n_obs = len(matched_distr.target_distr.ann_df)
+    def infer(self, step_data, *args, **kwargs):
         n_feat = len(self._dims_registry.feature_names)
+        if step_data.target_state is not None:
+            n_obs = step_data.target_state.shape[0]
+        else:
+            # `require_target_state=False`: no state tensor, fall back to the group
+            # metadata (always present) to determine how many observations to predict for.
+            n_obs = len(step_data.target_group_data.ann_df)
         samples = np.zeros((n_obs, n_feat))
         return DummyPredictionData(samples)
 
@@ -111,7 +118,7 @@ def _make_model(adata: AnnData, method_cls=DummyMethod, dm_kwargs=None, **method
 @pytest.fixture
 def mock_optim_manager():
     """Prevent real optimizer creation in tests that don't need real training."""
-    with patch("sckitflow.core.methods._opt.TorchOptimizationManager.from_config") as mock:
+    with patch("sckitflow.core.methods._opt.OptimizationManager.from_config") as mock:
         mock_manager = MagicMock()
         mock_manager.step = MagicMock()
         mock.return_value = mock_manager
@@ -345,7 +352,7 @@ class TestModel:
                 else:
                     self._module.eval()
 
-            def train_step(self, matched_distr, *args, **kwargs):
+            def compute_loss(self, matched_distr, *args, **kwargs):
                 # Create a dummy input that requires grad
                 dummy_x = torch.randn(4, 2, requires_grad=True)
                 t = torch.tensor(0.5, requires_grad=False)
@@ -353,7 +360,7 @@ class TestModel:
                 loss = output.sum()
                 return loss, {"loss": loss.item()}
 
-            def predict(self, matched_distr, *args, **kwargs):
+            def infer(self, matched_distr, *args, **kwargs):
                 n_obs = len(matched_distr.target_distr.ann_df)
                 n_feat = len(self._dims_registry.feature_names)
                 samples = np.zeros((n_obs, n_feat))

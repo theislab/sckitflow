@@ -1,6 +1,7 @@
 from typing import Literal
 
-from sckitflow.core.methods._base import TorchBaseMethod, TorchGenerativeFlow
+from sckitflow.core.methods._base import BaseMethod, GenerativeFlow
+from sckitflow.core.methods._custom import register_method
 from sckitflow.core.methods.library._cfm import CFM
 
 METHODS_REGISTRY = {
@@ -8,4 +9,4 @@ METHODS_REGISTRY = {
 }
 AVAILABLE_METHODS = Literal["cfm"]
 
-__all__ = ["TorchBaseMethod", "TorchGenerativeFlow", "CFM", "METHODS_REGISTRY", "AVAILABLE_METHODS"]
+__all__ = ["BaseMethod", "GenerativeFlow", "CFM", "register_method", "METHODS_REGISTRY", "AVAILABLE_METHODS"]

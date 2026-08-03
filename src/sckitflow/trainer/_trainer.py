@@ -4,10 +4,10 @@ from typing import Any
 import pandas as pd
 from tqdm import tqdm
 
+from sckitflow.core.methods._base import BaseMethod
+from sckitflow.core.methods._opt import OptimizationManager
 from sckitflow.data.samplers._train import FTrainSampler
 from sckitflow.data.samplers._validation import FValidationSampler
-from sckitflow.methods._methods import BaseMethod
-from sckitflow.methods._opt import BaseOptManager
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 
 __all__ = ["Trainer"]
@@ -25,7 +25,7 @@ class Trainer:
     def __init__(
         self,
         method: BaseMethod,
-        opt_manager: BaseOptManager,
+        opt_manager: OptimizationManager,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
     ) -> None:
         self._method = method
@@ -187,7 +187,7 @@ class Trainer:
         return self._val_logs
 
     @property
-    def opt_manager(self) -> BaseOptManager:
+    def opt_manager(self) -> OptimizationManager:
         return self._opt_manager
 
     @property

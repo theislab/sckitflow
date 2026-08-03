@@ -3,9 +3,11 @@ from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
 import pandas as pd
+import torch
 
-from sckitflow.methods._methods import BaseMethod
-from sckitflow.methods._opt import BaseOptManager
+from sckitflow.core.methods._base import BaseMethod
+from sckitflow.core.methods._opt import OptimizationManager
+from sckitflow.core.nn._modules import BaseModule
 from sckitflow.trainer._callbacks import ComputationalCallback, LoggingCallback
 from sckitflow.trainer._trainer import Trainer
 
@@ -13,24 +15,49 @@ from sckitflow.trainer._trainer import Trainer
 # -----------------------------------------------------------------------------
 # Dummy classes for testing
 # -----------------------------------------------------------------------------
+class DummyModule(BaseModule):
+    """A minimal module with parameters to satisfy optimizers."""
+
+    def __init__(self):
+        super().__init__()
+
+    def _make_modules(self):
+        self.linear = torch.nn.Linear(2, 2)
+
+    def forward(self, t, x, condition_dict=None, source=None):
+        return self.linear(x)
+
+
 class DummyMethod(BaseMethod):
-    _module_cls = None
+    _module_cls = DummyModule
 
     def __init__(self, *args, **kwargs):
+        super().__init__(None, None, *args, **kwargs)
         self._backend = kwargs.get("backend", "torch")
         self._train_mode = True
 
     def set_train_mode(self, mode):
         self._train_mode = mode
 
-    def train_step(self, node, *args, **kwargs):
+    def compute_loss(self, node, *args, **kwargs):
         return 0.5, {"loss": 0.5, "accuracy": 0.8}
 
-    def predict(self, node, *args, **kwargs):
+    def infer(self, node, *args, **kwargs):
         return np.random.randn(10, 5)
 
+    def train_step(self, node, *args, **kwargs):
+        # Bypasses `extract_step_data`: these tests exercise Trainer orchestration
+        # with plain `Mock` nodes, not the real data-extraction pipeline.
+        return self.compute_loss(node, *args, **kwargs)
 
-class DummyOptManager(BaseOptManager):
+    def predict(self, node, *args, **kwargs):
+        return self.infer(node, *args, **kwargs)
+
+
+class DummyOptManager(OptimizationManager):
+    def __init__(self):
+        super().__init__(None, None, None)
+
     def step(self, loss):
         pass
 

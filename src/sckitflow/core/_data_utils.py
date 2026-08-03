@@ -58,7 +58,11 @@ def extract_coupling_data(
 ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
     """Extracts torch tensors from the coupling data."""
     # retrieve coupling data
-    coupling_data: CouplingData = getattr(distribution_data, f"{mode}_coupling_data")
+    coupling_data: CouplingData | None = getattr(distribution_data, f"{mode}_coupling_data")
+
+    # no coupling data available (e.g. inference without a target state)
+    if coupling_data is None:
+        return None, None
 
     # parse coupling data
     state_lin: StateData | None = coupling_data.state_lin
@@ -203,7 +207,7 @@ def prepare_latent_train(
     dtype: torch.dtype | None = None,
     device: torch.device | None = None,
 ) -> torch.Tensor:
-    """Called from _step_fn - always returns single noise per batch element."""
+    """Called from compute_loss - always returns single noise per batch element."""
     if source is None or generate_from_noise:
         samples = noise_sampler(target.shape)
         if dtype:
@@ -223,7 +227,7 @@ def prepare_latent_inference(
     dtype: torch.dtype | None = None,
     device: torch.device | None = None,
 ) -> torch.Tensor:
-    """Called from _predict.
+    """Called from infer.
 
     - If source is given and we are NOT generating from noise, return source unchanged.
     - Otherwise sample noise with shape:

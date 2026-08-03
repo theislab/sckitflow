@@ -13,13 +13,13 @@ from anndata import AnnData
 from tqdm import tqdm
 
 from sckitflow._types import PredictionData
+from sckitflow.core.methods._base import BaseMethod
+from sckitflow.core.methods._opt import OptimConfig
 from sckitflow.data._composite import MatchedData
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
 from sckitflow.data.samplers._train import FTrainSampler
 from sckitflow.data.samplers._validation import FValidationSampler
-from sckitflow.methods._methods import BaseMethod
-from sckitflow.methods._opt import OptimConfig
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sckitflow.trainer._trainer import Trainer
 
@@ -535,9 +535,9 @@ class Model:
         optim_config = OptimConfig(**optim_kwargs)
 
         # create optimization manager
-        from sckitflow.core.methods._opt import TorchOptimizationManager
+        from sckitflow.core.methods._opt import OptimizationManager
 
-        opt_manager = TorchOptimizationManager.from_config(self._method._module, optim_config)
+        opt_manager = OptimizationManager.from_config(self._method._module, optim_config)
 
         # initialize trainer
         if self._trainer is None:

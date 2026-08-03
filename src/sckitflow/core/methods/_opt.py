@@ -1,12 +1,41 @@
+from dataclasses import dataclass
+from typing import Any
+
 import torch
 
 from sckitflow.core.nn._modules import BaseModule
-from sckitflow.methods._opt import BaseOptManager, OptimConfig
 
-__all__ = ["TorchOptimizationManager"]
+__all__ = ["OptimConfig", "OptimizationManager"]
 
 
-class TorchOptimizationManager(BaseOptManager):
+@dataclass
+class OptimConfig:
+    """Configuration for creating an optimization manager."""
+
+    # Either provide an already instantiated optimizer, OR provide class/string + kwargs
+    optimizer: Any | None = None  # pre‑created optimizer instance
+    optimizer_cls: str | type | None = None  # class or string name (resolved by backend)
+    optimizer_kwargs: dict[str, Any] | None = None
+    lr: float = 5e-5
+
+    # Similarly for scheduler
+    lr_scheduler: Any | None = None  # pre‑created scheduler instance
+    lr_scheduler_cls: str | type | None = None
+    lr_scheduler_kwargs: dict[str, Any] | None = None
+    lr_scheduler_step: str = "train_step"
+
+    plan_kwargs: dict[str, Any] | None = None
+
+    def __post_init__(self):
+        if self.optimizer_kwargs is None:
+            self.optimizer_kwargs = {}
+        if self.lr_scheduler_kwargs is None:
+            self.lr_scheduler_kwargs = {}
+        if self.plan_kwargs is None:
+            self.plan_kwargs = {}
+
+
+class OptimizationManager:
     def __init__(
         self,
         optimizer: torch.optim.Optimizer,
@@ -25,7 +54,7 @@ class TorchOptimizationManager(BaseOptManager):
             self._lr_scheduler.step()
 
     @classmethod
-    def from_config(cls, module: BaseModule, config: OptimConfig) -> "TorchOptimizationManager":
+    def from_config(cls, module: BaseModule, config: OptimConfig) -> "OptimizationManager":
         # Resolve optimizer
         if config.optimizer is not None:
             optimizer = config.optimizer

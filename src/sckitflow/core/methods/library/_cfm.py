@@ -10,7 +10,7 @@ from sckitflow.core._data_utils import (
 )
 from sckitflow.core._types import PredictionData, StepData
 from sckitflow.core.coupling._coupling import independent_coupling
-from sckitflow.core.methods._base import TorchGenerativeFlow
+from sckitflow.core.methods._base import GenerativeFlow
 from sckitflow.core.nn._vf import BaseVelocityField, MLPVelocity
 from sckitflow.core.probability_paths._probability_paths import LinearDiracProbabilityPath
 from sckitflow.core.solvers import BaseSolver, ODESolver
@@ -18,7 +18,7 @@ from sckitflow.core.solvers import BaseSolver, ODESolver
 __all__ = ["CFM"]
 
 
-class CFM(TorchGenerativeFlow):
+class CFM(GenerativeFlow):
     _module_cls: type[BaseVelocityField] = MLPVelocity
     _default_solver_cls: type[BaseSolver] = ODESolver
 
@@ -34,7 +34,7 @@ class CFM(TorchGenerativeFlow):
         if self._probability_path is None:
             self._probability_path = LinearDiracProbabilityPath()
 
-    def _step_fn(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
+    def compute_loss(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
         target = step_data.target_state
         source = step_data.source_state
 
@@ -150,7 +150,7 @@ class CFM(TorchGenerativeFlow):
     # ------------------------------------------------------------------
     # Inference with optional multiple noise samples
     # ------------------------------------------------------------------
-    def _predict(
+    def infer(
         self,
         step_data: StepData,
         *args,

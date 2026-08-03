@@ -229,6 +229,22 @@ class LinearDiracProbabilityPath(LinearProbabilityPath):
 
 
 class VariancePreservingDiracProbabilityPath(BaseProbabilityPath):
+    r"""Trigonometric ("variance preserving") interpolant :math:`\cos(\pi t/2) x_0 + \sin(\pi t/2) x_1`.
+
+    Variance preserving because :math:`\cos^2 + \sin^2 = 1`: for independent :math:`x_0, x_1` of equal
+    variance, :math:`\mathrm{Var}(x_t)` is constant in :math:`t`, unlike the linear interpolant whose
+    variance dips at :math:`t = 1/2`. Standard form, e.g. Albergo & Vanden-Eijnden, *Stochastic
+    Interpolants*.
+
+    Orientation is :math:`x_0 \to x_1` (``mu(0) == x0``, ``mu(1) == x1``), matching every other path in
+    this module, ``OTFMObjective`` (which binds ``x0=source``, ``x1=target``) and
+    ``integrate_translation`` (which starts at ``y0=source`` and integrates ``t: 0 -> 1``). It previously
+    had ``x0`` and ``x1`` swapped, so it transported target -> source while the objective and the solver
+    both assumed the opposite -- undetected because nothing in the test suite referenced this class.
+
+    Note this path is CURVED, so the endpoint reparameterisation :math:`\hat{x}_1 = x_t + (1-t) u_t`
+    (valid for the linear paths) is biased here and must not be used.
+    """
 
     _require_prng: bool = False
 
@@ -249,7 +265,7 @@ class VariancePreservingDiracProbabilityPath(BaseProbabilityPath):
         t = broadcast_to_target_shape(t, x0.shape)
         self._verify_shapes(x0, x1)
         self._verify_shapes(t, x1)
-        return torch.cos(0.5 * PI * t) * x1 + torch.sin(0.5 * PI * t) * x0
+        return torch.cos(0.5 * PI * t) * x0 + torch.sin(0.5 * PI * t) * x1
 
     def compute_sigma_t(
         self,
@@ -268,4 +284,4 @@ class VariancePreservingDiracProbabilityPath(BaseProbabilityPath):
         t = broadcast_to_target_shape(t, x0.shape)
         self._verify_shapes(x0, x1)
         self._verify_shapes(t, x1)
-        return -0.5 * PI * torch.sin(0.5 * PI * t) * x1 + 0.5 * PI * torch.cos(0.5 * PI * t) * x0
+        return -0.5 * PI * torch.sin(0.5 * PI * t) * x0 + 0.5 * PI * torch.cos(0.5 * PI * t) * x1

@@ -5,11 +5,12 @@ from typing import Any
 import torch
 
 from sc_flow._component import ComponentRegistry, ComponentSpec
-from sc_flow.nn import NET_REGISTRY, NetContext, NetSpec, Resnet1d
+from sc_flow.nn import NET_REGISTRY, AdaLNZero, NetContext, NetSpec, Resnet1d
 from sc_flow.flow._torch_utils import make_concatenation_possible
 
 __all__ = [
     "COMBINER_REGISTRY",
+    "AdaLNZeroCombiner",
     "BaseCombiner",
     "CombinerContext",
     "CombinerSpec",
@@ -210,6 +211,56 @@ class ConcatCombinerConfig:
         )
 
 
+class AdaLNZeroCombiner(BaseCombiner):
+    """adaLN-Zero conditioning: modulate the encoded STATE by ``(t, condition)``, DiT-style.
+
+    Same shape as :class:`Resnet1dCombiner` — the state goes through a conditioned net whose conditioning
+    is ``concat(encoded_t, encoded_condition)`` — but the net is an :class:`~sc_flow.nn.AdaLNZero` stack,
+    so conditioning enters as per-block (scale, shift, gate) rather than as an extra input.
+
+    Because the gates are zero-initialised the whole combiner is the identity on ``encoded_state`` at
+    step 0, and the conditioning signal is learned rather than imposed. Contrast
+    :class:`ConcatCombiner`, where the condition is glued on as extra input width and the trunk must
+    learn to use it.
+    """
+
+    def __init__(
+        self,
+        latent_state_dim: int,
+        latent_time_dim: int,
+        latent_condition_dim: int | None = None,
+        adaln: AdaLNZero | None = None,
+    ) -> None:
+        super().__init__(latent_state_dim, latent_time_dim, latent_condition_dim)
+        if adaln is None:
+            raise ValueError("AdaLNZeroCombiner requires a built AdaLNZero net.")
+        self._adaln = adaln
+
+    def forward(
+        self,
+        encoded_t: torch.Tensor,
+        encoded_state: torch.Tensor,
+        encoded_condition: torch.Tensor | None = None,
+    ) -> torch.Tensor:
+        self._verify_inputs_shape(encoded_t, encoded_state, encoded_condition)
+        to_concat = (make_concatenation_possible(encoded_t, encoded_state, -1),)
+        if encoded_condition is not None:
+            to_concat = to_concat + (make_concatenation_possible(encoded_condition, encoded_state, -1),)
+        conditions = torch.cat(to_concat, dim=-1)
+        return self._adaln(encoded_state, conditions)
+
+    @property
+    def output_dim(self) -> int:
+        return self._adaln.output_dim
+
+    @property
+    def embedding_dim(self) -> int:
+        embedding_dim = self._latent_time_dim
+        if self._latent_condition_dim is not None:
+            embedding_dim = embedding_dim + self._latent_condition_dim
+        return embedding_dim
+
+
 @COMBINER_REGISTRY.register("sc_flow.resnet1d")
 @dataclass
 class Resnet1dCombinerConfig:
@@ -248,6 +299,49 @@ class Resnet1dCombinerConfig:
             context.latent_time_dim,
             latent_condition_dim=context.latent_condition_dim,
             resnet=resnet,
+        )
+
+
+@COMBINER_REGISTRY.register("sc_flow.adaln_zero")
+@dataclass(frozen=True)
+class AdaLNZeroCombinerConfig:
+    """Config slot for :class:`AdaLNZeroCombiner`: one ``sc_flow.adaln_zero`` net spec."""
+
+    adaln: NetSpec
+
+    def __post_init__(self) -> None:
+        try:
+            object.__setattr__(self, "adaln", NET_REGISTRY.validate(self.adaln))
+        except Exception as e:
+            raise ValueError(f"Invalid sc_flow.adaln_zero config slot 'adaln': {e}") from e
+        if self.adaln["type"] != "sc_flow.adaln_zero":
+            raise ValueError(
+                "sc_flow.adaln_zero config slot 'adaln' requires a 'sc_flow.adaln_zero' net spec, "
+                f"found {self.adaln['type']!r}."
+            )
+
+    def build(self, context: CombinerContext) -> BaseCombiner:
+        embedding_dim = context.latent_time_dim + (context.latent_condition_dim or 0)
+        adaln = NET_REGISTRY.build(
+            self.adaln,
+            # blocks are residual, so the net's input and output are both the STATE width; the
+            # conditioning width is (t + condition).
+            NetContext(
+                input_dim=context.latent_state_dim,
+                output_dim=context.latent_state_dim,
+                condition_dim=embedding_dim,
+            ),
+        )
+        if not isinstance(adaln, AdaLNZero):  # registry/slot invariant; fail loudly if registration changes
+            raise TypeError(
+                "sc_flow.adaln_zero config slot 'adaln' must build sc_flow.nn.AdaLNZero, "
+                f"found {type(adaln).__name__}."
+            )
+        return AdaLNZeroCombiner(
+            context.latent_state_dim,
+            context.latent_time_dim,
+            context.latent_condition_dim,
+            adaln=adaln,
         )
 
 

@@ -5,10 +5,11 @@ from dataclasses import dataclass, field
 
 from sc_flow._component import ComponentRegistry, ComponentSpec, JsonValue
 from sc_flow.nn._activation import ActivationId, resolve_activation
-from sc_flow.nn._modules import Resnet1d
+from sc_flow.nn._modules import AdaLNZero, Resnet1d
 
 __all__ = [
     "NET_REGISTRY",
+    "AdaLNZeroConfig",
     "NetContext",
     "NetSpec",
     "ResnetConfig",
@@ -138,4 +139,42 @@ class ResnetConfig:
             dropout_inplace=self.dropout_inplace,
             activation_cls_kwargs=dict(self.activation_kwargs),
             bias=self.bias,
+        )
+
+
+@NET_REGISTRY.register("sc_flow.adaln_zero")
+@dataclass(frozen=True)
+class AdaLNZeroConfig:
+    """Portable hyperparameters for an adaLN-Zero stack (:class:`~sc_flow.nn.AdaLNZero`).
+
+    Like :class:`ResnetConfig`, the tensor widths come from :class:`NetContext`, not from here. Blocks are
+    residual so they preserve width; ``num_layers`` sets depth and ``mlp_ratio`` the internal expansion
+    (4.0 is the transformer/DiT convention).
+    """
+
+    num_layers: int = 1
+    mlp_ratio: float = 4.0
+    activation: ActivationId = "silu"
+    dropout_p: float = 0.0
+    layernorm_eps: float = 1e-5
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.num_layers, int) or isinstance(self.num_layers, bool) or self.num_layers < 1:
+            raise ValueError(f"num_layers must be a positive integer, found {self.num_layers!r}.")
+        _validate_positive("mlp_ratio", self.mlp_ratio)
+        if self.dropout_p < 0.0 or self.dropout_p >= 1.0:
+            raise ValueError(f"dropout_p must be in [0, 1), found {self.dropout_p!r}.")
+
+    def build(self, context: NetContext) -> AdaLNZero:
+        if context.condition_dim is None:
+            raise ValueError("sc_flow.adaln_zero requires NetContext.condition_dim.")
+        return AdaLNZero(
+            input_dim=context.input_dim,
+            embedding_dim=context.condition_dim,
+            num_layers=self.num_layers,
+            output_dim=context.output_dim,
+            mlp_ratio=self.mlp_ratio,
+            activation_cls=self.activation,
+            dropout_p=self.dropout_p,
+            layernorm_eps=self.layernorm_eps,
         )

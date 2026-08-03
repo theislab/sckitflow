@@ -186,6 +186,7 @@ lint.pydocstyle.convention = "numpy"
 # FlowMatching -> Lightning path lives in scripts/smoke_flow_matching.py + scripts/smoke_harness_split.py.
 ini_options.testpaths = [
   "tests/backends/torch/nn",
+  "tests/backends/torch/flow",
   "tests/backends/torch/test_utils.py",
 ]
 ini_options.addopts = [

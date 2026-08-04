@@ -42,7 +42,9 @@ class CFM(GenerativeFlow):
         condition_data = get_tensor_dict_from_data(
             step_data["target_condition_data"], device=self._device_id, dtype=self._dtype
         )
-        group_data = get_tensor_dict_from_data(step_data["target_group_data"], device=self._device_id, dtype=self._dtype)
+        group_data = get_tensor_dict_from_data(
+            step_data["target_group_data"], device=self._device_id, dtype=self._dtype
+        )
         cond = {**condition_data, **group_data}
 
         # latent (noise) – shape (batch_size, dim)

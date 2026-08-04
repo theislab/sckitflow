@@ -16,11 +16,11 @@ from sckitflow._types import PredictionData
 from sckitflow.core._data_utils import extract_step_data
 from sckitflow.core._types import StepData
 from sckitflow.core.methods._base import BaseMethod
-from sckitflow.data.containers._distribution import build_ann_df
 from sckitflow.core.methods._opt import OptimConfig
 from sckitflow.data._composite import MatchedData
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
+from sckitflow.data.containers._distribution import build_ann_df
 from sckitflow.data.samplers._train import FTrainSampler
 from sckitflow.data.samplers._validation import FValidationSampler
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks

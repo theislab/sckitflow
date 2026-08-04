@@ -7,7 +7,7 @@ from tests.data.conftest import (
 )
 
 from sckitflow._constants import ORIGINAL_INDEX_KEY
-from sckitflow.data._composite import MatchedData, NestedData
+from sckitflow.data._composite import NestedData
 from sckitflow.data._manager import DataManager
 from sckitflow.data.containers._categorical import CategoricalData
 from sckitflow.data.containers._coupling import CouplingData

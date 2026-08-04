@@ -3,7 +3,6 @@ from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
 import pandas as pd
-import pytest
 import torch
 
 from sckitflow.core.methods._base import BaseMethod

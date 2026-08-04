@@ -1,6 +1,5 @@
 import pytest
 
-from sckitflow.data._composite import MatchedData
 from sckitflow.data.samplers._validation import FValidationSampler
 
 from ..shared import make_distribution, make_tree  # noqa

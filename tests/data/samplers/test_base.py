@@ -1,7 +1,7 @@
 import numpy as np
 import pytest
 
-from sckitflow.data._composite import DistributionData, MatchedData
+from sckitflow.data._composite import DistributionData
 from sckitflow.data.samplers import FSampler
 
 from ..shared import make_distribution, make_tree  # noqa

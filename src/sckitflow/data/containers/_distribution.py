@@ -12,7 +12,33 @@ from sckitflow.data.containers._coupling import CouplingData
 from sckitflow.data.containers._mixed_type import MixedTypeData
 from sckitflow.data.containers._state import StateData
 
-__all__ = ["DistributionData"]
+__all__ = ["DistributionData", "build_ann_df"]
+
+
+def build_ann_df(
+    condition_data: MixedTypeData | None,
+    groups_data: CategoricalData | None,
+) -> pd.DataFrame:
+    """Builds the annotation data frame from groups then condition categoricals.
+
+    Column order matches the hierarchy (groups first, conditions second) so that
+    lexsort-based ``is_sorted`` / ``sort()`` agree with ``DataManager.sort_adata``.
+
+    Shared by :attr:`DistributionData.ann_df` and the prediction-output builders so
+    the two stay in lockstep when reconstructing obs metadata from ``StepData``.
+    """
+    dfs = []
+    if groups_data:
+        dfs.append(groups_data.ann_df)
+    if condition_data and condition_data.categorical_covariates:
+        dfs.append(condition_data.categorical_covariates.ann_df)
+
+    if len(dfs) == 0:
+        return pd.DataFrame()
+    return pd.DataFrame(
+        {col: df[col].values for df in dfs for col in df.columns},
+        index=dfs[0].index,
+    )
 
 
 @dataclass(frozen=True)
@@ -201,19 +227,7 @@ class DistributionData(BaseData):
         so that lexsort-based ``is_sorted`` / ``sort()`` agree with
         ``DataManager.sort_adata``.
         """
-        dfs = []
-        if self.groups_data:
-            dfs.append(self.groups_data.ann_df)
-        if self.condition_data and self.condition_data.categorical_covariates:
-            dfs.append(self.condition_data.categorical_covariates.ann_df)
-
-        if len(dfs) == 0:
-            return pd.DataFrame()
-        res = pd.DataFrame(
-            {col: df[col].values for df in dfs for col in df.columns},
-            index=dfs[0].index,
-        )
-        return res
+        return build_ann_df(self.condition_data, self.groups_data)
 
     @cached_property
     def index(self) -> pd.Index:

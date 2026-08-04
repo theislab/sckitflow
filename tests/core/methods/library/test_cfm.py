@@ -1,4 +1,4 @@
-from unittest.mock import Mock, patch
+from unittest.mock import Mock
 
 import numpy as np
 import pytest
@@ -101,11 +101,12 @@ class TestCFM:
     # Prediction tests
     # -------------------------------------------------------------------------
     def test_predict_no_trajectory(self, cfm_instance):
-        step_data = Mock()
-        step_data.target_state = torch.randn(4, 2)
-        step_data.source_state = torch.randn(4, 2)
-        step_data.target_condition_data = mock_condition_data()
-        step_data.target_group_data = mock_condition_data()
+        step_data = StepData(
+            target_state=torch.randn(4, 2),
+            source_state=torch.randn(4, 2),
+            target_condition_data=mock_condition_data(),
+            target_group_data=mock_condition_data(),
+        )
         mock_solver = Mock()
         # Final state only: shape (batch, dim) -> (4, 2)
         mock_solver.solve.return_value = torch.randn(4, 2)
@@ -125,11 +126,12 @@ class TestCFM:
         assert kwargs.get("return_trajectory") is False
 
     def test_predict_with_trajectory_single_sample(self, cfm_instance):
-        step_data = Mock()
-        step_data.target_state = torch.randn(4, 2)
-        step_data.source_state = torch.randn(4, 2)
-        step_data.target_condition_data = mock_condition_data()
-        step_data.target_group_data = mock_condition_data()
+        step_data = StepData(
+            target_state=torch.randn(4, 2),
+            source_state=torch.randn(4, 2),
+            target_condition_data=mock_condition_data(),
+            target_group_data=mock_condition_data(),
+        )
         mock_solver = Mock()
         # Simulate trajectory: (num_steps, batch, dim)
         traj_tensor = torch.stack([torch.randn(4, 2) for _ in range(10)])  # (10,4,2)
@@ -149,11 +151,12 @@ class TestCFM:
         assert pred.raw_samples is None
 
     def test_predict_with_trajectory_multiple_samples(self, cfm_instance):
-        step_data = Mock()
-        step_data.target_state = torch.randn(4, 2)
-        step_data.source_state = None  # generate from noise
-        step_data.target_condition_data = mock_condition_data()
-        step_data.target_group_data = mock_condition_data()
+        step_data = StepData(
+            target_state=torch.randn(4, 2),
+            source_state=None,  # generate from noise
+            target_condition_data=mock_condition_data(),
+            target_group_data=mock_condition_data(),
+        )
         mock_solver = Mock()
         # Simulate trajectory for n_samples=3: solver returns (num_steps, n_samples*batch, dim)
         n_samples = 3
@@ -178,11 +181,12 @@ class TestCFM:
         assert pred.raw_samples.shape == (n_samples, batch, dim)
 
     def test_predict_custom_solver(self, cfm_instance):
-        step_data = Mock()
-        step_data.target_state = torch.randn(4, 2)
-        step_data.source_state = torch.randn(4, 2)
-        step_data.target_condition_data = mock_condition_data()
-        step_data.target_group_data = mock_condition_data()
+        step_data = StepData(
+            target_state=torch.randn(4, 2),
+            source_state=torch.randn(4, 2),
+            target_condition_data=mock_condition_data(),
+            target_group_data=mock_condition_data(),
+        )
         mock_solver_cls = Mock()
         mock_solver = Mock()
         mock_solver.solve.return_value = torch.randn(4, 2)
@@ -196,7 +200,7 @@ class TestCFM:
     # Compatibility with base class methods
     # -------------------------------------------------------------------------
     def test_train_step(self, cfm_instance):
-        matched_distr = Mock()
+        # `train_step` now takes a ready `StepData`; extraction happens in the caller.
         step_data = StepData(
             target_state=torch.randn(4, 2),
             target_coupling_lin=torch.randn(4, 2),
@@ -210,14 +214,13 @@ class TestCFM:
             source_group_data=torch.randn(4, 3),  # tensor
         )
 
-        with patch("sckitflow.core.methods._base.extract_step_data", return_value=step_data):
-            cfm_instance._match_fn = lambda source_lin, target_lin, source_quad, target_quad: (
-                np.arange(4),
-                np.arange(4),
-            )
-            cfm_instance.compute_loss = Mock(return_value=(torch.tensor(0.5), {"loss": 0.5}))
+        cfm_instance._match_fn = lambda source_lin, target_lin, source_quad, target_quad: (
+            np.arange(4),
+            np.arange(4),
+        )
+        cfm_instance.compute_loss = Mock(return_value=(torch.tensor(0.5), {"loss": 0.5}))
 
-            loss, log_dict = cfm_instance.train_step(matched_distr)
+        loss, log_dict = cfm_instance.train_step(step_data)
 
-            assert loss == torch.tensor(0.5)
-            assert log_dict == {"loss": 0.5}
+        assert loss == torch.tensor(0.5)
+        assert log_dict == {"loss": 0.5}

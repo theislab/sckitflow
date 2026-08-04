@@ -3,7 +3,7 @@ from unittest.mock import Mock
 import pytest
 import torch
 
-from sckitflow.core._types import PredictionData, StepData
+from sckitflow.core._types import PredictionData, StepData, new_step_data
 from sckitflow.core.methods._base import BaseMethod, GenerativeFlow
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.data._manager import DataManager
@@ -196,8 +196,8 @@ class TestGenerativeFlow:
         )
         torch_gen_flow._match_fn = Mock(return_value=(None, None))
         new_step = torch_gen_flow._match_observations(step_data)
-        assert new_step.target_state is step_data.target_state
-        assert new_step.source_state is step_data.source_state
+        assert new_step["target_state"] is step_data["target_state"]
+        assert new_step["source_state"] is step_data["source_state"]
 
     def test_match_observations_with_match(self, torch_gen_flow):
         # Use tensors for condition_data (not dict) to allow indexing
@@ -218,13 +218,14 @@ class TestGenerativeFlow:
         torch_gen_flow._match_fn = Mock(return_value=(src_idx, tgt_idx))
 
         new_step = torch_gen_flow._match_observations(step_data)
-        assert new_step.target_state.shape[0] == 2
-        assert new_step.source_state.shape[0] == 2
-        assert new_step.target_condition_data.shape[0] == 2
-        assert new_step.source_condition_data.shape[0] == 2
+        assert new_step["target_state"].shape[0] == 2
+        assert new_step["source_state"].shape[0] == 2
+        assert new_step["target_condition_data"].shape[0] == 2
+        assert new_step["source_condition_data"].shape[0] == 2
 
     def test_train_step_forward(self, torch_gen_flow):
-        step_data = Mock()
+        # All-None StepData: `_match_observations` sees no source and returns it unchanged.
+        step_data = new_step_data()
         torch_gen_flow.compute_loss = Mock(return_value=(torch.tensor(0.5), {"loss": 0.5}))
         loss, info = torch_gen_flow._train_step_forward(step_data)
         assert loss == 0.5

@@ -13,11 +13,14 @@ from anndata import AnnData
 from tqdm import tqdm
 
 from sckitflow._types import PredictionData
+from sckitflow.core._data_utils import extract_step_data
+from sckitflow.core._types import StepData
 from sckitflow.core.methods._base import BaseMethod
 from sckitflow.core.methods._opt import OptimConfig
 from sckitflow.data._composite import MatchedData
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
+from sckitflow.data.containers._distribution import build_ann_df
 from sckitflow.data.samplers._train import FTrainSampler
 from sckitflow.data.samplers._validation import FValidationSampler
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
@@ -261,10 +264,10 @@ class Model:
         )
         return empty_adata if not return_raw else (empty_adata, None)
 
-    def _get_pred_obs_df(self, node: MatchedData, pred_obj: PredictionData) -> pd.DataFrame:
+    def _get_pred_obs_df(self, step_data: StepData, pred_obj: PredictionData) -> pd.DataFrame:
         """Gets the observation dataframe for prediction"""
-        # 1. Collect observation metadata
-        ann_df = node.target_distr.ann_df.copy()
+        # 1. Collect observation metadata (rebuilt from the target condition/group data)
+        ann_df = build_ann_df(step_data["target_condition_data"], step_data["target_group_data"]).copy()
         cond_df = ann_df.drop_duplicates()
 
         # 2. Check that the node contains only one condition
@@ -343,20 +346,22 @@ class Model:
                 f"(n_obs, n_features) or (n_samples, n_obs, n_features)"
             )
 
-    def _get_pred_obsm_dict(self, node: MatchedData, pred_obj: PredictionData) -> dict[str, np.ndarray]:
+    def _get_pred_obsm_dict(self, step_data: StepData, pred_obj: PredictionData) -> dict[str, np.ndarray]:
         # ---- Get trajectory and samples ----
         traj = self._get_pred_traj(pred_obj)
         raw_samples = self._get_pred_raw_samples(pred_obj)
 
         # ---- Get condition continuous covariates data ----
-        if node.target.has_continuous_condition_covariates:
-            condition_continuous_covs = node.target.condition_data.continuous_covariates.mapping
+        condition_data = step_data["target_condition_data"]
+        if condition_data is not None and condition_data.has_continuous_covariates:
+            condition_continuous_covs = condition_data.continuous_covariates.mapping
         else:
             condition_continuous_covs = {}
 
-        # ---- Get target continuous covariates data ----
-        if node.target.has_continuous_response_covariates:
-            response_continuous_covs = node.target.response_data.continuous_covariates.mapping
+        # ---- Get target (response) continuous covariates data ----
+        response_data = step_data["target_response_data"]
+        if response_data is not None and response_data.has_continuous_covariates:
+            response_continuous_covs = response_data.continuous_covariates.mapping
         else:
             response_continuous_covs = {}
 
@@ -401,8 +406,24 @@ class Model:
 
         return pred_adata
 
-    def _predict_on_node(self, node: MatchedData, *args, **kwargs) -> PredictionData:
-        return self._method.predict(node, *args, **kwargs)
+    def _node_to_step_data(self, node: MatchedData) -> StepData:
+        """Aligns a node and extracts ready :class:`StepData`.
+
+        This is the single boundary where a :class:`MatchedData` node becomes
+        :class:`StepData`. Alignment is a node-level operation, so it lives here rather
+        than downstream; everything after this point consumes only ``StepData``. Replace
+        this with a ``StepData``-native loader to drop the node pipeline from prediction.
+        """
+        node_aligned = node.align()
+        return extract_step_data(node_aligned, device=self._method.device_id, dtype=self._method.dtype)
+
+    def _predict_on_node(self, step_data: StepData, *args, **kwargs) -> PredictionData:
+        """Runs inference on a ready :class:`StepData` batch.
+
+        A thin pass-through: the node has already been aligned and turned into
+        :class:`StepData` by :meth:`_node_to_step_data`.
+        """
+        return self._method.predict(step_data, *args, **kwargs)
 
     def _to_numpy(self, tensor: Any) -> np.ndarray:
         """Convert a torch tensor (or array-like) to a numpy array."""
@@ -637,21 +658,23 @@ class Model:
         all_obs = []
         all_obsm = defaultdict(list)
 
-        # Iterate over each node
-        for node in tqdm(tree_flat, desc="Predicting"):
-            # 0. Align node
-            node_aligned = node.align()
+        # Turn nodes into ready `StepData` up front, so the loop below operates purely
+        # on `StepData`. `_node_to_step_data` is the single place a node becomes
+        # `StepData` -- swap it for a `StepData`-native loader to drop the node pipeline.
+        step_data_stream = (self._node_to_step_data(node) for node in tree_flat)
 
+        # Iterate over each ready `StepData`
+        for step_data in tqdm(step_data_stream, total=len(tree_flat), desc="Predicting"):
             # 1. Inference
-            pred_obj = self._predict_on_node(node_aligned, *args, **kwargs)
+            pred_obj = self._predict_on_node(step_data, *args, **kwargs)
             all_preds.append(pred_obj)
 
-            # 2. Construct node dataframe
-            pred_df = self._get_pred_obs_df(node_aligned, pred_obj)
+            # 2. Construct obs dataframe (from `StepData`)
+            pred_df = self._get_pred_obs_df(step_data, pred_obj)
             all_obs.append(pred_df.copy())
 
-            # 3. Construct node obsm
-            node_obsm_dict = self._get_pred_obsm_dict(node_aligned, pred_obj)
+            # 3. Construct obsm (from `StepData`)
+            node_obsm_dict = self._get_pred_obsm_dict(step_data, pred_obj)
             for key, val in node_obsm_dict.items():
                 all_obsm[key].append(val)
 

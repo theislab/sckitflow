@@ -3,12 +3,10 @@ from typing import Any, TypeVar
 
 import torch
 
-from sckitflow.core._data_utils import extract_step_data
-from sckitflow.core._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
+from sckitflow.core._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn, new_step_data
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.core.probability_paths import BaseProbabilityPath
 from sckitflow.core.solvers import BaseSolver
-from sckitflow.data._composite import MatchedDistributions
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager
 
@@ -99,43 +97,43 @@ class BaseMethod(abc.ABC):
 
     def train_step(
         self,
-        matched_distr: MatchedDistributions,
+        step_data: StepData,
         *args,
         **kwargs,
     ) -> dict[str, Any]:
-        """Single step function of the solver.
+        """Single training step on a ready :class:`StepData` batch.
 
-        :param matched_distr: Input `MatchedDistributions` object.
-        :type matched_distr: dict[str, torch.Tensor]
+        Callers are responsible for turning a ``MatchedDistributions`` node into a
+        :class:`StepData` (via ``extract_step_data``) before calling this method.
+
+        :param step_data: Ready-to-consume batch of torch tensors.
+        :type step_data: class: `StepData`
         """
-        step_data = extract_step_data(matched_distr, device=self._device_id, dtype=self._dtype)
         return self._train_step_forward(step_data, *args, **kwargs)
 
     def predict(
         self,
-        data: MatchedDistributions | StepData,
+        step_data: StepData,
         *args,
         no_grad: bool = True,
         **kwargs,
     ) -> PredictionData:
-        """Prediction on node."""
-        # extract step data and prepare latent state
-        if isinstance(data, MatchedDistributions):
-            data = extract_step_data(data, device=self._device_id, dtype=self._dtype)
-        if not isinstance(data, StepData):
-            raise ValueError(f"Data is of the wrong type, expected `StepData`, but {type(data)} found.")
+        """Prediction on a ready :class:`StepData` batch.
 
+        Callers are responsible for turning a ``MatchedDistributions`` node into a
+        :class:`StepData` (via ``extract_step_data``) before calling this method.
+        """
         # optionally stop gradients
         if no_grad:
             with torch.no_grad():
                 return self.infer(
-                    data,
+                    step_data,
                     *args,
                     **kwargs,
                 )
         else:
             return self.infer(
-                data,
+                step_data,
                 *args,
                 **kwargs,
             )
@@ -228,10 +226,10 @@ class GenerativeFlow(BaseMethod):
     ) -> StepData:
         # Get matching indices
         src_idxs, tgt_idxs = self._call_match_fn_safe(
-            step_data.source_coupling_lin,
-            step_data.source_coupling_quad,
-            step_data.target_coupling_lin,
-            step_data.target_coupling_quad,
+            step_data["source_coupling_lin"],
+            step_data["source_coupling_quad"],
+            step_data["target_coupling_lin"],
+            step_data["target_coupling_quad"],
         )
 
         # Case: no source distribution → return step_data unchanged (or with source=None)
@@ -240,21 +238,21 @@ class GenerativeFlow(BaseMethod):
             return step_data
 
         # Slice source side
-        source_state = self._safe_subscript_obj(step_data.source_state, src_idxs)
-        source_condition_data = self._safe_subscript_obj(step_data.source_condition_data, src_idxs)
-        source_group_data = self._safe_subscript_obj(step_data.source_group_data, src_idxs)
-        source_coupling_lin = self._safe_subscript_obj(step_data.source_coupling_lin, src_idxs)
-        source_coupling_quad = self._safe_subscript_obj(step_data.source_coupling_quad, src_idxs)
+        source_state = self._safe_subscript_obj(step_data["source_state"], src_idxs)
+        source_condition_data = self._safe_subscript_obj(step_data["source_condition_data"], src_idxs)
+        source_group_data = self._safe_subscript_obj(step_data["source_group_data"], src_idxs)
+        source_coupling_lin = self._safe_subscript_obj(step_data["source_coupling_lin"], src_idxs)
+        source_coupling_quad = self._safe_subscript_obj(step_data["source_coupling_quad"], src_idxs)
 
         # Slice target side
-        target_state = self._safe_subscript_obj(step_data.target_state, tgt_idxs)
-        target_condition_data = self._safe_subscript_obj(step_data.target_condition_data, tgt_idxs)
-        target_group_data = self._safe_subscript_obj(step_data.target_group_data, tgt_idxs)
-        target_coupling_lin = self._safe_subscript_obj(step_data.target_coupling_lin, tgt_idxs)
-        target_coupling_quad = self._safe_subscript_obj(step_data.target_coupling_quad, tgt_idxs)
+        target_state = self._safe_subscript_obj(step_data["target_state"], tgt_idxs)
+        target_condition_data = self._safe_subscript_obj(step_data["target_condition_data"], tgt_idxs)
+        target_group_data = self._safe_subscript_obj(step_data["target_group_data"], tgt_idxs)
+        target_coupling_lin = self._safe_subscript_obj(step_data["target_coupling_lin"], tgt_idxs)
+        target_coupling_quad = self._safe_subscript_obj(step_data["target_coupling_quad"], tgt_idxs)
 
         # Return new StepData with matched slices
-        return StepData(
+        return new_step_data(
             target_state=target_state,
             target_coupling_lin=target_coupling_lin,
             target_coupling_quad=target_coupling_quad,

@@ -35,14 +35,16 @@ class CFM(GenerativeFlow):
             self._probability_path = LinearDiracProbabilityPath()
 
     def compute_loss(self, step_data: StepData, *args, **kwargs) -> tuple[torch.Tensor, dict[str, Any]]:
-        target = step_data.target_state
-        source = step_data.source_state
+        target = step_data["target_state"]
+        source = step_data["source_state"]
 
         # condition data as tensors
         condition_data = get_tensor_dict_from_data(
-            step_data.target_condition_data, device=self._device_id, dtype=self._dtype
+            step_data["target_condition_data"], device=self._device_id, dtype=self._dtype
         )
-        group_data = get_tensor_dict_from_data(step_data.target_group_data, device=self._device_id, dtype=self._dtype)
+        group_data = get_tensor_dict_from_data(
+            step_data["target_group_data"], device=self._device_id, dtype=self._dtype
+        )
         cond = {**condition_data, **group_data}
 
         # latent (noise) – shape (batch_size, dim)
@@ -169,8 +171,8 @@ class CFM(GenerativeFlow):
         # ----- 1. Prepare latent (noise) -----
         if latent is None:
             latent = prepare_latent_inference(
-                step_data.source_state,
-                step_data.target_state,
+                step_data["source_state"],
+                step_data["target_state"],
                 self._noise_sampler,
                 n_samples=n_samples,
                 generate_from_noise=self._generate_from_noise,
@@ -180,10 +182,10 @@ class CFM(GenerativeFlow):
 
         # ----- 2. Build conditioning dict -----
         condition_reps_dict = get_tensor_dict_from_data(
-            step_data.target_condition_data, device=self._device_id, dtype=self._dtype
+            step_data["target_condition_data"], device=self._device_id, dtype=self._dtype
         )
         group_reps_dict = get_tensor_dict_from_data(
-            step_data.target_group_data, device=self._device_id, dtype=self._dtype
+            step_data["target_group_data"], device=self._device_id, dtype=self._dtype
         )
         condition_dict = {**condition_reps_dict, **group_reps_dict}
 
@@ -191,7 +193,7 @@ class CFM(GenerativeFlow):
         condition_dict, source_expanded = expand_conditioning(
             latent,
             condition_dict,
-            step_data.source_state,
+            step_data["source_state"],
         )
 
         # ----- 4. Configure ODE solver -----

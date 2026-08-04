@@ -93,12 +93,12 @@ class DummyMethod(BaseMethod):
 
     def infer(self, step_data, *args, **kwargs):
         n_feat = len(self._dims_registry.feature_names)
-        if step_data.target_state is not None:
-            n_obs = step_data.target_state.shape[0]
+        if step_data["target_state"] is not None:
+            n_obs = step_data["target_state"].shape[0]
         else:
             # `require_target_state=False`: no state tensor, fall back to the group
             # metadata (always present) to determine how many observations to predict for.
-            n_obs = len(step_data.target_group_data.ann_df)
+            n_obs = len(step_data["target_group_data"].ann_df)
         samples = np.zeros((n_obs, n_feat))
         return DummyPredictionData(samples)
 
@@ -570,13 +570,13 @@ class TestModelPredictCombinations:
         }
         model = _make_model(adata, dm_kwargs=dm_kwargs)
 
-        # Capture the matched distribution
-        captured_matched_distr = []
+        # Capture the ready `StepData` passed to the method.
+        captured_step_data = []
         original_predict = model.method.predict
 
-        def spy_predict(matched_distr, *args, **kwargs):
-            captured_matched_distr.append(matched_distr)
-            return original_predict(matched_distr, *args, **kwargs)
+        def spy_predict(step_data, *args, **kwargs):
+            captured_step_data.append(step_data)
+            return original_predict(step_data, *args, **kwargs)
 
         model.method.predict = spy_predict
 
@@ -609,8 +609,8 @@ class TestModelPredictCombinations:
 
         # 3. If view_on_condition_space, verify condition_data contents
         if view_on_condition_space:
-            matched = captured_matched_distr[0]
-            cond_data = matched.target_distr.condition_data
+            step_data = captured_step_data[0]
+            cond_data = step_data["target_condition_data"]
 
             # The state key must have been removed from continuous covariates
             if cond_data is not None and cond_data.continuous_covariates is not None:
@@ -620,20 +620,20 @@ class TestModelPredictCombinations:
             # We don't enforce emptiness because a dummy categorical condition may exist.
             # Groups must be as requested
             if has_groups:
-                assert matched.target_distr.groups_data is not None
-                assert group_col in matched.target_distr.groups_data.ann_df.columns
+                assert step_data["target_group_data"] is not None
+                assert group_col in step_data["target_group_data"].ann_df.columns
             else:
-                groups_obj = matched.target_distr.groups_data
+                groups_obj = step_data["target_group_data"]
                 # Accept None or a groups object with zero columns
                 if groups_obj is not None:
                     assert len(groups_obj.ann_df.columns) == 0
 
         # 4. Source distribution presence
-        matched = captured_matched_distr[0]
+        step_data = captured_step_data[0]
         if has_source:
-            assert matched.source is not None
+            assert step_data["source_state"] is not None
         else:
-            assert matched.source is None
+            assert step_data["source_state"] is None
 
     def test_condition_space_preserves_all_other_covariates(self, adata):
         """Explicit test that after view_on_condition_space, all non-state condition
@@ -677,9 +677,9 @@ class TestModelPredictCombinations:
         captured = []
         original_predict = model.method.predict
 
-        def spy(matched_distr, *args, **kwargs):
-            captured.append(matched_distr)
-            return original_predict(matched_distr, *args, **kwargs)
+        def spy(step_data, *args, **kwargs):
+            captured.append(step_data)
+            return original_predict(step_data, *args, **kwargs)
 
         model.method.predict = spy
 
@@ -687,8 +687,8 @@ class TestModelPredictCombinations:
 
         # Collect continuous condition arrays from all nodes and concatenate
         cond_arrays = []
-        for match in captured:
-            cond_data = match.target_distr.condition_data
+        for step_data in captured:
+            cond_data = step_data["target_condition_data"]
             assert cond_data is not None
             assert cond_data.continuous_covariates is not None
             assert cond_key in cond_data.continuous_covariates.mapping
@@ -699,13 +699,13 @@ class TestModelPredictCombinations:
         np.testing.assert_array_equal(concatenated_cond_array, sorted_cond_array)
 
         # Also verify each node has categorical and groups data
-        for match in captured:
-            cond_data = match.target_distr.condition_data
+        for step_data in captured:
+            cond_data = step_data["target_condition_data"]
             assert cond_data.categorical_covariates is not None
             assert cat_cond_col in cond_data.categorical_covariates.ann_df.columns
 
-            assert match.target_distr.groups_data is not None
-            assert group_col in match.target_distr.groups_data.ann_df.columns
+            assert step_data["target_group_data"] is not None
+            assert group_col in step_data["target_group_data"].ann_df.columns
 
 
 class TestModelPredictMatchedKeys:

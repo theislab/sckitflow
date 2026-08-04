@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import numpy as np
 import pandas as pd
+import pytest
 import torch
 
 from sckitflow.core.methods._base import BaseMethod
@@ -45,10 +46,11 @@ class DummyMethod(BaseMethod):
     def infer(self, node, *args, **kwargs):
         return np.random.randn(10, 5)
 
-    def train_step(self, node, *args, **kwargs):
-        # Bypasses `extract_step_data`: these tests exercise Trainer orchestration
-        # with plain `Mock` nodes, not the real data-extraction pipeline.
-        return self.compute_loss(node, *args, **kwargs)
+    def train_step(self, step_data, *args, **kwargs):
+        # These tests exercise Trainer orchestration with plain `Mock` nodes; the
+        # Trainer's `extract_step_data` call is stubbed to identity (see the autouse
+        # fixture below), so `step_data` here is just the node itself.
+        return self.compute_loss(step_data, *args, **kwargs)
 
     def predict(self, node, *args, **kwargs):
         return self.infer(node, *args, **kwargs)
@@ -107,6 +109,13 @@ class RecordingComputationalCallback(ComputationalCallback):
 # Tests for Trainer
 # -----------------------------------------------------------------------------
 class TestTrainer:
+    @pytest.fixture(autouse=True)
+    def _stub_extract_step_data(self):
+        # The Trainer converts each node via `extract_step_data` before calling the
+        # method. These tests use plain `Mock` nodes, so stub the extraction to identity.
+        with patch("sckitflow.trainer._trainer.extract_step_data", side_effect=lambda node, *a, **k: node):
+            yield
+
     def test_init(self):
         method = DummyMethod()
         opt_manager = DummyOptManager()

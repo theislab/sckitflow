@@ -118,7 +118,8 @@ class TestDataUtils:
         matched.target_distribution = target_dist
 
         step_data = data_utils.extract_step_data(matched)
-        assert isinstance(step_data, StepData)
+        assert isinstance(step_data, dict)
+        assert set(step_data) == set(StepData.__annotations__)
 
     def test_write_continuous_cond_cov_no_base_data(self):
         """When base_data is None, a fresh StepData with only the condition is returned."""
@@ -126,15 +127,15 @@ class TestDataUtils:
         x = torch.randn(10, 5)
         result = data_utils.write_continuous_cond_cov_to_step_data(key, x)
 
-        assert isinstance(result, StepData)
-        assert result.target_condition_data == {key: x}
+        assert isinstance(result, dict)
+        assert result["target_condition_data"] == {key: x}
         # All other fields should be the default None
-        assert result.target_state is None
-        assert result.source_state is None
-        assert result.target_coupling_lin is None
-        assert result.source_coupling_lin is None
-        assert result.target_group_data is None
-        assert result.source_condition_data is None
+        assert result["target_state"] is None
+        assert result["source_state"] is None
+        assert result["target_coupling_lin"] is None
+        assert result["source_coupling_lin"] is None
+        assert result["target_group_data"] is None
+        assert result["source_condition_data"] is None
 
     @pytest.mark.xfail(
         reason="https://github.com/theislab/sckitflow/issues/146 - StepData carries a plain dict where MixedTypeData is expected",
@@ -168,16 +169,20 @@ class TestDataUtils:
         )
 
         # Original condition still present
-        assert torch.equal(result.target_condition_data["old_key"], existing_step.target_condition_data["old_key"])
+        assert torch.equal(
+            result["target_condition_data"]["old_key"], existing_step["target_condition_data"]["old_key"]
+        )
         # New condition inserted
-        assert torch.equal(result.target_condition_data[key], x)
+        assert torch.equal(result["target_condition_data"][key], x)
         # Other fields untouched
-        assert torch.equal(result.target_state, existing_step.target_state)
-        assert torch.equal(result.source_state, existing_step.source_state)
-        assert torch.equal(result.target_coupling_lin, existing_step.target_coupling_lin)
+        assert torch.equal(result["target_state"], existing_step["target_state"])
+        assert torch.equal(result["source_state"], existing_step["source_state"])
+        assert torch.equal(result["target_coupling_lin"], existing_step["target_coupling_lin"])
         # Source condition data unchanged (the new key should not appear there)
-        assert key not in result.source_condition_data
-        assert torch.equal(result.source_condition_data["old_key"], existing_step.source_condition_data["old_key"])
+        assert key not in result["source_condition_data"]
+        assert torch.equal(
+            result["source_condition_data"]["old_key"], existing_step["source_condition_data"]["old_key"]
+        )
 
     def test_prepare_latent_train_generate_from_noise(self):
         target = torch.randn(4, 2)

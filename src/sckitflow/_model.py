@@ -13,6 +13,7 @@ from anndata import AnnData
 from tqdm import tqdm
 
 from sckitflow._types import PredictionData
+from sckitflow.core._data_utils import extract_step_data
 from sckitflow.core.methods._base import BaseMethod
 from sckitflow.core.methods._opt import OptimConfig
 from sckitflow.data._composite import MatchedData
@@ -402,7 +403,8 @@ class Model:
         return pred_adata
 
     def _predict_on_node(self, node: MatchedData, *args, **kwargs) -> PredictionData:
-        return self._method.predict(node, *args, **kwargs)
+        step_data = extract_step_data(node, device=self._method.device_id, dtype=self._method.dtype)
+        return self._method.predict(step_data, *args, **kwargs)
 
     def _to_numpy(self, tensor: Any) -> np.ndarray:
         """Convert a torch tensor (or array-like) to a numpy array."""

@@ -95,8 +95,8 @@ def register_method(
             class_dict["infer"] = infer
 
             # Wrap predict output into PredictionData
-            def predict(self, matched_distr, *args, **kwargs):
-                raw_output = user_cls.predict(self, matched_distr, *args, **kwargs)
+            def predict(self, step_data, *args, **kwargs):
+                raw_output = user_cls.predict(self, step_data, *args, **kwargs)
                 if isinstance(raw_output, PredictionData):
                     return raw_output
                 return PredictionData(X=raw_output, traj=None)

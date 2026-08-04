@@ -4,6 +4,7 @@ from typing import Any
 import pandas as pd
 from tqdm import tqdm
 
+from sckitflow.core._data_utils import extract_step_data
 from sckitflow.core.methods._base import BaseMethod
 from sckitflow.core.methods._opt import OptimizationManager
 from sckitflow.data.samplers._train import FTrainSampler
@@ -71,7 +72,8 @@ class Trainer:
         for node in sampler:
             # Kept as the raw `StateData`; the `.X` unwrapping below turns it into an array.
             target = node.target_distr.state_data
-            preds = self._method.predict(node, *args, **kwargs)
+            step_data = extract_step_data(node, device=self._method.device_id, dtype=self._method.dtype)
+            preds = self._method.predict(step_data, *args, **kwargs)
             # Extract the actual data from PredictionData object
             if hasattr(preds, "samples"):
                 preds_array = preds.samples
@@ -136,7 +138,8 @@ class Trainer:
             nodes = train_sampler.sample()
             step_dict = {}
             for node in nodes:
-                opt_data, step_dict = self._method.train_step(node, *args, **kwargs)
+                step_data = extract_step_data(node, device=self._method.device_id, dtype=self._method.dtype)
+                opt_data, step_dict = self._method.train_step(step_data, *args, **kwargs)
                 step_dict.update({"step": self._current_step})
                 self._opt_manager.step(opt_data)
                 self._append_train_log(step_dict)

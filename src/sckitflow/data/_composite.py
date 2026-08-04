@@ -21,7 +21,7 @@ class MatchedData(MatchedDistributions):
     :type source_distribution: class: `DistributionT | None`
     """
 
-    target_distribution: DistributionT
+    target_distribution: DistributionData
     source_distribution: DistributionT | None = None
 
     def __post_init__(self) -> None:

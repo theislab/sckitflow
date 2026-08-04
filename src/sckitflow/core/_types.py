@@ -1,6 +1,6 @@
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, ClassVar, Literal, NamedTuple, Protocol, TypedDict, TypeVar
 
 import numpy as np
 import torch
@@ -94,18 +94,47 @@ class SolverConfig(NamedTuple):
     remaining_kwargs: dict[str, Any]
 
 
-@dataclass(frozen=True)
-class StepData:
-    target_state: torch.Tensor | None = None
-    target_coupling_lin: torch.Tensor | None = None
-    target_coupling_quad: torch.Tensor | None = None
-    target_condition_data: BaseData | dict[str, torch.Tensor] | None = None
-    target_group_data: BaseData | dict[str, torch.Tensor] | None = None
-    source_state: torch.Tensor | None = None
-    source_coupling_lin: torch.Tensor | None = None
-    source_coupling_quad: torch.Tensor | None = None
-    source_condition_data: dict[str, torch.Tensor] | None = None
-    source_group_data: dict[str, torch.Tensor] | None = None
+class StepData(TypedDict, total=False):
+    """Ready-to-consume batch of torch tensors for a single train/inference step.
+
+    Constructed from a :class:`MatchedDistributions` node via
+    :func:`sckitflow.core._data_utils.extract_step_data`. Every field is optional; the
+    source side stays ``None`` in the unpaired ("generate from noise") setting. Use
+    :func:`new_step_data` to build an instance with every field defaulting to ``None``.
+    """
+
+    target_state: torch.Tensor | None
+    target_coupling_lin: torch.Tensor | None
+    target_coupling_quad: torch.Tensor | None
+    target_condition_data: BaseData | dict[str, torch.Tensor] | None
+    target_group_data: BaseData | dict[str, torch.Tensor] | None
+    source_state: torch.Tensor | None
+    source_coupling_lin: torch.Tensor | None
+    source_coupling_quad: torch.Tensor | None
+    source_condition_data: BaseData | dict[str, torch.Tensor] | None
+    source_group_data: BaseData | dict[str, torch.Tensor] | None
+
+
+def new_step_data(**fields: Any) -> StepData:
+    """Builds a :class:`StepData` with every field present and defaulting to ``None``.
+
+    Guarantees all keys exist so consumers can index (``step_data["source_state"]``)
+    without guarding for missing keys.
+    """
+    data: StepData = {
+        "target_state": None,
+        "target_coupling_lin": None,
+        "target_coupling_quad": None,
+        "target_condition_data": None,
+        "target_group_data": None,
+        "source_state": None,
+        "source_coupling_lin": None,
+        "source_coupling_quad": None,
+        "source_condition_data": None,
+        "source_group_data": None,
+    }
+    data.update(fields)  # type: ignore[typeddict-item]
+    return data
 
 
 @dataclass(frozen=True)

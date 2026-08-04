@@ -47,9 +47,8 @@ class DummyMethod(BaseMethod):
         return np.random.randn(10, 5)
 
     def train_step(self, step_data, *args, **kwargs):
-        # These tests exercise Trainer orchestration with plain `Mock` nodes; the
-        # Trainer's `extract_step_data` call is stubbed to identity (see the autouse
-        # fixture below), so `step_data` here is just the node itself.
+        # The sampler yields ready `StepData`; these tests use plain `Mock`/`MagicMock`
+        # batches straight from the dummy samplers, so `step_data` is just that object.
         return self.compute_loss(step_data, *args, **kwargs)
 
     def predict(self, node, *args, **kwargs):
@@ -70,8 +69,10 @@ class DummySampler:
 
 
 class DummyValidationSampler:
+    # MagicMock (not Mock) so nodes support `node["target"]` subscripting, which the
+    # Trainer's validation path uses to read the target state.
     def __iter__(self):
-        return iter([Mock(), Mock()])
+        return iter([MagicMock(), MagicMock()])
 
 
 class RecordingCallback(LoggingCallback):
@@ -109,13 +110,6 @@ class RecordingComputationalCallback(ComputationalCallback):
 # Tests for Trainer
 # -----------------------------------------------------------------------------
 class TestTrainer:
-    @pytest.fixture(autouse=True)
-    def _stub_extract_step_data(self):
-        # The Trainer converts each node via `extract_step_data` before calling the
-        # method. These tests use plain `Mock` nodes, so stub the extraction to identity.
-        with patch("sckitflow.trainer._trainer.extract_step_data", side_effect=lambda node, *a, **k: node):
-            yield
-
     def test_init(self):
         method = DummyMethod()
         opt_manager = DummyOptManager()

@@ -72,6 +72,24 @@ class TestTrainSampler:
 
         assert batch[0] == "processed"
 
+    def test_dispatch_fn_applied_as_keyword(self):
+        # Regression: `dispatch_fn` passed by keyword must reach FSampler through the
+        # TrainSampler -> FSampler MRO. `Model` injects it this way so the sampler
+        # yields ready `StepData`; without kwargs forwarding it silently fell back to
+        # the identity dispatch (yielding `MatchedData`).
+        tree = make_tree()
+
+        sampler = FTrainSampler(
+            tree,
+            dispatch_fn=lambda node: {"dispatched": node},
+            batch_size=1,
+            n_nodes=1,
+        )
+
+        batch = sampler.sample()[0]
+
+        assert set(batch) == {"dispatched"}
+
     def test_node_sampling_respects_weights(self):
         tree = make_tree()
 

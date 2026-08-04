@@ -44,6 +44,20 @@ class TestValidationSampler:
         assert all(isinstance(b, dict) for b in data)
         assert all(len(b["target"]) == 3 for b in data)
 
+    def test_dispatch_fn_applied_as_keyword(self):
+        # Regression: `dispatch_fn` passed by keyword must reach FSampler through the
+        # ValidationSampler -> FSampler MRO (Model injects it to yield `StepData`).
+        tree = make_tree()
+
+        sampler = FValidationSampler(
+            tree,
+            dispatch_fn=lambda node: {"dispatched": node},
+            max_n_obs=2,
+            n_nodes=1,
+        )
+
+        assert all(set(b) == {"dispatched"} for b in sampler.data)
+
     @pytest.mark.parametrize("replace_samples", [False, True])
     def test_max_n_obs_larger_than_node_is_clamped(self, replace_samples: bool):
         """`max_n_obs` is an upper bound: a node is never drawn beyond its own size.

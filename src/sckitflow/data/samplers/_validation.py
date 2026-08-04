@@ -1,16 +1,21 @@
+from __future__ import annotations
+
 from collections.abc import Iterable, Iterator
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from sckitflow._constants import DEFAULT_MAX_N_OBS, DEFAULT_N_GROUPS
-from sckitflow.data._composite import MatchedData
 from sckitflow.data._mixins import MappedTree
 from sckitflow.data.samplers._base import FSampler, Sampler
+
+if TYPE_CHECKING:
+    from sckitflow.core._types import StepData
 
 __all__ = ["ValidationSampler", "FValidationSampler"]
 
 
-class ValidationSampler[DataT](Sampler[DataT], Iterable):
+class ValidationSampler(Sampler, Iterable):
     """Abstract class for validation samplers."""
 
     def __init__(
@@ -57,12 +62,13 @@ class ValidationSampler[DataT](Sampler[DataT], Iterable):
             replace_samples=replace_samples,
             replace_nodes=replace_nodes,
             use_nodes_weights=use_nodes_weights,
+            **kwargs,  # forwards e.g. `dispatch_fn` down the MRO to FSampler
         )
         self._max_n_obs = max_n_obs
         self._n_nodes = n_nodes
         self._data = self._register_data()
 
-    def _register_data(self) -> tuple[DataT]:
+    def _register_data(self) -> tuple[StepData]:
         """Pre-registres the samples for validation."""
         return self._sample(self._n_nodes, self._max_n_obs)
 
@@ -89,10 +95,10 @@ class ValidationSampler[DataT](Sampler[DataT], Iterable):
     def __len__(self) -> int:
         return len(self._data)
 
-    def __getitem__(self, idx: slice) -> tuple[DataT]:
+    def __getitem__(self, idx: slice) -> tuple[StepData]:
         return self._data[idx]
 
-    def __iter__(self) -> Iterator[DataT]:
+    def __iter__(self) -> Iterator[StepData]:
         yield from self._data
 
     @property
@@ -106,10 +112,10 @@ class ValidationSampler[DataT](Sampler[DataT], Iterable):
         return self._n_nodes
 
     @property
-    def data(self) -> tuple[MatchedData, ...]:
+    def data(self) -> tuple[StepData, ...]:
         """Returns the sequence of pre-registered samples."""
         return self._data
 
 
-class FValidationSampler[DataT](ValidationSampler[DataT], FSampler[DataT]):
+class FValidationSampler(ValidationSampler, FSampler):
     """Concrete validation sampler using an input callable to process the batch."""

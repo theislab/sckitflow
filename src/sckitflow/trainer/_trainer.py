@@ -4,7 +4,6 @@ from typing import Any
 import pandas as pd
 from tqdm import tqdm
 
-from sckitflow.core._data_utils import extract_step_data
 from sckitflow.core.methods._base import BaseMethod
 from sckitflow.core.methods._opt import OptimizationManager
 from sckitflow.data.samplers._train import FTrainSampler
@@ -69,22 +68,17 @@ class Trainer:
     ) -> None:
         """Run validation on a sampler and store predictions."""
         predictions_dict = {}
-        for node in sampler:
-            # Kept as the raw `StateData`; the `.X` unwrapping below turns it into an array.
-            target = node["target"].state_data
-            step_data = extract_step_data(node, device=self._method.device_id, dtype=self._method.dtype)
+        for node_id, step_data in enumerate(sampler):
+            # The sampler yields ready `StepData`; the ground-truth target is its
+            # `target_state` tensor (the metric callbacks accept tensors directly).
+            target_array = step_data["target_state"]
             preds = self._method.predict(step_data, *args, **kwargs)
             # Extract the actual data from PredictionData object
             if hasattr(preds, "samples"):
                 preds_array = preds.samples
             else:
                 preds_array = preds
-            if hasattr(target, "X"):
-                target_array = target.X
-            else:
-                target_array = target
-            node_id = str(node)  # or use a better identifier
-            predictions_dict[node_id] = {"predictions": preds_array, "targets": target_array}
+            predictions_dict[str(node_id)] = {"predictions": preds_array, "targets": target_array}
 
         # Trigger callbacks with the predictions dictionary
         metrics_dict = self._callbacks.on_valid_step(self, self._current_step, val_id, predictions_dict, **kwargs)
@@ -134,11 +128,10 @@ class Trainer:
         stop_step = start_step + n_train_steps
         pbar = tqdm(range(start_step, stop_step))
         for self._current_step in pbar:
-            # Sample nodes and perform training steps
-            nodes = train_sampler.sample()
+            # Sample ready `StepData` batches and perform training steps
+            step_data_batches = train_sampler.sample()
             step_dict = {}
-            for node in nodes:
-                step_data = extract_step_data(node, device=self._method.device_id, dtype=self._method.dtype)
+            for step_data in step_data_batches:
                 opt_data, step_dict = self._method.train_step(step_data, *args, **kwargs)
                 step_dict.update({"step": self._current_step})
                 self._opt_manager.step(opt_data)

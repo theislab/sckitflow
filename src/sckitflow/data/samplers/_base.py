@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 import abc
 from collections.abc import Callable
 from functools import cached_property, partial
+from typing import TYPE_CHECKING
 
 import numpy as np
 
@@ -9,14 +12,21 @@ from sckitflow.data._composite import MatchedData
 from sckitflow.data._mixins import MappedTree
 from sckitflow.data.containers._distribution import DistributionData
 
+if TYPE_CHECKING:
+    # Imported for typing only; importing at runtime would create a cycle
+    # (``core`` depends on ``data``). Samplers never build ``StepData`` themselves --
+    # the conversion is injected as ``dispatch_fn`` by the caller (e.g. ``Model``).
+    from sckitflow.core._types import StepData
+
 __all__ = ["Sampler", "FSampler"]
 
 
-class Sampler[DataT](abc.ABC):
+class Sampler(abc.ABC):
     """Abstract base class for sampler objects on trees.
 
-    ``DataT`` is the dispatched batch type (``MatchedData`` by default, or whatever
-    ``_dispatch_node`` returns). Subclasses need to override :meth:`_dispatch_node`.
+    Samplers dispatch each sampled node to a ready :class:`StepData`. Subclasses need
+    to override :meth:`_dispatch_node`; :class:`FSampler` does so via an injected
+    ``dispatch_fn`` (the ``MatchedData -> StepData`` conversion).
     """
 
     def __init__(
@@ -59,7 +69,7 @@ class Sampler[DataT](abc.ABC):
         self._inverse_frequency_weights = inverse_frequency_weights
 
     @abc.abstractmethod
-    def _dispatch_node(self, node: MatchedData) -> DataT:
+    def _dispatch_node(self, node: MatchedData) -> StepData:
         """Method used to dispatch a batch of samples from a node.
 
         Must be overridden by derived classes.
@@ -129,7 +139,7 @@ class Sampler[DataT](abc.ABC):
         self,
         node: MatchedData,
         batch_size: int = DEFAULT_BATCH_SIZE,
-    ) -> DataT:
+    ) -> StepData:
         """Samples a batch of observations from a node of matched distributions.
 
         :param node: The node object to sample from.
@@ -153,7 +163,7 @@ class Sampler[DataT](abc.ABC):
         self,
         n_nodes: int = DEFAULT_N_GROUPS,
         batch_size: int = DEFAULT_BATCH_SIZE,
-    ) -> tuple[DataT]:
+    ) -> tuple[StepData]:
         """Samples a batch of data from the tree.
 
         Sampling is done hierarchically, whereby a sed of nodes is sampled first
@@ -216,13 +226,13 @@ class Sampler[DataT](abc.ABC):
         return self._inverse_frequency_weights
 
 
-class FSampler[DataT](Sampler[DataT]):
+class FSampler(Sampler):
     """Concrete class using an input callable to process the batch."""
 
     def __init__(
         self,
         data: MappedTree,
-        dispatch_fn: Callable[[MatchedData], DataT] | None = None,
+        dispatch_fn: Callable[[MatchedData], StepData] | None = None,
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
@@ -236,7 +246,7 @@ class FSampler[DataT](Sampler[DataT]):
         :param dispatch_fn: The function used to post-process the batch of matched data
             before being dispatched. It will be used to override the corresponding
             method of the abstract class by wrapping it around this callable.
-        :type dispatch_fn: class: `Callable[[MatchedData], DataT]`
+        :type dispatch_fn: class: `Callable[[MatchedData], StepData]`
 
         :param replace_samples: Whether to sample observations with replacement
             from each node. Defaults to `False`.
@@ -258,7 +268,7 @@ class FSampler[DataT](Sampler[DataT]):
             data, replace_samples=replace_samples, replace_nodes=replace_nodes, use_nodes_weights=use_nodes_weights
         )
 
-    def _dispatch_node(self, node: MatchedData) -> DataT:
+    def _dispatch_node(self, node: MatchedData) -> StepData:
         """Method used to dispatch a batch of samples from a node.
 
         The dispatch function set at initialization with :param: `dispatch_fn` will be used.
@@ -269,6 +279,6 @@ class FSampler[DataT](Sampler[DataT]):
         return self._dispatch_fn(node)
 
     @property
-    def dispatch_fn(self) -> Callable[[MatchedData], DataT]:
+    def dispatch_fn(self) -> Callable[[MatchedData], StepData]:
         """Exposes the :param f: attribute set at initialization."""
         return self._dispatch_fn

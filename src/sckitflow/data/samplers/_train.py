@@ -1,11 +1,18 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from sckitflow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS, MAX_ITER_STEPS
 from sckitflow.data._mixins import MappedTree
 from sckitflow.data.samplers._base import FSampler, Sampler
 
+if TYPE_CHECKING:
+    from sckitflow.core._types import StepData
+
 __all__ = ["TrainSampler", "FTrainSampler"]
 
 
-class TrainSampler[DataT](Sampler[DataT]):
+class TrainSampler(Sampler):
     """Abstract class for train samplers."""
 
     def __init__(
@@ -53,6 +60,7 @@ class TrainSampler[DataT](Sampler[DataT]):
             replace_samples=replace_samples,
             replace_nodes=replace_nodes,
             use_nodes_weights=use_nodes_weights,
+            **kwargs,  # forwards e.g. `dispatch_fn` down the MRO to FSampler
         )
         self._batch_size = batch_size
         self._n_nodes = n_nodes
@@ -60,7 +68,7 @@ class TrainSampler[DataT](Sampler[DataT]):
 
         self._current_iter_step = 0
 
-    def sample(self) -> tuple[DataT]:
+    def sample(self) -> tuple[StepData]:
         """Samples a batch of data from the tree."""
         return self._sample(self._n_nodes, self._batch_size)
 
@@ -86,5 +94,5 @@ class TrainSampler[DataT](Sampler[DataT]):
         return self._n_nodes
 
 
-class FTrainSampler[DataT](TrainSampler[DataT], FSampler[DataT]):
+class FTrainSampler(TrainSampler, FSampler):
     """Concrete train sampler using an input callable to process the batch."""

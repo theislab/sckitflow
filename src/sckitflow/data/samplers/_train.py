@@ -1,16 +1,23 @@
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
+
 from sckitflow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS, MAX_ITER_STEPS
-from sckitflow.data._abc import DataT, DataTreeT, MatchedDistributionsT
+from sckitflow.data._mixins import MappedTree
 from sckitflow.data.samplers._base import FSampler, Sampler
+
+if TYPE_CHECKING:
+    from sckitflow.core._types import StepData
 
 __all__ = ["TrainSampler", "FTrainSampler"]
 
 
-class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
+class TrainSampler(Sampler):
     """Abstract class for train samplers."""
 
     def __init__(
         self,
-        tree: DataTreeT,
+        tree: MappedTree,
         *args,
         batch_size: int = DEFAULT_BATCH_SIZE,
         n_nodes: int = DEFAULT_N_GROUPS,
@@ -23,7 +30,7 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
         """Initializes the training sampler.
 
         :param tree: Tree storing the split and matched subpopulations.
-        :type tree: class: `DataTreeT`
+        :type tree: class: `MappedTree`
 
         :param batch_size: The number of observations to sample for each node in a batch.
             Defaults to :constant sckitflow._constants.DEFAULT_BATCH_SIZE:.
@@ -53,6 +60,7 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
             replace_samples=replace_samples,
             replace_nodes=replace_nodes,
             use_nodes_weights=use_nodes_weights,
+            **kwargs,  # forwards e.g. `dispatch_fn` down the MRO to FSampler
         )
         self._batch_size = batch_size
         self._n_nodes = n_nodes
@@ -60,7 +68,7 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
 
         self._current_iter_step = 0
 
-    def sample(self) -> tuple[DataT]:
+    def sample(self) -> tuple[StepData]:
         """Samples a batch of data from the tree."""
         return self._sample(self._n_nodes, self._batch_size)
 

@@ -1,20 +1,26 @@
+from __future__ import annotations
+
 from collections.abc import Iterable, Iterator
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from sckitflow._constants import DEFAULT_MAX_N_OBS, DEFAULT_N_GROUPS
-from sckitflow.data._abc import DataT, DataTreeT, MatchedDistributionsT
+from sckitflow.data._mixins import MappedTree
 from sckitflow.data.samplers._base import FSampler, Sampler
+
+if TYPE_CHECKING:
+    from sckitflow.core._types import StepData
 
 __all__ = ["ValidationSampler", "FValidationSampler"]
 
 
-class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
+class ValidationSampler(Sampler, Iterable):
     """Abstract class for validation samplers."""
 
     def __init__(
         self,
-        tree: DataTreeT,
+        tree: MappedTree,
         *args,
         max_n_obs: int = DEFAULT_MAX_N_OBS,
         n_nodes: int = DEFAULT_N_GROUPS,
@@ -26,7 +32,7 @@ class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
         """Initializes the training sampler.
 
         :param tree: Tree storing the split and matched subpopulations.
-        :type tree: class: `DataTreeT`
+        :type tree: class: `MappedTree`
 
         :param max_n_obs: The maximum number of observations to sample for each node in a batch.
             Defaults to :constant sckitflow._constants.DEFAULT_BATCH_SIZE:.
@@ -56,12 +62,13 @@ class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
             replace_samples=replace_samples,
             replace_nodes=replace_nodes,
             use_nodes_weights=use_nodes_weights,
+            **kwargs,  # forwards e.g. `dispatch_fn` down the MRO to FSampler
         )
         self._max_n_obs = max_n_obs
         self._n_nodes = n_nodes
         self._data = self._register_data()
 
-    def _register_data(self) -> tuple[DataT]:
+    def _register_data(self) -> tuple[StepData]:
         """Pre-registres the samples for validation."""
         return self._sample(self._n_nodes, self._max_n_obs)
 
@@ -88,10 +95,10 @@ class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
     def __len__(self) -> int:
         return len(self._data)
 
-    def __getitem__(self, idx: slice) -> tuple[DataT]:
+    def __getitem__(self, idx: slice) -> tuple[StepData]:
         return self._data[idx]
 
-    def __iter__(self) -> Iterator[DataT]:
+    def __iter__(self) -> Iterator[StepData]:
         yield from self._data
 
     @property
@@ -105,7 +112,7 @@ class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
         return self._n_nodes
 
     @property
-    def data(self) -> tuple[MatchedDistributionsT]:
+    def data(self) -> tuple[StepData, ...]:
         """Returns the sequence of pre-registered samples."""
         return self._data
 

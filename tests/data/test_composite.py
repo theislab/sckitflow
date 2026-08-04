@@ -1,7 +1,10 @@
 import numpy as np
 import pandas as pd
 import pytest
+import torch
 
+from sckitflow.core._data_utils import align_step_data
+from sckitflow.core._types import new_step_data
 from sckitflow.data._composite import MatchedData, NestedData
 from sckitflow.data._mixins import BatchMixin, MappedLevelIndex
 from sckitflow.data.containers._categorical import CategoricalData
@@ -32,27 +35,22 @@ class TestMatchedData:
     def test_properties_with_source(self):
         target = make_distribution(n=10)
         source = make_distribution(n=5)
-        matched = MatchedData(target_distribution=target, source_distribution=source)
+        matched = MatchedData(target=target, source=source)
 
-        assert matched.target is target
-        assert matched.source is source
-        assert matched.n_target_obs == 10
-        assert matched.n_source_obs == 5
-        assert matched.n_tgt_obs == 10
-        assert matched.n_src_obs == 5
-        assert matched.target_distr is target
-        assert matched.source_distr is source
+        assert matched["target"] is target
+        assert matched.get("source") is source
+        assert len(matched["target"]) == 10
+        assert len(matched.get("source")) == 5
+        assert matched["target"] is target
+        assert matched.get("source") is source
 
     def test_properties_without_source(self):
         target = make_distribution(n=8)
-        matched = MatchedData(target_distribution=target)
+        matched = MatchedData(target=target)
 
-        assert matched.target is target
-        assert matched.source is None
-        assert matched.n_target_obs == 8
-        assert matched.n_source_obs is None
-        assert matched.n_tgt_obs == 8
-        assert matched.n_src_obs is None
+        assert matched["target"] is target
+        assert matched.get("source") is None
+        assert len(matched["target"]) == 8
 
 
 class TestNestedData:
@@ -66,9 +64,9 @@ class TestNestedData:
         nested = NestedData._init_leaf_node(data, leaf_index)
 
         assert isinstance(nested, NestedData)
-        assert all(isinstance(v, MatchedData) for v in nested.mapping.values())
+        assert all(isinstance(v, dict) for v in nested.mapping.values())
         for v in nested.mapping.values():
-            assert v.source is None
+            assert v.get("source") is None
 
     def test_init_leaf_node_with_source(self, leaf_index):
         data = make_distribution(n=10)
@@ -78,9 +76,9 @@ class TestNestedData:
         assert isinstance(nested, NestedData)
         # The source key itself is not included as a target, so all entries have a source
         for key, v in nested.mapping.items():
-            assert isinstance(v, MatchedData)
+            assert isinstance(v, dict)
             if key != source_key:  # source key is excluded, but we don't have it in mapping
-                assert v.source is not None
+                assert v.get("source") is not None
 
     def test_init_tree_recursive(self):
         leaf_index_a = MappedLevelIndex(mapping={("leaf1",): slice(0, 2)})
@@ -94,7 +92,7 @@ class TestNestedData:
         for v in nested.mapping.values():
             assert isinstance(v, NestedData)
             for m in v.mapping.values():
-                assert isinstance(m, MatchedData)
+                assert isinstance(m, dict)
 
     def test_init_leaf_node_one_to_one(self, leaf_index):
         data = make_distribution(n=10)
@@ -109,19 +107,19 @@ class TestNestedData:
         # Compare n_obs and a representative attribute instead of full equality
         target_b = data[leaf_index.mapping[("b",)]]
         source_a = data[leaf_index.mapping[("a",)]]
-        assert len(matched_ab.target) == len(target_b)
-        assert len(matched_ab.source) == len(source_a)
+        assert len(matched_ab["target"]) == len(target_b)
+        assert len(matched_ab.get("source")) == len(source_a)
         # Optionally check that the state data is the same (first row)
         # Here we assume state data is a numpy array; check first element.
-        assert matched_ab.target.state_data.X[0] == target_b.state_data.X[0]
+        assert matched_ab["target"].state_data.X[0] == target_b.state_data.X[0]
 
         key_bc = (("b",), ("c",))
         matched_bc = nested.mapping[key_bc]
         target_c = data[leaf_index.mapping[("c",)]]
         source_b = data[leaf_index.mapping[("b",)]]
-        assert len(matched_bc.target) == len(target_c)
-        assert len(matched_bc.source) == len(source_b)
-        assert matched_bc.target.state_data.X[0] == target_c.state_data.X[0]
+        assert len(matched_bc["target"]) == len(target_c)
+        assert len(matched_bc.get("source")) == len(source_b)
+        assert matched_bc["target"].state_data.X[0] == target_c.state_data.X[0]
 
     def test_init_from_data_with_matched_keys_flat(self, leaf_index):
         """Wrap the leaf inside a root index so that init_from_data works."""
@@ -151,7 +149,7 @@ class TestNestedData:
         # Compare scalar attributes
         source_a = data[leaf_index.mapping[("a",)]]
         source_c = data[leaf_index.mapping[("c",)]]
-        actual_source = actual.mapping[key].source
+        actual_source = actual.mapping[key].get("source")
         assert len(actual_source) == len(source_a)
         # Ensure source_key=("c",) was ignored by comparing slice contents. All three
         # leaf slices are the same length, so only the values can tell them apart.
@@ -175,77 +173,90 @@ class TestNestedData:
         pair = sub.mapping[(("a",), ("b",))]
         target_b = data[leaf.mapping[("b",)]]
         source_a = data[leaf.mapping[("a",)]]
-        assert len(pair.target) == len(target_b)
-        assert len(pair.source) == len(source_a)
-        assert pair.target.state_data.X[0] == target_b.state_data.X[0]
+        assert len(pair["target"]) == len(target_b)
+        assert len(pair.get("source")) == len(source_a)
+        assert pair["target"].state_data.X[0] == target_b.state_data.X[0]
 
 
-class TestMatchedDataAlign:
-    """Test MatchedData.align method."""
+def _continuous_condition(n):
+    """A condition container that reports continuous covariates (triggers alignment)."""
+    return make_distribution_with_continuous_condition(n=n).condition_data
+
+
+class TestAlignStepData:
+    """Test `align_step_data`, which replaced the former `MatchedData.align`."""
 
     def test_no_continuous_covariates_returns_self(self):
-        """If target has no continuous condition covariates, align returns self."""
-        target = make_distribution(n=10)  # no condition_data
-        source = make_distribution(n=5)
-        matched = MatchedData(target_distribution=target, source_distribution=source)
-        aligned = matched.align()
-        assert aligned is matched
+        """If target has no continuous condition covariates, align is a no-op."""
+        step_data = new_step_data(
+            target_state=torch.randn(10, 5),
+            source_state=torch.randn(5, 5),
+            target_condition_data=None,
+        )
+        assert align_step_data(step_data) is step_data
 
     def test_source_none_returns_self(self):
-        """If source is None, align returns self."""
-        target = make_distribution_with_continuous_condition(n=10)
-        matched = MatchedData(target_distribution=target, source_distribution=None)
-        aligned = matched.align()
-        assert aligned is matched
+        """If there is no source, align is a no-op."""
+        step_data = new_step_data(
+            target_state=torch.randn(10, 5),
+            source_state=None,
+            target_condition_data=_continuous_condition(10),
+        )
+        assert align_step_data(step_data) is step_data
 
     def test_equal_obs_returns_self(self):
-        """If n_target_obs == n_source_obs, return self."""
-        target = make_distribution_with_continuous_condition(n=10)
-        source = make_distribution(n=10)  # source can be without continuous condition
-        matched = MatchedData(target_distribution=target, source_distribution=source)
-        aligned = matched.align()
-        assert aligned is matched
+        """If source and target already match in length, align is a no-op."""
+        step_data = new_step_data(
+            target_state=torch.randn(10, 5),
+            source_state=torch.randn(10, 5),
+            target_condition_data=_continuous_condition(10),
+        )
+        assert align_step_data(step_data) is step_data
 
     def test_target_shorter_slices_source(self):
-        """If target has fewer observations, source should be sliced."""
-        target = make_distribution_with_continuous_condition(n=6)
-        source = make_distribution(n=10)
-        matched = MatchedData(target_distribution=target, source_distribution=source)
-        aligned = matched.align()
-        # Sliced source should have 6 observations
-        assert len(aligned.source) == 6
-        # Check that the sliced source data matches the first 6 rows of original source
-        np.testing.assert_array_equal(aligned.source.state_data.X, source.state_data.X[:6])
-        # Target unchanged
-        assert aligned.target is target
+        """If target has fewer observations, the source is sliced."""
+        source = torch.randn(10, 5)
+        step_data = new_step_data(
+            target_state=torch.randn(6, 5),
+            source_state=source,
+            target_condition_data=_continuous_condition(6),
+        )
+        aligned = align_step_data(step_data)
+        assert aligned["source_state"].shape[0] == 6
+        assert torch.equal(aligned["source_state"], source[:6])
 
     def test_target_longer_repeats_source(self):
-        """If target has more observations, source should be repeated."""
-        target = make_distribution_with_continuous_condition(n=23)  # 23 observations
-        source = make_distribution(n=5)  # 5 observations
-        matched = MatchedData(target_distribution=target, source_distribution=source)
-        aligned = matched.align()
-        # Expected source length = 23 (repeated: 4 full repeats + remainder of 3)
-        assert len(aligned.source) == 23
-        # Check the concatenated array: should be source repeated 4 times + first 3 rows of source
-        expected = np.vstack([source.state_data.X] * 4 + [source.state_data.X[:3]])
-        np.testing.assert_array_equal(aligned.source.state_data.X, expected)
+        """If target has more observations, the source is tiled (repeats + remainder)."""
+        source = torch.randn(5, 5)
+        step_data = new_step_data(
+            target_state=torch.randn(23, 5),
+            source_state=source,
+            target_condition_data=_continuous_condition(23),
+        )
+        aligned = align_step_data(step_data)
+        assert aligned["source_state"].shape[0] == 23
+        expected = torch.cat([source] * 4 + [source[:3]], dim=0)
+        assert torch.equal(aligned["source_state"], expected)
 
     def test_target_longer_multiple_of_source(self):
-        """When target length is exact multiple of source length."""
-        target = make_distribution_with_continuous_condition(n=20)
-        source = make_distribution(n=5)
-        matched = MatchedData(target_distribution=target, source_distribution=source)
-        aligned = matched.align()
-        assert len(aligned.source) == 20
-        expected = np.vstack([source.state_data.X] * 4)
-        np.testing.assert_array_equal(aligned.source.state_data.X, expected)
+        """When target length is an exact multiple of source length."""
+        source = torch.randn(5, 5)
+        step_data = new_step_data(
+            target_state=torch.randn(20, 5),
+            source_state=source,
+            target_condition_data=_continuous_condition(20),
+        )
+        aligned = align_step_data(step_data)
+        expected = torch.cat([source] * 4, dim=0)
+        assert torch.equal(aligned["source_state"], expected)
 
     def test_target_shorter_exact_slice(self):
-        """When target length is less than source length (exact match not needed)."""
-        target = make_distribution_with_continuous_condition(n=3)
-        source = make_distribution(n=10)
-        matched = MatchedData(target_distribution=target, source_distribution=source)
-        aligned = matched.align()
-        assert len(aligned.source) == 3
-        np.testing.assert_array_equal(aligned.source.state_data.X, source.state_data.X[:3])
+        """When target length is less than source length."""
+        source = torch.randn(10, 5)
+        step_data = new_step_data(
+            target_state=torch.randn(3, 5),
+            source_state=source,
+            target_condition_data=_continuous_condition(3),
+        )
+        aligned = align_step_data(step_data)
+        assert torch.equal(aligned["source_state"], source[:3])

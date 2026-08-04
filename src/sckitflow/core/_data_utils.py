@@ -6,7 +6,7 @@ import torch
 from sckitflow.core._types import StepData, TensorMixin, TNoiseSamplerFn, new_step_data
 from sckitflow.core._utils import to_torch_tensor
 from sckitflow.data import mixins
-from sckitflow.data._composite import MatchedDistributions
+from sckitflow.data._composite import MatchedData
 from sckitflow.data.containers import CategoricalData, CouplingData, DistributionData, MixedTypeData, StateData
 
 __all__ = [
@@ -16,6 +16,7 @@ __all__ = [
     "extract_distribution_data",
     "get_tensor_dict_from_data",
     "extract_step_data",
+    "align_step_data",
     "write_continuous_cond_cov_to_step_data",
     "expand_conditioning",
     "prepare_latent_train",
@@ -100,12 +101,12 @@ def get_tensor_dict_from_data(
 
 
 def extract_step_data(
-    matched_distr: MatchedDistributions, dtype: torch.dtype | None = None, device: torch.device | None = None
+    matched_distr: MatchedData, dtype: torch.dtype | None = None, device: torch.device | None = None
 ) -> StepData:
     """Extracts torch tensors from the matched distribution data."""
     # parse dictionary of matched distributions
-    source_data_dict: DistributionData | None = matched_distr.source_distribution
-    target_data_dict: DistributionData | None = matched_distr.target_distribution
+    source_data_dict: DistributionData | None = matched_distr.get("source")
+    target_data_dict: DistributionData | None = matched_distr["target"]
 
     # parse target data dictionary
     if target_data_dict is not None:
@@ -150,10 +151,66 @@ def extract_step_data(
     )
 
 
+_SOURCE_FIELDS = (
+    "source_state",
+    "source_coupling_lin",
+    "source_coupling_quad",
+    "source_condition_data",
+    "source_group_data",
+)
+
+
+def _n_obs(*fields: Any) -> int | None:
+    """Number of observations from the first non-``None`` field (tensor or container)."""
+    for field in fields:
+        if field is not None:
+            return len(field)
+    return None
+
+
+def align_step_data(step_data: StepData) -> StepData:
+    """Aligns the source side to the target length by slicing or tiling.
+
+    Replaces the former ``MatchedData.align``. Source and target distributions are not
+    constrained to hold the same number of observations, but when the target carries
+    continuous condition covariates (per-observation conditioning), a real source of a
+    different length cannot be broadcast against it. In that case every source field is
+    reindexed with ``arange(n_target) % n_source``, which:
+
+    * slices the source to the first ``n_target`` rows when the source is longer, and
+    * tiles the source (whole repeats plus a remainder) when it is shorter.
+
+    It is a no-op when the target has no continuous condition covariates, when there is
+    no source (generation from noise), or when the two sides already match in length.
+    """
+    # no-op unless the target carries continuous (per-observation) condition covariates
+    condition_data = step_data["target_condition_data"]
+    if not getattr(condition_data, "has_continuous_covariates", False):
+        return step_data
+
+    n_source = _n_obs(*(step_data[f] for f in _SOURCE_FIELDS))
+    n_target = _n_obs(
+        step_data["target_state"],
+        step_data["target_condition_data"],
+        step_data["target_group_data"],
+        step_data["target_coupling_lin"],
+        step_data["target_coupling_quad"],
+    )
+
+    # no-op when there is no source or the sides already match
+    if n_source is None or n_target is None or n_source == n_target:
+        return step_data
+
+    # arange(n_target) % n_source slices (n_target < n_source) or tiles (n_target > n_source)
+    idx = np.arange(n_target) % n_source
+    aligned_source = {f: (None if step_data[f] is None else step_data[f][idx]) for f in _SOURCE_FIELDS}
+    return {**step_data, **aligned_source}
+
+
 def write_continuous_cond_cov_to_step_data(
     condition_key: str,
     x: torch.Tensor,
-    base_data: MatchedDistributions | None = None,
+    base_data: MatchedData | None = None,
     dtype: torch.dtype | None = None,
     device: torch.device | None = None,
 ) -> StepData:

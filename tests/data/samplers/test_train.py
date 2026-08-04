@@ -1,4 +1,3 @@
-from sckitflow.data._composite import MatchedData
 from sckitflow.data.samplers._train import FTrainSampler
 
 from ..shared import make_distribution, make_tree  # noqa
@@ -40,8 +39,8 @@ class TestTrainSampler:
 
         assert isinstance(batches, tuple)
         assert len(batches) == 2
-        assert all(isinstance(b, MatchedData) for b in batches)
-        assert all(len(b.target) == 3 for b in batches)
+        assert all(isinstance(b, dict) for b in batches)
+        assert all(len(b["target"]) == 3 for b in batches)
 
     def test_sample_with_source_none(self):
         tree = make_tree()
@@ -55,8 +54,8 @@ class TestTrainSampler:
 
         batch = sampler.sample()[0]
 
-        assert batch.source is None
-        assert len(batch.target) == 2
+        assert batch.get("source") is None
+        assert len(batch["target"]) == 2
 
     def test_dispatch_fn_applied(self):
         tree = make_tree()
@@ -72,6 +71,24 @@ class TestTrainSampler:
 
         assert batch[0] == "processed"
 
+    def test_dispatch_fn_applied_as_keyword(self):
+        # Regression: `dispatch_fn` passed by keyword must reach FSampler through the
+        # TrainSampler -> FSampler MRO. `Model` injects it this way so the sampler
+        # yields ready `StepData`; without kwargs forwarding it silently fell back to
+        # the identity dispatch (yielding `MatchedData`).
+        tree = make_tree()
+
+        sampler = FTrainSampler(
+            tree,
+            dispatch_fn=lambda node: {"dispatched": node},
+            batch_size=1,
+            n_nodes=1,
+        )
+
+        batch = sampler.sample()[0]
+
+        assert set(batch) == {"dispatched"}
+
     def test_node_sampling_respects_weights(self):
         tree = make_tree()
 
@@ -85,6 +102,6 @@ class TestTrainSampler:
         )
 
         batches = sampler.sample()
-        targets = [len(b.target) for b in batches]
+        targets = [len(b["target"]) for b in batches]
 
         assert set(targets).issubset({1})

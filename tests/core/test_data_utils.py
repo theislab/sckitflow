@@ -6,7 +6,7 @@ import torch
 
 from sckitflow.core import _data_utils as data_utils
 from sckitflow.core._types import StepData
-from sckitflow.data._composite import MatchedDistributions
+from sckitflow.data._composite import MatchedData
 from sckitflow.data._mixins import BatchMixin
 from sckitflow.data.containers import CouplingData, DistributionData, StateData
 
@@ -54,12 +54,9 @@ def distribution_data():
 
 @pytest.fixture
 def matched_data():
-    matched = Mock(spec=MatchedDistributions)
     source_dist = Mock(spec=DistributionData)
     target_dist = Mock(spec=DistributionData)
-    matched.source_distribution = source_dist
-    matched.target_distribution = target_dist
-    return matched
+    return MatchedData(target=target_dist, source=source_dist)
 
 
 class TestDataUtils:
@@ -87,8 +84,6 @@ class TestDataUtils:
 
     def test_extract_step_data(self):
         # Set up mocks with the required coupling data for both source and target
-        matched = Mock(spec=MatchedDistributions)
-
         source_dist = Mock(spec=DistributionData)
         target_dist = Mock(spec=DistributionData)
 
@@ -114,8 +109,7 @@ class TestDataUtils:
         target_dist.condition_data = Mock()
         target_dist.groups_data = Mock()
 
-        matched.source_distribution = source_dist
-        matched.target_distribution = target_dist
+        matched = MatchedData(target=target_dist, source=source_dist)
 
         step_data = data_utils.extract_step_data(matched)
         assert isinstance(step_data, dict)
@@ -160,7 +154,7 @@ class TestDataUtils:
             source_group_data=None,
         )
 
-        base_data = Mock(spec=MatchedDistributions)  # dummy, won't be used directly
+        base_data = MatchedData(target=Mock(spec=DistributionData))  # dummy, won't be used directly
         # Patch extract_step_data to return our prepared StepData
         monkeypatch.setattr(data_utils, "extract_step_data", lambda *a, **kw: existing_step)
 

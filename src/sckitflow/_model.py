@@ -13,7 +13,7 @@ from anndata import AnnData
 from tqdm import tqdm
 
 from sckitflow._types import PredictionData
-from sckitflow.core._data_utils import extract_step_data
+from sckitflow.core._data_utils import align_step_data, extract_step_data
 from sckitflow.core._types import StepData
 from sckitflow.core.methods._base import BaseMethod
 from sckitflow.core.methods._opt import OptimConfig
@@ -406,16 +406,21 @@ class Model:
 
         return pred_adata
 
-    def _node_to_step_data(self, node: MatchedData) -> StepData:
-        """Aligns a node and extracts ready :class:`StepData`.
+    def _to_step_data(self, node: MatchedData) -> StepData:
+        """Extracts ready :class:`StepData` from a node on the method's device/dtype.
 
-        This is the single boundary where a :class:`MatchedData` node becomes
-        :class:`StepData`. Alignment is a node-level operation, so it lives here rather
-        than downstream; everything after this point consumes only ``StepData``. Replace
-        this with a ``StepData``-native loader to drop the node pipeline from prediction.
+        Used as the samplers' ``dispatch_fn`` so training/validation samplers yield
+        ``StepData`` directly (the samplers never depend on ``core`` themselves).
         """
-        node_aligned = node.align()
-        return extract_step_data(node_aligned, device=self._method.device_id, dtype=self._method.dtype)
+        return extract_step_data(node, device=self._method.device_id, dtype=self._method.dtype)
+
+    def _node_to_step_data(self, node: MatchedData) -> StepData:
+        """Prediction-path conversion: extract, then align the source side.
+
+        Alignment (matching the source length to the target) is a ``StepData`` transform
+        applied only for inference; training uses :meth:`_to_step_data` (no alignment).
+        """
+        return align_step_data(self._to_step_data(node))
 
     def _predict_on_node(self, step_data: StepData, *args, **kwargs) -> PredictionData:
         """Runs inference on a ready :class:`StepData` batch.
@@ -533,18 +538,21 @@ class Model:
         else:
             val_trees_dict = {}
 
-        # create train sampler
+        # create train sampler. The dispatch turns each sampled node into ready
+        # `StepData` (on the method's device/dtype), so the sampler yields `StepData`.
         if train_sampler_kwargs is None:
             train_sampler_kwargs = {}
+        train_sampler_kwargs.setdefault("dispatch_fn", self._to_step_data)
         train_sampler = FTrainSampler(
             train_tree,
             batch_size=train_batch_size,
             **train_sampler_kwargs,
         )
 
-        # create validation samplers
+        # create validation samplers (same `StepData` dispatch)
         if val_sampler_kwargs is None:
             val_sampler_kwargs = {}
+        val_sampler_kwargs.setdefault("dispatch_fn", self._to_step_data)
         val_samplers_dict = {
             val_id: FValidationSampler(val_tree, max_n_obs=val_max_n_obs, **val_sampler_kwargs)
             for val_id, val_tree in val_trees_dict.items()

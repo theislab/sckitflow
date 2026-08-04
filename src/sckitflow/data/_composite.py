@@ -1,163 +1,22 @@
-from dataclasses import asdict, dataclass
-from typing import Any, ClassVar
+from dataclasses import dataclass
+from typing import Any, ClassVar, TypedDict
 
 from sckitflow._runtime import attempt_tqdm_import
-from sckitflow.data._abc import DistributionT, MatchedDistributions
 from sckitflow.data._mixins import MappedLevelIndex, MappedTree
 from sckitflow.data.containers._distribution import DistributionData
 
-__all__ = ["DistributionT", "MatchedData", "NestedData"]
+__all__ = ["MatchedData", "NestedData"]
 
 
-@dataclass(frozen=True)
-class MatchedData(MatchedDistributions):
-    """Container class for matched data.
+class MatchedData(TypedDict):
+    """A ``(target, source)`` distribution pair.
 
-    :param target_distribution: The target distribution for the matching.
-    :type target_distribution: class: `DistributionT`
-
-    :param source_distribution: Optional source distribution for the matching.
-        Defaults to `None`.
-    :type source_distribution: class: `DistributionT | None`
+    ``source`` is ``None`` in the unpaired ("generate from noise") setting. For
+    observation counts, use ``len(matched["target"])`` / ``len(matched["source"])``.
     """
 
-    target_distribution: DistributionData
-    source_distribution: DistributionT | None = None
-
-    def __post_init__(self) -> None:
-        if self.source_distribution is not None:
-            if (
-                self.target_distribution.target_coupling_data is not None
-                and self.source_distribution.source_coupling_data is not None
-            ):
-                self.target_distribution.target_coupling_data.assert_same_spatial_dims(
-                    self.source_distribution.source_coupling_data
-                )
-
-    def __repr__(self) -> str:
-        target_repr = "\n".join("\t" + line for line in repr(self.target_distribution).splitlines())
-        parts = [f" * (target) -> {target_repr}"]
-
-        if self.source_distribution is not None:
-            source_repr = "\n".join("\t" + line for line in repr(self.source_distribution).splitlines())
-            parts.append(f" * (source) -> {source_repr}")
-
-        return f"{self.__class__.__name__}:\n" + "\n".join(parts)
-
-    def align(self) -> "MatchedData":
-        """Aligns source and target distributions.
-
-        As source and target distributions are not constrained to contain the same number of samples,
-        this method is needed for such cases where such alignment is required. In particular,
-        this is the case whenever both continuous conditioning covariates and source/control states are
-        provided, as broadcasting would fail in this scenario.
-
-        The logic for the alignment is the following:
-
-        * No-op fallback for the cases in which no continuous condition covariate is provided,
-            no source/control state is modeled (i.e.: generation from noise) or
-            source and target distributions already have the same number of observations.
-        * When the target distribution contains less observations than the source one, source states
-            are simply sliced (subsetted) to the same amount of samples in the target. The subsetting
-            is done following the order given by the array storage, hence one would need to
-            sort the source/control states according to their needs in case they want to consider
-            some specific control states.
-        * When the target distribution contains more observations than the source one, source states
-            are reapeated as many times as needed to match the number of target observations.
-        """
-        # return self when no continuous covariates are present
-        if not self.target.has_continuous_condition_covariates:
-            return self
-        # return self when no source states are present
-        if self.source is None:
-            return self
-
-        # get number of observation in source and target data
-        n_src_obs = self.n_source_obs
-        n_tgt_obs = self.n_target_obs
-
-        # return self when they have same number of observations
-        if n_tgt_obs == n_src_obs:
-            return self
-
-        # slice source when there are less observations
-        if n_tgt_obs < n_src_obs:
-            tgt_slice = slice(n_tgt_obs)
-            src_data = self.source[tgt_slice]
-            return MatchedData(
-                self.target,
-                source_distribution=src_data,
-            )
-
-        # repeat source as many times as needed
-        n_repeats = n_tgt_obs // n_src_obs
-        n_remainders = n_tgt_obs % n_src_obs
-
-        # prepare for concatenation
-        src_to_concat = []
-        for _ in range(n_repeats):
-            src_data = self.source
-            src_to_concat.append(src_data)
-
-        # append remainder
-        src_data = self.source[slice(n_remainders)]
-        src_to_concat.append(src_data)
-
-        # concatenate distribution data
-        src_data = DistributionData.concat_collection(src_to_concat)
-        return MatchedData(
-            self.target,
-            source_distribution=src_data,
-        )
-
-    def to_dict(self) -> dict[str, Any]:
-        """"""  # noqa
-        return asdict(self)
-
-    @property
-    def target_distr(self) -> DistributionT:
-        """Alias for :attr: `self.target_distribution`."""
-        return self.target_distribution
-
-    @property
-    def source_distr(self) -> DistributionT | None:
-        """Alias for :attr: `self.source_distribution`."""
-        return self.source_distribution
-
-    @property
-    def target(self) -> DistributionT:
-        """Alias for :attr: `self.target_distribution`."""
-        return self.target_distribution
-
-    @property
-    def source(self) -> DistributionT | None:
-        """Alias for :attr: `self.source_distribution`."""
-        return self.source_distribution
-
-    @property
-    def n_source_obs(self) -> int | None:
-        """Returns the number of observations in the source distribution.
-
-        When the source distribution is not provided, it will return `None`.
-        """
-        if self.source_distribution is None:
-            return None
-        return len(self.source_distribution)
-
-    @property
-    def n_target_obs(self) -> int:
-        """Returns the number of observations in the target distribution."""
-        return len(self.target_distribution)
-
-    @property
-    def n_src_obs(self) -> int:
-        """Alias for :attr: `self.n_source_obs`."""
-        return self.n_source_obs
-
-    @property
-    def n_tgt_obs(self) -> int:
-        """Alias for :attr: `self.n_target_obs`."""
-        return self.n_target_obs
+    target: DistributionData
+    source: DistributionData | None
 
 
 @dataclass(frozen=True)
@@ -165,7 +24,9 @@ class NestedData(MappedTree):
     """Recursively mapped container for matched data."""
 
     _REQUIRED_KEY_TYPE: ClassVar[type] = tuple
-    _REQUIRED_VALUE_TYPE: ClassVar[type] = MatchedData
+    # ``MatchedData`` is a ``TypedDict`` (a ``dict`` at runtime, no isinstance support),
+    # so leaves are validated as plain dicts.
+    _REQUIRED_VALUE_TYPE: ClassVar[type] = dict
 
     @classmethod
     def init_from_data(
@@ -242,8 +103,8 @@ class NestedData(MappedTree):
             if pbar is not None:
                 pbar.update()
             data_dict[key] = MatchedData(
-                data[mapped_index.mapping[key]],
-                source_distribution=source_distribution,
+                target=data[mapped_index.mapping[key]],
+                source=source_distribution,
             )
         return cls(data_dict)
 
@@ -275,7 +136,7 @@ class NestedData(MappedTree):
             target_distribution = data[mapped_index.mapping[target_key]]
 
             # initialize matched distribution
-            matched_data = MatchedData(target_distribution, source_distribution=source_distribution)
+            matched_data = MatchedData(target=target_distribution, source=source_distribution)
 
             # store data
             key = (source_key, target_key)

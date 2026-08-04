@@ -1,25 +1,37 @@
+from __future__ import annotations
+
 import abc
 from collections.abc import Callable
 from functools import cached_property, partial
-from typing import Generic
+from typing import TYPE_CHECKING
 
 import numpy as np
 
 from sckitflow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS
-from sckitflow.data._abc import DataT, DataTreeT, DistributionT, MatchedDistributionsT
+from sckitflow.data._composite import MatchedData
+from sckitflow.data._mixins import MappedTree
+from sckitflow.data.containers._distribution import DistributionData
+
+if TYPE_CHECKING:
+    # Imported for typing only; importing at runtime would create a cycle
+    # (``core`` depends on ``data``). Samplers never build ``StepData`` themselves --
+    # the conversion is injected as ``dispatch_fn`` by the caller (e.g. ``Model``).
+    from sckitflow.core._types import StepData
 
 __all__ = ["Sampler", "FSampler"]
 
 
-class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
+class Sampler(abc.ABC):
     """Abstract base class for sampler objects on trees.
 
-    Subclasses need to override the :method _dispatch_node: method.
+    Samplers dispatch each sampled node to a ready :class:`StepData`. Subclasses need
+    to override :meth:`_dispatch_node`; :class:`FSampler` does so via an injected
+    ``dispatch_fn`` (the ``MatchedData -> StepData`` conversion).
     """
 
     def __init__(
         self,
-        tree: DataTreeT,
+        tree: MappedTree,
         *args,
         replace_samples: bool = False,
         replace_nodes: bool = False,
@@ -30,7 +42,7 @@ class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
         """Initializes the sampler.
 
         :param tree: Tree storing the split and matched subpopulations.
-        :type tree: class: `DataTreeT`
+        :type tree: class: `MappedTree`
 
         :param replace_samples: Whether to sample observations with replacement
             from each node. Defaults to `False`.
@@ -57,13 +69,13 @@ class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
         self._inverse_frequency_weights = inverse_frequency_weights
 
     @abc.abstractmethod
-    def _dispatch_node(self, node: MatchedDistributionsT) -> DataT:
+    def _dispatch_node(self, node: MatchedData) -> StepData:
         """Method used to dispatch a batch of samples from a node.
 
         Must be overridden by derived classes.
 
         :param node: The input node to dispatch.
-        :type node: class: `MatchedDistributionsT`
+        :type node: class: `MatchedData`
         """
 
     def _compute_nodes_freq(self) -> np.ndarray:
@@ -72,24 +84,25 @@ class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
         The relative frequency is computed by taking into account the number of observations
         in the target distribution.
         """
-        counts = np.array([len(e.target) for e in self.flattened_data])
+        counts = np.array([len(e["target"]) for e in self.flattened_data])
         return counts / counts.sum()
 
     def _sample_nodes(
         self,
         n_nodes: int,
-    ) -> np.ndarray[MatchedDistributionsT]:
-        """Samples an array of leaf nodes from the tree.
+    ) -> list[MatchedData]:
+        """Samples leaf nodes from the tree.
 
         :param n_nodes: The number of nodes to sample.
         :type n_nodes: class: `int`
         """
-        return np.random.choice(
-            self.flattened_data,
+        idxs = np.random.choice(
+            len(self.flattened_data),
             n_nodes,
             p=self.nodes_p if self._use_nodes_weights else None,
             replace=self._replace_nodes,
         )
+        return [self.flattened_data[i] for i in idxs]
 
     def _sample_indices(
         self,
@@ -109,7 +122,7 @@ class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
                 raise ValueError(msg)
             return np.random.permutation(n_obs)[:batch_size]
 
-    def _sample_from_distr(self, distr: DistributionT, batch_size: int = DEFAULT_BATCH_SIZE) -> DistributionT:
+    def _sample_from_distr(self, distr: DistributionData, batch_size: int = DEFAULT_BATCH_SIZE) -> DistributionData:
         """Samples a batch of observations from a distribution object.
 
         :param distr: The distribution object to sample from.
@@ -124,32 +137,33 @@ class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
 
     def _sample_observations(
         self,
-        node: MatchedDistributionsT,
+        node: MatchedData,
         batch_size: int = DEFAULT_BATCH_SIZE,
-    ) -> DataT:
+    ) -> StepData:
         """Samples a batch of observations from a node of matched distributions.
 
         :param node: The node object to sample from.
-        :type node: class: `DistributionDType`
+        :type node: class: `MatchedData`
 
         :param batch_size: The number of observations to be sampled in the batch.
             It will be the same for both source and target distributions.
             Defaults to :constant: `sckitflow.constants.DEFAULT_BATCH_SIZE`.
         :type batch_size: class: `int`
         """
-        target_distr = self._sample_from_distr(node.target, batch_size)
-        if node.source is not None:
-            source_distr = self._sample_from_distr(node.source, batch_size)
+        target_distr = self._sample_from_distr(node["target"], batch_size)
+        source = node.get("source")
+        if source is not None:
+            source_distr = self._sample_from_distr(source, batch_size)
         else:
             source_distr = None
-        batch_data = node.__class__(target_distr, source_distribution=source_distr)
+        batch_data = MatchedData(target=target_distr, source=source_distr)
         return self._dispatch_node(batch_data)
 
     def _sample(
         self,
         n_nodes: int = DEFAULT_N_GROUPS,
         batch_size: int = DEFAULT_BATCH_SIZE,
-    ) -> tuple[DataT]:
+    ) -> tuple[StepData]:
         """Samples a batch of data from the tree.
 
         Sampling is done hierarchically, whereby a sed of nodes is sampled first
@@ -166,7 +180,7 @@ class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
         return tuple(map(sample_fn, nodes))
 
     @property
-    def tree(self) -> DataTreeT:
+    def tree(self) -> MappedTree:
         """Returns the underlying data tree."""
         return self._tree
 
@@ -186,7 +200,7 @@ class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
         return self._use_nodes_weights
 
     @cached_property
-    def flattened_data(self) -> tuple[MatchedDistributionsT]:
+    def flattened_data(self) -> tuple[MatchedData, ...]:
         """Caches the flattened array of leaf nodes of the data tree.
 
         The transformation defined in :method: `self._preprocess_node` is applied upon caching.
@@ -212,13 +226,13 @@ class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
         return self._inverse_frequency_weights
 
 
-class FSampler(Sampler[MatchedDistributionsT, DataT]):
+class FSampler(Sampler):
     """Concrete class using an input callable to process the batch."""
 
     def __init__(
         self,
-        data: DataTreeT,
-        dispatch_fn: Callable[[DataT], DataT] | None = None,
+        data: MappedTree,
+        dispatch_fn: Callable[[MatchedData], StepData] | None = None,
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,
@@ -227,12 +241,12 @@ class FSampler(Sampler[MatchedDistributionsT, DataT]):
         """Initializes the sampler.
 
         :param tree: Tree storing the split and matched subpopulations.
-        :type tree: class: `DataTreeT`
+        :type tree: class: `MappedTree`
 
         :param dispatch_fn: The function used to post-process the batch of matched data
             before being dispatched. It will be used to override the corresponding
             method of the abstract class by wrapping it around this callable.
-        :type dispatch_fn: class: `Callable[[MatchedDistributionsT], MatchedDistributionsT]`
+        :type dispatch_fn: class: `Callable[[MatchedData], StepData]`
 
         :param replace_samples: Whether to sample observations with replacement
             from each node. Defaults to `False`.
@@ -254,17 +268,17 @@ class FSampler(Sampler[MatchedDistributionsT, DataT]):
             data, replace_samples=replace_samples, replace_nodes=replace_nodes, use_nodes_weights=use_nodes_weights
         )
 
-    def _dispatch_node(self, node: MatchedDistributionsT) -> DataT:
+    def _dispatch_node(self, node: MatchedData) -> StepData:
         """Method used to dispatch a batch of samples from a node.
 
         The dispatch function set at initialization with :param: `dispatch_fn` will be used.
 
         :param node: The input node to dispatch.
-        :type node: class: `MatchedDistributionsT`
+        :type node: class: `MatchedData`
         """
         return self._dispatch_fn(node)
 
     @property
-    def dispatch_fn(self) -> Callable[[MatchedDistributionsT], DataT]:
+    def dispatch_fn(self) -> Callable[[MatchedData], StepData]:
         """Exposes the :param f: attribute set at initialization."""
         return self._dispatch_fn

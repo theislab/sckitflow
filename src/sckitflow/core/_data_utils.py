@@ -6,7 +6,7 @@ import torch
 from sckitflow.core._types import StepData, TensorMixin, TNoiseSamplerFn, new_step_data
 from sckitflow.core._utils import to_torch_tensor
 from sckitflow.data import mixins
-from sckitflow.data._composite import MatchedDistributions
+from sckitflow.data._composite import MatchedData
 from sckitflow.data.containers import CategoricalData, CouplingData, DistributionData, MixedTypeData, StateData
 
 __all__ = [
@@ -101,7 +101,7 @@ def get_tensor_dict_from_data(
 
 
 def extract_step_data(
-    matched_distr: MatchedDistributions, dtype: torch.dtype | None = None, device: torch.device | None = None
+    matched_distr: MatchedData, dtype: torch.dtype | None = None, device: torch.device | None = None
 ) -> StepData:
     """Extracts torch tensors from the matched distribution data."""
     # parse dictionary of matched distributions
@@ -210,7 +210,7 @@ def align_step_data(step_data: StepData) -> StepData:
 def write_continuous_cond_cov_to_step_data(
     condition_key: str,
     x: torch.Tensor,
-    base_data: MatchedDistributions | None = None,
+    base_data: MatchedData | None = None,
     dtype: torch.dtype | None = None,
     device: torch.device | None = None,
 ) -> StepData:

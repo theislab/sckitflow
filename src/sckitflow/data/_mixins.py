@@ -1,29 +1,32 @@
+from __future__ import annotations
+
 from collections.abc import Callable, Collection, Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
-from typing import Any, ClassVar, Generic
+from typing import Any, ClassVar
 
 import numpy as np
-
-from sckitflow.data._abc import DataT, DataTree, DataTreeT, KeyT
 
 __all__ = ["MappedTree", "MappedLevelIndex", "MappedArray", "BatchMixin", "NumpyMixin"]
 
 
 @dataclass(frozen=True)
-class MappedTree(DataTree[DataT], Generic[KeyT, DataT]):
-    """"""  # noqa
+class MappedTree[KeyT: Hashable, ValT]:
+    """Recursively mapped tree keyed by ``KeyT`` with leaf values of type ``ValT``.
+
+    Each mapping value is either a leaf ``ValT`` or a nested ``MappedTree[KeyT, ValT]``.
+    """
 
     _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = str
     _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = object
-    mapping: Mapping[Hashable, DataT | DataTreeT] = dc_field(default_factory=dict)
+    mapping: Mapping[Hashable, ValT | MappedTree[KeyT, ValT]] = dc_field(default_factory=dict)
 
     def __post_init__(self) -> None:
         """"""  # noqa
         # verifying inputs
         self._verify_inputs()
 
-    def __getitem__(self, key: Hashable) -> DataT | DataTreeT:
+    def __getitem__(self, key: Hashable) -> ValT | MappedTree[KeyT, ValT]:
         """"""  # noqa
         return self.mapping[key]
 
@@ -40,13 +43,13 @@ class MappedTree(DataTree[DataT], Generic[KeyT, DataT]):
 
     def _apply_to_level(
         self,
-        level_value: DataT | DataTreeT,
+        level_value: ValT | MappedTree[KeyT, ValT],
         function: Callable[[Any], Any],
         *args,
         output_key_type: type[Any] | None = None,
         output_value_type: type[Any] | None = None,
         **kwargs,
-    ) -> DataT:
+    ) -> ValT | MappedTree[KeyT, ValT]:
         """"""  # noqa
         if isinstance(level_value, MappedTree):
             return self._apply(
@@ -60,13 +63,13 @@ class MappedTree(DataTree[DataT], Generic[KeyT, DataT]):
 
     def _apply(
         self,
-        mapping: Mapping[Hashable, DataT | DataTreeT],
+        mapping: Mapping[Hashable, ValT | MappedTree[KeyT, ValT]],
         function: Callable[[Any], Any],
         *args,
         output_key_type: type[Any] | None = None,
         output_value_type: type[Any] | None = None,
         **kwargs,
-    ) -> DataTreeT:
+    ) -> MappedTree[KeyT, ValT]:
         """"""  # noqa
         out_dict = {}
         if isinstance(mapping, MappedTree):
@@ -90,7 +93,7 @@ class MappedTree(DataTree[DataT], Generic[KeyT, DataT]):
         output_key_type: type[Any] | None = None,
         output_value_type: type[Any] | None = None,
         **kwargs,
-    ) -> DataTreeT:
+    ) -> MappedTree[KeyT, ValT]:
         """"""  # noqa
         return self._apply(
             self.mapping,
@@ -105,7 +108,7 @@ class MappedTree(DataTree[DataT], Generic[KeyT, DataT]):
     def is_leaf(self) -> bool:
         return all(isinstance(v, self._REQUIRED_VALUE_TYPE) for v in self.mapping.values())
 
-    def flatten(self) -> tuple[DataT]:
+    def flatten(self) -> tuple[ValT, ...]:
         """Flattens itself into a list of nodes."""
         if not self.is_leaf:
             return tuple([v for val in self.mapping.values() for v in val.flatten()])
@@ -126,7 +129,7 @@ class MappedArray(MappedTree):
 
 
 @dataclass(frozen=True)
-class BatchMixin(MappedTree[KeyT, DataT], Generic[KeyT, DataT]):
+class BatchMixin[KeyT: Hashable, ValT](MappedTree[KeyT, ValT]):
     """"""  # noqa
 
     _MIN_DIMS: ClassVar[int] = 1
@@ -154,7 +157,7 @@ class BatchMixin(MappedTree[KeyT, DataT], Generic[KeyT, DataT]):
     def _verify_shape(
         self,
         key: KeyT,
-        data: DataT,
+        data: ValT,
     ) -> None:
         """"""  # noqa
         # we need at least self._minimum_dims + 1 dimensions

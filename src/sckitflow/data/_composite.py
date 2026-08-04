@@ -1,97 +1,50 @@
-from dataclasses import asdict, dataclass
-from typing import Any, ClassVar
+from dataclasses import dataclass
+from typing import Any, ClassVar, NamedTuple
 
 from sckitflow._runtime import attempt_tqdm_import
-from sckitflow.data._abc import DistributionT, MatchedDistributions
 from sckitflow.data._mixins import MappedLevelIndex, MappedTree
 from sckitflow.data.containers._distribution import DistributionData
 
-__all__ = ["DistributionT", "MatchedData", "NestedData"]
+__all__ = ["MatchedData", "NestedData"]
 
 
-@dataclass(frozen=True)
-class MatchedData(MatchedDistributions):
-    """Container class for matched data.
+class MatchedData(NamedTuple):
+    """Container for matched data: a ``(target, source)`` distribution pair.
+
+    ``source_distribution`` is ``None`` in the unpaired ("generate from noise")
+    setting. For observation counts, use ``len(matched.target)`` /
+    ``len(matched.source)`` directly.
 
     :param target_distribution: The target distribution for the matching.
-    :type target_distribution: class: `DistributionT`
+    :type target_distribution: class: `DistributionData`
 
     :param source_distribution: Optional source distribution for the matching.
         Defaults to `None`.
-    :type source_distribution: class: `DistributionT | None`
+    :type source_distribution: class: `DistributionData | None`
     """
 
     target_distribution: DistributionData
-    source_distribution: DistributionT | None = None
-
-    def __post_init__(self) -> None:
-        if self.source_distribution is not None:
-            if (
-                self.target_distribution.target_coupling_data is not None
-                and self.source_distribution.source_coupling_data is not None
-            ):
-                self.target_distribution.target_coupling_data.assert_same_spatial_dims(
-                    self.source_distribution.source_coupling_data
-                )
-
-    def __repr__(self) -> str:
-        target_repr = "\n".join("\t" + line for line in repr(self.target_distribution).splitlines())
-        parts = [f" * (target) -> {target_repr}"]
-
-        if self.source_distribution is not None:
-            source_repr = "\n".join("\t" + line for line in repr(self.source_distribution).splitlines())
-            parts.append(f" * (source) -> {source_repr}")
-
-        return f"{self.__class__.__name__}:\n" + "\n".join(parts)
-
-    def to_dict(self) -> dict[str, Any]:
-        """"""  # noqa
-        return asdict(self)
+    source_distribution: DistributionData | None = None
 
     @property
-    def target_distr(self) -> DistributionT:
-        """Alias for :attr: `self.target_distribution`."""
+    def target_distr(self) -> DistributionData:
+        """Alias for :attr:`target_distribution`."""
         return self.target_distribution
 
     @property
-    def source_distr(self) -> DistributionT | None:
-        """Alias for :attr: `self.source_distribution`."""
+    def source_distr(self) -> DistributionData | None:
+        """Alias for :attr:`source_distribution`."""
         return self.source_distribution
 
     @property
-    def target(self) -> DistributionT:
-        """Alias for :attr: `self.target_distribution`."""
+    def target(self) -> DistributionData:
+        """Alias for :attr:`target_distribution`."""
         return self.target_distribution
 
     @property
-    def source(self) -> DistributionT | None:
-        """Alias for :attr: `self.source_distribution`."""
+    def source(self) -> DistributionData | None:
+        """Alias for :attr:`source_distribution`."""
         return self.source_distribution
-
-    @property
-    def n_source_obs(self) -> int | None:
-        """Returns the number of observations in the source distribution.
-
-        When the source distribution is not provided, it will return `None`.
-        """
-        if self.source_distribution is None:
-            return None
-        return len(self.source_distribution)
-
-    @property
-    def n_target_obs(self) -> int:
-        """Returns the number of observations in the target distribution."""
-        return len(self.target_distribution)
-
-    @property
-    def n_src_obs(self) -> int:
-        """Alias for :attr: `self.n_source_obs`."""
-        return self.n_source_obs
-
-    @property
-    def n_tgt_obs(self) -> int:
-        """Alias for :attr: `self.n_target_obs`."""
-        return self.n_target_obs
 
 
 @dataclass(frozen=True)

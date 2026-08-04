@@ -97,7 +97,7 @@ class SolverConfig(NamedTuple):
 class StepData(TypedDict, total=False):
     """Ready-to-consume batch of torch tensors for a single train/inference step.
 
-    Constructed from a :class:`MatchedDistributions` node via
+    Constructed from a :class:`MatchedData` node via
     :func:`sckitflow.core._data_utils.extract_step_data`. Every field is optional; the
     source side stays ``None`` in the unpaired ("generate from noise") setting. Use
     :func:`new_step_data` to build an instance with every field defaulting to ``None``.

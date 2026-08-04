@@ -103,7 +103,7 @@ class BaseMethod(abc.ABC):
     ) -> dict[str, Any]:
         """Single training step on a ready :class:`StepData` batch.
 
-        Callers are responsible for turning a ``MatchedDistributions`` node into a
+        Callers are responsible for turning a ``MatchedData`` node into a
         :class:`StepData` (via ``extract_step_data``) before calling this method.
 
         :param step_data: Ready-to-consume batch of torch tensors.
@@ -120,7 +120,7 @@ class BaseMethod(abc.ABC):
     ) -> PredictionData:
         """Prediction on a ready :class:`StepData` batch.
 
-        Callers are responsible for turning a ``MatchedDistributions`` node into a
+        Callers are responsible for turning a ``MatchedData`` node into a
         :class:`StepData` (via ``extract_step_data``) before calling this method.
         """
         # optionally stop gradients

@@ -39,10 +39,8 @@ class TestMatchedData:
 
         assert matched.target is target
         assert matched.source is source
-        assert matched.n_target_obs == 10
-        assert matched.n_source_obs == 5
-        assert matched.n_tgt_obs == 10
-        assert matched.n_src_obs == 5
+        assert len(matched.target) == 10
+        assert len(matched.source) == 5
         assert matched.target_distr is target
         assert matched.source_distr is source
 
@@ -52,10 +50,7 @@ class TestMatchedData:
 
         assert matched.target is target
         assert matched.source is None
-        assert matched.n_target_obs == 8
-        assert matched.n_source_obs is None
-        assert matched.n_tgt_obs == 8
-        assert matched.n_src_obs is None
+        assert len(matched.target) == 8
 
 
 class TestNestedData:

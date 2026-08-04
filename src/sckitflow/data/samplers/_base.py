@@ -78,18 +78,23 @@ class Sampler(Generic[MatchedDistributionsT, DataT], abc.ABC):
     def _sample_nodes(
         self,
         n_nodes: int,
-    ) -> np.ndarray[MatchedDistributionsT]:
-        """Samples an array of leaf nodes from the tree.
+    ) -> list[MatchedDistributionsT]:
+        """Samples leaf nodes from the tree.
+
+        Nodes are selected by index rather than passing ``flattened_data`` straight to
+        ``np.random.choice``: nodes are ``MatchedData`` (a ``NamedTuple``, hence a
+        ``tuple``), which numpy would otherwise unpack into a 2-D array.
 
         :param n_nodes: The number of nodes to sample.
         :type n_nodes: class: `int`
         """
-        return np.random.choice(
-            self.flattened_data,
+        idxs = np.random.choice(
+            len(self.flattened_data),
             n_nodes,
             p=self.nodes_p if self._use_nodes_weights else None,
             replace=self._replace_nodes,
         )
+        return [self.flattened_data[i] for i in idxs]
 
     def _sample_indices(
         self,

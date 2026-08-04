@@ -1,40 +1,19 @@
-from __future__ import annotations
-
-import abc
-from collections.abc import Hashable, Iterable
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 __all__ = [
-    "Distribution",
-    "MatchedDistributions",
-    "DataTree",
     "DataT",
+    "DataTreeT",
     "DistributionT",
     "MatchedDistributionsT",
-    "DataTreeT",
 ]
 
 
+# Shared TypeVars for the sampler / data-tree generics. The abstract base classes
+# that used to live here (``Distribution``, ``MatchedDistributions``, ``DataTree``)
+# were removed; the concrete classes (``DistributionData``, ``MatchedData``,
+# ``MappedTree``) carry all behavior. The container generics ``KeyT``/``ValT`` now
+# live inline in ``_mixins.py`` via PEP 695; these remain for the sampler classes.
 DataT = TypeVar("DataT")
-KeyT = TypeVar("KeyT", bound=Hashable)
-DistributionT = TypeVar("DistributionDType", bound="Distribution")
-MatchedDistributionsT = TypeVar("MatchedDistributionsT", bound="MatchedDistributions")
-DataTreeT = TypeVar("DataTreeT", bound="DataTree")
-
-
-class Distribution(abc.ABC):
-    @abc.abstractmethod
-    def __len__(self) -> int: ...
-
-    @abc.abstractmethod
-    def __getitem__(self, idx) -> Distribution: ...
-
-
-class MatchedDistributions(abc.ABC):
-    target: Distribution
-    source: Distribution | None
-
-
-class DataTree(Generic[DataT], abc.ABC):
-    @abc.abstractmethod
-    def flatten(self) -> Iterable[MatchedDistributions]: ...
+DataTreeT = TypeVar("DataTreeT")
+DistributionT = TypeVar("DistributionT")
+MatchedDistributionsT = TypeVar("MatchedDistributionsT")

@@ -13,7 +13,7 @@ from anndata import AnnData
 from tqdm import tqdm
 
 from sckitflow._types import PredictionData
-from sckitflow.core._data_utils import extract_step_data
+from sckitflow.core._data_utils import align_step_data, extract_step_data
 from sckitflow.core._types import StepData
 from sckitflow.core.methods._base import BaseMethod
 from sckitflow.core.methods._opt import OptimConfig
@@ -407,15 +407,16 @@ class Model:
         return pred_adata
 
     def _node_to_step_data(self, node: MatchedData) -> StepData:
-        """Aligns a node and extracts ready :class:`StepData`.
+        """Extracts ready :class:`StepData` from a node and aligns its source side.
 
         This is the single boundary where a :class:`MatchedData` node becomes
-        :class:`StepData`. Alignment is a node-level operation, so it lives here rather
-        than downstream; everything after this point consumes only ``StepData``. Replace
-        this with a ``StepData``-native loader to drop the node pipeline from prediction.
+        :class:`StepData`; everything after this point consumes only ``StepData``.
+        Alignment (matching the source length to the target) is now a ``StepData``
+        transform rather than a node operation. Replace this with a ``StepData``-native
+        loader to drop the node pipeline from prediction.
         """
-        node_aligned = node.align()
-        return extract_step_data(node_aligned, device=self._method.device_id, dtype=self._method.dtype)
+        step_data = extract_step_data(node, device=self._method.device_id, dtype=self._method.dtype)
+        return align_step_data(step_data)
 
     def _predict_on_node(self, step_data: StepData, *args, **kwargs) -> PredictionData:
         """Runs inference on a ready :class:`StepData` batch.

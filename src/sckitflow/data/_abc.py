@@ -34,10 +34,6 @@ class MatchedDistributions(abc.ABC):
     target: Distribution
     source: Distribution | None
 
-    @abc.abstractmethod
-    def align(self) -> MatchedDistributions:
-        pass
-
 
 class DataTree(Generic[DataT], abc.ABC):
     @abc.abstractmethod

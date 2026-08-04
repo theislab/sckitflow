@@ -104,7 +104,7 @@ def make_distribution(n=10):
 def make_matched_data(target_size=10, source_size=5):
     target = make_distribution(target_size)
     source = make_distribution(source_size)
-    return MatchedData(target_distribution=target, source_distribution=source)
+    return MatchedData(target=target, source=source)
 
 
 def make_tree():

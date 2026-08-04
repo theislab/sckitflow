@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any, ClassVar, NamedTuple
+from typing import Any, ClassVar, TypedDict
 
 from sckitflow._runtime import attempt_tqdm_import
 from sckitflow.data._mixins import MappedLevelIndex, MappedTree
@@ -8,43 +8,15 @@ from sckitflow.data.containers._distribution import DistributionData
 __all__ = ["MatchedData", "NestedData"]
 
 
-class MatchedData(NamedTuple):
-    """Container for matched data: a ``(target, source)`` distribution pair.
+class MatchedData(TypedDict):
+    """A ``(target, source)`` distribution pair.
 
-    ``source_distribution`` is ``None`` in the unpaired ("generate from noise")
-    setting. For observation counts, use ``len(matched.target)`` /
-    ``len(matched.source)`` directly.
-
-    :param target_distribution: The target distribution for the matching.
-    :type target_distribution: class: `DistributionData`
-
-    :param source_distribution: Optional source distribution for the matching.
-        Defaults to `None`.
-    :type source_distribution: class: `DistributionData | None`
+    ``source`` is ``None`` in the unpaired ("generate from noise") setting. For
+    observation counts, use ``len(matched["target"])`` / ``len(matched["source"])``.
     """
 
-    target_distribution: DistributionData
-    source_distribution: DistributionData | None = None
-
-    @property
-    def target_distr(self) -> DistributionData:
-        """Alias for :attr:`target_distribution`."""
-        return self.target_distribution
-
-    @property
-    def source_distr(self) -> DistributionData | None:
-        """Alias for :attr:`source_distribution`."""
-        return self.source_distribution
-
-    @property
-    def target(self) -> DistributionData:
-        """Alias for :attr:`target_distribution`."""
-        return self.target_distribution
-
-    @property
-    def source(self) -> DistributionData | None:
-        """Alias for :attr:`source_distribution`."""
-        return self.source_distribution
+    target: DistributionData
+    source: DistributionData | None
 
 
 @dataclass(frozen=True)
@@ -52,7 +24,9 @@ class NestedData(MappedTree):
     """Recursively mapped container for matched data."""
 
     _REQUIRED_KEY_TYPE: ClassVar[type] = tuple
-    _REQUIRED_VALUE_TYPE: ClassVar[type] = MatchedData
+    # ``MatchedData`` is a ``TypedDict`` (a ``dict`` at runtime, no isinstance support),
+    # so leaves are validated as plain dicts.
+    _REQUIRED_VALUE_TYPE: ClassVar[type] = dict
 
     @classmethod
     def init_from_data(
@@ -129,8 +103,8 @@ class NestedData(MappedTree):
             if pbar is not None:
                 pbar.update()
             data_dict[key] = MatchedData(
-                data[mapped_index.mapping[key]],
-                source_distribution=source_distribution,
+                target=data[mapped_index.mapping[key]],
+                source=source_distribution,
             )
         return cls(data_dict)
 
@@ -162,7 +136,7 @@ class NestedData(MappedTree):
             target_distribution = data[mapped_index.mapping[target_key]]
 
             # initialize matched distribution
-            matched_data = MatchedData(target_distribution, source_distribution=source_distribution)
+            matched_data = MatchedData(target=target_distribution, source=source_distribution)
 
             # store data
             key = (source_key, target_key)

@@ -40,8 +40,8 @@ class TestTrainSampler:
 
         assert isinstance(batches, tuple)
         assert len(batches) == 2
-        assert all(isinstance(b, MatchedData) for b in batches)
-        assert all(len(b.target) == 3 for b in batches)
+        assert all(isinstance(b, dict) for b in batches)
+        assert all(len(b["target"]) == 3 for b in batches)
 
     def test_sample_with_source_none(self):
         tree = make_tree()
@@ -55,8 +55,8 @@ class TestTrainSampler:
 
         batch = sampler.sample()[0]
 
-        assert batch.source is None
-        assert len(batch.target) == 2
+        assert batch.get("source") is None
+        assert len(batch["target"]) == 2
 
     def test_dispatch_fn_applied(self):
         tree = make_tree()
@@ -85,6 +85,6 @@ class TestTrainSampler:
         )
 
         batches = sampler.sample()
-        targets = [len(b.target) for b in batches]
+        targets = [len(b["target"]) for b in batches]
 
         assert set(targets).issubset({1})

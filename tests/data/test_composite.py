@@ -35,22 +35,22 @@ class TestMatchedData:
     def test_properties_with_source(self):
         target = make_distribution(n=10)
         source = make_distribution(n=5)
-        matched = MatchedData(target_distribution=target, source_distribution=source)
+        matched = MatchedData(target=target, source=source)
 
-        assert matched.target is target
-        assert matched.source is source
-        assert len(matched.target) == 10
-        assert len(matched.source) == 5
-        assert matched.target_distr is target
-        assert matched.source_distr is source
+        assert matched["target"] is target
+        assert matched.get("source") is source
+        assert len(matched["target"]) == 10
+        assert len(matched.get("source")) == 5
+        assert matched["target"] is target
+        assert matched.get("source") is source
 
     def test_properties_without_source(self):
         target = make_distribution(n=8)
-        matched = MatchedData(target_distribution=target)
+        matched = MatchedData(target=target)
 
-        assert matched.target is target
-        assert matched.source is None
-        assert len(matched.target) == 8
+        assert matched["target"] is target
+        assert matched.get("source") is None
+        assert len(matched["target"]) == 8
 
 
 class TestNestedData:
@@ -64,9 +64,9 @@ class TestNestedData:
         nested = NestedData._init_leaf_node(data, leaf_index)
 
         assert isinstance(nested, NestedData)
-        assert all(isinstance(v, MatchedData) for v in nested.mapping.values())
+        assert all(isinstance(v, dict) for v in nested.mapping.values())
         for v in nested.mapping.values():
-            assert v.source is None
+            assert v.get("source") is None
 
     def test_init_leaf_node_with_source(self, leaf_index):
         data = make_distribution(n=10)
@@ -76,9 +76,9 @@ class TestNestedData:
         assert isinstance(nested, NestedData)
         # The source key itself is not included as a target, so all entries have a source
         for key, v in nested.mapping.items():
-            assert isinstance(v, MatchedData)
+            assert isinstance(v, dict)
             if key != source_key:  # source key is excluded, but we don't have it in mapping
-                assert v.source is not None
+                assert v.get("source") is not None
 
     def test_init_tree_recursive(self):
         leaf_index_a = MappedLevelIndex(mapping={("leaf1",): slice(0, 2)})
@@ -92,7 +92,7 @@ class TestNestedData:
         for v in nested.mapping.values():
             assert isinstance(v, NestedData)
             for m in v.mapping.values():
-                assert isinstance(m, MatchedData)
+                assert isinstance(m, dict)
 
     def test_init_leaf_node_one_to_one(self, leaf_index):
         data = make_distribution(n=10)
@@ -107,19 +107,19 @@ class TestNestedData:
         # Compare n_obs and a representative attribute instead of full equality
         target_b = data[leaf_index.mapping[("b",)]]
         source_a = data[leaf_index.mapping[("a",)]]
-        assert len(matched_ab.target) == len(target_b)
-        assert len(matched_ab.source) == len(source_a)
+        assert len(matched_ab["target"]) == len(target_b)
+        assert len(matched_ab.get("source")) == len(source_a)
         # Optionally check that the state data is the same (first row)
         # Here we assume state data is a numpy array; check first element.
-        assert matched_ab.target.state_data.X[0] == target_b.state_data.X[0]
+        assert matched_ab["target"].state_data.X[0] == target_b.state_data.X[0]
 
         key_bc = (("b",), ("c",))
         matched_bc = nested.mapping[key_bc]
         target_c = data[leaf_index.mapping[("c",)]]
         source_b = data[leaf_index.mapping[("b",)]]
-        assert len(matched_bc.target) == len(target_c)
-        assert len(matched_bc.source) == len(source_b)
-        assert matched_bc.target.state_data.X[0] == target_c.state_data.X[0]
+        assert len(matched_bc["target"]) == len(target_c)
+        assert len(matched_bc.get("source")) == len(source_b)
+        assert matched_bc["target"].state_data.X[0] == target_c.state_data.X[0]
 
     def test_init_from_data_with_matched_keys_flat(self, leaf_index):
         """Wrap the leaf inside a root index so that init_from_data works."""
@@ -149,7 +149,7 @@ class TestNestedData:
         # Compare scalar attributes
         source_a = data[leaf_index.mapping[("a",)]]
         source_c = data[leaf_index.mapping[("c",)]]
-        actual_source = actual.mapping[key].source
+        actual_source = actual.mapping[key].get("source")
         assert len(actual_source) == len(source_a)
         # Ensure source_key=("c",) was ignored by comparing slice contents. All three
         # leaf slices are the same length, so only the values can tell them apart.
@@ -173,9 +173,9 @@ class TestNestedData:
         pair = sub.mapping[(("a",), ("b",))]
         target_b = data[leaf.mapping[("b",)]]
         source_a = data[leaf.mapping[("a",)]]
-        assert len(pair.target) == len(target_b)
-        assert len(pair.source) == len(source_a)
-        assert pair.target.state_data.X[0] == target_b.state_data.X[0]
+        assert len(pair["target"]) == len(target_b)
+        assert len(pair.get("source")) == len(source_a)
+        assert pair["target"].state_data.X[0] == target_b.state_data.X[0]
 
 
 def _continuous_condition(n):

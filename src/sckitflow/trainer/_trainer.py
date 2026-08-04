@@ -71,7 +71,7 @@ class Trainer:
         predictions_dict = {}
         for node in sampler:
             # Kept as the raw `StateData`; the `.X` unwrapping below turns it into an array.
-            target = node.target_distr.state_data
+            target = node["target"].state_data
             step_data = extract_step_data(node, device=self._method.device_id, dtype=self._method.dtype)
             preds = self._method.predict(step_data, *args, **kwargs)
             # Extract the actual data from PredictionData object

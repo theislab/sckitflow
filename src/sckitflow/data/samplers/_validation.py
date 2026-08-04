@@ -3,18 +3,19 @@ from collections.abc import Iterable, Iterator
 import numpy as np
 
 from sckitflow._constants import DEFAULT_MAX_N_OBS, DEFAULT_N_GROUPS
-from sckitflow.data._abc import DataT, DataTreeT, MatchedDistributionsT
+from sckitflow.data._composite import MatchedData
+from sckitflow.data._mixins import MappedTree
 from sckitflow.data.samplers._base import FSampler, Sampler
 
 __all__ = ["ValidationSampler", "FValidationSampler"]
 
 
-class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
+class ValidationSampler[DataT](Sampler[DataT], Iterable):
     """Abstract class for validation samplers."""
 
     def __init__(
         self,
-        tree: DataTreeT,
+        tree: MappedTree,
         *args,
         max_n_obs: int = DEFAULT_MAX_N_OBS,
         n_nodes: int = DEFAULT_N_GROUPS,
@@ -26,7 +27,7 @@ class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
         """Initializes the training sampler.
 
         :param tree: Tree storing the split and matched subpopulations.
-        :type tree: class: `DataTreeT`
+        :type tree: class: `MappedTree`
 
         :param max_n_obs: The maximum number of observations to sample for each node in a batch.
             Defaults to :constant sckitflow._constants.DEFAULT_BATCH_SIZE:.
@@ -105,10 +106,10 @@ class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
         return self._n_nodes
 
     @property
-    def data(self) -> tuple[MatchedDistributionsT]:
+    def data(self) -> tuple[MatchedData, ...]:
         """Returns the sequence of pre-registered samples."""
         return self._data
 
 
-class FValidationSampler(ValidationSampler, FSampler):
+class FValidationSampler[DataT](ValidationSampler[DataT], FSampler[DataT]):
     """Concrete validation sampler using an input callable to process the batch."""

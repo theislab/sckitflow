@@ -115,8 +115,8 @@ class TestCompileAdata:
                 for v in node.mapping.values():
                     check(v)
             else:
-                assert isinstance(node, MatchedData)
-                assert len(node.target) > 0
+                assert isinstance(node, dict)
+                assert len(node["target"]) > 0
 
         check(nested)
 
@@ -237,7 +237,7 @@ class TestRequireTargetState:
         collect(nested)
         assert len(leaves) == N_CELL_LINES * N_DRUGS
         for leaf in leaves:
-            assert leaf.target.state_data is None
+            assert leaf["target"].state_data is None
 
 
 class TestSourceKey:
@@ -319,7 +319,7 @@ class TestConditionSpacePairedSettings:
             if isinstance(node, NestedData):
                 for v in node.mapping.values():
                     visit(v)
-            elif node.source is not None:
+            elif node.get("source") is not None:
                 found = True
 
         visit(nested)
@@ -402,8 +402,8 @@ class TestMatchedKeys:
         leaves = self._collect_leaves(nested)
         # For each leaf, the target distribution should have condition 'aspirin'
         for leaf in leaves:
-            if leaf.target is not None:
-                condition = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                condition = self._get_condition_value(leaf["target"])
                 assert condition == "aspirin", f"Expected target condition 'aspirin', got {condition}"
 
     def test_compile_adata_matched_keys_none_uses_instance(self, adata_small: AnnData):
@@ -420,8 +420,8 @@ class TestMatchedKeys:
         nested = manager.compile_adata(adata_small, sort=True, matched_keys=None)
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.target is not None:
-                condition = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                condition = self._get_condition_value(leaf["target"])
                 assert condition == "ibuprofen", f"Expected target condition 'ibuprofen', got {condition}"
 
     def test_compile_adata_no_matched_keys_instance_none(self, adata_small: AnnData):
@@ -439,8 +439,8 @@ class TestMatchedKeys:
         # The target condition can be any non-control value.
         found = False
         for leaf in leaves:
-            if leaf.target is not None:
-                cond = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                cond = self._get_condition_value(leaf["target"])
                 if cond != "control":
                     found = True
                     break
@@ -465,8 +465,8 @@ class TestMatchedKeys:
         leaves = self._collect_leaves(nested)
         # Check that target condition is 'aspirin' for all leaves
         for leaf in leaves:
-            if leaf.target is not None:
-                condition = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                condition = self._get_condition_value(leaf["target"])
                 assert condition == "aspirin", f"Expected target condition 'aspirin', got {condition}"
 
     # ------------------ get_matched_distributions tests ------------------
@@ -487,8 +487,8 @@ class TestMatchedKeys:
         nested = manager.get_matched_distributions(distr, matched_keys=override_keys)
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.target is not None:
-                condition = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                condition = self._get_condition_value(leaf["target"])
                 assert condition == "aspirin", f"Expected target condition 'aspirin', got {condition}"
 
     def test_get_matched_distributions_matched_keys_none_uses_instance(self, adata_small: AnnData):
@@ -507,8 +507,8 @@ class TestMatchedKeys:
         nested = manager.get_matched_distributions(distr, matched_keys=None)
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.target is not None:
-                condition = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                condition = self._get_condition_value(leaf["target"])
                 assert condition == "ibuprofen", f"Expected target condition 'ibuprofen', got {condition}"
 
     def test_get_matched_distributions_no_matched_keys_instance_none(self, adata_small: AnnData):
@@ -526,8 +526,8 @@ class TestMatchedKeys:
         leaves = self._collect_leaves(nested)
         found = False
         for leaf in leaves:
-            if leaf.target is not None:
-                cond = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                cond = self._get_condition_value(leaf["target"])
                 if cond != "control":
                     found = True
                     break
@@ -553,8 +553,8 @@ class TestMatchedKeys:
         nested = manager.get_matched_distributions(distr, matched_keys=override_keys)
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.target is not None:
-                condition = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                condition = self._get_condition_value(leaf["target"])
                 assert condition == "aspirin", f"Expected target condition 'aspirin', got {condition}"
 
 
@@ -601,11 +601,11 @@ class TestControlValues:
         leaves = self._collect_leaves(nested)
         # Should have source with condition 'ibuprofen'
         for leaf in leaves:
-            if leaf.source is not None:
-                source_cond = self._get_condition_value(leaf.source)
+            if leaf.get("source") is not None:
+                source_cond = self._get_condition_value(leaf.get("source"))
                 assert source_cond == "ibuprofen"
-            if leaf.target is not None:
-                target_cond = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                target_cond = self._get_condition_value(leaf["target"])
                 assert target_cond != "ibuprofen"
 
     def test_compile_adata_control_values_none_uses_instance(self, adata_small: AnnData):
@@ -620,11 +620,11 @@ class TestControlValues:
         nested = manager.compile_adata(adata_small, sort=True, control_values_dict=None)
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.source is not None:
-                source_cond = self._get_condition_value(leaf.source)
+            if leaf.get("source") is not None:
+                source_cond = self._get_condition_value(leaf.get("source"))
                 assert source_cond == "control"
-            if leaf.target is not None:
-                target_cond = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                target_cond = self._get_condition_value(leaf["target"])
                 assert target_cond != "control"
 
     def test_compile_adata_control_values_without_instance(self, adata_small: AnnData):
@@ -640,11 +640,11 @@ class TestControlValues:
         nested = manager.compile_adata(adata_small, sort=True, control_values_dict=custom_dict)
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.source is not None:
-                source_cond = self._get_condition_value(leaf.source)
+            if leaf.get("source") is not None:
+                source_cond = self._get_condition_value(leaf.get("source"))
                 assert source_cond == "control"
-            if leaf.target is not None:
-                target_cond = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                target_cond = self._get_condition_value(leaf["target"])
                 assert target_cond != "control"
 
     def test_compile_adata_control_values_honored_on_condition_view(self, adata_small: AnnData):
@@ -668,11 +668,11 @@ class TestControlValues:
         )
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.source is not None:
-                source_cond = self._get_condition_value(leaf.source)
+            if leaf.get("source") is not None:
+                source_cond = self._get_condition_value(leaf.get("source"))
                 assert source_cond == "control"
-            if leaf.target is not None:
-                target_cond = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                target_cond = self._get_condition_value(leaf["target"])
                 assert target_cond != "control"
 
     # ------------------ get_matched_distributions tests ------------------
@@ -691,11 +691,11 @@ class TestControlValues:
         nested = manager.get_matched_distributions(distr, control_values_dict=override_dict)
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.source is not None:
-                source_cond = self._get_condition_value(leaf.source)
+            if leaf.get("source") is not None:
+                source_cond = self._get_condition_value(leaf.get("source"))
                 assert source_cond == "ibuprofen"
-            if leaf.target is not None:
-                target_cond = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                target_cond = self._get_condition_value(leaf["target"])
                 assert target_cond != "ibuprofen"
 
     def test_get_matched_distributions_control_values_none_uses_instance(self, adata_small: AnnData):
@@ -712,11 +712,11 @@ class TestControlValues:
         nested = manager.get_matched_distributions(distr, control_values_dict=None)
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.source is not None:
-                source_cond = self._get_condition_value(leaf.source)
+            if leaf.get("source") is not None:
+                source_cond = self._get_condition_value(leaf.get("source"))
                 assert source_cond == "control"
-            if leaf.target is not None:
-                target_cond = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                target_cond = self._get_condition_value(leaf["target"])
                 assert target_cond != "control"
 
     def test_get_matched_distributions_control_values_without_instance(self, adata_small: AnnData):
@@ -733,11 +733,11 @@ class TestControlValues:
         nested = manager.get_matched_distributions(distr, control_values_dict=custom_dict)
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.source is not None:
-                source_cond = self._get_condition_value(leaf.source)
+            if leaf.get("source") is not None:
+                source_cond = self._get_condition_value(leaf.get("source"))
                 assert source_cond == "control"
-            if leaf.target is not None:
-                target_cond = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                target_cond = self._get_condition_value(leaf["target"])
                 assert target_cond != "control"
 
     def test_get_matched_distributions_control_values_honored_on_condition_view(self, adata_small: AnnData):
@@ -759,9 +759,9 @@ class TestControlValues:
         nested = manager.get_matched_distributions(distr, control_values_dict={"drug": "control"})
         leaves = self._collect_leaves(nested)
         for leaf in leaves:
-            if leaf.source is not None:
-                source_cond = self._get_condition_value(leaf.source)
+            if leaf.get("source") is not None:
+                source_cond = self._get_condition_value(leaf.get("source"))
                 assert source_cond == "control"
-            if leaf.target is not None:
-                target_cond = self._get_condition_value(leaf.target)
+            if leaf["target"] is not None:
+                target_cond = self._get_condition_value(leaf["target"])
                 assert target_cond != "control"

@@ -105,8 +105,8 @@ def extract_step_data(
 ) -> StepData:
     """Extracts torch tensors from the matched distribution data."""
     # parse dictionary of matched distributions
-    source_data_dict: DistributionData | None = matched_distr.source_distribution
-    target_data_dict: DistributionData | None = matched_distr.target_distribution
+    source_data_dict: DistributionData | None = matched_distr.get("source")
+    target_data_dict: DistributionData | None = matched_distr["target"]
 
     # parse target data dictionary
     if target_data_dict is not None:

@@ -28,7 +28,7 @@ class TestFSampler:
         flattened = sampler.flattened_data
 
         assert isinstance(flattened, tuple)
-        assert all(isinstance(n, MatchedData) for n in flattened)
+        assert all(isinstance(n, dict) for n in flattened)
 
     def test_nodes_p_computation(self):
         tree = make_tree()
@@ -45,7 +45,7 @@ class TestFSampler:
         nodes = sampler._sample_nodes(2)
 
         assert len(nodes) == 2
-        assert all(isinstance(n, MatchedData) for n in nodes)
+        assert all(isinstance(n, dict) for n in nodes)
 
     def test_sample_indices_without_replacement(self):
         tree = make_tree()
@@ -77,10 +77,10 @@ class TestFSampler:
         sampler = FSampler(tree, dispatch_fn=lambda x: x)
         batch = sampler._sample_observations(tree.flatten()[0], batch_size=3)
 
-        assert isinstance(batch, MatchedData)
-        assert len(batch.target) == 3
-        if batch.source is not None:
-            assert len(batch.source) == 3
+        assert isinstance(batch, dict)
+        assert len(batch["target"]) == 3
+        if batch.get("source") is not None:
+            assert len(batch.get("source")) == 3
 
     def test_sample_returns_tuple(self):
         tree = make_tree()
@@ -89,7 +89,7 @@ class TestFSampler:
 
         assert isinstance(batches, tuple)
         assert len(batches) == 2
-        assert all(isinstance(b, MatchedData) for b in batches)
+        assert all(isinstance(b, dict) for b in batches)
 
     def test_dispatch_fn_applied(self):
         tree = make_tree()

@@ -41,8 +41,8 @@ class TestValidationSampler:
 
         assert isinstance(data, tuple)
         assert len(data) == 2
-        assert all(isinstance(b, MatchedData) for b in data)
-        assert all(len(b.target) == 3 for b in data)
+        assert all(isinstance(b, dict) for b in data)
+        assert all(len(b["target"]) == 3 for b in data)
 
     @pytest.mark.parametrize("replace_samples", [False, True])
     def test_max_n_obs_larger_than_node_is_clamped(self, replace_samples: bool):
@@ -64,7 +64,7 @@ class TestValidationSampler:
             replace_samples=replace_samples,
         )
 
-        assert all(len(b.target) == 5 for b in sampler.data)
+        assert all(len(b["target"]) == 5 for b in sampler.data)
 
     def test_len_and_getitem(self):
         tree = make_tree()
@@ -96,8 +96,8 @@ class TestValidationSampler:
 
         batches = list(iter(sampler))
         assert len(batches) == 2
-        assert all(isinstance(b, MatchedData) for b in batches)
-        assert all(len(b.target) == 2 for b in batches)
+        assert all(isinstance(b, dict) for b in batches)
+        assert all(len(b["target"]) == 2 for b in batches)
 
     def test_dispatch_fn_applied(self):
         tree = make_tree()

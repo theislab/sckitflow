@@ -13,7 +13,7 @@ class TrainSampler(Sampler[MatchedDistributionsT, DataT]):
         tree: DataTreeT,
         *args,
         batch_size: int = DEFAULT_BATCH_SIZE,
-        n_iters: int = DEFAULT_N_GROUPS,
+        n_nodes: int = DEFAULT_N_GROUPS,
         replace_samples: bool = False,
         replace_nodes: bool = False,
         use_nodes_weights: bool = True,

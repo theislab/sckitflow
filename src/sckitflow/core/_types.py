@@ -108,6 +108,9 @@ class StepData(TypedDict, total=False):
     target_coupling_quad: torch.Tensor | None
     target_condition_data: BaseData | dict[str, torch.Tensor] | None
     target_group_data: BaseData | dict[str, torch.Tensor] | None
+    # Target-side covariates not consumed by the model; carried through so the
+    # prediction output (obs/obsm) can be rebuilt from `StepData` alone.
+    target_response_data: BaseData | dict[str, torch.Tensor] | None
     source_state: torch.Tensor | None
     source_coupling_lin: torch.Tensor | None
     source_coupling_quad: torch.Tensor | None
@@ -127,6 +130,7 @@ def new_step_data(**fields: Any) -> StepData:
         "target_coupling_quad": None,
         "target_condition_data": None,
         "target_group_data": None,
+        "target_response_data": None,
         "source_state": None,
         "source_coupling_lin": None,
         "source_coupling_quad": None,

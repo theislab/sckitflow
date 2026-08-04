@@ -112,12 +112,15 @@ def extract_step_data(
         (target_coupling_lin, target_coupling_quad, target_state, target_condition_data, target_group_data) = (
             extract_distribution_data(target_data_dict, "target", device=device, dtype=dtype)
         )
+        # target-side covariates: not consumed by the model, kept for output reconstruction
+        target_response_data = target_data_dict.response_data
     else:
         target_coupling_lin = None
         target_coupling_quad = None
         target_state = None
         target_condition_data = None
         target_group_data = None
+        target_response_data = None
 
     # optionally parse target data dictionary
     if source_data_dict is not None:
@@ -138,6 +141,7 @@ def extract_step_data(
         target_coupling_quad=target_coupling_quad,
         target_condition_data=target_condition_data,
         target_group_data=target_group_data,
+        target_response_data=target_response_data,
         source_state=source_state,
         source_coupling_lin=source_coupling_lin,
         source_coupling_quad=source_coupling_quad,

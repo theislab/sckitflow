@@ -21,11 +21,11 @@ classifiers = [
 ]
 dynamic = [ "version" ]
 dependencies = [
-  "anndata>=0.11",
+  "anndata>=0.13",       # scfit streams via the anndata>=0.13 acc reference system
   "cloudpickle>=3",
   "numpy>=1.26",
   "pandas>=2",
-  "scfit>=0.0.4",
+  "scfit>=0.0.5",        # annbatch-native streaming data layer (scfit.data.Loader/Stream); see [tool.uv.sources]
   "scikit-learn>=1.4",
   "scipy>=1.12",
   "tqdm>=4.66",
@@ -85,8 +85,13 @@ optional-dependencies.test = [
   "scanpy>=1.10",             # reference implementation for the PCA transform tests only
   "sckitflow[logging,torch]", # TestWandBLogger imports omegaconf for real (wandb itself is mocked)
 ]
+# GPU-resident streaming: scfit/annbatch can keep the read window on-device via cupy (Linux/CUDA only).
+optional-dependencies.gpu = [
+  "scfit[cuda12]>=0.0.5",
+]
 optional-dependencies.torch = [
   "pot>=0.9",
+  "scfit[torch]>=0.0.5",      # scfit emits torch batches under Loader(to="torch")
   "torch>=2.2",
   "torchdiffeq>=0.2.4",
   "torchmetrics>=1.4",
@@ -205,6 +210,9 @@ conflicts = [
 ]
 
 [tool.uv.sources]
+# scfit is not yet on PyPI; resolve it from its tagged GitHub release for local/CI dev.
+# Drop this once scfit is published — `scfit>=0.0.5` then resolves from PyPI unchanged.
+scfit = { git = "https://github.com/theislab/scfit", tag = "v0.0.5" }
 torch = [
   { index = "pytorch-cpu", extra = "cpu" },
   { index = "pytorch-cu130", extra = "cu130" },

@@ -1,36 +1,34 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 
 from sckitflow.data.splitters._base import Splitter
 
-__all__ = ["CellLineDrugSplitter"]
+__all__ = ["CombinationSplitter"]
 
 
-class CellLineDrugSplitter(Splitter):
-    """Splits ``(cell line, drug)`` combinations into train/test, keeping every cell line in train.
+class CombinationSplitter(Splitter):
+    """Split unique ``group_keys`` combinations into train/test, keeping every ``always_train_keys`` value seen.
 
-    The unit of splitting is a unique ``(cell_line, drug)`` combination. Combinations are held
-    out **per cell line**, so that every cell line keeps at least one combination in the training
-    set -- a cell line is never pushed entirely into the held-out split. Control observations
-    (``drug == control_value``) are labeled ``control_label``: they are *not* train/test members --
-    the data manager pools controls and shares them across splits, so each split's perturbations are
-    matched to their own controls.
-
-    The hold-out is stratified per cell line: for a cell line with ``k`` non-control combinations,
-    ``floor(test_fraction * k)`` of them are moved to test (capped at ``k - 1`` so at least one
-    always remains in train). A cell line with a single non-control combination therefore keeps it
-    in train. Selection is deterministic given ``seed``.
+    The unit of splitting is a unique combination of ``group_keys`` (e.g. ``(cell_line, drug)`` or
+    ``(a, b, c)``). Hold-out is stratified by ``always_train_keys`` (a subset of ``group_keys``): within
+    each of its value combinations, ``floor(test_fraction * k)`` of the ``k`` combinations move to test,
+    capped at ``k - 1`` -- so every ``always_train_keys`` value keeps at least one combination in train and
+    is never pushed entirely into the held-out split. Control rows (``control_key == control_value``) are
+    labeled ``control_label`` and never split. Deterministic given ``seed``.
     """
 
     def __init__(
         self,
         *,
-        cell_line_key: str = "cell_line",
-        drug_key: str = "drug",
-        control_value: str | None = "control",
+        group_keys: Sequence[str],
+        always_train_keys: Sequence[str],
+        control_key: str | None = None,
+        control_value: str = "control",
         test_fraction: float = 0.2,
         seed: int = 0,
         split_key: str = "split",
@@ -40,42 +38,29 @@ class CellLineDrugSplitter(Splitter):
     ) -> None:
         """Initializes the splitter.
 
-        :param cell_line_key: ``adata.obs`` column holding the cell line. Defaults to ``"cell_line"``.
-        :type cell_line_key: class: `str`
-
-        :param drug_key: ``adata.obs`` column holding the drug/perturbation. Defaults to ``"drug"``.
-        :type drug_key: class: `str`
-
-        :param control_value: Value of ``drug_key`` marking control observations. Controls are
-            labeled ``control_label`` (not split). Pass ``None`` to treat every observation as
-            perturbed. Defaults to ``"control"``.
-        :type control_value: class: `str | None`
-
-        :param test_fraction: Target fraction of each cell line's non-control combinations to hold
-            out into the test split, in ``[0, 1)``. Defaults to ``0.2``.
-        :type test_fraction: class: `float`
-
-        :param seed: Seed for the deterministic per-cell-line hold-out choice. Defaults to ``0``.
-        :type seed: class: `int`
-
-        :param split_key: ``adata.obs`` column the split label is written to. Defaults to ``"split"``.
-        :type split_key: class: `str`
-
-        :param train_label: Label written for training observations. Defaults to ``"train"``.
-        :type train_label: class: `str`
-
-        :param test_label: Label written for held-out observations. Defaults to ``"test"``.
-        :type test_label: class: `str`
-
-        :param control_label: Label written for control observations, which are not split members
-            (the data manager shares them across splits). Defaults to ``"control"``.
-        :type control_label: class: `str`
+        :param group_keys: ``adata.obs`` columns whose unique combination is the unit of splitting.
+        :param always_train_keys: subset of ``group_keys`` whose every value keeps >=1 combination in train.
+        :param control_key: optional ``adata.obs`` column marking controls (never split). ``None`` = no controls.
+        :param control_value: value of ``control_key`` marking a control row. Defaults to ``"control"``.
+        :param test_fraction: target fraction of each stratum's combinations to hold out, in ``[0, 1)``.
+        :param seed: seed for the deterministic per-stratum hold-out choice.
+        :param split_key: ``adata.obs`` column the split label is written to.
+        :param train_label: label written for training observations.
+        :param test_label: label written for held-out observations.
+        :param control_label: label written for control observations (not split members).
         """
         super().__init__(split_key=split_key)
         if not 0.0 <= test_fraction < 1.0:
             raise ValueError(f"test_fraction must be in [0, 1), got {test_fraction}.")
-        self._cell_line_key = cell_line_key
-        self._drug_key = drug_key
+        self._group_keys = tuple(group_keys)
+        self._always_train_keys = tuple(always_train_keys)
+        if not self._group_keys:
+            raise ValueError("group_keys must be non-empty.")
+        if not set(self._always_train_keys) <= set(self._group_keys):
+            raise ValueError(
+                f"always_train_keys {self._always_train_keys} must be a subset of group_keys {self._group_keys}."
+            )
+        self._control_key = control_key
         self._control_value = control_value
         self._test_fraction = test_fraction
         self._seed = seed
@@ -86,37 +71,32 @@ class CellLineDrugSplitter(Splitter):
     def assign(self, adata: AnnData) -> pd.Series:
         """Assigns each observation to train / test / control (see the class docstring for the policy)."""
         obs = adata.obs
-        for col in (self._cell_line_key, self._drug_key):
+        needed = (*self._group_keys, *((self._control_key,) if self._control_key else ()))
+        for col in needed:
             if col not in obs.columns:
                 raise KeyError(f"{col!r} not found in adata.obs (columns: {list(obs.columns)}).")
 
-        cell_line = obs[self._cell_line_key].to_numpy().astype(str)
-        drug = obs[self._drug_key].to_numpy().astype(str)
         is_control = (
-            np.zeros(len(obs), dtype=bool)
-            if self._control_value is None
-            else drug == str(self._control_value)
+            obs[self._control_key].astype(str).to_numpy() == str(self._control_value)
+            if self._control_key
+            else np.zeros(len(obs), dtype=bool)
         )
-        is_perturbed = ~is_control
+        gk, atk = list(self._group_keys), list(self._always_train_keys)
+        combos = obs.loc[~is_control, gk].astype(str).drop_duplicates()
 
-        # Held-out combinations, chosen per cell line so at least one combination stays in train.
+        # Hold out per stratum (each `always_train_keys` value), always leaving >=1 combination in train.
         rng = np.random.default_rng(self._seed)
-        pert_combos = (
-            pd.DataFrame({"cell_line": cell_line[is_perturbed], "drug": drug[is_perturbed]})
-            .drop_duplicates()
-            .sort_values(["cell_line", "drug"], kind="stable")
-        )
-        test_combos: list[tuple[str, str]] = []
-        for cl, grp in pert_combos.groupby("cell_line", sort=True):
-            drugs = grp["drug"].to_numpy()
-            n_test = min(int(np.floor(self._test_fraction * len(drugs))), len(drugs) - 1)
+        test_combos: list[tuple] = []
+        strata = combos.groupby(atk, sort=True) if atk else [(None, combos)]
+        for _, grp in strata:
+            rows = list(map(tuple, grp[gk].to_numpy()))
+            n_test = min(int(np.floor(self._test_fraction * len(rows))), len(rows) - 1)
             if n_test > 0:
-                chosen = rng.choice(len(drugs), size=n_test, replace=False)
-                test_combos.extend((cl, drugs[i]) for i in np.sort(chosen))
+                test_combos.extend(rows[i] for i in np.sort(rng.choice(len(rows), size=n_test, replace=False)))
 
         labels = np.full(len(obs), self._train_label, dtype=object)
         if test_combos:
-            combo_index = pd.MultiIndex.from_arrays([cell_line, drug])
-            labels[combo_index.isin(test_combos) & is_perturbed] = self._test_label
+            combo_index = pd.MultiIndex.from_arrays([obs[c].astype(str).to_numpy() for c in gk])
+            labels[combo_index.isin(test_combos) & ~is_control] = self._test_label
         labels[is_control] = self._control_label
         return pd.Series(labels, index=obs.index, name=self._split_key)

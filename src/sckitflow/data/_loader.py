@@ -21,7 +21,8 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from anndata import AnnData
-from scfit.data import Loader as ScfitLoader, Stream
+from scfit.data import Loader as ScfitLoader
+from scfit.data import Stream
 
 if TYPE_CHECKING:
     # StepData lives in ``core`` (which imports ``data``); import it for typing only to avoid a
@@ -125,7 +126,7 @@ class Loader:
         self._group_cols: tuple[str, ...] = (*tuple(dm.groups_data_schema.groups), *cond_schema.all_condition_cols)
         if not self._group_cols:
             raise ValueError(
-                "SckitflowLoader needs at least one categorical group/condition column to group on "
+                "Loader needs at least one categorical group/condition column to group on "
                 "(set `groups=` and/or `conditions=` on the DataManager)."
             )
 
@@ -182,8 +183,7 @@ class Loader:
                 in_memory=True,
                 **self._sampler_kwargs,
             )
-        self._paired = bool(links)
-        self._loader = Loader(sources, primary=primary, links=links, seed=seed, to=to)
+        self._loader = ScfitLoader(sources, primary=primary, links=links, seed=seed, to=to)
 
     def _encode_group_cached(self, gid: int) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
         """The group's ``(condition, group)`` categorical encodings -- computed once per group, then cached."""
@@ -246,8 +246,3 @@ class Loader:
     def __len__(self) -> int:
         """Number of batches in one epoch (as scfit computes it from the primary)."""
         return int(self._loader._n_batches)
-
-    @property
-    def loader(self) -> Loader:
-        """The underlying :class:`scfit.data.Loader`."""
-        return self._loader

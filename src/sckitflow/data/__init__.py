@@ -7,7 +7,7 @@ from sckitflow.data._composite import MatchedData, NestedData
 from sckitflow.data._manager import DataManager
 from sckitflow.data.grouping._indexer import HierarchicalIndexer
 from sckitflow.data.grouping._selector import IndexSelector
-from sckitflow.data.splitters import CellLineDrugSplitter, Splitter
+from sckitflow.data.splitters import CombinationSplitter, Splitter
 
 __all__ = [
     "containers",
@@ -24,5 +24,5 @@ __all__ = [
     "MatchedData",
     "NestedData",
     "Splitter",
-    "CellLineDrugSplitter",
+    "CombinationSplitter",
 ]

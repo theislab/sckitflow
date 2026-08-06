@@ -144,14 +144,6 @@ class TestBaseMethod:
         torch_method.set_train_mode(False)
         torch_method.module.eval.assert_called_once()
 
-    def test_safe_subscript_obj(self, torch_method):
-        data = torch.tensor([1, 2, 3, 4])
-        idx = torch.tensor([0, 2])
-        result = torch_method._safe_subscript_obj(data, idx)
-        assert torch.equal(result, torch.tensor([1, 3]))
-        assert torch_method._safe_subscript_obj(None, idx) is None
-        assert torch_method._safe_subscript_obj(data, None) is data
-
 
 # -----------------------------------------------------------------------------
 # Test suite for GenerativeFlow

@@ -17,6 +17,7 @@ __all__ = [
     "get_tensor_dict_from_data",
     "extract_step_data",
     "align_step_data",
+    "subscript_step_data",
     "write_continuous_cond_cov_to_step_data",
     "expand_conditioning",
     "prepare_latent_train",
@@ -159,6 +160,58 @@ _SOURCE_FIELDS = (
     "source_group_data",
 )
 
+_TARGET_FIELDS = (
+    "target_state",
+    "target_coupling_lin",
+    "target_coupling_quad",
+    "target_condition_data",
+    "target_group_data",
+    # target-side covariates: not consumed by the model, but must stay row-aligned with
+    # ``target_state`` when the target is permuted/subsampled by matching.
+    "target_response_data",
+)
+
+
+def _index_obj(value: Any, idx: Any | None) -> Any:
+    """Row-index one :class:`StepData` field by ``idx``.
+
+    Handles the three field shapes that appear in a ``StepData``: ``None`` (passthrough), a
+    plain ``dict[str, tensor]`` (each value is indexed; ``None`` values pass through), and any
+    row-indexable object -- a ``torch.Tensor`` / array or a :class:`BaseData` container that
+    implements ``__getitem__``. A ``None`` index is a no-op.
+    """
+    if value is None or idx is None:
+        return value
+    if isinstance(value, dict):
+        return {k: (None if v is None else v[idx]) for k, v in value.items()}
+    return value[idx]
+
+
+def subscript_step_data(
+    step_data: StepData,
+    src_idxs: Any | None = None,
+    tgt_idxs: Any | None = None,
+) -> StepData:
+    """Row-slice a :class:`StepData`: the source side by ``src_idxs``, the target side by ``tgt_idxs``.
+
+    Applies a coupling/matching permutation (or subselection) to a batch. Each side is sliced
+    independently; a ``None`` index leaves that side untouched and a ``None`` field stays ``None``.
+    The target side includes ``target_response_data``, so target covariates carried for output
+    reconstruction remain aligned with ``target_state``. Replaces ``BaseMethod._safe_subscript_obj``.
+
+    :param step_data: The batch to slice.
+    :type step_data: class: `StepData`
+
+    :param src_idxs: Index/mask applied to every source field. ``None`` leaves the source untouched.
+    :type src_idxs: class: `Any | None`
+
+    :param tgt_idxs: Index/mask applied to every target field. ``None`` leaves the target untouched.
+    :type tgt_idxs: class: `Any | None`
+    """
+    updates = {field: _index_obj(step_data.get(field), tgt_idxs) for field in _TARGET_FIELDS}
+    updates.update({field: _index_obj(step_data.get(field), src_idxs) for field in _SOURCE_FIELDS})
+    return {**step_data, **updates}
+
 
 def _n_obs(*fields: Any) -> int | None:
     """Number of observations from the first non-``None`` field (tensor or container)."""
@@ -203,7 +256,7 @@ def align_step_data(step_data: StepData) -> StepData:
 
     # arange(n_target) % n_source slices (n_target < n_source) or tiles (n_target > n_source)
     idx = np.arange(n_target) % n_source
-    aligned_source = {f: (None if step_data[f] is None else step_data[f][idx]) for f in _SOURCE_FIELDS}
+    aligned_source = {f: _index_obj(step_data[f], idx) for f in _SOURCE_FIELDS}
     return {**step_data, **aligned_source}
 
 

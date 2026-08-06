@@ -6,7 +6,7 @@ import pandas as pd
 from anndata import AnnData
 
 if TYPE_CHECKING:
-    from sckitflow.data._loader import SckitflowLoader
+    from sckitflow.data._loader import Loader
 
 from sckitflow._constants import ORIGINAL_INDEX_KEY
 from sckitflow._types import TargetCovariatesEncodingId
@@ -445,7 +445,7 @@ class DataManager:
         split_by: str = "split",
         control_adata: AnnData | None = None,
         **loader_kwargs: Any,
-    ) -> dict[str, "SckitflowLoader"]:
+    ) -> dict[str, "Loader"]:
         """Build one streaming data loader per split value of ``adata.obs[split_by]``.
 
         Selection is by scfit weights over scfit's own leaf factorization -- no subset copying. The whole
@@ -463,13 +463,13 @@ class DataManager:
         :param control_adata: Optional separate control (source) pool, shared by every split.
         :type control_adata: class: `AnnData | None`
 
-        :param loader_kwargs: Forwarded to each :class:`SckitflowLoader` (e.g. ``to``, ``batch_size``,
+        :param loader_kwargs: Forwarded to each :class:`Loader` (e.g. ``to``, ``batch_size``,
             ``chunk_size``, ``preload_nchunks``, ``seed``).
 
         :returns: Mapping from each split value (that has perturbed groups) to its loader.
-        :rtype: class: `dict[str, SckitflowLoader]`
+        :rtype: class: `dict[str, Loader]`
         """
-        from sckitflow.data._loader import SckitflowLoader
+        from sckitflow.data._loader import Loader
 
         if split_by not in adata.obs.columns:
             raise KeyError(f"{split_by!r} not found in adata.obs (columns: {list(adata.obs.columns)}).")
@@ -491,7 +491,7 @@ class DataManager:
 
         control_weights = dict.fromkeys(combos[is_control], 1.0)
         return {
-            split_value: SckitflowLoader(
+            split_value: Loader(
                 adata,
                 dm=self,
                 primary_weights=dict.fromkeys(group_combos, 1.0),

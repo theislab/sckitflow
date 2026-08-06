@@ -1,4 +1,4 @@
-r"""``SckitflowLoader`` -- a training data loader that adapts :class:`scfit.data.Loader` to ``StepData``.
+r"""``Loader`` -- a training data loader that adapts :class:`scfit.data.Loader` to ``StepData``.
 
 Selection is entirely scfit-native: one AnnData is streamed and the split + perturbed/control choice is
 expressed as scfit **weights** over scfit's own leaf factorization (weight 0 == excluded, ``in_memory``
@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from anndata import AnnData
-from scfit.data import Loader, Stream
+from scfit.data import Loader as ScfitLoader, Stream
 
 if TYPE_CHECKING:
     # StepData lives in ``core`` (which imports ``data``); import it for typing only to avoid a
@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from sckitflow.core._types import StepData
     from sckitflow.data._manager import DataManager
 
-__all__ = ["SckitflowLoader"]
+__all__ = ["Loader"]
 
 # Every StepData key, so the emitted dict is complete and consumers can index without guarding.
 _STEP_DATA_KEYS = (
@@ -76,7 +76,7 @@ def _leaf_vector(rep: Any) -> np.ndarray:
     return array[0] if array.ndim >= 2 else array
 
 
-class SckitflowLoader:
+class Loader:
     """Yields ``StepData`` batches for one population, backed by :class:`scfit.data.Loader`.
 
     :param adata: The annotated data object to stream (the whole thing -- selection is by weights).
@@ -113,8 +113,6 @@ class SckitflowLoader:
         preload_nchunks: int | None = None,
     ) -> None:
         self._dm = dm
-        self._to = to
-        self._seed = seed
         self._sampler_kwargs = {
             "batch_size": batch_size,
             "chunk_size": chunk_size,

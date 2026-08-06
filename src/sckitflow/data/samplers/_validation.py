@@ -1,14 +1,18 @@
+import abc
 from collections.abc import Iterable, Iterator
 
 from sckitflow._constants import DEFAULT_MAX_N_OBS, DEFAULT_N_GROUPS
 from sckitflow.data._abc import DataT, DataTreeT, MatchedDistributionsT
-from sckitflow.data.samplers._base import FSampler, Sampler
+from sckitflow.data.samplers._base import FSampler, MSampler, BaseSampler
 
-__all__ = ["ValidationSampler", "FValidationSampler"]
+__all__ = ["ValidationSampler", "FValidationSampler", "MValidationSampler"]
 
 
-class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
-    """Abstract class for validation samplers."""
+class ValidationSampler(BaseSampler[MatchedDistributionsT, DataT], Iterable):
+    """Abstract class for validation samplers.
+    
+    Subclasses need to override the :method _register_data: method
+    """
 
     def __init__(
         self,
@@ -59,9 +63,12 @@ class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
         self._n_nodes = n_nodes
         self._data = self._register_data()
 
+    @abc.abstractmethod
     def _register_data(self) -> tuple[DataT]:
-        """Pre-registres the samples for validation."""
-        return self._sample(self._n_nodes, self._max_n_obs)
+        """Pre-registres the samples for validation.
+        
+        Must be overridden by derived classes
+        """
 
     def __len__(self) -> int:
         return len(self._data)
@@ -90,3 +97,12 @@ class ValidationSampler(Sampler[MatchedDistributionsT, DataT], Iterable):
 
 class FValidationSampler(ValidationSampler, FSampler):
     """Concrete validation sampler using an input callable to process the batch."""
+    def _register_data(self) -> tuple[DataT]:
+        """Pre-registres the samples for validation."""
+        return self._sample(self._n_nodes, self._max_n_obs)
+
+class MValidationSampler(ValidationSampler, MSampler):
+    """Concrete validation sampler using an input callable to process the batch."""
+    def _register_data(self) -> tuple[DataT]:
+        """Pre-registres the samples for validation."""
+        return self._sample(self._max_n_obs)

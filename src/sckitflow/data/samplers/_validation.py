@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from sckitflow._constants import DEFAULT_MAX_N_OBS, DEFAULT_N_GROUPS
-from sckitflow.data._mixins import DataT, MappedTree, MatchedDistributionsT
+from sckitflow.data._mixins import MappedTree
 from sckitflow.data.samplers._base import FSampler, MSampler, BaseSampler
 
 if TYPE_CHECKING:
@@ -125,12 +125,12 @@ class ValidationSampler(BaseSampler, Iterable):
 
 class FValidationSampler(ValidationSampler, FSampler):
     """Concrete validation sampler using an input callable to process the batch."""
-    def _register_data(self) -> tuple[DataT]:
+    def _register_data(self) -> tuple[StepData]:
         """Pre-registres the samples for validation."""
         return self._sample(self._n_nodes, self._max_n_obs)
 
 class MValidationSampler(ValidationSampler, MSampler):
     """Concrete validation sampler using an input callable to process the batch."""
-    def _register_data(self) -> tuple[DataT]:
+    def _register_data(self) -> tuple[StepData]:
         """Pre-registres the samples for validation."""
         return self._sample(self._max_n_obs)

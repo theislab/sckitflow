@@ -141,7 +141,7 @@ class BaseSampler(abc.ABC):
         """
         return self._tree.flatten()
 
-class SamplerStochastic(BaseSampler[MatchedData, StepData]):
+class SamplerStochastic(BaseSampler):
     """Abstract base class for sampler objects on trees.
 
     Subclasses need to override the :method _dispatch_node: method.
@@ -191,7 +191,7 @@ class SamplerStochastic(BaseSampler[MatchedData, StepData]):
         The relative frequency is computed by taking into account the number of observations
         in the target distribution.
         """
-        counts = np.array([len(e.target) for e in self.flattened_data])
+        counts = np.array([len(e["target"]) for e in self.flattened_data])
         return counts / counts.sum()
 
     def _sample_nodes(
@@ -258,7 +258,7 @@ class SamplerStochastic(BaseSampler[MatchedData, StepData]):
         """Exposes to :param: `inverse_frequency_weights` set at initialization."""
         return self._inverse_frequency_weights
 
-class FSampler(SamplerStochastic[MatchedData, StepData]):
+class FSampler(SamplerStochastic):
     """Concrete class using an input callable to process the batch."""
 
     def __init__(
@@ -315,7 +315,7 @@ class FSampler(SamplerStochastic[MatchedData, StepData]):
         """Exposes the :param f: attribute set at initialization."""
         return self._dispatch_fn
 
-class SamplerSequential(BaseSampler[MatchedData, StepData]):
+class SamplerSequential(BaseSampler):
     """Abstract base class for sampler objects on trees
     which uses all nodes.
 
@@ -337,7 +337,7 @@ class SamplerSequential(BaseSampler[MatchedData, StepData]):
         sample_fn = partial(self._sample_observations, batch_size=batch_size)
         return (list(map(sample_fn, nodes)), )
 
-class MSampler(SamplerSequential[MatchedData, StepData]):
+class MSampler(SamplerSequential):
     """Concrete class using an input callable to process the batch."""
 
     def __init__(

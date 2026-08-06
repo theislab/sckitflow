@@ -314,7 +314,7 @@ class SamplerSequential(BaseSampler[MatchedDistributionsT, DataT]):
     def _sample(
         self,
         batch_size: int = DEFAULT_BATCH_SIZE,
-    ) -> tuple[DataT]:
+    ) -> tuple[list[DataT]]:
         """Samples a batch of data from the tree.
 
         Sampling is done by taking all nodes in order.
@@ -324,7 +324,7 @@ class SamplerSequential(BaseSampler[MatchedDistributionsT, DataT]):
         """
         nodes = self.flattened_data
         sample_fn = partial(self._sample_observations, batch_size=batch_size)
-        return tuple(map(sample_fn, nodes))
+        return (list(map(sample_fn, nodes)), )
 
 class MSampler(SamplerSequential[MatchedDistributionsT, DataT]):
     """Concrete class using an input callable to process the batch."""

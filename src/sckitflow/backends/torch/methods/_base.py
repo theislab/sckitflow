@@ -50,7 +50,7 @@ class TorchBaseMethod(BaseMethod):
     @abc.abstractmethod
     def _step_fn(
         self,
-        step_data: StepData,
+        step_data: list[StepData] | StepData,
         *args,
         **kwargs,
     ) -> tuple[torch.Tensor, dict[str, Any]]: ...
@@ -65,11 +65,14 @@ class TorchBaseMethod(BaseMethod):
 
     def _train_step_forward(
         self,
-        step_data: StepData,
+        step_data: list[StepData] | StepData,
         *args,
         **kwargs,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
-        step_data = self._match_observations(step_data)
+        if isinstance(step_data, list):
+            step_data = [self._match_observations(sd) for sd in step_data]
+        else:
+            step_data = self._match_observations(step_data)
         return self._step_fn(
             step_data,
             *args,
@@ -91,7 +94,7 @@ class TorchBaseMethod(BaseMethod):
 
     def train_step(
         self,
-        matched_distr: MatchedDistributions,
+        matched_distr: list[MatchedDistributions] | MatchedDistributions,
         *args,
         **kwargs,
     ) -> dict[str, Any]:
@@ -100,7 +103,14 @@ class TorchBaseMethod(BaseMethod):
         :param matched_distr: Input `MatchedDistributions` object.
         :type matched_distr: dict[str, torch.Tensor]
         """
-        step_data = extract_step_data(matched_distr, device=self._device_id, dtype=self._dtype)
+        if isinstance(matched_distr, list):
+            step_data = [
+            extract_step_data(node, device=self._device_id, dtype=self._dtype) for node in matched_distr
+        ]
+
+        else:
+            step_data = extract_step_data(matched_distr, device=self._device_id, dtype=self._dtype)
+        
         return self._train_step_forward(step_data, *args, **kwargs)
 
     def predict(

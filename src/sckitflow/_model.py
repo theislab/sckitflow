@@ -21,8 +21,8 @@ from sckitflow.data._composite import MatchedData
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
 from sckitflow.data.containers._distribution import build_ann_df
-from sckitflow.data.samplers._train import FTrainSampler
-from sckitflow.data.samplers._validation import FValidationSampler
+from sckitflow.data.samplers._train import TrainSampler, FTrainSampler, MTrainSampler
+from sckitflow.data.samplers._validation import ValidationSampler, FValidationSampler, MValidationSampler
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sckitflow.trainer._trainer import Trainer
 
@@ -466,7 +466,9 @@ class Model:
         valid_freq: int = 1_000,
         train_batch_size: int = 128,
         val_max_n_obs: int = 10_000,
+        train_sampler: TrainSampler = FTrainSampler,
         train_sampler_kwargs: dict[str, Any] | None = None,
+        val_sampler: ValidationSampler = FValidationSampler,
         val_sampler_kwargs: dict[str, Any] | None = None,
         train_kwargs: dict[str, Any] | None = None,
         optim_kwargs: dict[str, Any] | None = None,
@@ -543,7 +545,7 @@ class Model:
         if train_sampler_kwargs is None:
             train_sampler_kwargs = {}
         train_sampler_kwargs.setdefault("dispatch_fn", self._to_step_data)
-        train_sampler = FTrainSampler(
+        train_sampler = train_sampler(
             train_tree,
             batch_size=train_batch_size,
             **train_sampler_kwargs,
@@ -554,7 +556,7 @@ class Model:
             val_sampler_kwargs = {}
         val_sampler_kwargs.setdefault("dispatch_fn", self._to_step_data)
         val_samplers_dict = {
-            val_id: FValidationSampler(val_tree, max_n_obs=val_max_n_obs, **val_sampler_kwargs)
+            val_id: val_sampler(val_tree, max_n_obs=val_max_n_obs, **val_sampler_kwargs)
             for val_id, val_tree in val_trees_dict.items()
         }
 

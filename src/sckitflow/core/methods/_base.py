@@ -56,7 +56,7 @@ class BaseMethod(abc.ABC):
     @abc.abstractmethod
     def compute_loss(
         self,
-        step_data: StepData,
+        step_data: list[StepData] | StepData,
         *args,
         **kwargs,
     ) -> tuple[torch.Tensor, dict[str, Any]]: ...
@@ -71,11 +71,14 @@ class BaseMethod(abc.ABC):
 
     def _train_step_forward(
         self,
-        step_data: StepData,
+        step_data: list[StepData] | StepData,
         *args,
         **kwargs,
     ) -> tuple[torch.Tensor, dict[str, Any]]:
-        step_data = self._match_observations(step_data)
+        if isinstance(step_data, list):
+            step_data = [self._match_observations(sd) for sd in step_data]
+        else:
+            step_data = self._match_observations(step_data)
         return self.compute_loss(
             step_data,
             *args,
@@ -97,7 +100,7 @@ class BaseMethod(abc.ABC):
 
     def train_step(
         self,
-        step_data: StepData,
+        step_data: list[StepData] | StepData,
         *args,
         **kwargs,
     ) -> dict[str, Any]:

@@ -1,19 +1,23 @@
 from __future__ import annotations
+import abc
 
 from typing import TYPE_CHECKING
 
 from sckitflow._constants import DEFAULT_BATCH_SIZE, DEFAULT_N_GROUPS, MAX_ITER_STEPS
 from sckitflow.data._mixins import MappedTree
-from sckitflow.data.samplers._base import FSampler, Sampler
+from sckitflow.data.samplers._base import FSampler, MSampler, BaseSampler
 
 if TYPE_CHECKING:
     from sckitflow.core._types import StepData
 
-__all__ = ["TrainSampler", "FTrainSampler"]
+__all__ = ["TrainSampler", "FTrainSampler", "MTrainSampler"]
 
 
-class TrainSampler(Sampler):
-    """Abstract class for train samplers."""
+class TrainSampler(BaseSampler):
+    """Abstract class for train samplers.
+    
+    Subclasses need to override the :method sample: method.
+    """
 
     def __init__(
         self,
@@ -68,9 +72,12 @@ class TrainSampler(Sampler):
 
         self._current_iter_step = 0
 
+    @abc.abstractmethod
     def sample(self) -> tuple[StepData]:
-        """Samples a batch of data from the tree."""
-        return self._sample(self._n_nodes, self._batch_size)
+        """Samples a batch of data from the tree.
+        
+        Must be overridden by derived classes.
+        """
 
     def __iter__(self):
         return self
@@ -93,6 +100,14 @@ class TrainSampler(Sampler):
         """Exposes the :param n_nodes: attribute set at initialization."""
         return self._n_nodes
 
-
 class FTrainSampler(TrainSampler, FSampler):
     """Concrete train sampler using an input callable to process the batch."""
+    def sample(self) -> tuple[StepData]:
+        """Samples a batch of data from the tree."""
+        return self._sample(self._n_nodes, self._batch_size)
+
+class MTrainSampler(TrainSampler, MSampler):
+    """Concrete train sampler using an input callable to process the batch."""
+    def sample(self) -> tuple[StepData]:
+        """Samples a batch of data from the tree."""
+        return self._sample(self._batch_size)

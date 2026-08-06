@@ -6,8 +6,8 @@ from tqdm import tqdm
 
 from sckitflow.core.methods._base import BaseMethod
 from sckitflow.core.methods._opt import OptimizationManager
-from sckitflow.data.samplers._train import FTrainSampler
-from sckitflow.data.samplers._validation import FValidationSampler
+from sckitflow.data.samplers._train import TrainSampler
+from sckitflow.data.samplers._validation import ValidationSampler
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 
 __all__ = ["Trainer"]
@@ -61,7 +61,7 @@ class Trainer:
 
     def _run_val_on_sampler(
         self,
-        sampler: FValidationSampler,
+        sampler: ValidationSampler,
         val_id: str,
         *args,
         **kwargs,
@@ -106,9 +106,9 @@ class Trainer:
 
     def train(
         self,
-        train_sampler: FTrainSampler,
+        train_sampler: TrainSampler,
         *args,
-        val_samplers_dict: dict[str, FValidationSampler] | None = None,
+        val_samplers_dict: dict[str, ValidationSampler] | None = None,
         n_train_steps: int = 10_000,
         valid_freq: int = 1_000,
         pbar_freq: int = 100,

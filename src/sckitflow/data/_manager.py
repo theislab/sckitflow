@@ -1,9 +1,12 @@
-from collections.abc import Collection, Mapping
-from typing import Any, TypedDict, Unpack
+from collections.abc import Callable, Collection, Mapping
+from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
+
+if TYPE_CHECKING:
+    from sckitflow.data._loader import SckitflowLoader
 
 from sckitflow._constants import ORIGINAL_INDEX_KEY
 from sckitflow._types import TargetCovariatesEncodingId
@@ -434,6 +437,48 @@ class DataManager:
         """
         n_features = self._get_state_data(adata).X.shape[1]
         return self._get_feature_names(adata, n_features)
+
+    def get_dataloaders(
+        self,
+        adata: AnnData,
+        *,
+        split_by: str = "split",
+        **loader_kwargs: Any,
+    ) -> dict[str, "SckitflowLoader"]:
+        """Build one streaming data loader per split value of ``adata.obs[split_by]``.
+
+        The manager only groups by ``split_by``; how the split column was produced (a
+        :class:`~sckitflow.data.Splitter`) is not its concern. Each split is streamed by a
+        :class:`~sckitflow.data.SckitflowLoader` built from this manager's schema, so all splits
+        share the same state/condition/group layout.
+
+        :param adata: The annotated data object; must carry the ``split_by`` column in ``.obs``.
+        :type adata: class: `AnnData`
+
+        :param split_by: The ``.obs`` column whose values define the splits. Defaults to ``"split"``.
+        :type split_by: class: `str`
+
+        :param loader_kwargs: Forwarded to each :class:`SckitflowLoader` (e.g. ``to``, ``batch_size``,
+            ``chunk_size``, ``preload_nchunks``, ``seed``).
+
+        :returns: Mapping from each split value to its loader.
+        :rtype: class: `dict[str, SckitflowLoader]`
+        """
+        from sckitflow.data._loader import SckitflowLoader
+
+        if split_by not in adata.obs.columns:
+            raise KeyError(f"{split_by!r} not found in adata.obs (columns: {list(adata.obs.columns)}).")
+        column = adata.obs[split_by]
+        if isinstance(column.dtype, pd.CategoricalDtype):
+            values = list(column.cat.categories)
+        else:
+            values = list(dict.fromkeys(column))
+        loaders: dict[str, SckitflowLoader] = {}
+        for value in values:
+            mask = (column == value).to_numpy()
+            if mask.any():
+                loaders[str(value)] = SckitflowLoader(adata[mask].copy(), dm=self, **loader_kwargs)
+        return loaders
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

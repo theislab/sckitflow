@@ -106,7 +106,7 @@ class Loader:
         primary_weights: dict[tuple, float] | None = None,
         control_adata: AnnData | None = None,
         control_weights: dict[tuple, float] | None = None,
-        to: str | None = "torch",
+        to: str | None = None,
         seed: int = 0,
         batch_size: int = 128,
         chunk_size: int = 1,

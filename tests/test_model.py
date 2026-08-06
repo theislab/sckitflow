@@ -112,6 +112,26 @@ def _make_model(adata: AnnData, method_cls=DummyMethod, dm_kwargs=None, **method
     return builder.build(method_cls=method_cls, **method_kwargs)
 
 
+# Training now streams from `DataManager.get_dataloaders(adata, split_by=...)`, so the train tests
+# need (a) a group/condition schema for the loader to group on and (b) a `split` column in `.obs`.
+# This schema is unpaired (no control_values_dict), so `is_paired_setting` stays False.
+_DM_TRAIN_KWARGS = {
+    "conditions": {"drug": ("drugA",)},
+    "conditions_reps": {"drug": "drug"},
+    "groups": ("source_split",),
+    "groups_reps": {"source_split": "source_split"},
+}
+
+
+def _with_split(adata: AnnData, labels=("train", "val1", "val2")) -> AnnData:
+    """Attach a deterministic ``split`` column, each ``(source_split, drugA)`` group wholly in one split."""
+    adata = adata.copy()
+    combos = list(zip(adata.obs["source_split"].astype(str), adata.obs["drugA"].astype(str), strict=True))
+    assign = {c: labels[i % len(labels)] for i, c in enumerate(sorted(set(combos)))}
+    adata.obs["split"] = pd.Categorical([assign[c] for c in combos])
+    return adata
+
+
 # -----------------------------------------------------------------------------
 # Fixture to mock the optimization manager creation (only for tests that need it)
 # -----------------------------------------------------------------------------
@@ -205,12 +225,13 @@ class TestModel:
     # Training Orchestration (with mocking)
     # --------------------------------------------------------------------------
     def test_train_calls_trainer_and_sets_mode(self, adata: AnnData, mock_optim_manager):
-        model = _make_model(adata)
+        adata = _with_split(adata)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
         with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
             set_train_mode_spy = MagicMock(wraps=model.method.set_train_mode)
             model.method.set_train_mode = set_train_mode_spy
-            model.train(adata, n_train_steps=10, valid_freq=5, train_batch_size=32, sort=True)
+            model.train(adata, n_train_steps=10, valid_freq=5, batch_size=32)
 
             mock_trainer_cls.assert_called_once()
             args, _ = mock_trainer_cls.call_args
@@ -223,11 +244,12 @@ class TestModel:
             assert call_kwargs["valid_freq"] == 5
 
     def test_train_with_validation_samplers(self, adata: AnnData, mock_optim_manager):
-        model = _make_model(adata)
+        # Splits come from `adata.obs['split']`; every split except the train split becomes a val loader.
+        adata = _with_split(adata)  # splits: train, val1, val2
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
         with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
-            val_adatas = {"val1": adata, "val2": adata}
-            model.train(adata, val_adatas_dict=val_adatas, n_train_steps=5, sort=True)
+            model.train(adata, n_train_steps=5)
 
             call_kwargs = mock_trainer.train.call_args.kwargs
             val_samplers = call_kwargs["val_samplers_dict"]
@@ -293,8 +315,10 @@ class TestModel:
         assert isinstance(model.method, BaseMethod)
         assert model.trainer is None
         assert model.condition_state_key is None
+        adata = _with_split(adata)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
         with patch("sckitflow._model.Trainer") as _mock_trainer_cls:
-            model.train(adata, n_train_steps=1, sort=True)
+            model.train(adata, n_train_steps=1)
         assert model.trainer is not None
 
     # --------------------------------------------------------------------------
@@ -315,8 +339,9 @@ class TestModel:
         os.unlink(tmp_path)
 
     def test_save_load_and_continue_training(self, adata):
-        """Test save/load with a real tiny module (not a mock)."""
+        """Test save/load with a real tiny module (not a mock), training end-to-end via the loader."""
         torch = pytest.importorskip("torch")
+        adata = _with_split(adata)
 
         # Define a real torch module with parameters
         class RealDummyModule(torch.nn.Module):
@@ -338,21 +363,13 @@ class TestModel:
             def __init__(self, dims_registry, dm, *args, **kwargs):
                 super().__init__(dims_registry, dm, *args, **kwargs)
 
-            def extract_state_data(self, matched_distr):
-                from sckitflow.data.containers._state import StateData
-
-                n_obs = len(matched_distr.target_distr.ann_df)
-                n_feat = len(self._dims_registry.feature_names)
-                X = np.zeros((n_obs, n_feat))
-                return StateData(X)
-
             def set_train_mode(self, mode: bool):
                 if mode:
                     self._module.train()
                 else:
                     self._module.eval()
 
-            def compute_loss(self, matched_distr, *args, **kwargs):
+            def compute_loss(self, step_data, *args, **kwargs):
                 # Create a dummy input that requires grad
                 dummy_x = torch.randn(4, 2, requires_grad=True)
                 t = torch.tensor(0.5, requires_grad=False)
@@ -360,23 +377,23 @@ class TestModel:
                 loss = output.sum()
                 return loss, {"loss": loss.item()}
 
-            def infer(self, matched_distr, *args, **kwargs):
-                n_obs = len(matched_distr.target_distr.ann_df)
+            def infer(self, step_data, *args, **kwargs):
+                n_obs = step_data["target_state"].shape[0]
                 n_feat = len(self._dims_registry.feature_names)
                 samples = np.zeros((n_obs, n_feat))
                 from tests.test_model import DummyPredictionData
 
                 return DummyPredictionData(samples)
 
-        model = _make_model(adata, method_cls=RealDummyMethod)
-        model.train(adata, n_train_steps=5, train_batch_size=4, sort=True)
+        model = _make_model(adata, method_cls=RealDummyMethod, dm_kwargs=_DM_TRAIN_KWARGS)
+        model.train(adata, n_train_steps=5, batch_size=4)
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp_path = tmp.name
         model.save(tmp_path, allow_overwrite=True)
 
         loaded = Model.load(tmp_path, map_location="cpu")
-        loaded.train(adata, n_train_steps=5, train_batch_size=4)
+        loaded.train(adata, n_train_steps=5, batch_size=4)
 
         os.unlink(tmp_path)
 
@@ -403,20 +420,20 @@ class TestModelConditionSpace:
     def test_train_with_condition_space(self, adata: AnnData, mock_optim_manager):
         """Training with the condition-space view correctly compiles the data."""
         adata = _add_continuous_covariate(adata)
+        adata = _with_split(adata)
         model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
 
-        # Create a spy on compile_adata to record calls while preserving original behavior
-        original_compile = model._dm.compile_adata
-        mock_compile = MagicMock(wraps=original_compile)
-        model._dm.compile_adata = mock_compile
+        # Training now streams via get_dataloaders (compile_adata is predict-only); spy on it.
+        mock_get_dataloaders = MagicMock(wraps=model._dm.get_dataloaders)
+        model._dm.get_dataloaders = mock_get_dataloaders
 
         with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
-            model.train(adata, n_train_steps=10, train_batch_size=32, sort=True)
+            model.train(adata, n_train_steps=10, batch_size=32)
 
-            # Verify compile_adata was called; the condition-space view is driven
+            # Verify get_dataloaders was called; the condition-space view is driven
             # by the data manager's condition_state_key attribute.
-            mock_compile.assert_called_once()
+            mock_get_dataloaders.assert_called_once()
             assert model.condition_state_key == "X_repr"
             mock_trainer.train.assert_called_once()
 

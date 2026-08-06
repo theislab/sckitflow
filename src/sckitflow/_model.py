@@ -16,6 +16,7 @@ from sckitflow._types import PredictionData
 from sckitflow.core._data_utils import align_step_data, extract_step_data
 from sckitflow.core._types import StepData
 from sckitflow.core.methods._base import BaseMethod
+from sckitflow.core.methods._opt import OptimConfig, OptimizationManager
 from sckitflow.data._composite import MatchedData
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
@@ -455,76 +456,102 @@ class Model:
 
     def train(
         self,
-        train_adata: AnnData,
+        adata: AnnData,
         *args,
-        val_adatas_dict: dict[str, AnnData] | None = None,
+        split_by: str = "split",
+        train_split: str = "train",
+        control_adata: AnnData | None = None,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
         n_train_steps: int = 100_000,
         valid_freq: int = 1_000,
-        train_batch_size: int = 128,
-        val_max_n_obs: int = 10_000,
-        train_sampler_kwargs: dict[str, Any] | None = None,
-        val_sampler_kwargs: dict[str, Any] | None = None,
-        train_kwargs: dict[str, Any] | None = None,
+        batch_size: int = 128,
+        loader_kwargs: dict[str, Any] | None = None,
         optim_kwargs: dict[str, Any] | None = None,
-        sort: bool = False,
         **kwargs,
     ) -> None:
-        """Trains the model on the input adata.
+        """Trains the model by streaming ``StepData`` batches from scfit-backed loaders.
 
-        :param train_adata: The train adata.
-        :type train_adata: class: `AnnData`
+        One loader is built per split value of ``adata.obs[split_by]`` via
+        :meth:`DataManager.get_dataloaders`. The ``train_split`` loader drives the optimizer -- one
+        gradient step per streamed batch, cycling epochs -- and every other split becomes a
+        validation loader (iterated for one epoch per validation). Selection is by scfit weights over
+        the whole ``adata`` (no subset copying), and controls are shared across splits (see
+        :meth:`DataManager.get_dataloaders`).
 
-        :param *args: Positional arguments used to call the `.train` method of the trainer class.
-        :type *args: class: `Sequence[Any]`
+        :param adata: The annotated data object to stream; must carry ``split_by`` in ``.obs``.
+        :type adata: class: `AnnData`
 
-        :param val_adatas_dict: Dictionary containing the validation adatas.
-        :type val_adatas_dict: class: `dict[str, AnnData]`
+        :param split_by: The ``.obs`` column whose values define the splits. Defaults to ``"split"``.
+        :type split_by: class: `str`
+
+        :param train_split: The split value whose loader drives optimization. Defaults to ``"train"``.
+        :type train_split: class: `str`
+
+        :param control_adata: Optional separate control (source) pool, shared by every split.
+        :type control_adata: class: `AnnData | None`
 
         :param callbacks: Callbacks to be used during training.
         :type callbacks: class: `TrainingCallbacks | Sequence[BaseCallback] | None`
 
-        :param n_train_steps: The number of training steps to train the model over.
-            Defaults to `10_000`
+        :param n_train_steps: The number of training steps (streamed batches) to train over.
+            Defaults to ``100_000``.
         :type n_train_steps: class: `int`
 
-        :param valid_freq: The frequency of the validation steps during training.
-            Defaults to `1_000`
+        :param valid_freq: The frequency (in steps) of the validation passes during training.
+            Defaults to ``1_000``.
         :type valid_freq: class: `int`
 
-        :param train_batch_size: The number of observations to sample for each node in a batch
-            of training data. Defaults to `128`.
-        :type train_batch_size: class: `int`
+        :param batch_size: Number of observations per streamed batch. Defaults to ``128``.
+        :type batch_size: class: `int`
 
-        :param val_max_n_obs: The maximum number of observations to sample for each node in a batch
-            of validation data. Defaults to `10_000`.
-        :type val_max_n_obs: class: `int`
+        :param loader_kwargs: Extra keyword arguments forwarded to each loader (e.g. ``to``,
+            ``chunk_size``, ``preload_nchunks``, ``seed``). Defaults to ``None``.
+        :type loader_kwargs: class: `dict[str, Any] | None`
 
-        :param train_sampler_kwargs: Extra keyword arguments for the training sampler. Defaults to `None`.
-        :type train_sampler_kwargs: class: `dict[str, Any] | None`
+        :param optim_kwargs: Keyword arguments to configure the optimization manager (optimizer,
+            scheduler, etc.). Defaults to ``None``.
+        :type optim_kwargs: class: `dict[str, Any] | None`
 
-        :param val_sampler_kwargs: Extra keyword arguments for the validation sampler. Defaults to `None`.
-        :type val_sampler_kwargs: class: `dict[str, Any] | None`
-
-        :param optim_kwargs: Keyword arguments to configure for the optimization manager (optimizer, scheduler, etc.). Defaults to `None`.
-        :type optim_kwargs: class: `OptimConfig | None`
-
-        :param sort: If ``True``, create a sorted copy of *adata* via
-            :meth:`sort_adata` and compile from that copy.  When setting this one
-            should keep in mind this will copy the full adata object. When ``False`` (the
-            default) the data must already be sorted; a ``ValueError``
-            is raised otherwise.
-        :type sort: class: `bool`
-
-        :param *kwargs: Keyword arguments used to call the `.train` method of the trainer class.
-        :type *kwargs: class: `dict[str, Any]`
+        :param args: Positional arguments forwarded to :meth:`Trainer.train`.
+        :param kwargs: Keyword arguments forwarded to :meth:`Trainer.train`.
         """
-        # The tree-based sampler data path was removed; training is being rewired onto the
-        # scfit streaming loader (DataManager -> {split: DataLoader}). This seam is restored
-        # in the scfit-wiring commit.
-        raise NotImplementedError(
-            "Model.train is being migrated to the scfit streaming data loader; the old "
-            "sampler-based training path has been removed."
+        # Build one streaming loader per split (scfit weights over the whole adata -- no copies).
+        loader_kwargs = dict(loader_kwargs or {})
+        loader_kwargs.setdefault("to", "torch")
+        loader_kwargs.setdefault("batch_size", batch_size)
+        loaders = self._dm.get_dataloaders(
+            adata, split_by=split_by, control_adata=control_adata, **loader_kwargs
+        )
+        if train_split not in loaders:
+            raise KeyError(
+                f"train split {train_split!r} has no loader; available splits: {list(loaders)}. "
+                "(A split with only control groups produces no loader.)"
+            )
+
+        # The train loader drives the optimizer via `.sample()` (one batch/step, cycling epochs);
+        # the remaining splits are validation loaders (each iterated one epoch per validation).
+        train_sampler = loaders[train_split]
+        val_samplers_dict = {split: loader for split, loader in loaders.items() if split != train_split}
+
+        # prepare optimization manager
+        optim_config = OptimConfig(**(optim_kwargs or {}))
+        opt_manager = OptimizationManager.from_config(self._method._module, optim_config)
+
+        # initialize trainer (once; later calls continue from the current step)
+        if self._trainer is None:
+            self._trainer = Trainer(self._method, opt_manager, callbacks)
+
+        # module in training mode
+        self._method.set_train_mode(True)
+
+        # train model
+        self._trainer.train(
+            train_sampler,
+            *args,
+            val_samplers_dict=val_samplers_dict or None,
+            n_train_steps=n_train_steps,
+            valid_freq=valid_freq,
+            **kwargs,
         )
 
     def predict(

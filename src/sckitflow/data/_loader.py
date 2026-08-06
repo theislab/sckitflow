@@ -17,6 +17,7 @@ One scfit batch is one group, so each ``__next__`` yields one ``StepData``.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from itertools import islice
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -240,9 +241,22 @@ class Loader:
         return step_data  # type: ignore[return-value]
 
     def __iter__(self) -> Iterator[StepData]:
-        for batch in self._loader:
+        # scfit's Loader is an *infinite* iterator: at an epoch boundary it silently starts the next
+        # epoch instead of raising StopIteration. Bound it to exactly one epoch here so `for`/`list`
+        # terminate (validation streams one pass). Re-iterable: each call streams a fresh epoch.
+        for batch in islice(self._loader, len(self)):
             yield self._to_step_data(batch)
+
+    def sample(self) -> tuple[StepData]:
+        """One streamed ``StepData`` batch, cycling epochs forever -- the trainer's per-step contract.
+
+        Consumes scfit's infinite iterator directly (no epoch bound), so successive calls stream across
+        epoch boundaries without stopping. Use a given loader instance for *either* training (``sample``)
+        *or* validation (iteration), not both at once: they share scfit's single batch cursor.
+        """
+        return (self._to_step_data(next(self._loader)),)
 
     def __len__(self) -> int:
         """Number of batches in one epoch (as scfit computes it from the primary)."""
+        # ponytail: reaches into scfit's private `_n_batches`; swap for a public accessor if scfit adds one.
         return int(self._loader._n_batches)

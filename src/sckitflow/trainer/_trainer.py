@@ -6,8 +6,6 @@ from tqdm import tqdm
 
 from sckitflow.core.methods._base import BaseMethod
 from sckitflow.core.methods._opt import OptimizationManager
-from sckitflow.data.samplers._train import FTrainSampler
-from sckitflow.data.samplers._validation import FValidationSampler
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 
 __all__ = ["Trainer"]
@@ -61,12 +59,16 @@ class Trainer:
 
     def _run_val_on_sampler(
         self,
-        sampler: FValidationSampler,
+        sampler: Any,
         val_id: str,
         *args,
         **kwargs,
     ) -> None:
-        """Run validation on a sampler and store predictions."""
+        """Run validation on a sampler and store predictions.
+
+        ``sampler`` is duck-typed: any iterable yielding ready ``StepData`` batches
+        (the concrete data-loading class is provided by the caller).
+        """
         predictions_dict = {}
         for node_id, step_data in enumerate(sampler):
             # The sampler yields ready `StepData`; the ground-truth target is its
@@ -106,9 +108,9 @@ class Trainer:
 
     def train(
         self,
-        train_sampler: FTrainSampler,
+        train_sampler: Any,
         *args,
-        val_samplers_dict: dict[str, FValidationSampler] | None = None,
+        val_samplers_dict: dict[str, Any] | None = None,
         n_train_steps: int = 10_000,
         valid_freq: int = 1_000,
         pbar_freq: int = 100,

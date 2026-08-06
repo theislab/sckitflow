@@ -16,13 +16,10 @@ from sckitflow._types import PredictionData
 from sckitflow.core._data_utils import align_step_data, extract_step_data
 from sckitflow.core._types import StepData
 from sckitflow.core.methods._base import BaseMethod
-from sckitflow.core.methods._opt import OptimConfig
 from sckitflow.data._composite import MatchedData
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
 from sckitflow.data.containers._distribution import build_ann_df
-from sckitflow.data.samplers._train import FTrainSampler
-from sckitflow.data.samplers._validation import FValidationSampler
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sckitflow.trainer._trainer import Trainer
 
@@ -522,67 +519,12 @@ class Model:
         :param *kwargs: Keyword arguments used to call the `.train` method of the trainer class.
         :type *kwargs: class: `dict[str, Any]`
         """
-        # compile adata
-        train_tree = self._dm.compile_adata(
-            train_adata,
-            sort=sort,
-        )
-        if val_adatas_dict is not None:
-            val_trees_dict = {
-                val_id: self._dm.compile_adata(
-                    val_adata,
-                    sort=sort,
-                )
-                for val_id, val_adata in val_adatas_dict.items()
-            }
-        else:
-            val_trees_dict = {}
-
-        # create train sampler. The dispatch turns each sampled node into ready
-        # `StepData` (on the method's device/dtype), so the sampler yields `StepData`.
-        if train_sampler_kwargs is None:
-            train_sampler_kwargs = {}
-        train_sampler_kwargs.setdefault("dispatch_fn", self._to_step_data)
-        train_sampler = FTrainSampler(
-            train_tree,
-            batch_size=train_batch_size,
-            **train_sampler_kwargs,
-        )
-
-        # create validation samplers (same `StepData` dispatch)
-        if val_sampler_kwargs is None:
-            val_sampler_kwargs = {}
-        val_sampler_kwargs.setdefault("dispatch_fn", self._to_step_data)
-        val_samplers_dict = {
-            val_id: FValidationSampler(val_tree, max_n_obs=val_max_n_obs, **val_sampler_kwargs)
-            for val_id, val_tree in val_trees_dict.items()
-        }
-
-        # prepare optimization configurations
-        if optim_kwargs is None:
-            optim_kwargs = {}
-        optim_config = OptimConfig(**optim_kwargs)
-
-        # create optimization manager
-        from sckitflow.core.methods._opt import OptimizationManager
-
-        opt_manager = OptimizationManager.from_config(self._method._module, optim_config)
-
-        # initialize trainer
-        if self._trainer is None:
-            self._trainer = Trainer(self._method, opt_manager, callbacks)
-
-        # module in training mode
-        self._method.set_train_mode(True)
-
-        # train model
-        self._trainer.train(
-            train_sampler,
-            *args,
-            val_samplers_dict=val_samplers_dict,
-            n_train_steps=n_train_steps,
-            valid_freq=valid_freq,
-            **kwargs,
+        # The tree-based sampler data path was removed; training is being rewired onto the
+        # scfit streaming loader (DataManager -> {split: DataLoader}). This seam is restored
+        # in the scfit-wiring commit.
+        raise NotImplementedError(
+            "Model.train is being migrated to the scfit streaming data loader; the old "
+            "sampler-based training path has been removed."
         )
 
     def predict(

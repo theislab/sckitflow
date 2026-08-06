@@ -15,8 +15,9 @@ class CellLineDrugSplitter(Splitter):
     The unit of splitting is a unique ``(cell_line, drug)`` combination. Combinations are held
     out **per cell line**, so that every cell line keeps at least one combination in the training
     set -- a cell line is never pushed entirely into the held-out split. Control observations
-    (``drug == control_value``) are always assigned to train, so the paired control distribution
-    stays available for every trained cell line.
+    (``drug == control_value``) are labeled ``control_label``: they are *not* train/test members --
+    the data manager pools controls and shares them across splits, so each split's perturbations are
+    matched to their own controls.
 
     The hold-out is stratified per cell line: for a cell line with ``k`` non-control combinations,
     ``floor(test_fraction * k)`` of them are moved to test (capped at ``k - 1`` so at least one
@@ -35,6 +36,7 @@ class CellLineDrugSplitter(Splitter):
         split_key: str = "split",
         train_label: str = "train",
         test_label: str = "test",
+        control_label: str = "control",
     ) -> None:
         """Initializes the splitter.
 
@@ -44,8 +46,9 @@ class CellLineDrugSplitter(Splitter):
         :param drug_key: ``adata.obs`` column holding the drug/perturbation. Defaults to ``"drug"``.
         :type drug_key: class: `str`
 
-        :param control_value: Value of ``drug_key`` marking control observations, always kept in
-            train. Pass ``None`` to treat every observation as perturbed. Defaults to ``"control"``.
+        :param control_value: Value of ``drug_key`` marking control observations. Controls are
+            labeled ``control_label`` (not split). Pass ``None`` to treat every observation as
+            perturbed. Defaults to ``"control"``.
         :type control_value: class: `str | None`
 
         :param test_fraction: Target fraction of each cell line's non-control combinations to hold
@@ -63,6 +66,10 @@ class CellLineDrugSplitter(Splitter):
 
         :param test_label: Label written for held-out observations. Defaults to ``"test"``.
         :type test_label: class: `str`
+
+        :param control_label: Label written for control observations, which are not split members
+            (the data manager shares them across splits). Defaults to ``"control"``.
+        :type control_label: class: `str`
         """
         super().__init__(split_key=split_key)
         if not 0.0 <= test_fraction < 1.0:
@@ -74,9 +81,10 @@ class CellLineDrugSplitter(Splitter):
         self._seed = seed
         self._train_label = train_label
         self._test_label = test_label
+        self._control_label = control_label
 
     def assign(self, adata: AnnData) -> pd.Series:
-        """Assigns each observation to train or test (see the class docstring for the policy)."""
+        """Assigns each observation to train / test / control (see the class docstring for the policy)."""
         obs = adata.obs
         for col in (self._cell_line_key, self._drug_key):
             if col not in obs.columns:
@@ -109,6 +117,6 @@ class CellLineDrugSplitter(Splitter):
         labels = np.full(len(obs), self._train_label, dtype=object)
         if test_combos:
             combo_index = pd.MultiIndex.from_arrays([cell_line, drug])
-            is_test = combo_index.isin(test_combos) & is_perturbed
-            labels[is_test] = self._test_label
+            labels[combo_index.isin(test_combos) & is_perturbed] = self._test_label
+        labels[is_control] = self._control_label
         return pd.Series(labels, index=obs.index, name=self._split_key)

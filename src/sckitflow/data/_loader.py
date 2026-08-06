@@ -1,21 +1,17 @@
 r"""``SckitflowLoader`` -- a training data loader that adapts :class:`scfit.data.Loader` to ``StepData``.
 
-The loader turns one AnnData (typically a single split) into scfit streams and yields ready
-``StepData`` batches for the training loop. It reuses the :class:`~sckitflow.data.DataManager`
-schema so the emitted conditioning keys match those the model was sized for.
+Selection is entirely scfit-native: one AnnData is streamed and the split + perturbed/control choice is
+expressed as scfit **weights** over scfit's own leaf factorization (weight 0 == excluded, ``in_memory``
+materializes only the selected cells). No Python-side masking or copying of subsets.
 
-Design (mirrors the split the ``DataManager`` schema already draws):
+* the **primary** stream is the target/perturbed population -- controls get weight 0;
+* the **control** link is the source population -- a separate ``control_adata`` (fast to load, and the
+  cross-dataset case), or, when none is given, the *same* adata weighted so only controls are nonzero;
+* **continuous** covariates ride as *aligned reps* (per-cell, straight from ``obsm``);
+* **categorical** condition/group encodings are computed per group at batch time (cached), keyed off the
+  group id scfit surfaces in ``batch["labels"]``, then tiled to the batch.
 
-* the **primary** stream is the target/perturbed population, grouped by the group + categorical
-  condition columns;
-* an optional **control** link (present when ``control_values_dict`` is set) is the source
-  population, matched to the primary on the group columns;
-* **continuous** covariates (``conditions_covariates`` / target ``continuous_covs``) are streamed
-  as *aligned reps* -- loaded per cell, row-aligned with the state matrix, straight from ``obsm``;
-* **categorical** condition/group encodings are per-group and ride as scfit ``label_lookup`` (one
-  vector per group), tiled to the batch on the way into ``StepData``.
-
-One scfit batch corresponds to one group, so each ``__next__`` yields one ``StepData``.
+One scfit batch is one group, so each ``__next__`` yields one ``StepData``.
 """
 
 from __future__ import annotations
@@ -83,27 +79,23 @@ def _leaf_vector(rep: Any) -> np.ndarray:
 class SckitflowLoader:
     """Yields ``StepData`` batches for one population, backed by :class:`scfit.data.Loader`.
 
-    :param adata: The (already split) annotated data object to stream from.
+    :param adata: The annotated data object to stream (the whole thing -- selection is by weights).
     :type adata: class: `AnnData`
 
     :param dm: The data manager whose schema defines the state/condition/group layout.
     :type dm: class: `DataManager`
 
-    :param to: scfit backend for the streamed reps -- ``"torch"`` (default) emits torch tensors.
-    :type to: class: `str | None`
+    :param primary_weights: scfit ``{group tuple: weight}`` selecting the target (perturbed) groups for
+        this loader; ``None`` streams every group uniformly. Controls should be given weight 0 here.
+    :type primary_weights: class: `dict | None`
 
-    :param seed: Seed for the reproducible scfit stream. Defaults to ``0``.
-    :type seed: class: `int`
+    :param control_adata: A separate matched control (source) pool -- faster to load and the
+        cross-dataset case. Takes precedence over ``control_weights``.
+    :type control_adata: class: `AnnData | None`
 
-    :param batch_size: Rows per emitted batch (per group). Defaults to ``128``.
-    :type batch_size: class: `int`
-
-    :param chunk_size: annbatch read-slice size. Defaults to ``1`` (per-row reads, any layout).
-    :type chunk_size: class: `int`
-
-    :param preload_nchunks: annbatch read-window size; a positive multiple of
-        ``batch_size // chunk_size``. Defaults to ``batch_size // chunk_size``.
-    :type preload_nchunks: class: `int | None`
+    :param control_weights: scfit ``{group tuple: weight}`` selecting controls out of ``adata`` itself,
+        used only when ``control_adata`` is ``None``. ``None`` (and no ``control_adata``) => unpaired.
+    :type control_weights: class: `dict | None`
     """
 
     def __init__(
@@ -111,6 +103,9 @@ class SckitflowLoader:
         adata: AnnData,
         *,
         dm: DataManager,
+        primary_weights: dict[tuple, float] | None = None,
+        control_adata: AnnData | None = None,
+        control_weights: dict[tuple, float] | None = None,
         to: str | None = "torch",
         seed: int = 0,
         batch_size: int = 128,
@@ -141,95 +136,98 @@ class SckitflowLoader:
         self._resp_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in dm.target_data_schema.continuous_covs}
         primary_reps = (self._state_loc, *self._cond_cont_locs, *self._resp_cont_locs)
 
-        # Split into target (perturbed) and, when paired, source (control) populations.
-        control_mask = self._control_mask(adata)
-        target_adata = adata[~control_mask].copy()
-        self._paired = bool(control_mask.any())
-
-        # Categorical condition/group encodings -> per-group label_lookup (reuses the schema so the
-        # keys match the model's dims registry). Split key sets route labels to condition vs group.
-        label_lookup, self._cond_cat_keys, self._group_keys = self._build_label_lookup(target_adata)
+        # scfit surfaces the drawn group per batch via label_lookup; carry only a group id here and do the
+        # (cached) categorical -> encoding at batch time (see `_to_step_data`), rather than up front.
+        # One O(N) drop_duplicates gives the group combos + a representative row per group (no per-cell logic).
+        uniq = adata.obs.loc[:, list(self._group_cols)].reset_index(drop=True).drop_duplicates()
+        self._leaves: list[tuple] = list(map(tuple, uniq.to_numpy()))
+        self._rep_idx: list[int] = uniq.index.to_numpy().tolist()
+        self._adata = adata
+        self._encode_cache: dict[int, tuple[dict[str, np.ndarray], dict[str, np.ndarray]]] = {}
+        wanted = set(primary_weights) if primary_weights else set(self._leaves)
+        label_lookup = {
+            leaf: {"gid": np.array([i], dtype=np.int64)} for i, leaf in enumerate(self._leaves) if leaf in wanted
+        }
+        self._has_categorical = bool(label_lookup)
 
         primary = Stream(
             _PRIMARY,
             group_by=list(self._group_cols),
             reps=primary_reps,
+            weights=primary_weights,
             label_lookup=label_lookup or None,
             **self._sampler_kwargs,
         )
-        sources: dict[str, AnnData] = {_PRIMARY: target_adata}
+        sources: dict[str, AnnData] = {_PRIMARY: adata}
         links: dict[str, Stream] = {}
-        if self._paired:
-            group_cols = tuple(dm.groups_data_schema.groups) or self._group_cols
-            sources[_CONTROL] = adata[control_mask].copy()
+
+        # Control link, matched on the group columns (e.g. cell line). Either a separate pool, or the same
+        # adata weighted to controls-only -- scfit's in_memory materializes just those selected cells.
+        match_cols = tuple(dm.groups_data_schema.groups)
+        if control_adata is not None:
+            sources[_CONTROL] = control_adata
             links[_CONTROL] = Stream(
                 _CONTROL,
-                group_by=list(group_cols),
+                group_by=list(match_cols) if match_cols else list(self._group_cols),
                 reps=(self._state_loc,),
-                match_on=list(group_cols),
+                match_on=list(match_cols),
                 in_memory=True,
                 **self._sampler_kwargs,
             )
-
+        else:
+            links[_CONTROL] = Stream(
+                _PRIMARY,  # same source as the primary; weights pick out the controls
+                group_by=list(self._group_cols),
+                reps=(self._state_loc,),
+                weights=control_weights,
+                match_on=list(match_cols),
+                in_memory=True,
+                **self._sampler_kwargs,
+            )
+        self._paired = bool(links)
         self._loader = Loader(sources, primary=primary, links=links, seed=seed, to=to)
 
-    def _control_mask(self, adata: AnnData) -> np.ndarray:
-        """Boolean mask of control (source) cells, from ``control_values_dict`` over condition columns."""
-        n = adata.n_obs
-        control_values = self._dm.control_values_dict
-        if not control_values:
-            return np.zeros(n, dtype=bool)
-        conditions = self._dm.condition_data_schema.conditions
-        mask = np.ones(n, dtype=bool)
-        for level, value in control_values.items():
-            for col in conditions[level]:
-                mask &= adata.obs[col].astype(str).to_numpy() == str(value)
-        return mask
+    def _encode_group_cached(self, gid: int) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
+        """The group's ``(condition, group)`` categorical encodings -- computed once per group, then cached."""
+        if gid not in self._encode_cache:
+            entry, cond_keys, group_keys = self._encode_group(self._adata[int(self._rep_idx[gid])])
+            self._encode_cache[gid] = ({k: entry[k] for k in cond_keys}, {k: entry[k] for k in group_keys})
+        return self._encode_cache[gid]
 
-    def _build_label_lookup(self, target_adata: AnnData) -> tuple[dict[tuple, dict[str, np.ndarray]], list, list]:
-        """Per-group categorical encodings ``{group tuple: {key: vector}}`` plus the cond/group key sets.
-
-        Categorical encodings are constant within a group, so they are extracted **per group**: the
-        schema's ``extract_reps`` is a leaf-level op (it asserts a single category value), so each
-        unique group is sliced out and encoded on its own. Reusing the schema keeps the emitted keys
-        aligned with ``get_data_dimensionalities``.
-        """
-        obs = target_adata.obs
-        group_frame = obs.loc[:, list(self._group_cols)]
+    def _encode_group(self, cell: AnnData) -> tuple[dict[str, np.ndarray], list, list]:
+        """Encode one representative group cell to ``{key: vector}`` plus the condition/group key lists."""
+        entry: dict[str, np.ndarray] = {}
         cond_keys: list[str] = []
         group_keys: list[str] = []
-        lookup: dict[tuple, dict[str, np.ndarray]] = {}
-
-        for _, row in group_frame.drop_duplicates().iterrows():
-            key = tuple(row[c] for c in self._group_cols)
-            mask = np.ones(obs.shape[0], dtype=bool)
-            for col in self._group_cols:
-                mask &= obs[col].to_numpy() == row[col]
-            leaf = target_adata[mask]
-
-            entry: dict[str, np.ndarray] = {}
-            condition_data = self._dm.condition_data_schema.get_data(leaf)
-            if condition_data is not None and condition_data.categorical_covariates is not None:
-                reps = condition_data.categorical_covariates.extract_reps().mapping
-                entry.update({k: _leaf_vector(v) for k, v in reps.items()})
-                cond_keys = list(reps)
-            groups_data = self._dm.groups_data_schema.get_data(leaf)
-            if groups_data is not None:
-                reps = groups_data.extract_reps().mapping
-                entry.update({k: _leaf_vector(v) for k, v in reps.items()})
-                group_keys = list(reps)
-            lookup[key] = entry
-        return lookup, cond_keys, group_keys
+        condition_data = self._dm.condition_data_schema.get_data(cell)
+        if condition_data is not None and condition_data.categorical_covariates is not None:
+            reps = condition_data.categorical_covariates.extract_reps().mapping
+            entry.update({k: _leaf_vector(v) for k, v in reps.items()})
+            cond_keys = list(reps)
+        groups_data = self._dm.groups_data_schema.get_data(cell)
+        if groups_data is not None:
+            reps = groups_data.extract_reps().mapping
+            entry.update({k: _leaf_vector(v) for k, v in reps.items()})
+            group_keys = list(reps)
+        return entry, cond_keys, group_keys
 
     def _to_step_data(self, batch: dict) -> StepData:
-        """Assemble one scfit batch into a ``StepData`` (target/source state + conditioning)."""
+        """Assemble one scfit batch into a ``StepData`` (target/source state + conditioning).
+
+        The categorical condition/group encoding is done here -- cached per group, keyed off the group id
+        scfit surfaces in ``batch["labels"]`` -- and tiled to the batch. Continuous covariates are the
+        per-cell aligned reps already in the batch.
+        """
         target_state = _as_tensor(batch[_PRIMARY][self._state_loc])
         batch_size = int(target_state.shape[0])
         source_state = _as_tensor(batch[_CONTROL][self._state_loc]) if _CONTROL in batch else None
 
-        labels = batch.get("labels", {}).get(_PRIMARY, {})
-        condition: dict[str, Any] = {k: _tile(labels[k], batch_size) for k in self._cond_cat_keys if k in labels}
-        group: dict[str, Any] = {k: _tile(labels[k], batch_size) for k in self._group_keys if k in labels}
+        cond_enc: dict[str, np.ndarray] = {}
+        group_enc: dict[str, np.ndarray] = {}
+        if self._has_categorical:
+            cond_enc, group_enc = self._encode_group_cached(int(batch["labels"][_PRIMARY]["gid"][0]))
+        condition: dict[str, Any] = {k: _tile(v, batch_size) for k, v in cond_enc.items()}
+        group: dict[str, Any] = {k: _tile(v, batch_size) for k, v in group_enc.items()}
         # continuous covariates: per-cell aligned reps
         for loc, key in self._cond_cont_locs.items():
             condition[key] = _as_tensor(batch[_PRIMARY][loc])

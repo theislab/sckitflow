@@ -443,14 +443,16 @@ class DataManager:
         adata: AnnData,
         *,
         split_by: str = "split",
+        control_adata: AnnData | None = None,
         **loader_kwargs: Any,
     ) -> dict[str, "SckitflowLoader"]:
         """Build one streaming data loader per split value of ``adata.obs[split_by]``.
 
-        The manager only groups by ``split_by``; how the split column was produced (a
-        :class:`~sckitflow.data.Splitter`) is not its concern. Each split is streamed by a
-        :class:`~sckitflow.data.SckitflowLoader` built from this manager's schema, so all splits
-        share the same state/condition/group layout.
+        Selection is by scfit weights over scfit's own leaf factorization -- no subset copying. The whole
+        ``adata`` is streamed; each split's primary weights pick out that split's perturbed groups
+        (controls get weight 0). Controls are shared across splits: pass ``control_adata`` (a separate
+        pool -- faster to load, and the cross-dataset case), or, when omitted, they are drawn from
+        ``adata`` itself by weight.
 
         :param adata: The annotated data object; must carry the ``split_by`` column in ``.obs``.
         :type adata: class: `AnnData`
@@ -458,27 +460,47 @@ class DataManager:
         :param split_by: The ``.obs`` column whose values define the splits. Defaults to ``"split"``.
         :type split_by: class: `str`
 
+        :param control_adata: Optional separate control (source) pool, shared by every split.
+        :type control_adata: class: `AnnData | None`
+
         :param loader_kwargs: Forwarded to each :class:`SckitflowLoader` (e.g. ``to``, ``batch_size``,
             ``chunk_size``, ``preload_nchunks``, ``seed``).
 
-        :returns: Mapping from each split value to its loader.
+        :returns: Mapping from each split value (that has perturbed groups) to its loader.
         :rtype: class: `dict[str, SckitflowLoader]`
         """
         from sckitflow.data._loader import SckitflowLoader
 
         if split_by not in adata.obs.columns:
             raise KeyError(f"{split_by!r} not found in adata.obs (columns: {list(adata.obs.columns)}).")
-        column = adata.obs[split_by]
-        if isinstance(column.dtype, pd.CategoricalDtype):
-            values = list(column.cat.categories)
-        else:
-            values = list(dict.fromkeys(column))
-        loaders: dict[str, SckitflowLoader] = {}
-        for value in values:
-            mask = (column == value).to_numpy()
-            if mask.any():
-                loaders[str(value)] = SckitflowLoader(adata[mask].copy(), dm=self, **loader_kwargs)
-        return loaders
+
+        # One O(N) pass to the unique (split, group) combinations -- category-level, no per-cell logic.
+        group_cols = (*tuple(self._groups_data_schema.groups), *self._condition_data_schema.all_condition_cols)
+        uniq = adata.obs.loc[:, [split_by, *group_cols]].drop_duplicates()
+        combos = pd.Series(list(map(tuple, uniq[list(group_cols)].to_numpy())), index=uniq.index)
+        splits = uniq[split_by].astype(str)
+
+        # A group is control iff every control condition column holds its control value.
+        conditions = self._condition_data_schema.conditions
+        checks = [(col, str(val)) for level, val in (self._control_values_dict or {}).items() for col in conditions[level]]
+        is_control = (
+            np.logical_and.reduce([uniq[col].astype(str).to_numpy() == val for col, val in checks])
+            if checks
+            else np.zeros(len(uniq), dtype=bool)
+        )
+
+        control_weights = dict.fromkeys(combos[is_control], 1.0)
+        return {
+            split_value: SckitflowLoader(
+                adata,
+                dm=self,
+                primary_weights=dict.fromkeys(group_combos, 1.0),
+                control_adata=control_adata,
+                control_weights=None if control_adata is not None else (control_weights or None),
+                **loader_kwargs,
+            )
+            for split_value, group_combos in combos[~is_control].groupby(splits[~is_control], observed=True)
+        }
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

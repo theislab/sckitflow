@@ -1,20 +1,53 @@
-from collections.abc import Collection
+"""Shared verification helpers for tests/data/.
 
-import numpy as np
+The ``verify_*`` helpers are reused by the schema tests to assert on
+``CategoricalData`` / ``BatchMixin`` shapes and representations.
+"""
+
+from collections.abc import Collection, Sequence
+
 import pandas as pd
+from anndata import AnnData
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sckitflow._types import TargetCovariatesEncodingId
-from sckitflow.data._composite import MatchedData, NestedData
-from sckitflow.data._mixins import BatchMixin, MappedLevelIndex
-from sckitflow.data.containers import CategoricalData, CouplingData, DistributionData, MixedTypeData, StateData
+from sckitflow.data._mixins import BatchMixin
+from sckitflow.data.containers import CategoricalData
 
 __all__ = [
     "verify_repr_shape",
     "verify_repr",
     "verify_categorical_data",
     "verify_mixin",
+    "with_split",
 ]
+
+
+def with_split(
+    adata: AnnData,
+    *,
+    cols: Sequence[str],
+    labels: Sequence[str] = ("train", "val"),
+    control_col: str | None = None,
+    control_value: str = "control",
+    control_label: str = "control",
+    split_key: str = "split",
+) -> AnnData:
+    """Attach a deterministic ``split`` column, each ``cols`` combination wholly inside one split.
+
+    Round-robins the sorted combinations over ``labels``. Control rows (when ``control_col`` is given)
+    are labelled ``control_label`` instead, mirroring what :class:`CombinationSplitter` produces -- so a
+    control-only split yields no loader. Returns a copy.
+    """
+    adata = adata.copy()
+    combos = list(zip(*(adata.obs[c].astype(str) for c in cols), strict=True))
+    assign = {c: labels[i % len(labels)] for i, c in enumerate(sorted(set(combos)))}
+    split = [assign[c] for c in combos]
+    if control_col is not None:
+        is_control = adata.obs[control_col].astype(str).to_numpy() == control_value
+        split = [control_label if ctrl else s for s, ctrl in zip(split, is_control, strict=True)]
+    adata.obs[split_key] = pd.Categorical(split)
+    return adata
 
 
 def verify_repr_shape(
@@ -78,42 +111,3 @@ def verify_mixin(
         emb_dim = obsm_keys_to_dim[condition]
         expected_shape = (N, emb_dim)
         assert val.shape == expected_shape
-
-
-def make_distribution(n=10):
-    X = np.arange(n).reshape(-1, 1)
-    df = pd.DataFrame({"grp": np.arange(n)})
-    cat = CategoricalData.from_pandas(ann_df=df)
-    state_data = StateData(X=X)
-
-    response_data = MixedTypeData(categorical_covariates=cat)
-    condition_data = MixedTypeData(categorical_covariates=cat)
-    source_coupling = CouplingData.init_from_state_data(state_data)
-    target_coupling = CouplingData.init_from_state_data(state_data)
-
-    return DistributionData(
-        state_data=state_data,
-        response_data=response_data,
-        condition_data=condition_data,
-        groups_data=cat,
-        source_coupling_data=source_coupling,
-        target_coupling_data=target_coupling,
-    )
-
-
-def make_matched_data(target_size=10, source_size=5):
-    target = make_distribution(target_size)
-    source = make_distribution(source_size)
-    return MatchedData(target=target, source=source)
-
-
-def make_tree():
-    target_data = make_distribution(10)
-
-    mapped_index = MappedLevelIndex(
-        mapping={
-            ("0",): MappedLevelIndex({("a",): slice(0, 5)}),
-            ("1",): MappedLevelIndex({("b",): slice(5, 10)}),
-        }
-    )
-    return NestedData._init_tree(target_data, mapped_index)

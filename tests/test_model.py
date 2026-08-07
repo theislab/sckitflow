@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
+from tests.data.shared import with_split
 
 from sckitflow import Model, ModelBuilder
 from sckitflow.core.methods._base import BaseMethod
@@ -126,11 +127,7 @@ _DM_TRAIN_KWARGS = {
 
 def _with_split(adata: AnnData, labels=("train", "val1", "val2")) -> AnnData:
     """Attach a deterministic ``split`` column, each ``(source_split, drugA)`` group wholly in one split."""
-    adata = adata.copy()
-    combos = list(zip(adata.obs["source_split"].astype(str), adata.obs["drugA"].astype(str), strict=True))
-    assign = {c: labels[i % len(labels)] for i, c in enumerate(sorted(set(combos)))}
-    adata.obs["split"] = pd.Categorical([assign[c] for c in combos])
-    return adata
+    return with_split(adata, cols=("source_split", "drugA"), labels=labels)
 
 
 # -----------------------------------------------------------------------------

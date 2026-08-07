@@ -292,6 +292,27 @@ class DataManager:
         n_features = self._get_state_data(adata).X.shape[1]
         return self._get_feature_names(adata, n_features)
 
+    def _control_group_mask(
+        self,
+        adata: AnnData,
+        *,
+        extra_cols: Collection[str] = (),
+        control_values_dict: dict[str, str] | None = None,
+    ) -> tuple[pd.DataFrame, list[tuple], np.ndarray]:
+        """The unique ``extra_cols + group_cols`` combinations, and which of them are controls."""
+        uniq = adata.obs.loc[:, [*extra_cols, *self.group_cols]].drop_duplicates()
+        combos = [tuple(row) for row in uniq.loc[:, list(self.group_cols)].to_numpy()]
+
+        cvd = control_values_dict if control_values_dict is not None else self._control_values_dict
+        conditions = self._condition_data_schema.conditions
+        checks = [(col, str(val)) for level, val in (cvd or {}).items() for col in conditions[level]]
+        is_control = (
+            np.logical_and.reduce([uniq[col].astype(str).to_numpy() == val for col, val in checks])
+            if checks
+            else np.zeros(len(uniq), dtype=bool)
+        )
+        return uniq, combos, is_control
+
     def get_dataloaders(
         self,
         adata: AnnData,
@@ -307,6 +328,11 @@ class DataManager:
         (controls get weight 0). Controls are shared across splits: pass ``control_adata`` (a separate
         pool -- faster to load, and the cross-dataset case), or, when omitted, they are drawn from
         ``adata`` itself by weight.
+
+        ``split_by`` is part of the primary's ``group_by``, so a leaf is ``(split, *group_cols)`` and a
+        split's weights exclude cells rather than whole groups. That matters when a group spans splits (a
+        per-cell split rather than a per-combination one): weighting on the group columns alone would let
+        the held-out loader stream training cells.
 
         :param adata: The annotated data object; must carry the ``split_by`` column in ``.obs``.
         :type adata: class: `AnnData`
@@ -328,34 +354,28 @@ class DataManager:
         if split_by not in adata.obs.columns:
             raise KeyError(f"{split_by!r} not found in adata.obs (columns: {list(adata.obs.columns)}).")
 
-        # One O(N) pass to the unique (split, group) combinations -- category-level, no per-cell logic.
-        group_cols = (*tuple(self._groups_data_schema.groups), *self._condition_data_schema.all_condition_cols)
-        uniq = adata.obs.loc[:, [split_by, *group_cols]].drop_duplicates()
-        combos = pd.Series(list(map(tuple, uniq[list(group_cols)].to_numpy())), index=uniq.index)
-        splits = uniq[split_by].astype(str)
+        uniq, combos, is_control = self._control_group_mask(adata, extra_cols=(split_by,))
+        splits = uniq[split_by].to_numpy()
 
-        # A group is control iff every control condition column holds its control value.
-        conditions = self._condition_data_schema.conditions
-        checks = [
-            (col, str(val)) for level, val in (self._control_values_dict or {}).items() for col in conditions[level]
-        ]
-        is_control = (
-            np.logical_and.reduce([uniq[col].astype(str).to_numpy() == val for col, val in checks])
-            if checks
-            else np.zeros(len(uniq), dtype=bool)
-        )
+        # Controls are shared across splits, so their weights key on the group columns alone (the control
+        # link does not group on the split). The primary's do carry the split, one leaf per (split, group).
+        control_weights = {c for c, ctrl in zip(combos, is_control, strict=True) if ctrl}
+        primary_weights: dict[str, dict[tuple, float]] = {}
+        for split_value, combo, ctrl in zip(splits, combos, is_control, strict=True):
+            if not ctrl:
+                primary_weights.setdefault(str(split_value), {})[(split_value, *combo)] = 1.0
 
-        control_weights = dict.fromkeys(combos[is_control], 1.0)
         return {
             split_value: Loader(
                 adata,
                 dm=self,
-                primary_weights=dict.fromkeys(group_combos, 1.0),
+                split_by=split_by,
+                primary_weights=weights,
                 control_adata=control_adata,
-                control_weights=None if control_adata is not None else (control_weights or None),
+                control_weights=None if control_adata is not None else (dict.fromkeys(control_weights, 1.0) or None),
                 **loader_kwargs,
             )
-            for split_value, group_combos in combos[~is_control].groupby(splits[~is_control], observed=True)
+            for split_value, weights in primary_weights.items()
         }
 
     def get_eval_loader(
@@ -410,19 +430,8 @@ class DataManager:
         """
         from sckitflow.data._loader import EvalLoader
 
-        cvd = control_values_dict if control_values_dict is not None else self._control_values_dict
-        group_cols = (*tuple(self._groups_data_schema.groups), *self._condition_data_schema.all_condition_cols)
-        uniq = adata.obs.loc[:, list(group_cols)].drop_duplicates()
-        combos = list(map(tuple, uniq.to_numpy()))
+        _, combos, is_control = self._control_group_mask(adata, control_values_dict=control_values_dict)
 
-        # A group is control iff every control condition column holds its control value.
-        conditions = self._condition_data_schema.conditions
-        checks = [(col, str(val)) for level, val in (cvd or {}).items() for col in conditions[level]]
-        is_control = (
-            np.logical_and.reduce([uniq[col].astype(str).to_numpy() == val for col, val in checks])
-            if checks
-            else np.zeros(len(uniq), dtype=bool)
-        )
         # Primary = perturbed groups (all groups when unpaired); control link = the control groups.
         primary_weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if not ctrl}
         control_weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if ctrl}
@@ -440,6 +449,11 @@ class DataManager:
             device=device,
             seed=seed,
         )
+
+    @property
+    def group_cols(self) -> tuple[str, ...]:
+        """The columns a batch groups on: the group columns, then the categorical condition columns."""
+        return (*tuple(self._groups_data_schema.groups), *self._condition_data_schema.all_condition_cols)
 
     @property
     def control_values_dict(self) -> dict[str, str] | None:

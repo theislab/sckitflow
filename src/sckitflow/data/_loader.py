@@ -120,7 +120,7 @@ class _StepDataBridge:
         cond_schema = dm.condition_data_schema
         self._state_loc = _state_loc(dm.state_data_schema.sample_rep)
         # group_by = group columns + categorical condition columns (continuous covs are streamed reps).
-        self._group_cols: tuple[str, ...] = (*tuple(dm.groups_data_schema.groups), *cond_schema.all_condition_cols)
+        self._group_cols: tuple[str, ...] = dm.group_cols
         if not self._group_cols:
             raise ValueError(
                 "Loader needs at least one categorical group/condition column to group on "
@@ -203,25 +203,42 @@ class _StepDataBridge:
             group_keys = list(reps)
         return entry, cond_keys, group_keys
 
-    def _batch_size(self, batch: dict, target_state: Any) -> int:
-        """Rows in the batch: from the target state, else a per-cell continuous rep, else 1 (metadata-only)."""
+    def _batch_size(self, batch: dict, target_state: Any, source_state: Any) -> int:
         if target_state is not None:
             return int(target_state.shape[0])
         for loc in (*self._cond_cont_locs, *self._resp_cont_locs):
             if loc in batch[_PRIMARY]:
                 return int(batch[_PRIMARY][loc].shape[0])
+        if source_state is not None:
+            return int(source_state.shape[0])
         return 1
+
+    def _align_source(self, source_state: Any, batch_size: int) -> Any:
+        """Row-align the source to ``batch_size``, slicing it when longer and tiling it when shorter."""
+        if source_state is None or int(source_state.shape[0]) == batch_size:
+            return source_state
+        n_source = int(source_state.shape[0])
+        if n_source == 0:
+            raise ValueError(
+                "a group was matched to zero control cells, so there is no source to flow from. Check that "
+                "every group value present in the primary also has controls (matching is on the group "
+                "columns), or predict unpaired by passing `control_values_dict=None`."
+            )
+        import torch
+
+        return source_state[torch.arange(batch_size, device=source_state.device) % n_source]
 
     def _assemble(self, batch: dict, gid: int, *, has_state: bool) -> StepData:
         """Assemble one scfit batch (+ its group id) into a ``StepData``.
 
         The categorical condition/group encoding is cached per group and tiled to the batch; continuous
-        covariates are the per-cell aligned reps already in the batch. ``has_state=False`` omits the target
-        state (metadata-only prediction).
+        covariates are the per-cell aligned reps already in the batch, and the source is row-aligned to
+        the same count. ``has_state=False`` omits the target state (metadata-only prediction).
         """
         target_state = _as_tensor(batch[_PRIMARY][self._state_loc]) if has_state else None
         source_state = _as_tensor(batch[_CONTROL][self._state_loc]) if _CONTROL in batch else None
-        batch_size = self._batch_size(batch, target_state)
+        batch_size = self._batch_size(batch, target_state, source_state)
+        source_state = self._align_source(source_state, batch_size)
 
         cond_enc, group_enc = self._encode_group_cached(gid)
         condition: dict[str, Any] = {k: _tile(v, batch_size) for k, v in cond_enc.items()}
@@ -234,6 +251,10 @@ class _StepDataBridge:
             key: _as_tensor(batch[_PRIMARY][loc]) for loc, key in self._resp_cont_locs.items() if loc in batch[_PRIMARY]
         }
 
+        # TODO: the ``*_coupling_lin`` / ``*_coupling_quad`` keys stay None, so `_match_observations` is a
+        # no-op and any `match_fn` (OT coupling) never runs. Populate them -- the coupling reps default to
+        # the state rep, so it is the same streamed tensor unless `source_rep` / `n_shared_dims` is set --
+        # and verify against OTFM, whose whole point is the coupling.
         step_data: dict[str, Any] = dict.fromkeys(_STEP_DATA_KEYS)
         step_data["target_state"] = target_state
         step_data["source_state"] = source_state
@@ -241,6 +262,32 @@ class _StepDataBridge:
         step_data["target_group_data"] = group or None
         step_data["target_response_data"] = response or None
         return self._conform_batch(step_data)  # type: ignore[return-value]
+
+    def _control_link(
+        self,
+        control_adata: AnnData | None,
+        control_weights: dict[tuple, float] | None,
+        **stream_kwargs: Any,
+    ) -> tuple[AnnData | None, Stream | None]:
+        match_cols = tuple(self._dm.groups_data_schema.groups)
+        if control_adata is not None:
+            return control_adata, Stream(
+                _CONTROL,
+                group_by=list(match_cols) if match_cols else list(self._group_cols),
+                reps=(self._state_loc,),
+                match_on=list(match_cols),
+                **stream_kwargs,
+            )
+        if control_weights:
+            return None, Stream(
+                _PRIMARY,  # same source as the primary; weights pick out the controls
+                group_by=list(self._group_cols),
+                reps=(self._state_loc,),
+                weights=control_weights,
+                match_on=list(match_cols),
+                **stream_kwargs,
+            )
+        return None, None
 
     @property
     def group_cols(self) -> tuple[str, ...]:
@@ -267,8 +314,14 @@ class Loader(_StepDataBridge):
     :param dm: The data manager whose schema defines the state/condition/group layout.
     :type dm: class: `DataManager`
 
-    :param primary_weights: scfit ``{group tuple: weight}`` selecting the target (perturbed) groups for
-        this loader; ``None`` streams every group uniformly. Controls should be given weight 0 here.
+    :param split_by: An ``.obs`` column prepended to the primary's ``group_by``, so a leaf is
+        ``(split, *group_cols)`` and ``primary_weights`` select cells rather than whole groups. ``None``
+        (the default) groups on the group columns alone.
+    :type split_by: class: `str | None`
+
+    :param primary_weights: scfit ``{leaf tuple: weight}`` selecting the target (perturbed) groups for
+        this loader; ``None`` streams every group uniformly. Controls should be given weight 0 here. The
+        tuples are ``(split, *group_cols)`` when ``split_by`` is set, ``group_cols`` otherwise.
     :type primary_weights: class: `dict | None`
 
     :param control_adata: A separate matched control (source) pool -- faster to load and the
@@ -297,6 +350,7 @@ class Loader(_StepDataBridge):
         adata: AnnData,
         *,
         dm: DataManager,
+        split_by: str | None = None,
         primary_weights: dict[tuple, float] | None = None,
         control_adata: AnnData | None = None,
         control_weights: dict[tuple, float] | None = None,
@@ -316,49 +370,32 @@ class Loader(_StepDataBridge):
             "preload_nchunks": preload_nchunks if preload_nchunks is not None else batch_size // chunk_size,
         }
         primary_reps = (self._state_loc, *self._cond_cont_locs, *self._resp_cont_locs)
-
-        # scfit surfaces the drawn group per batch via label_lookup; carry a group id so the (cached)
-        # categorical encoding can be looked up at batch time (see `_to_step_data`).
-        wanted = set(primary_weights) if primary_weights else set(self._leaves)
-        label_lookup = {
-            leaf: {"gid": np.array([gid], dtype=np.int64)} for leaf, gid in self._leaf_to_gid.items() if leaf in wanted
-        }
+        # With a split column the leaf is ``(split, *group_cols)``, so a weight of 0 excludes the *cells*
+        # of another split rather than the whole group -- see `DataManager.get_dataloaders`. The split is
+        # only a selector, so `_to_step_data` strips it back off before looking the group's encoding up.
+        prefix_cols = (split_by,) if split_by is not None else ()
+        self._n_prefix = len(prefix_cols)
 
         primary = Stream(
             _PRIMARY,
-            group_by=list(self._group_cols),
+            group_by=[*prefix_cols, *self._group_cols],
             reps=primary_reps,
             weights=primary_weights,
-            label_lookup=label_lookup or None,
             **sampler_kwargs,
         )
         sources: dict[str, AnnData] = {_PRIMARY: adata}
         links: dict[str, Stream] = {}
 
-        # Control link, matched on the group columns (e.g. cell line). Either a separate pool, or the same
-        # adata weighted to controls-only -- scfit's in_memory materializes just those selected cells. When
-        # neither is given the setting is unpaired: no control link, so ``source_state`` stays ``None``.
-        match_cols = tuple(dm.groups_data_schema.groups)
-        if control_adata is not None:
-            sources[_CONTROL] = control_adata
-            links[_CONTROL] = Stream(
-                _CONTROL,
-                group_by=list(match_cols) if match_cols else list(self._group_cols),
-                reps=(self._state_loc,),
-                match_on=list(match_cols),
-                in_memory=True,
-                **sampler_kwargs,
-            )
-        elif control_weights:
-            links[_CONTROL] = Stream(
-                _PRIMARY,  # same source as the primary; weights pick out the controls
-                group_by=list(self._group_cols),
-                reps=(self._state_loc,),
-                weights=control_weights,
-                match_on=list(match_cols),
-                in_memory=True,
-                **sampler_kwargs,
-            )
+        # Control link -- `in_memory` materializes just the selected control cells, a small pool re-drawn
+        # every batch. The control stream never groups on the split: controls are shared across splits.
+        control_source, control_stream = self._control_link(
+            control_adata, control_weights, in_memory=True, **sampler_kwargs
+        )
+        if control_stream is not None:
+            links[_CONTROL] = control_stream
+            if control_source is not None:
+                sources[_CONTROL] = control_source
+
         # Make the scfit loader finite (one epoch by default) so a plain pass terminates and is
         # re-iterable; the caller (e.g. the trainer) sets the training length via `set_n_iters`.
         self._loader = ScfitLoader(sources, primary=primary, links=links, seed=seed, to=to)
@@ -366,13 +403,19 @@ class Loader(_StepDataBridge):
 
     def set_n_iters(self, n_iters: int) -> Loader:
         """Set how many batches one pass yields (delegates to scfit ``set_n_iters``); returns ``self``."""
+        if n_iters is None:
+            raise ValueError("n_iters must be a positive integer; this loader is always a finite pass.")
         self._loader.set_n_iters(n_iters)
         return self
 
     def _to_step_data(self, batch: dict) -> StepData:
-        """Assemble one sampled scfit batch into a ``StepData`` (group id read from ``batch["labels"]``)."""
-        gid = int(batch["labels"][_PRIMARY]["gid"][0])
-        return self._assemble(batch, gid, has_state=True)
+        """Assemble one sampled scfit batch into a ``StepData``.
+
+        ``batch["leaves"][primary]`` is the group this batch was drawn from; past any ``split_by`` prefix
+        it is a plain group leaf, which keys the cached categorical encoding.
+        """
+        leaf = tuple(batch["leaves"][_PRIMARY])[self._n_prefix :]
+        return self._assemble(batch, self._leaf_to_gid[leaf], has_state=True)
 
     def __iter__(self) -> Iterator[StepData]:
         """One finite pass of ``StepData`` batches; re-iterable, so the trainer just iterates it."""
@@ -432,23 +475,12 @@ class EvalLoader(_StepDataBridge):
         links: dict[str, Stream] = {}
 
         # Control link (source), matched on the group columns -- controls always carry a state to flow from.
-        match_cols = tuple(dm.groups_data_schema.groups)
-        if control_adata is not None:
-            sources[_CONTROL] = control_adata
-            links[_CONTROL] = Stream(
-                _CONTROL,
-                group_by=list(match_cols) if match_cols else list(self._group_cols),
-                reps=(self._state_loc,),
-                match_on=list(match_cols),
-            )
-        elif control_weights:
-            links[_CONTROL] = Stream(
-                _PRIMARY,
-                group_by=list(self._group_cols),
-                reps=(self._state_loc,),
-                weights=control_weights,
-                match_on=list(match_cols),
-            )
+        control_source, control_stream = self._control_link(control_adata, control_weights)
+        if control_stream is not None:
+            links[_CONTROL] = control_stream
+            if control_source is not None:
+                sources[_CONTROL] = control_source
+
         self._loader = ScfitEvalLoader(
             sources, primary=primary, links=links, to=to, max_per_group=max_per_group, subsample=subsample, seed=seed
         )

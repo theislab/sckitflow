@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
+from tests.data.shared import with_split
 
 from sckitflow.data._manager import DataManager
 from sckitflow.data.containers._categorical import CategoricalData
@@ -23,17 +24,9 @@ def _make_manager(**overrides) -> DataManager:
     return DataManager(**defaults)
 
 
-def _make_manager_with_continuous(**overrides):
-    """DataManager with a continuous condition covariate (X_repr) and categorical drug condition."""
-    defaults = {
-        "conditions": {"drug": ("drug",)},
-        "conditions_reps": {"drug": "drug"},
-        "conditions_covariates": ["X_repr"],  # continuous covariate from obsm
-        "groups": ("cell_line",),
-        "groups_reps": {"cell_line": "cell_line"},
-    }
-    defaults.update(overrides)
-    return DataManager(**defaults)
+def _make_manager_with_continuous(**overrides) -> DataManager:
+    """As :func:`_make_manager`, plus a continuous condition covariate (``X_repr``) from obsm."""
+    return _make_manager(conditions_covariates=["X_repr"], **overrides)
 
 
 class TestDistributionData:
@@ -170,14 +163,8 @@ class TestConditionSpaceView:
 
 
 def _with_split(adata: AnnData) -> AnnData:
-    """Attach a 'split' column: controls -> 'control', perturbed groups split train/val by cell line."""
-    adata = adata.copy()
-    is_ctrl = adata.obs["drug"].astype(str).to_numpy() == "control"
-    lines = adata.obs["cell_line"].astype(str).to_numpy()
-    val_line = sorted(set(lines))[0]
-    split = np.where(is_ctrl, "control", np.where(lines == val_line, "val", "train"))
-    adata.obs["split"] = pd.Categorical(split)
-    return adata
+    """Attach a 'split' column: controls -> 'control', perturbed groups split train/val."""
+    return with_split(adata, cols=("cell_line", "drug"), control_col="drug")
 
 
 class TestGetDataloaders:
@@ -200,6 +187,22 @@ class TestGetDataloaders:
         dm = _make_manager()
         with pytest.raises(KeyError, match="not found"):
             dm.get_dataloaders(adata_small, split_by="does_not_exist")
+
+    def test_a_split_never_streams_another_splits_cells(self, adata_small: AnnData):
+        """A per-cell split makes every group span both splits; weights must still exclude the cells."""
+        ad = adata_small.copy()
+        # X row i is all-i, so a streamed row identifies itself; alternate splits within every group
+        ad.X = np.repeat(np.arange(ad.n_obs, dtype=np.float32)[:, None], ad.n_vars, axis=1)
+        ad.obs["split"] = pd.Categorical(["train" if i % 2 == 0 else "val" for i in range(ad.n_obs)])
+        train_rows = set(np.flatnonzero((ad.obs["split"] == "train").to_numpy()).tolist())
+
+        dm = _make_manager()  # no control values: every group is primary, so nothing is filtered out
+        loaders = dm.get_dataloaders(ad, split_by="split", batch_size=2)
+        assert set(loaders) == {"train", "val"}
+
+        streamed = {int(v) for _ in range(10) for sd in loaders["val"] for v in sd["target_state"][:, 0].tolist()}
+        assert streamed, "the val loader must stream something"
+        assert not (streamed & train_rows), f"val loader streamed train cells: {sorted(streamed & train_rows)}"
 
 
 class TestGetEvalLoader:
@@ -238,6 +241,25 @@ class TestGetEvalLoader:
         assert len(el) == self._n_groups(adata_small, exclude_control=False)
         step_data, _ = next(iter(el))
         assert step_data["source_state"] is None  # unpaired: no control link
+
+    def test_source_row_count_follows_the_target_not_the_control_pool(self, adata_small: AnnData):
+        """Control pools rarely match a group's size; the emitted batch must still be internally aligned."""
+        ad = adata_small.copy()
+        # Thin the controls to one per cell_line (matching is on cell_line), so every group is matched to
+        # a control pool strictly smaller than itself -- the source must be tiled up, not left short.
+        is_ctrl = (ad.obs["drug"].astype(str) == "control").to_numpy()
+        rank = ad.obs[is_ctrl].groupby("cell_line", observed=True).cumcount().reindex(ad.obs.index, fill_value=0)
+        ad = ad[~is_ctrl | (rank.to_numpy() < 1)].copy()
+
+        dm = _make_manager(control_values_dict={"drug": "control"})
+        sizes = []
+        for step_data, _ in dm.get_eval_loader(ad):
+            n = step_data["target_state"].shape[0]
+            sizes.append(n)
+            assert step_data["source_state"].shape[0] == n
+            for field in ("target_condition_data", "target_group_data"):
+                assert all(v.shape[0] == n for v in (step_data[field] or {}).values())
+        assert sizes and max(sizes) > 1, "groups must be bigger than their 1-cell control pool to be a real test"
 
     def test_control_values_override_makes_it_paired(self, adata_small: AnnData):
         dm = _make_manager()  # instance is unpaired

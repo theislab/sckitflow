@@ -4,8 +4,10 @@ The ``verify_*`` helpers are reused by the schema tests to assert on
 ``CategoricalData`` / ``BatchMixin`` shapes and representations.
 """
 
-from collections.abc import Collection
+from collections.abc import Collection, Sequence
 
+import pandas as pd
+from anndata import AnnData
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sckitflow._types import TargetCovariatesEncodingId
@@ -17,7 +19,35 @@ __all__ = [
     "verify_repr",
     "verify_categorical_data",
     "verify_mixin",
+    "with_split",
 ]
+
+
+def with_split(
+    adata: AnnData,
+    *,
+    cols: Sequence[str],
+    labels: Sequence[str] = ("train", "val"),
+    control_col: str | None = None,
+    control_value: str = "control",
+    control_label: str = "control",
+    split_key: str = "split",
+) -> AnnData:
+    """Attach a deterministic ``split`` column, each ``cols`` combination wholly inside one split.
+
+    Round-robins the sorted combinations over ``labels``. Control rows (when ``control_col`` is given)
+    are labelled ``control_label`` instead, mirroring what :class:`CombinationSplitter` produces -- so a
+    control-only split yields no loader. Returns a copy.
+    """
+    adata = adata.copy()
+    combos = list(zip(*(adata.obs[c].astype(str) for c in cols), strict=True))
+    assign = {c: labels[i % len(labels)] for i, c in enumerate(sorted(set(combos)))}
+    split = [assign[c] for c in combos]
+    if control_col is not None:
+        is_control = adata.obs[control_col].astype(str).to_numpy() == control_value
+        split = [control_label if ctrl else s for s, ctrl in zip(split, is_control, strict=True)]
+    adata.obs[split_key] = pd.Categorical(split)
+    return adata
 
 
 def verify_repr_shape(

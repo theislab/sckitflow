@@ -139,6 +139,28 @@ class TestLoaderIterationContract:
             Loader(loader_adata, dm=DataManager())
 
 
+class TestSourceAlignment:
+    """The source is row-aligned to the batch, so every per-cell field of a StepData agrees in length."""
+
+    def test_source_is_sliced_when_longer_and_tiled_when_shorter(self, loader_adata):
+        loader = _loader(loader_adata, _dm())
+        src = torch.arange(3.0).unsqueeze(1)  # three control cells
+
+        assert loader._align_source(src, 3) is src  # already aligned: no gather at all
+        assert loader._align_source(src, 2).squeeze(1).tolist() == [0.0, 1.0]
+        assert loader._align_source(src, 5).squeeze(1).tolist() == [0.0, 1.0, 2.0, 0.0, 1.0]
+
+    def test_no_source_is_left_alone(self, loader_adata):
+        """Unpaired (generate-from-noise) batches have no source to align."""
+        assert _loader(loader_adata, _dm())._align_source(None, 4) is None
+
+    def test_zero_matched_controls_raise(self, loader_adata):
+        """A group with no matched control has nothing to flow from -- that is a data problem, not a 0-row batch."""
+        loader = _loader(loader_adata, _dm())
+        with pytest.raises(ValueError, match="zero control cells"):
+            loader._align_source(torch.empty(0, 7), 4)
+
+
 class TestZeroCopyConversion:
     """Batches stream as annbatch's native arrays (`to=None`) and become torch without a copy."""
 

@@ -94,8 +94,7 @@ class BaseMethod(abc.ABC):
     ) -> dict[str, Any]:
         """Single training step on a ready :class:`StepData` batch.
 
-        Callers are responsible for turning a ``MatchedData`` node into a
-        :class:`StepData` (via ``extract_step_data``) before calling this method.
+        Callers pass a :class:`StepData` already assembled by the data loaders.
 
         :param step_data: Ready-to-consume batch of torch tensors.
         :type step_data: class: `StepData`
@@ -111,8 +110,7 @@ class BaseMethod(abc.ABC):
     ) -> PredictionData:
         """Prediction on a ready :class:`StepData` batch.
 
-        Callers are responsible for turning a ``MatchedData`` node into a
-        :class:`StepData` (via ``extract_step_data``) before calling this method.
+        Callers pass a :class:`StepData` already assembled by the data loaders.
         """
         # optionally stop gradients
         if no_grad:
@@ -143,7 +141,7 @@ class BaseMethod(abc.ABC):
 
     @property
     def is_paired_setting(self) -> bool:
-        return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
+        return self._dm.control_values_dict is not None
 
     @property
     def device_id(self) -> str:

@@ -1,4 +1,4 @@
-from collections.abc import Callable, Collection, Mapping
+from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING, Any, TypedDict, Unpack
 
 import numpy as np
@@ -6,21 +6,16 @@ import pandas as pd
 from anndata import AnnData
 
 if TYPE_CHECKING:
-    from sckitflow.data._loader import Loader
+    from sckitflow.data._loader import EvalLoader, Loader
 
-from sckitflow._constants import ORIGINAL_INDEX_KEY
 from sckitflow._types import TargetCovariatesEncodingId
-from sckitflow.data._composite import NestedData
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._group_encoders import GroupEncoder, GroupEncoderId
-from sckitflow.data._mixins import MappedLevelIndex
 from sckitflow.data.containers._categorical import CategoricalData
 from sckitflow.data.containers._coupling import CouplingData
 from sckitflow.data.containers._distribution import DistributionData
 from sckitflow.data.containers._mixed_type import MixedTypeData
 from sckitflow.data.containers._state import StateData
-from sckitflow.data.grouping._indexer import HierarchicalIndexer
-from sckitflow.data.grouping._selector import IndexSelector
 from sckitflow.data.schemas import (
     ConditionDataSchema,
     CouplingDataSchema,
@@ -92,11 +87,6 @@ class DataManagerKwargs(TypedDict, total=False):
     distributions over incomparable spaces. Used to initialize the coupling data schema.
     Defaults to `None`."""
 
-    matched_keys: dict[tuple[Any], tuple[Any]] | None
-    """Optional keys used to identify the source and corresponding target groups in the case of
-    fixed matches. When passed, takes precedence over `source_key`. Defaults to `None`, in which
-    case falls back to one-to-many coupling."""
-
 
 class DataManager:
     """Class for managing data configurations."""
@@ -105,7 +95,6 @@ class DataManager:
         """Initializes the object. See :class:`DataManagerKwargs` for parameter descriptions."""
         self._control_values_dict = kwargs.get("control_values_dict")
         self._condition_state_key = kwargs.get("condition_state_key")
-        self._matched_keys = kwargs.get("matched_keys")
 
         self._state_data_schema = StateDataSchema(sample_rep=kwargs.get("sample_rep"))
         self._condition_data_schema = ConditionDataSchema(
@@ -127,28 +116,10 @@ class DataManager:
             groups_reps=kwargs.get("groups_reps"),
             groups_encoding=kwargs.get("groups_encoding"),
         )
-        self._indexer = HierarchicalIndexer(
-            groups_cols=self._groups_data_schema.groups,
-            conditions_cols=self._condition_data_schema.all_condition_cols,
-        )
-        self._selector = IndexSelector.init_from_indexer(self._indexer)
 
     @property
     def _view_on_condition_space(self) -> bool:
         return self._condition_state_key is not None
-
-    def _get_source_key(
-        self,
-        control_values_dict: dict[str, str] | None = None,
-    ) -> tuple[Any] | None:
-        if control_values_dict is None:
-            return None
-        control_query_dict = {
-            cond: control_values_dict[level]
-            for level, conditions in self._condition_data_schema.conditions.items()
-            for cond in conditions
-        }
-        return self._selector.query_factory.query_dict_to_tuple(control_query_dict)
 
     def _get_feature_names(
         self,
@@ -228,85 +199,12 @@ class DataManager:
             return distribution_data.view_on_condition_space(self._condition_state_key)
         return distribution_data
 
-    def _get_mapped_index(self, ann_df: pd.DataFrame) -> MappedLevelIndex:
-        index: pd.MultiIndex = self._indexer.create_index(ann_df)
-        mapped_index: MappedLevelIndex = self._selector.index_to_nested_dict(index)
-        return mapped_index
-
-    @staticmethod
-    def _assert_sorted(data: DistributionData) -> None:
-        if not data.is_sorted:
-            raise ValueError(
-                "DistributionData is not sorted by its annotation columns. "
-                "Either pass sort=True to compile_adata() or call "
-                "DataManager.sort_adata(adata) before compilation."
-            )
-
-    def _get_matched_distributions(
-        self,
-        data: DistributionData,
-        control_values_dict: dict[str, str] | None = None,
-        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
-    ) -> NestedData:
-        # ---- Get control values and matched keys ----
-        if control_values_dict:
-            source_key = self._get_source_key(control_values_dict)
-        else:
-            source_key = self.source_key
-
-        if matched_keys is None:
-            matched_keys = self.matched_keys
-
-        self._assert_sorted(data)
-        mapped_index = self._get_mapped_index(data.ann_df)
-        return NestedData.init_from_data(
-            data,
-            mapped_index,
-            source_key=source_key,
-            matched_keys=matched_keys,
-        )
-
     def _get_data_dimensionalities(
         self,
         data: DistributionData,
         feature_names: pd.Index,
     ) -> DataDimensionalitiesRegistry:
         return DataDimensionalitiesRegistry.init_from_distribution_data(data, feature_names)
-
-    def get_matched_distributions(
-        self,
-        data: DistributionData,
-        control_values_dict: dict[str, str] | None = None,
-        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
-    ) -> NestedData:
-        """Hierachically splits a distribution data container into matched subpopulations.
-
-        :param data: The distribution data container for the whole population.
-        :type data: class: `DistributionData`
-
-        :param control_values_dict: Optional dictionary mapping each condition
-            level to the corresponding value used to indicate control observations.
-            This overrides the homonimous attribute and is needed to allow
-            inference over arbitrary control keys at inference time.
-            Without this, inference would be bound to the source
-            group defined for training. Defaults to `None`,
-            in which case the instance attribute will be used.
-        :type control_values_dict: class: `dict[str, str] | None`
-
-        :param matched_keys: Optional keys used to identify the source  and
-            corresponding target groups in the case of fixed matches.
-            This overrides the homonimous attribute and is needed to allow
-            inference over arbitrary matched groups at inference time.
-            Without this, inference would be bound to the pairs of source
-            and target groups defined for training. Defaults to `None`,
-            in which case the instance attribute will be used.
-        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
-        """
-        return self._get_matched_distributions(
-            data,
-            control_values_dict=control_values_dict,
-            matched_keys=matched_keys,
-        )
 
     def get_distribution_data(
         self,
@@ -327,92 +225,6 @@ class DataManager:
         return self._get_distribution_data(
             adata,
             require_target_state=require_target_state,
-        )
-
-    def sort_adata(self, adata: AnnData) -> AnnData:
-        """Sort an AnnData by the hierarchy columns (groups then conditions).
-
-        Returns a **new** AnnData with rows reordered.  AnnData does not
-        support true in-place reordering of ``.X``, ``.obsm``, etc., so a
-        sorted copy is returned instead.  The original object is never
-        mutated.
-
-        The original ``obs_names`` are preserved in
-        ``adata.obs[ORIGINAL_INDEX_KEY]`` on the returned object so
-        they can be recovered later.
-
-        :param adata: The annotated data object to sort.
-        :type adata: class: `AnnData`
-
-        :returns: A new AnnData with rows sorted by the hierarchy columns.
-        :rtype: class: `AnnData`
-        """
-        sort_cols = list(self._indexer.sort_columns)
-        if not sort_cols:
-            return adata
-
-        sort_keys = [adata.obs[c] for c in reversed(sort_cols)]
-        order = np.lexsort(sort_keys)
-
-        sorted_adata = adata[order].copy()
-        sorted_adata.obs[ORIGINAL_INDEX_KEY] = adata.obs_names[order].values
-        sorted_adata.obs_names = pd.RangeIndex(len(sorted_adata)).astype(str)
-        return sorted_adata
-
-    def compile_adata(
-        self,
-        adata: AnnData,
-        sort: bool = False,
-        control_values_dict: dict[str, str] | None = None,
-        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
-        require_target_state: bool = True,
-    ) -> NestedData:
-        """Compile an annotated data object into split and matched subpopulations.
-
-        :param adata: The annotated data object to compile and split.
-        :type adata: class: `AnnData`
-
-        :param sort: If ``True``, create a sorted copy of *adata* via
-            :meth:`sort_adata` and compile from that copy.  When setting this one
-            should keep in mind this will copy the full adata object. When ``False`` (the
-            default) the data must already be sorted; a ``ValueError``
-            is raised otherwise.
-        :type sort: class: `bool`
-
-        :param control_values_dict: Optional dictionary mapping each condition
-            level to the corresponding value used to indicate control observations.
-            This overrides the homonimous attribute and is needed to allow
-            inference over arbitrary control keys at inference time.
-            Without this, inference would be bound to the source
-            group defined for training. Defaults to `None`,
-            in which case the instance attribute will be used.
-        :type control_values_dict: class: `dict[str, str] | None`
-
-        :param matched_keys: Optional keys used to identify the source  and
-            corresponding target groups in the case of fixed matches.
-            This overrides the homonimous attribute and is needed to allow
-            inference over arbitrary matched groups at inference time.
-            Without this, inference would be bound to the pairs of source
-            and target groups defined for training. Defaults to `None`,
-            in which case the instance attribute will be used.
-        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
-
-        :param require_target_state: Whether the state representation (`.X` or the configured
-            `obsm` sample representation) is required from `adata`. Set to `False` to compile
-            only the distribution metadata (condition/group covariates) when no target state
-            data is available, e.g. for prediction without target states. Defaults to `True`.
-        :type require_target_state: class: `bool`
-        """
-        if sort:
-            adata = self.sort_adata(adata)
-        data: DistributionData = self._get_distribution_data(
-            adata,
-            require_target_state=require_target_state,
-        )
-        return self._get_matched_distributions(
-            data,
-            control_values_dict=control_values_dict,
-            matched_keys=matched_keys,
         )
 
     def get_data_dimensionalities(
@@ -482,7 +294,9 @@ class DataManager:
 
         # A group is control iff every control condition column holds its control value.
         conditions = self._condition_data_schema.conditions
-        checks = [(col, str(val)) for level, val in (self._control_values_dict or {}).items() for col in conditions[level]]
+        checks = [
+            (col, str(val)) for level, val in (self._control_values_dict or {}).items() for col in conditions[level]
+        ]
         is_control = (
             np.logical_and.reduce([uniq[col].astype(str).to_numpy() == val for col, val in checks])
             if checks
@@ -502,25 +316,82 @@ class DataManager:
             for split_value, group_combos in combos[~is_control].groupby(splits[~is_control], observed=True)
         }
 
+    def get_eval_loader(
+        self,
+        adata: AnnData,
+        *,
+        max_per_group: int | None = None,
+        require_target_state: bool = True,
+        control_adata: AnnData | None = None,
+        control_values_dict: dict[str, str] | None = None,
+        subsample: str = "head",
+        to: str | None = "torch",
+        seed: int = 0,
+    ) -> "EvalLoader":
+        """Build a deterministic, per-group :class:`~sckitflow.data._loader.EvalLoader` for prediction.
+
+        Walks every perturbed group once (or a ``max_per_group`` cap), each matched to its control leaf,
+        yielding ``(StepData, leaf)``. Controls are identified from ``control_values_dict`` (this argument
+        overrides the instance's, to allow inference over arbitrary control keys); when it resolves to
+        ``None`` (unpaired) every group is predicted with no source. Selection is by scfit weights over the
+        whole ``adata`` -- no subset copying.
+
+        :param adata: The annotated data object to predict over.
+        :type adata: class: `AnnData`
+
+        :param max_per_group: Per-group cap on cells: ``None`` = all, ``N`` = at most N, ``1`` =
+            predict-once-per-condition (dedup). Defaults to ``None``.
+        :type max_per_group: class: `int | None`
+
+        :param require_target_state: Whether a target state representation is read from ``adata``. Set to
+            ``False`` for metadata-only prediction (``StepData["target_state"]`` is ``None``). Defaults to ``True``.
+        :type require_target_state: class: `bool`
+
+        :param control_adata: Optional separate control (source) pool, matched on the group columns.
+        :type control_adata: class: `AnnData | None`
+
+        :param control_values_dict: Overrides the instance's control values for this call. Defaults to
+            ``None`` (use the instance's).
+        :type control_values_dict: class: `dict[str, str] | None`
+
+        :param subsample: How ``max_per_group`` picks cells: ``"head"``, ``"random"``, or a callable.
+        :type subsample: class: `str`
+        """
+        from sckitflow.data._loader import EvalLoader
+
+        cvd = control_values_dict if control_values_dict is not None else self._control_values_dict
+        group_cols = (*tuple(self._groups_data_schema.groups), *self._condition_data_schema.all_condition_cols)
+        uniq = adata.obs.loc[:, list(group_cols)].drop_duplicates()
+        combos = list(map(tuple, uniq.to_numpy()))
+
+        # A group is control iff every control condition column holds its control value.
+        conditions = self._condition_data_schema.conditions
+        checks = [(col, str(val)) for level, val in (cvd or {}).items() for col in conditions[level]]
+        is_control = (
+            np.logical_and.reduce([uniq[col].astype(str).to_numpy() == val for col, val in checks])
+            if checks
+            else np.zeros(len(uniq), dtype=bool)
+        )
+        # Primary = perturbed groups (all groups when unpaired); control link = the control groups.
+        primary_weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if not ctrl}
+        control_weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if ctrl}
+        return EvalLoader(
+            adata,
+            dm=self,
+            primary_weights=primary_weights,
+            control_adata=control_adata,
+            control_weights=control_weights,
+            require_target_state=require_target_state,
+            max_per_group=max_per_group,
+            subsample=subsample,
+            to=to,
+            seed=seed,
+        )
+
     @property
     def control_values_dict(self) -> dict[str, str] | None:
         """Exposes the homonymous attribute set at initialization."""
         return self._control_values_dict
-
-    @property
-    def matched_keys(self) -> dict[tuple[Any], tuple[Any]] | None:
-        """Exposes the homonymous attribute set at initialization."""
-        return self._matched_keys
-
-    @property
-    def indexer(self) -> HierarchicalIndexer:
-        """Returns the indexer used to compute the hierarchical splits."""
-        return self._indexer
-
-    @property
-    def selector(self) -> IndexSelector:
-        """Returns the selector used to slice with the hierarchical splits."""
-        return self._selector
 
     @property
     def state_data_schema(self) -> StateDataSchema:
@@ -546,11 +417,6 @@ class DataManager:
     def target_data_schema(self) -> ResponseDataSchema:
         """Exposes the target data schema."""
         return self._target_data_schema
-
-    @property
-    def source_key(self) -> tuple[Any] | None:
-        """Returns the key used to define the source subpopulations."""
-        return self._get_source_key(self._control_values_dict)
 
     @property
     def condition_state_key(self) -> str | None:

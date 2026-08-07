@@ -3,10 +3,7 @@ from sckitflow.data import _group_encoders as group_encoders
 from sckitflow.data import _mixins as mixins
 from sckitflow.data import _utils as utils
 from sckitflow.data import containers, schemas, sim, splitters
-from sckitflow.data._composite import MatchedData, NestedData
 from sckitflow.data._manager import DataManager
-from sckitflow.data.grouping._indexer import HierarchicalIndexer
-from sckitflow.data.grouping._selector import IndexSelector
 from sckitflow.data.splitters import CombinationSplitter, Splitter
 
 __all__ = [
@@ -19,10 +16,6 @@ __all__ = [
     "sim",
     "splitters",
     "DataManager",
-    "HierarchicalIndexer",
-    "IndexSelector",
-    "MatchedData",
-    "NestedData",
     "Splitter",
     "CombinationSplitter",
 ]

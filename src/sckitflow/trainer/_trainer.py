@@ -1,9 +1,10 @@
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 import pandas as pd
 from tqdm import tqdm
 
+from sckitflow.core._types import StepData
 from sckitflow.core.methods._base import BaseMethod
 from sckitflow.core.methods._opt import OptimizationManager
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
@@ -57,21 +58,20 @@ class Trainer:
             self._val_logs[val_id] = []
         self._val_logs[val_id].append(log_dict)
 
-    def _run_val_on_sampler(
+    def _run_val_on_loader(
         self,
-        sampler: Any,
+        loader: Iterable[StepData],
         val_id: str,
         *args,
         **kwargs,
     ) -> None:
-        """Run validation on a sampler and store predictions.
+        """Run validation over one loader (one finite pass) and store predictions.
 
-        ``sampler`` is duck-typed: any iterable yielding ready ``StepData`` batches
-        (the concrete data-loading class is provided by the caller).
+        ``loader`` is any iterable yielding ready ``StepData`` batches.
         """
         predictions_dict = {}
-        for node_id, step_data in enumerate(sampler):
-            # The sampler yields ready `StepData`; the ground-truth target is its
+        for node_id, step_data in enumerate(loader):
+            # The loader yields ready `StepData`; the ground-truth target is its
             # `target_state` tensor (the metric callbacks accept tensors directly).
             target_array = step_data["target_state"]
             preds = self._method.predict(step_data, *args, **kwargs)
@@ -108,17 +108,20 @@ class Trainer:
 
     def train(
         self,
-        train_sampler: Any,
+        train_loader: Iterable[StepData],
         *args,
-        val_samplers_dict: dict[str, Any] | None = None,
-        n_train_steps: int = 10_000,
+        val_loaders: dict[str, Iterable[StepData]] | None = None,
         valid_freq: int = 1_000,
         pbar_freq: int = 100,
         cb_kwargs: dict[str, Any] | None = None,
         **kwargs,
     ) -> None:
-        """Trains the model."""
-        do_validation = val_samplers_dict is not None
+        """Trains the model by iterating ``train_loader`` -- its length is the number of steps.
+
+        The caller sizes ``train_loader`` (e.g. ``Loader.set_n_iters(n_train_steps)``); the trainer just
+        does one gradient step per streamed ``StepData`` and validates every ``valid_freq`` steps.
+        """
+        do_validation = val_loaders is not None
 
         # prepare callbacks keywargs
         cb_kwargs = {} if cb_kwargs is None else cb_kwargs
@@ -126,20 +129,16 @@ class Trainer:
         # Call on_train_begin
         self._callbacks.on_train_begin(self, **cb_kwargs)
 
-        start_step = self._current_step + 1
-        stop_step = start_step + n_train_steps
-        pbar = tqdm(range(start_step, stop_step))
-        for self._current_step in pbar:
-            # Sample ready `StepData` batches and perform training steps
-            step_data_batches = train_sampler.sample()
-            step_dict = {}
-            for step_data in step_data_batches:
-                opt_data, step_dict = self._method.train_step(step_data, *args, **kwargs)
-                step_dict.update({"step": self._current_step})
-                self._opt_manager.step(opt_data)
-                self._append_train_log(step_dict)
+        # One gradient step per streamed `StepData`; the loader defines how many.
+        pbar = tqdm(train_loader)
+        for step_data in pbar:
+            self._current_step += 1
+            opt_data, step_dict = self._method.train_step(step_data, *args, **kwargs)
+            step_dict.update({"step": self._current_step})
+            self._opt_manager.step(opt_data)
+            self._append_train_log(step_dict)
 
-            # Call on_train_step with the step_dict from the last node
+            # Call on_train_step with the step's metrics
             self._callbacks.on_train_step(self, self._current_step, step_dict, **cb_kwargs)
 
             # Update progress bar description
@@ -151,8 +150,8 @@ class Trainer:
 
             # Validation step
             if self._current_step % valid_freq == 0 and do_validation:
-                for val_id, val_sampler in val_samplers_dict.items():
-                    self._run_val_on_sampler(val_sampler, val_id, **cb_kwargs)
+                for val_id, val_loader in val_loaders.items():
+                    self._run_val_on_loader(val_loader, val_id, **cb_kwargs)
 
         # Call on_train_end
         self._callbacks.on_train_end(self, **cb_kwargs)

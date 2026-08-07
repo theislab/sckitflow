@@ -46,8 +46,8 @@ class DummyMethod(BaseMethod):
         return np.random.randn(10, 5)
 
     def train_step(self, step_data, *args, **kwargs):
-        # The sampler yields ready `StepData`; these tests use plain `Mock`/`MagicMock`
-        # batches straight from the dummy samplers, so `step_data` is just that object.
+        # The loader yields ready `StepData`; these tests use plain `Mock`/`MagicMock`
+        # batches straight from the dummy loaders, so `step_data` is just that object.
         return self.compute_loss(step_data, *args, **kwargs)
 
     def predict(self, node, *args, **kwargs):
@@ -62,13 +62,17 @@ class DummyOptManager(OptimizationManager):
         pass
 
 
-class DummySampler:
-    def sample(self):
-        return [Mock(), Mock()]
+class DummyTrainLoader:
+    # The trainer iterates the loader; a finite, re-iterable pass of `n` ready `StepData` batches.
+    def __init__(self, n=2):
+        self._n = n
+
+    def __iter__(self):
+        return iter([Mock() for _ in range(self._n)])
 
 
-class DummyValidationSampler:
-    # MagicMock (not Mock) so nodes support `node["target"]` subscripting, which the
+class DummyValLoader:
+    # MagicMock (not Mock) so batches support `batch["target"]` subscripting, which the
     # Trainer's validation path uses to read the target state.
     def __iter__(self):
         return iter([MagicMock(), MagicMock()])
@@ -141,7 +145,7 @@ class TestTrainer:
         trainer._append_val_log("val1", {"metric": 0.8})
         assert len(trainer._val_logs["val1"]) == 2
 
-    def test_run_val_on_sampler(self):
+    def test_run_val_on_loader(self):
         method = DummyMethod()
         opt_manager = DummyOptManager()
         callback = RecordingCallback()
@@ -149,8 +153,8 @@ class TestTrainer:
         trainer = Trainer(method, opt_manager, [metric_cb, callback])
         trainer._current_step = 5
 
-        sampler = DummyValidationSampler()
-        trainer._run_val_on_sampler(sampler, "test_val")
+        loader = DummyValLoader()
+        trainer._run_val_on_loader(loader, "test_val")
 
         # The val log holds the metrics the callbacks computed, tagged with the step.
         assert "test_val" in trainer._val_logs
@@ -229,9 +233,9 @@ class TestTrainer:
         callback = RecordingCallback()
 
         trainer = Trainer(method, opt_manager, [callback])
-        train_sampler = DummySampler()
+        train_loader = DummyTrainLoader()  # mocked tqdm above drives 3 steps
 
-        trainer.train(train_sampler, n_train_steps=3)
+        trainer.train(train_loader)
 
         assert len(callback.train_begin_calls) == 1
         assert len(callback.train_step_calls) == 3
@@ -246,10 +250,10 @@ class TestTrainer:
         callback = RecordingCallback()
 
         trainer = Trainer(method, opt_manager, [callback])
-        train_sampler = DummySampler()
-        val_samplers = {"val1": DummyValidationSampler()}
+        train_loader = DummyTrainLoader(5)  # 5 steps -> validate at 2, 4
+        val_loaders = {"val1": DummyValLoader()}
 
-        trainer.train(train_sampler, val_samplers_dict=val_samplers, n_train_steps=5, valid_freq=2)
+        trainer.train(train_loader, val_loaders=val_loaders, valid_freq=2)
 
         # Validation frequency is based on cumulative completed training steps.
         valid_calls = callback.valid_step_calls
@@ -261,11 +265,11 @@ class TestTrainer:
 
         callback = RecordingCallback()
         trainer = Trainer(DummyMethod(), DummyOptManager(), [RecordingComputationalCallback(), callback])
-        train_sampler = DummySampler()
-        val_samplers = {"val1": DummyValidationSampler()}
+        train_loader = DummyTrainLoader(3)  # 3 steps per call; two calls -> 6
+        val_loaders = {"val1": DummyValLoader()}
 
-        trainer.train(train_sampler, val_samplers_dict=val_samplers, n_train_steps=3, valid_freq=2)
-        trainer.train(train_sampler, val_samplers_dict=val_samplers, n_train_steps=3, valid_freq=2)
+        trainer.train(train_loader, val_loaders=val_loaders, valid_freq=2)
+        trainer.train(train_loader, val_loaders=val_loaders, valid_freq=2)
 
         assert trainer.current_step == 6
         assert [call[1] for call in callback.train_step_calls] == [1, 2, 3, 4, 5, 6]

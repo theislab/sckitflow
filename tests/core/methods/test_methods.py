@@ -65,11 +65,10 @@ def mock_dims_registry():
 
 @pytest.fixture
 def mock_data_manager():
-    # Unpaired setting: `is_paired_setting` reads both of these off the data manager,
-    # so they must be explicitly None rather than auto-created Mock attributes.
+    # Unpaired setting: `is_paired_setting` reads `control_values_dict` off the data
+    # manager, so it must be explicitly None rather than an auto-created Mock attribute.
     dm = Mock(spec=DataManager)
     dm.control_values_dict = None
-    dm.matched_keys = None
     return dm
 
 
@@ -100,7 +99,6 @@ def torch_gen_flow(mock_dims_registry, mock_data_manager):
 def mock_paired_data_manager():
     dm = Mock(spec=DataManager)
     dm.control_values_dict = {"drug": "control"}
-    dm.matched_keys = None
     return dm
 
 

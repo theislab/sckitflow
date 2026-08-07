@@ -91,9 +91,7 @@ class TestLoaderStepDataMapping:
         assert xc.shape == (b, COND_DIM)
         assert yt.shape == (b, TGT_DIM)
         # provenance: every streamed row is one of the selected group's obsm rows (per-cell, not a tile)
-        mask = (
-            (ad.obs["source_split"].astype(str) == "s0") & (ad.obs["drugA"].astype(str) == "d0")
-        ).to_numpy()
+        mask = ((ad.obs["source_split"].astype(str) == "s0") & (ad.obs["drugA"].astype(str) == "d0")).to_numpy()
         src = ad.obsm["Xcond"][mask]
         for row in xc.numpy():
             assert np.any(np.all(np.isclose(src, row), axis=1)), "Xcond row not from the selected group"
@@ -130,13 +128,11 @@ class TestLoaderIterationContract:
         assert len(first) == n
         assert len(second) == n
 
-    def test_sample_returns_one_batch_and_cycles_past_epoch(self, loader_adata):
-        """sample() yields a 1-tuple StepData and keeps going across epoch boundaries."""
-        loader = _loader(loader_adata, _dm())
-        n = len(loader)
-        got = [loader.sample() for _ in range(2 * n + 3)]  # more than one epoch
-        assert all(len(batch) == 1 for batch in got)
-        assert all(batch[0]["target_state"] is not None for batch in got)
+    def test_n_iters_sets_pass_length(self, loader_adata):
+        """n_iters bounds one pass to that many batches (forwarded to scfit); the trainer iterates it."""
+        loader = _loader(loader_adata, _dm(), n_iters=3)
+        assert len(loader) == 3
+        assert sum(1 for _ in loader) == 3
 
     def test_needs_a_categorical_group_or_condition_column(self, loader_adata):
         """A schema with no group/condition column cannot be grouped on -> explicit error."""

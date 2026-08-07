@@ -410,7 +410,7 @@ class Model:
         self,
         adata: AnnData,
         *,
-        split_by: str = "split",
+        split_by: str | None = "split",
         train_split: str = "train",
         control_adata: AnnData | None = None,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,

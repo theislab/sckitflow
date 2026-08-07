@@ -317,7 +317,7 @@ class DataManager:
         self,
         adata: AnnData,
         *,
-        split_by: str = "split",
+        split_by: str | None = "split",
         control_adata: AnnData | None = None,
         **loader_kwargs: Unpack[LoaderKwargs],
     ) -> dict[str, Loader]:
@@ -350,6 +350,26 @@ class DataManager:
         :rtype: class: `dict[str, Loader]`
         """
         from sckitflow.data._loader import Loader
+
+        if split_by is None:
+            # No split at all: one loader over every perturbed group, keyed "train". With no schema to
+            # group on there is nothing to weight either -- `None` streams the whole adata uniformly.
+            if self.group_cols:
+                _, combos, is_control = self._control_group_mask(adata)
+                weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if not ctrl}
+                controls = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if ctrl}
+            else:
+                weights, controls = None, None
+            return {
+                "train": Loader(
+                    adata,
+                    dm=self,
+                    primary_weights=weights,
+                    control_adata=control_adata,
+                    control_weights=None if control_adata is not None else controls,
+                    **loader_kwargs,
+                )
+            }
 
         if split_by not in adata.obs.columns:
             raise KeyError(f"{split_by!r} not found in adata.obs (columns: {list(adata.obs.columns)}).")
@@ -430,11 +450,14 @@ class DataManager:
         """
         from sckitflow.data._loader import EvalLoader
 
-        _, combos, is_control = self._control_group_mask(adata, control_values_dict=control_values_dict)
-
-        # Primary = perturbed groups (all groups when unpaired); control link = the control groups.
-        primary_weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if not ctrl}
-        control_weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if ctrl}
+        if self.group_cols:
+            _, combos, is_control = self._control_group_mask(adata, control_values_dict=control_values_dict)
+            # Primary = perturbed groups (all groups when unpaired); control link = the control groups.
+            primary_weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if not ctrl}
+            control_weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if ctrl}
+        else:
+            # Unconditional schema: one implicit group, nothing to select or pair against.
+            primary_weights, control_weights = None, None
         return EvalLoader(
             adata,
             dm=self,

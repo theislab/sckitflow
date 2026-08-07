@@ -23,6 +23,7 @@ from collections.abc import Callable, Iterator
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
+import pandas as pd
 from anndata import AnnData
 from scfit.data import EvalLoader as ScfitEvalLoader
 from scfit.data import Loader as ScfitLoader
@@ -58,6 +59,9 @@ _STEP_DATA_KEYS = (
 
 _PRIMARY = "primary"
 _CONTROL = "control"
+
+# The implicit single group used when the schema declares no groups or conditions at all.
+_ALL_CELLS = "_sckitflow_all_cells"
 
 
 def _state_loc(sample_rep: str | None) -> str:
@@ -122,10 +126,12 @@ class _StepDataBridge:
         # group_by = group columns + categorical condition columns (continuous covs are streamed reps).
         self._group_cols: tuple[str, ...] = dm.group_cols
         if not self._group_cols:
-            raise ValueError(
-                "Loader needs at least one categorical group/condition column to group on "
-                "(set `groups=` and/or `conditions=` on the DataManager)."
-            )
+            # Unconditional schema (no groups, no conditions): scfit must still group on something, so
+            # stream one implicit group holding every cell. Written onto `adata.obs` because that is
+            # where scfit reads grouping from; it is constant and idempotent.
+            if _ALL_CELLS not in adata.obs:
+                adata.obs[_ALL_CELLS] = pd.Categorical(np.full(adata.n_obs, "all"))
+            self._group_cols = (_ALL_CELLS,)
         # Continuous covariates ride as aligned reps: {rep loc -> StepData dict key}.
         self._cond_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in cond_schema.conditions_covariates}
         self._resp_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in dm.target_data_schema.continuous_covs}

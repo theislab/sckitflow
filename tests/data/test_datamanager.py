@@ -282,3 +282,27 @@ class TestGetEvalLoader:
         for step_data, leaf in el:
             assert "control" not in leaf
             assert step_data["source_state"] is not None
+
+
+class TestUnconditionalStreaming:
+    """A schema with no groups/conditions still trains: one implicit group, no split."""
+
+    def test_split_by_none_yields_a_single_train_loader(self, adata_small: AnnData):
+        loaders = _make_manager().get_dataloaders(adata_small, split_by=None, batch_size=8)
+        assert set(loaders) == {"train"}
+        assert next(iter(loaders["train"]))["target_state"].shape[0] == 8
+
+    def test_no_covariate_schema_trains_and_predicts(self, adata_small: AnnData):
+        ad = adata_small.copy()
+        ad.obs = ad.obs.iloc[:, :0]  # strip every covariate column
+        dm = DataManager()
+
+        loaders = dm.get_dataloaders(ad, split_by=None, batch_size=8)
+        step_data = next(iter(loaders["train"]))
+        assert step_data["target_state"].shape == (8, ad.n_vars)
+        assert step_data["target_condition_data"] is None
+
+        el = dm.get_eval_loader(ad)
+        assert len(el) == 1  # a single implicit group
+        pred_step, _ = next(iter(el))
+        assert pred_step["target_state"].shape[0] == ad.n_obs

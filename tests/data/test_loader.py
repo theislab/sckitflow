@@ -133,10 +133,17 @@ class TestLoaderIterationContract:
         assert len(loader) == 3
         assert sum(1 for _ in loader) == 3
 
-    def test_needs_a_categorical_group_or_condition_column(self, loader_adata):
-        """A schema with no group/condition column cannot be grouped on -> explicit error."""
-        with pytest.raises(ValueError, match="at least one categorical"):
-            Loader(loader_adata, dm=DataManager())
+    def test_schema_without_covariates_streams_one_implicit_group(self, loader_adata):
+        """An unconditional schema still streams: every cell lands in one synthesized group."""
+        from sckitflow.data._loader import _ALL_CELLS
+
+        ad = loader_adata
+        sd = next(iter(Loader(ad, dm=DataManager(), batch_size=8)))
+
+        assert sd["target_state"].shape == (8, ad.n_vars)
+        assert sd["source_state"] is None  # nothing to pair against
+        assert sd["target_condition_data"] is None and sd["target_group_data"] is None
+        assert ad.obs[_ALL_CELLS].nunique() == 1  # one group covering every cell
 
 
 class TestSourceAlignment:

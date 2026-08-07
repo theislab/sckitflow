@@ -74,16 +74,6 @@ class DummyMethod(BaseMethod):
     def __init__(self, dims_registry, dm, *args, **kwargs):
         super().__init__(dims_registry, dm, *args, **kwargs)
 
-    def extract_state_data(self, matched_distr):
-        """Return dummy StateData from the target state of the matched distribution."""
-        from sckitflow.data.containers._state import StateData
-
-        # Dummy state: zeros with correct number of observations and feature dimension
-        n_obs = len(matched_distr.target_distr.ann_df)
-        n_feat = len(self._dims_registry.feature_names)
-        X = np.zeros((n_obs, n_feat))
-        return StateData(X)
-
     def set_train_mode(self, mode: bool):
         self._train_mode = mode
 

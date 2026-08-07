@@ -1,4 +1,4 @@
-from typing import Any, Literal
+from typing import Any
 
 import numpy as np
 import torch
@@ -6,13 +6,10 @@ import torch
 from sckitflow.core._types import StepData, TensorMixin, TNoiseSamplerFn
 from sckitflow.core._utils import to_torch_tensor
 from sckitflow.data import mixins
-from sckitflow.data.containers import CategoricalData, CouplingData, DistributionData, MixedTypeData, StateData
+from sckitflow.data.containers import CategoricalData, MixedTypeData
 
 __all__ = [
     "batchmixin_to_torch",
-    "extract_state_data",
-    "extract_coupling_data",
-    "extract_distribution_data",
     "get_tensor_dict_from_data",
     "subscript_step_data",
     "expand_conditioning",
@@ -34,55 +31,6 @@ def batchmixin_to_torch(
     if not isinstance(data_dict, dict):
         raise ValueError(f"Data dictionary of the wrong type, expected `dict` got {type(data_dict)}.")
     return {k: to_torch_tensor(v, dtype=dtype, device=device) for k, v in data_dict.items()}
-
-
-def extract_state_data(
-    state_data: StateData | None, dtype: torch.dtype | None = None, device: torch.device | None = None
-) -> torch.Tensor | None:
-    """Extracts torch tensors from the state data."""
-    if state_data is None:
-        return None
-    X_state = state_data.X
-    X_state = to_torch_tensor(X_state, device=device, dtype=dtype)
-    return X_state
-
-
-def extract_coupling_data(
-    distribution_data: DistributionData,
-    mode: Literal["source", "target"],
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
-) -> tuple[torch.Tensor | None, torch.Tensor | None]:
-    """Extracts torch tensors from the coupling data."""
-    # retrieve coupling data
-    coupling_data: CouplingData | None = getattr(distribution_data, f"{mode}_coupling_data")
-
-    # no coupling data available (e.g. inference without a target state)
-    if coupling_data is None:
-        return None, None
-
-    # parse coupling data
-    state_lin: StateData | None = coupling_data.state_lin
-    state_quad: StateData | None = coupling_data.state_quad
-
-    # get states for linear term
-    X_lin = extract_state_data(state_lin, device=device, dtype=dtype)
-    X_quad = extract_state_data(state_quad, device=device, dtype=dtype)
-    return X_lin, X_quad
-
-
-def extract_distribution_data(
-    distribution_data: DistributionData,
-    mode: Literal["source", "target"],
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
-) -> tuple[Any]:
-    """Extracts torch tensors from the distribution data."""
-    coupling_lin, coupling_quad = extract_coupling_data(distribution_data, mode)
-    state_data = extract_state_data(distribution_data.state_data, device=device, dtype=dtype)
-    condition_data = distribution_data.condition_data
-    groups_data = distribution_data.groups_data
-    return (coupling_lin, coupling_quad, state_data, condition_data, groups_data)
 
 
 def get_tensor_dict_from_data(

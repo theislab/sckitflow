@@ -22,7 +22,7 @@ def build_ann_df(
     """Builds the annotation data frame from groups then condition categoricals.
 
     Column order matches the hierarchy (groups first, conditions second) so that
-    lexsort-based ``is_sorted`` / ``sort()`` agree with ``DataManager.sort_adata``.
+    the lexsort-based ``is_sorted`` / ``sort()`` stay mutually consistent.
 
     Shared by :attr:`DistributionData.ann_df` and the prediction-output builders so
     the two stay in lockstep when reconstructing obs metadata from ``StepData``.
@@ -224,8 +224,8 @@ class DistributionData(BaseData):
         """Returns the annotation data frame from groups then conditions.
 
         Column order matches the hierarchy (groups first, conditions second)
-        so that lexsort-based ``is_sorted`` / ``sort()`` agree with
-        ``DataManager.sort_adata``.
+        so that the lexsort-based ``is_sorted`` / ``sort()`` stay mutually
+        consistent.
         """
         return build_ann_df(self.condition_data, self.groups_data)
 

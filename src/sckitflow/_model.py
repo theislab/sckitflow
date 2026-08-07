@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import logging
 import tarfile
 import tempfile
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Literal, Unpack, overload
+from typing import TYPE_CHECKING, Any, Literal, Unpack, overload
 
 import cloudpickle
 import numpy as np
@@ -13,18 +15,17 @@ from anndata import AnnData
 from tqdm import tqdm
 
 from sckitflow._types import PredictionData
-from sckitflow.core._data_utils import align_step_data, extract_step_data
 from sckitflow.core._types import StepData
 from sckitflow.core.methods._base import BaseMethod
-from sckitflow.core.methods._opt import OptimConfig
-from sckitflow.data._composite import MatchedData
+from sckitflow.core.methods._opt import OptimConfig, OptimizationManager
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
-from sckitflow.data.containers._distribution import build_ann_df
-from sckitflow.data.samplers._train import FTrainSampler
-from sckitflow.data.samplers._validation import FValidationSampler
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sckitflow.trainer._trainer import Trainer
+
+if TYPE_CHECKING:
+    # Typing only: importing `_loader` eagerly would pull scfit into `import sckitflow`.
+    from sckitflow.data._loader import LoaderKwargs
 
 __all__ = ["Model", "ModelBuilder"]
 
@@ -58,7 +59,7 @@ class ModelBuilder:
         cls,
         adata: AnnData,
         **dm_kwargs: Unpack[DataManagerKwargs],
-    ) -> "ModelBuilder":
+    ) -> ModelBuilder:
         """Prepare the data side of a model from an annotated data object.
 
         Initializes the :class:`DataManager` from ``dm_kwargs`` and derives the
@@ -93,7 +94,7 @@ class ModelBuilder:
         method_cls: type[BaseMethod] | None = None,
         method_id: str | None = None,
         **kwargs,
-    ) -> "Model":
+    ) -> Model:
         """Attach a method and return a ready-to-train :class:`Model`.
 
         Either pass an already-constructed ``method`` instance, or select a
@@ -238,9 +239,8 @@ class Model:
     def predict(
         self,
         adata: AnnData,
-        *args,
-        return_raw: Literal[False],
-        sort: bool = True,
+        *,
+        return_raw: Literal[False] = ...,
         **kwargs,
     ) -> AnnData:
         pass
@@ -249,9 +249,8 @@ class Model:
     def predict(
         self,
         adata: AnnData,
-        *args,
+        *,
         return_raw: Literal[True],
-        sort: bool = True,
         **kwargs,
     ) -> tuple[AnnData, PredictionData]:
         pass
@@ -264,34 +263,15 @@ class Model:
         )
         return empty_adata if not return_raw else (empty_adata, None)
 
-    def _get_pred_obs_df(self, step_data: StepData, pred_obj: PredictionData) -> pd.DataFrame:
-        """Gets the observation dataframe for prediction"""
-        # 1. Collect observation metadata (rebuilt from the target condition/group data)
-        ann_df = build_ann_df(step_data["target_condition_data"], step_data["target_group_data"]).copy()
-        cond_df = ann_df.drop_duplicates()
+    def _pred_obs_from_leaf(self, group_cols: tuple[str, ...], leaf: tuple, pred_obj: PredictionData) -> pd.DataFrame:
+        """Rebuild a group's obs rows from its ``leaf`` (the ``group_by`` value tuple), one per predicted cell.
 
-        # 2. Check that the node contains only one condition
-        #    or that the are actually columns inside
-        n_ann_cols = len(cond_df.columns)
-        if n_ann_cols:
-            n_unique_conds = cond_df.shape[0]
-            if n_unique_conds != 1:
-                msg = f"Node should contain unique condition, {n_unique_conds} found."
-                raise ValueError(msg)
-
-        # 3. Get number of generated observations
-        if hasattr(pred_obj, "X"):
-            n_pred_obs = pred_obj.X.shape[0]
-        else:
-            n_pred_obs = 1
-
-        # 4. Align dataframe and update
-        # only when there are columns we need to repeat, otherwise keep as is
-        if n_ann_cols:
-            df_data = np.repeat(cond_df, n_pred_obs, axis=0)
-        else:
-            df_data = cond_df
-        return pd.DataFrame(df_data, columns=ann_df.columns)
+        The group identity is the ``leaf`` surfaced by :class:`~sckitflow.data._loader.EvalLoader` -- a tuple
+        of the categorical group/condition values, ordered as ``group_cols`` -- so no ``ann_df`` round-trip is
+        needed. Each value is repeated to match the number of predicted observations.
+        """
+        n_pred_obs = pred_obj.X.shape[0] if getattr(pred_obj, "X", None) is not None else 1
+        return pd.DataFrame({col: np.repeat(val, n_pred_obs) for col, val in zip(group_cols, leaf, strict=True)})
 
     def _get_pred_traj(self, pred_obj: PredictionData) -> np.ndarray | None:
         # early return if no trajectory
@@ -346,33 +326,26 @@ class Model:
                 f"(n_obs, n_features) or (n_samples, n_obs, n_features)"
             )
 
-    def _get_pred_obsm_dict(self, step_data: StepData, pred_obj: PredictionData) -> dict[str, np.ndarray]:
-        # ---- Get trajectory and samples ----
+    def _get_pred_obsm_dict(
+        self, step_data: StepData, pred_obj: PredictionData, cont_keys: tuple[str, ...]
+    ) -> dict[str, np.ndarray]:
+        # ---- Trajectory and raw samples ----
+        obsm_dict: dict[str, np.ndarray] = {}
         traj = self._get_pred_traj(pred_obj)
-        raw_samples = self._get_pred_raw_samples(pred_obj)
-
-        # ---- Get condition continuous covariates data ----
-        condition_data = step_data["target_condition_data"]
-        if condition_data is not None and condition_data.has_continuous_covariates:
-            condition_continuous_covs = condition_data.continuous_covariates.mapping
-        else:
-            condition_continuous_covs = {}
-
-        # ---- Get target (response) continuous covariates data ----
-        response_data = step_data["target_response_data"]
-        if response_data is not None and response_data.has_continuous_covariates:
-            response_continuous_covs = response_data.continuous_covariates.mapping
-        else:
-            response_continuous_covs = {}
-
-        # ---- Construct output ----
-        obsm_dict = {}
         if traj is not None:
             obsm_dict["trajectory"] = traj
+        raw_samples = self._get_pred_raw_samples(pred_obj)
         if raw_samples is not None:
             obsm_dict["raw_samples"] = raw_samples
-        obsm_dict.update(condition_continuous_covs)
-        obsm_dict.update(response_continuous_covs)
+
+        # ---- Continuous condition/response covariates: per-cell reps carried in the StepData dicts ----
+        condition = step_data["target_condition_data"] or {}
+        response = step_data["target_response_data"] or {}
+        for key in cont_keys:
+            if key in condition:
+                obsm_dict[key] = self._to_numpy(condition[key])
+            elif key in response:
+                obsm_dict[key] = self._to_numpy(response[key])
         return obsm_dict
 
     def _aggregate_nodes_pred(
@@ -390,8 +363,9 @@ class Model:
         # Convert to numpy
         X_np = self._to_numpy(merged_pred.X)
 
-        # Aggregate obs dataframes
-        obs_final = pd.concat(all_obs, axis=0)
+        # Aggregate obs dataframes (fresh unique string index -- groups each carry a 0..n range)
+        obs_final = pd.concat(all_obs, axis=0, ignore_index=True)
+        obs_final.index = obs_final.index.astype(str)
 
         # Aggregate obsm array dictionary
         obsm_final = {k: np.concatenate(v, axis=0) for k, v in all_obsm.items()}
@@ -405,30 +379,6 @@ class Model:
             return pred_adata, merged_pred
 
         return pred_adata
-
-    def _to_step_data(self, node: MatchedData) -> StepData:
-        """Extracts ready :class:`StepData` from a node on the method's device/dtype.
-
-        Used as the samplers' ``dispatch_fn`` so training/validation samplers yield
-        ``StepData`` directly (the samplers never depend on ``core`` themselves).
-        """
-        return extract_step_data(node, device=self._method.device_id, dtype=self._method.dtype)
-
-    def _node_to_step_data(self, node: MatchedData) -> StepData:
-        """Prediction-path conversion: extract, then align the source side.
-
-        Alignment (matching the source length to the target) is a ``StepData`` transform
-        applied only for inference; training uses :meth:`_to_step_data` (no alignment).
-        """
-        return align_step_data(self._to_step_data(node))
-
-    def _predict_on_node(self, step_data: StepData, *args, **kwargs) -> PredictionData:
-        """Runs inference on a ready :class:`StepData` batch.
-
-        A thin pass-through: the node has already been aligned and turned into
-        :class:`StepData` by :meth:`_node_to_step_data`.
-        """
-        return self._method.predict(step_data, *args, **kwargs)
 
     def _to_numpy(self, tensor: Any) -> np.ndarray:
         """Convert a torch tensor (or array-like) to a numpy array."""
@@ -458,117 +408,104 @@ class Model:
 
     def train(
         self,
-        train_adata: AnnData,
-        *args,
-        val_adatas_dict: dict[str, AnnData] | None = None,
+        adata: AnnData,
+        *,
+        split_by: str = "split",
+        train_split: str = "train",
+        control_adata: AnnData | None = None,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
         n_train_steps: int = 100_000,
         valid_freq: int = 1_000,
-        train_batch_size: int = 128,
-        val_max_n_obs: int = 10_000,
-        train_sampler_kwargs: dict[str, Any] | None = None,
-        val_sampler_kwargs: dict[str, Any] | None = None,
-        train_kwargs: dict[str, Any] | None = None,
-        optim_kwargs: dict[str, Any] | None = None,
-        sort: bool = False,
-        **kwargs,
+        pbar_freq: int = 100,
+        batch_size: int = 128,
+        loader_kwargs: LoaderKwargs | None = None,
+        optim_config: OptimConfig | None = None,
+        train_step_kwargs: dict[str, Any] | None = None,
+        val_predict_kwargs: dict[str, Any] | None = None,
+        cb_kwargs: dict[str, Any] | None = None,
     ) -> None:
-        """Trains the model on the input adata.
+        """Trains the model by streaming ``StepData`` batches from scfit-backed loaders.
 
-        :param train_adata: The train adata.
-        :type train_adata: class: `AnnData`
+        One loader is built per split value of ``adata.obs[split_by]`` via
+        :meth:`DataManager.get_dataloaders`. The ``train_split`` loader drives the optimizer -- one
+        gradient step per streamed batch, cycling epochs -- and every other split becomes a
+        validation loader (iterated for one epoch per validation). Selection is by scfit weights over
+        the whole ``adata`` (no subset copying), and controls are shared across splits (see
+        :meth:`DataManager.get_dataloaders`).
 
-        :param *args: Positional arguments used to call the `.train` method of the trainer class.
-        :type *args: class: `Sequence[Any]`
+        :param adata: The annotated data object to stream; must carry ``split_by`` in ``.obs``.
+        :type adata: class: `AnnData`
 
-        :param val_adatas_dict: Dictionary containing the validation adatas.
-        :type val_adatas_dict: class: `dict[str, AnnData]`
+        :param split_by: The ``.obs`` column whose values define the splits. Defaults to ``"split"``.
+        :type split_by: class: `str`
+
+        :param train_split: The split value whose loader drives optimization. Defaults to ``"train"``.
+        :type train_split: class: `str`
+
+        :param control_adata: Optional separate control (source) pool, shared by every split.
+        :type control_adata: class: `AnnData | None`
 
         :param callbacks: Callbacks to be used during training.
         :type callbacks: class: `TrainingCallbacks | Sequence[BaseCallback] | None`
 
-        :param n_train_steps: The number of training steps to train the model over.
-            Defaults to `10_000`
+        :param n_train_steps: The number of training steps (streamed batches) to train over.
+            Defaults to ``100_000``.
         :type n_train_steps: class: `int`
 
-        :param valid_freq: The frequency of the validation steps during training.
-            Defaults to `1_000`
+        :param valid_freq: The frequency (in steps) of the validation passes during training.
+            Defaults to ``1_000``.
         :type valid_freq: class: `int`
 
-        :param train_batch_size: The number of observations to sample for each node in a batch
-            of training data. Defaults to `128`.
-        :type train_batch_size: class: `int`
+        :param pbar_freq: The frequency (in steps) of progress-bar description refreshes.
+            Defaults to ``100``.
+        :type pbar_freq: class: `int`
 
-        :param val_max_n_obs: The maximum number of observations to sample for each node in a batch
-            of validation data. Defaults to `10_000`.
-        :type val_max_n_obs: class: `int`
+        :param batch_size: Number of observations per streamed batch. Defaults to ``128``.
+        :type batch_size: class: `int`
 
-        :param train_sampler_kwargs: Extra keyword arguments for the training sampler. Defaults to `None`.
-        :type train_sampler_kwargs: class: `dict[str, Any] | None`
+        :param loader_kwargs: Options for each streaming loader; see :class:`~sckitflow.data.LoaderKwargs`.
+            Defaults to ``None``.
+        :type loader_kwargs: class: `LoaderKwargs | None`
 
-        :param val_sampler_kwargs: Extra keyword arguments for the validation sampler. Defaults to `None`.
-        :type val_sampler_kwargs: class: `dict[str, Any] | None`
+        :param optim_config: The optimizer / scheduler configuration. Defaults to ``None`` (an
+            :class:`~sckitflow.core.methods._opt.OptimConfig` with its own defaults).
+        :type optim_config: class: `OptimConfig | None`
 
-        :param optim_kwargs: Keyword arguments to configure for the optimization manager (optimizer, scheduler, etc.). Defaults to `None`.
-        :type optim_kwargs: class: `OptimConfig | None`
+        :param train_step_kwargs: Forwarded to :meth:`BaseMethod.train_step` (method-specific).
+        :type train_step_kwargs: class: `dict[str, Any] | None`
 
-        :param sort: If ``True``, create a sorted copy of *adata* via
-            :meth:`sort_adata` and compile from that copy.  When setting this one
-            should keep in mind this will copy the full adata object. When ``False`` (the
-            default) the data must already be sorted; a ``ValueError``
-            is raised otherwise.
-        :type sort: class: `bool`
+        :param val_predict_kwargs: Forwarded to :meth:`BaseMethod.predict` during validation -- e.g.
+            CFM's ``n_samples``, required when the method generates from noise.
+        :type val_predict_kwargs: class: `dict[str, Any] | None`
 
-        :param *kwargs: Keyword arguments used to call the `.train` method of the trainer class.
-        :type *kwargs: class: `dict[str, Any]`
+        :param cb_kwargs: Forwarded to every callback hook.
+        :type cb_kwargs: class: `dict[str, Any] | None`
         """
-        # compile adata
-        train_tree = self._dm.compile_adata(
-            train_adata,
-            sort=sort,
-        )
-        if val_adatas_dict is not None:
-            val_trees_dict = {
-                val_id: self._dm.compile_adata(
-                    val_adata,
-                    sort=sort,
-                )
-                for val_id, val_adata in val_adatas_dict.items()
-            }
-        else:
-            val_trees_dict = {}
+        # Build one streaming loader per split (scfit weights over the whole adata -- no copies).
+        loader_kwargs = dict(loader_kwargs or {})
+        # `to=None`: keep annbatch's native arrays (numpy on host, cupy on a GPU-resident window) and let
+        # the loader map them onto torch itself, without a copy or a device round-trip.
+        loader_kwargs.setdefault("to", None)
+        loader_kwargs.setdefault("batch_size", batch_size)
+        # The loader settles dtype/device as its last stage, so batches reach the method ready to consume.
+        loader_kwargs.setdefault("dtype", self._method.dtype)
+        loader_kwargs.setdefault("device", self._method.device_id)
+        loaders = self._dm.get_dataloaders(adata, split_by=split_by, control_adata=control_adata, **loader_kwargs)
+        if train_split not in loaders:
+            raise KeyError(
+                f"train split {train_split!r} has no loader; available splits: {list(loaders)}. "
+                "(A split with only control groups produces no loader.)"
+            )
 
-        # create train sampler. The dispatch turns each sampled node into ready
-        # `StepData` (on the method's device/dtype), so the sampler yields `StepData`.
-        if train_sampler_kwargs is None:
-            train_sampler_kwargs = {}
-        train_sampler_kwargs.setdefault("dispatch_fn", self._to_step_data)
-        train_sampler = FTrainSampler(
-            train_tree,
-            batch_size=train_batch_size,
-            **train_sampler_kwargs,
-        )
+        # Size the train loader to the number of training steps (the train func sets the length); the
+        # trainer then just iterates it. The remaining splits are one-pass validation loaders.
+        train_loader = loaders[train_split].set_n_iters(n_train_steps)
+        val_loaders = {split: loader for split, loader in loaders.items() if split != train_split}
 
-        # create validation samplers (same `StepData` dispatch)
-        if val_sampler_kwargs is None:
-            val_sampler_kwargs = {}
-        val_sampler_kwargs.setdefault("dispatch_fn", self._to_step_data)
-        val_samplers_dict = {
-            val_id: FValidationSampler(val_tree, max_n_obs=val_max_n_obs, **val_sampler_kwargs)
-            for val_id, val_tree in val_trees_dict.items()
-        }
+        # prepare optimization manager
+        opt_manager = OptimizationManager.from_config(self._method._module, optim_config or OptimConfig())
 
-        # prepare optimization configurations
-        if optim_kwargs is None:
-            optim_kwargs = {}
-        optim_config = OptimConfig(**optim_kwargs)
-
-        # create optimization manager
-        from sckitflow.core.methods._opt import OptimizationManager
-
-        opt_manager = OptimizationManager.from_config(self._method._module, optim_config)
-
-        # initialize trainer
+        # initialize trainer (once; later calls continue from the current step)
         if self._trainer is None:
             self._trainer = Trainer(self._method, opt_manager, callbacks)
 
@@ -577,112 +514,102 @@ class Model:
 
         # train model
         self._trainer.train(
-            train_sampler,
-            *args,
-            val_samplers_dict=val_samplers_dict,
-            n_train_steps=n_train_steps,
+            train_loader,
+            val_loaders=val_loaders or None,
             valid_freq=valid_freq,
-            **kwargs,
+            pbar_freq=pbar_freq,
+            train_step_kwargs=train_step_kwargs,
+            val_predict_kwargs=val_predict_kwargs,
+            cb_kwargs=cb_kwargs,
         )
 
     def predict(
         self,
         adata: AnnData,
-        *args,
+        *,
         return_raw: bool = False,
-        sort: bool = True,
-        control_values_dict: dict[str, str] | None = None,
-        matched_keys: dict[tuple[Any], tuple[Any]] | None = None,
+        max_per_group: int | None = None,
         require_target_state: bool = True,
-        **kwargs,
+        control_values_dict: dict[str, str] | None = None,
+        control_adata: AnnData | None = None,
+        predict_kwargs: dict[str, Any] | None = None,
     ) -> AnnData | tuple[AnnData, PredictionData]:
-        """
-        Generates flow predictions.
+        """Generate flow predictions, one deterministic pass per group via :class:`EvalLoader`.
+
+        Every perturbed group is predicted once (or capped by ``max_per_group``), each matched to its
+        control leaf; the output ``obs`` is rebuilt from each group's ``leaf`` (its ``group_by`` values).
 
         :param adata: The input adata containing the metadata for prediction. When
-            `require_target_state` is `False`, this only needs `.obs` (and optionally
-            `.obsm` for continuous conditioning) describing the cells/conditions to
-            predict for - no `.X` or expression `obsm` key is required.
+            ``require_target_state`` is ``False``, this only needs ``.obs`` (and optionally ``.obsm`` for
+            continuous conditioning) describing the groups to predict for -- no ``.X`` / expression
+            ``obsm`` key required.
         :type adata: class: `AnnData`
 
-        :param return_raw: If True, returns the raw concatenated PredictionData
-            keeping the computation graph alive. Defaults to `False`.
+        :param return_raw: If ``True``, also return the raw concatenated ``PredictionData`` (keeping the
+            computation graph alive). Defaults to ``False``.
         :type return_raw: class: `bool`
 
-        :param sort: If ``True``, create a sorted copy of *adata* via
-            :meth:`sort_adata` and compile from that copy.  When setting this one
-            should keep in mind this will copy the full adata object. When ``False`` (the
-            default) the data must already be sorted; a ``ValueError``
-            is raised otherwise.
-        :type sort: class: `bool`
+        :param max_per_group: Per-group cap on cells: ``None`` = every cell, ``N`` = at most N, ``1`` =
+            predict once per condition (dedup / metadata-only). Defaults to ``None``.
+        :type max_per_group: class: `int | None`
 
-        :param control_values_dict: Optional dictionary mapping each condition
-            level to the corresponding value used to indicate control observations.
-            This overrides the homonimous attribute and is needed to allow
-            inference over arbitrary control keys at inference time.
-            Without this, inference would be bound to the source
-            group defined for training. Defaults to `None`,
-            in which case the instance attribute will be used.
-        :type control_values_dict: class: `dict[str, str] | None`
-
-        :param matched_keys: Optional keys used to identify the source  and
-            corresponding target groups in the case of fixed matches.
-            This overrides the homonimous attribute and is needed to allow
-            inference over arbitrary matched groups at inference time.
-            Without this, inference would be bound to the pairs of source
-            and target groups defined for training. Defaults to `None`,
-            in which case the instance attribute will be used.
-        :type matched_keys: class: `dict[tuple[Any], tuple[Any]] | None`
-
-        :param require_target_state: Whether `adata` needs to carry a target state
-            representation (`.X` or the configured `obsm` sample representation).
-            Set to `False` to predict purely from the conditioning metadata in
-            `adata.obs`/`adata.obsm`, without needing target expression data.
-            Defaults to `True`.
+        :param require_target_state: Whether ``adata`` must carry a target state representation (``.X`` or
+            the configured ``obsm`` sample representation). Set to ``False`` to predict purely from the
+            conditioning metadata. Defaults to ``True``.
         :type require_target_state: class: `bool`
 
-        :return: Either an AnnData with predictions, or a tuple (AnnData, PredictionData)
-            if `return_raw` is True.
+        :param control_values_dict: Optional mapping from each condition level to its control value,
+            overriding the instance's for this call (to allow inference over arbitrary control keys).
+            Defaults to ``None`` (use the instance's).
+        :type control_values_dict: class: `dict[str, str] | None`
+
+        :param control_adata: Optional separate control (source) pool, matched on the group columns.
+        :type control_adata: class: `AnnData | None`
+
+        :param predict_kwargs: Forwarded to :meth:`BaseMethod.predict` (method-specific) -- e.g. CFM's
+            ``n_samples`` / ``n_steps`` / ``return_trajectory``. Defaults to ``None``.
+        :type predict_kwargs: class: `dict[str, Any] | None`
+
+        :return: Either an AnnData with predictions, or a tuple ``(AnnData, PredictionData)`` if
+            ``return_raw`` is ``True``.
         """
-        # Set module to evaluation mode (backend‑agnostic)
+        # Set module to evaluation mode (backend-agnostic)
         self._method.set_train_mode(False)
+        predict_kwargs = {} if predict_kwargs is None else predict_kwargs
 
-        # Compile the data tree
-        tree = self._dm.compile_adata(
+        eval_loader = self._dm.get_eval_loader(
             adata,
-            sort=sort,
-            control_values_dict=control_values_dict,
-            matched_keys=matched_keys,
+            max_per_group=max_per_group,
             require_target_state=require_target_state,
+            control_values_dict=control_values_dict,
+            control_adata=control_adata,
+            to=None,  # native arrays in, zero-copy to torch in the loader (see `Model.train`)
+            dtype=self._method.dtype,
+            device=self._method.device_id,
         )
-        tree_flat: tuple[MatchedData] = tree.flatten()
 
-        # early return
-        if not tree_flat:
+        # early return when nothing to predict
+        if len(eval_loader) == 0:
             return self._predict_empty(return_raw)
 
         # define store
         all_preds = []
         all_obs = []
         all_obsm = defaultdict(list)
+        group_cols = eval_loader.group_cols
+        cont_keys = (*eval_loader.cond_cont_keys, *eval_loader.resp_keys)
 
-        # Turn nodes into ready `StepData` up front, so the loop below operates purely
-        # on `StepData`. `_node_to_step_data` is the single place a node becomes
-        # `StepData` -- swap it for a `StepData`-native loader to drop the node pipeline.
-        step_data_stream = (self._node_to_step_data(node) for node in tree_flat)
-
-        # Iterate over each ready `StepData`
-        for step_data in tqdm(step_data_stream, total=len(tree_flat), desc="Predicting"):
+        # Iterate one ready `StepData` per group (with its `leaf` group identity)
+        for step_data, leaf in tqdm(eval_loader, total=len(eval_loader), desc="Predicting"):
             # 1. Inference
-            pred_obj = self._predict_on_node(step_data, *args, **kwargs)
+            pred_obj = self._method.predict(step_data, **predict_kwargs)
             all_preds.append(pred_obj)
 
-            # 2. Construct obs dataframe (from `StepData`)
-            pred_df = self._get_pred_obs_df(step_data, pred_obj)
-            all_obs.append(pred_df.copy())
+            # 2. Construct obs from the group's leaf (no ann_df / container round-trip)
+            all_obs.append(self._pred_obs_from_leaf(group_cols, leaf, pred_obj))
 
-            # 3. Construct obsm (from `StepData`)
-            node_obsm_dict = self._get_pred_obsm_dict(step_data, pred_obj)
+            # 3. Construct obsm (continuous covariates ride per-cell in the StepData dicts)
+            node_obsm_dict = self._get_pred_obsm_dict(step_data, pred_obj, cont_keys)
             for key, val in node_obsm_dict.items():
                 all_obsm[key].append(val)
 
@@ -730,7 +657,7 @@ class Model:
         adata: AnnData | None = None,
         map_location: str | None = None,
         **register_kwargs,
-    ) -> "Model":
+    ) -> Model:
         """
         Load a saved model from a tarball.
 
@@ -787,7 +714,7 @@ class Model:
     @property
     def is_paired_setting(self) -> bool:
         """Whether the data was registered in a paired setting."""
-        return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
+        return self._dm.control_values_dict is not None
 
     @property
     def method(self) -> BaseMethod:

@@ -261,6 +261,19 @@ class TestGetEvalLoader:
                 assert all(v.shape[0] == n for v in (step_data[field] or {}).values())
         assert sizes and max(sizes) > 1, "groups must be bigger than their 1-cell control pool to be a real test"
 
+    @pytest.mark.parametrize("cap", [1, 2, None])
+    def test_metadata_only_batches_are_sized_from_the_group_not_the_controls(self, adata_small: AnnData, cap):
+        """`reps=()` reads no primary cells, so the row count comes from the known (capped) group size."""
+        dm = _make_manager(control_values_dict={"drug": "control"})
+        el = dm.get_eval_loader(adata_small, require_target_state=False, max_per_group=cap)
+        counts = {group: len(rows) for group, rows in adata_small.obs.groupby(["cell_line", "drug"], observed=True)}
+
+        for step_data, leaf in el:
+            assert step_data["target_state"] is None
+            expected = counts[leaf] if cap is None else min(counts[leaf], cap)
+            assert step_data["source_state"].shape[0] == expected
+            assert all(v.shape[0] == expected for v in step_data["target_group_data"].values())
+
     def test_control_values_override_makes_it_paired(self, adata_small: AnnData):
         dm = _make_manager()  # instance is unpaired
         el = dm.get_eval_loader(adata_small, control_values_dict={"drug": "control"})

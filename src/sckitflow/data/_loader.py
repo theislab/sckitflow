@@ -132,10 +132,17 @@ class _StepDataBridge:
 
         # One O(N) drop_duplicates gives the group combos + a representative row per group (no per-cell logic).
         # The categorical -> encoding is deferred to batch time (cached), keyed by the group's id.
-        uniq = adata.obs.loc[:, list(self._group_cols)].reset_index(drop=True).drop_duplicates()
+        sub = adata.obs.loc[:, list(self._group_cols)].reset_index(drop=True)
+        uniq = sub.drop_duplicates()
         self._leaves: list[tuple] = list(map(tuple, uniq.to_numpy()))
         self._leaf_to_gid: dict[tuple, int] = {leaf: i for i, leaf in enumerate(self._leaves)}
         self._rep_idx: list[int] = uniq.index.to_numpy().tolist()
+        # Cells per group. `groupby(sort=False)` and `drop_duplicates` both order by first appearance, so
+        # the counts zip straight onto the leaves (`strict` makes a divergence loud rather than silent).
+        sizes = sub.groupby(list(self._group_cols), observed=True, sort=False).size()
+        self._leaf_size: dict[tuple, int] = {
+            leaf: int(n) for leaf, n in zip(self._leaves, sizes.to_numpy(), strict=True)
+        }
         self._adata = adata
         self._encode_cache: dict[int, tuple[dict[str, Any], dict[str, Any]]] = {}
 
@@ -203,15 +210,19 @@ class _StepDataBridge:
             group_keys = list(reps)
         return entry, cond_keys, group_keys
 
-    def _batch_size(self, batch: dict, target_state: Any, source_state: Any) -> int:
+    def _batch_size(self, batch: dict, target_state: Any, n_rows: int) -> int:
+        """Rows to tile the conditioning to: what the primary delivered, else the caller's known ``n_rows``.
+
+        Measuring the delivered tensor is authoritative -- it already accounts for the sampler's
+        ``drop_last`` and for a group shorter than its cap. Only a metadata-only pass (``reps=()``) reads
+        no cells at all, and there the caller knows the count outright.
+        """
         if target_state is not None:
             return int(target_state.shape[0])
         for loc in (*self._cond_cont_locs, *self._resp_cont_locs):
             if loc in batch[_PRIMARY]:
                 return int(batch[_PRIMARY][loc].shape[0])
-        if source_state is not None:
-            return int(source_state.shape[0])
-        return 1
+        return n_rows
 
     def _align_source(self, source_state: Any, batch_size: int) -> Any:
         """Row-align the source to ``batch_size``, slicing it when longer and tiling it when shorter."""
@@ -228,16 +239,17 @@ class _StepDataBridge:
 
         return source_state[torch.arange(batch_size, device=source_state.device) % n_source]
 
-    def _assemble(self, batch: dict, gid: int, *, has_state: bool) -> StepData:
+    def _assemble(self, batch: dict, gid: int, *, has_state: bool, n_rows: int) -> StepData:
         """Assemble one scfit batch (+ its group id) into a ``StepData``.
 
         The categorical condition/group encoding is cached per group and tiled to the batch; continuous
         covariates are the per-cell aligned reps already in the batch, and the source is row-aligned to
-        the same count. ``has_state=False`` omits the target state (metadata-only prediction).
+        the same count. ``has_state=False`` omits the target state (metadata-only prediction), and
+        ``n_rows`` is the caller's row count for that case -- see :meth:`_batch_size`.
         """
         target_state = _as_tensor(batch[_PRIMARY][self._state_loc]) if has_state else None
         source_state = _as_tensor(batch[_CONTROL][self._state_loc]) if _CONTROL in batch else None
-        batch_size = self._batch_size(batch, target_state, source_state)
+        batch_size = self._batch_size(batch, target_state, n_rows)
         source_state = self._align_source(source_state, batch_size)
 
         cond_enc, group_enc = self._encode_group_cached(gid)
@@ -364,6 +376,7 @@ class Loader(_StepDataBridge):
         preload_nchunks: int | None = None,
     ) -> None:
         super().__init__(adata, dm, dtype=dtype, device=device)
+        self._rows_per_batch = batch_size
         sampler_kwargs = {
             "batch_size": batch_size,
             "chunk_size": chunk_size,
@@ -415,7 +428,8 @@ class Loader(_StepDataBridge):
         it is a plain group leaf, which keys the cached categorical encoding.
         """
         leaf = tuple(batch["leaves"][_PRIMARY])[self._n_prefix :]
-        return self._assemble(batch, self._leaf_to_gid[leaf], has_state=True)
+        # every training batch is exactly `batch_size` rows (the sampler drops the short tail)
+        return self._assemble(batch, self._leaf_to_gid[leaf], has_state=True, n_rows=self._rows_per_batch)
 
     def __iter__(self) -> Iterator[StepData]:
         """One finite pass of ``StepData`` batches; re-iterable, so the trainer just iterates it."""
@@ -467,6 +481,7 @@ class EvalLoader(_StepDataBridge):
     ) -> None:
         super().__init__(adata, dm, dtype=dtype, device=device)
         self._has_state = require_target_state
+        self._max_per_group = max_per_group
         state_reps = (self._state_loc,) if require_target_state else ()
         primary_reps = (*state_reps, *self._cond_cont_locs, *self._resp_cont_locs)
 
@@ -489,7 +504,11 @@ class EvalLoader(_StepDataBridge):
         """Yield ``(StepData, leaf)`` per selected group, deterministically."""
         for batch in self._loader:
             leaf = tuple(batch["leaf"])
-            yield self._assemble(batch, self._leaf_to_gid[leaf], has_state=self._has_state), leaf
+            # the group's cell count, capped the same way scfit caps the rows it reads
+            n_rows = self._leaf_size[leaf]
+            if self._max_per_group is not None:
+                n_rows = min(n_rows, self._max_per_group)
+            yield self._assemble(batch, self._leaf_to_gid[leaf], has_state=self._has_state, n_rows=n_rows), leaf
 
     def __len__(self) -> int:
         """Number of groups (== number of batches) this pass yields."""

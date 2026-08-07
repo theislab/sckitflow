@@ -29,11 +29,16 @@ from scfit.data import Loader as ScfitLoader
 from scfit.data import Stream
 
 if TYPE_CHECKING:
+    import torch
+
     # StepData lives in ``core`` (which imports ``data``); import it for typing only to avoid a
     # runtime import cycle. At runtime we build the plain dict directly (see ``_STEP_DATA_KEYS``).
     from sckitflow.core._types import StepData
     from sckitflow.data._manager import DataManager
 
+# The kwargs contract for these loaders is :class:`~sckitflow.data._manager.LoaderKwargs` -- declared
+# there, next to its only consumer (``DataManager.get_dataloaders``), so typing a call site does not
+# drag in the scfit/annbatch stack this module imports.
 __all__ = ["Loader", "EvalLoader"]
 
 # Every StepData key, so the emitted dict is complete and consumers can index without guarding.
@@ -61,10 +66,20 @@ def _state_loc(sample_rep: str | None) -> str:
 
 
 def _as_tensor(array: Any) -> Any:
-    """Return ``array`` as a torch tensor (a no-op when scfit already emitted torch via ``to``)."""
+    """Return ``array`` as a torch tensor **without copying**, on whatever device it already lives.
+
+    The loaders stream with scfit's ``to=None``, so annbatch hands back its native arrays -- numpy on the
+    host, cupy when the read window is GPU-resident. Both map onto torch for free (``from_numpy`` shares
+    the buffer; ``__dlpack__`` shares the device allocation), so a GPU-resident window never round-trips
+    through host memory. Converting here, rather than via scfit's ``to="torch"``, keeps that one place.
+    """
     import torch
 
-    return array if isinstance(array, torch.Tensor) else torch.as_tensor(np.asarray(array))
+    if isinstance(array, torch.Tensor):
+        return array
+    if isinstance(array, np.ndarray):
+        return torch.as_tensor(array)
+    return torch.from_dlpack(array)
 
 
 def _tile(vector: Any, batch_size: int) -> Any:
@@ -89,8 +104,19 @@ class _StepDataBridge:
     Subclasses build the concrete scfit loader (sampling vs deterministic) and drive iteration.
     """
 
-    def __init__(self, adata: AnnData, dm: DataManager) -> None:
+    def __init__(
+        self,
+        adata: AnnData,
+        dm: DataManager,
+        *,
+        dtype: torch.dtype | None = None,
+        device: str | None = None,
+    ) -> None:
         self._dm = dm
+        self._dtype = dtype
+        # Compared by device *type* ("cuda" vs "cuda:0"), matching ``Model.to_device``.
+        self._device = device
+        self._device_type = device.split(":")[0] if device is not None else None
         cond_schema = dm.condition_data_schema
         self._state_loc = _state_loc(dm.state_data_schema.sample_rep)
         # group_by = group columns + categorical condition columns (continuous covs are streamed reps).
@@ -111,13 +137,53 @@ class _StepDataBridge:
         self._leaf_to_gid: dict[tuple, int] = {leaf: i for i, leaf in enumerate(self._leaves)}
         self._rep_idx: list[int] = uniq.index.to_numpy().tolist()
         self._adata = adata
-        self._encode_cache: dict[int, tuple[dict[str, np.ndarray], dict[str, np.ndarray]]] = {}
+        self._encode_cache: dict[int, tuple[dict[str, Any], dict[str, Any]]] = {}
 
-    def _encode_group_cached(self, gid: int) -> tuple[dict[str, np.ndarray], dict[str, np.ndarray]]:
-        """The group's ``(condition, group)`` categorical encodings -- computed once per group, then cached."""
+    def _conform(self, tensor: Any, *, streamed: bool = True) -> Any:
+        """Cast one tensor to the configured ``dtype`` and assert its ``device`` -- the single place both apply.
+
+        ``device`` is checked, never fixed, for a ``streamed`` tensor: those come straight off scfit, which
+        already reads on the streaming device, so a mismatch means the read window is on the wrong device
+        and *every* batch would be copied. That is a real problem and it fails here rather than being
+        silently paid for. The per-group ``uns`` encodings are not streamed -- they are host arrays by
+        construction, so they are moved once, when their cache entry is first filled.
+        """
+        if self._dtype is not None and tensor.dtype is not self._dtype:
+            tensor = tensor.to(self._dtype)
+        if self._device_type is not None and tensor.device.type != self._device_type:
+            if streamed:
+                raise RuntimeError(
+                    f"batches stream on {tensor.device.type!r} but the method runs on {self._device!r}; "
+                    "every batch would be copied across devices. Stream on the compute device instead "
+                    "(scfit's GPU-resident read window), or run the method where the data is."
+                )
+            tensor = tensor.to(self._device)
+        return tensor
+
+    def _conform_batch(self, step_data: dict[str, Any]) -> dict[str, Any]:
+        """One pass over the assembled batch -- the last stage of loading, where dtype/device are settled."""
+        if self._dtype is None and self._device is None:
+            return step_data
+        for key, value in step_data.items():
+            if value is None:
+                continue
+            step_data[key] = (
+                {k: self._conform(v) for k, v in value.items()} if isinstance(value, dict) else self._conform(value)
+            )
+        return step_data
+
+    def _encode_group_cached(self, gid: int) -> tuple[dict[str, Any], dict[str, Any]]:
+        """The group's ``(condition, group)`` categorical encodings -- computed once per group, then cached.
+
+        Cached already conformed to ``dtype``/``device``, so the per-batch tile is a device-local expand.
+        """
         if gid not in self._encode_cache:
             entry, cond_keys, group_keys = self._encode_group(self._adata[int(self._rep_idx[gid])])
-            self._encode_cache[gid] = ({k: entry[k] for k in cond_keys}, {k: entry[k] for k in group_keys})
+            conformed = {k: self._conform(_as_tensor(v), streamed=False) for k, v in entry.items()}
+            self._encode_cache[gid] = (
+                {k: conformed[k] for k in cond_keys},
+                {k: conformed[k] for k in group_keys},
+            )
         return self._encode_cache[gid]
 
     def _encode_group(self, cell: AnnData) -> tuple[dict[str, np.ndarray], list, list]:
@@ -143,7 +209,7 @@ class _StepDataBridge:
             return int(target_state.shape[0])
         for loc in (*self._cond_cont_locs, *self._resp_cont_locs):
             if loc in batch[_PRIMARY]:
-                return int(np.asarray(batch[_PRIMARY][loc]).shape[0])
+                return int(batch[_PRIMARY][loc].shape[0])
         return 1
 
     def _assemble(self, batch: dict, gid: int, *, has_state: bool) -> StepData:
@@ -174,7 +240,7 @@ class _StepDataBridge:
         step_data["target_condition_data"] = condition or None
         step_data["target_group_data"] = group or None
         step_data["target_response_data"] = response or None
-        return step_data  # type: ignore[return-value]
+        return self._conform_batch(step_data)  # type: ignore[return-value]
 
     @property
     def group_cols(self) -> tuple[str, ...]:
@@ -213,6 +279,14 @@ class Loader(_StepDataBridge):
         used only when ``control_adata`` is ``None``. ``None`` (and no ``control_adata``) => unpaired.
     :type control_weights: class: `dict | None`
 
+    :param dtype: Torch dtype every emitted tensor is cast to (``None`` = leave as streamed). Set from the
+        method's ``dtype`` so a ``float64`` source does not reach ``float32`` modules.
+    :type dtype: class: `torch.dtype | None`
+
+    :param device: Device the streamed batches must *already* be on (``None`` = no check). This is an
+        assertion, not a move: a mismatch means every batch would be copied, so it raises instead.
+    :type device: class: `str | None`
+
     :param n_iters: Number of batches one pass yields. ``None`` = one epoch over the primary. The trainer
         sets this to the training-step count (via :meth:`set_n_iters`) and iterates the loader.
     :type n_iters: class: `int | None`
@@ -227,13 +301,15 @@ class Loader(_StepDataBridge):
         control_adata: AnnData | None = None,
         control_weights: dict[tuple, float] | None = None,
         to: str | None = None,
+        dtype: torch.dtype | None = None,
+        device: str | None = None,
         seed: int = 0,
         n_iters: int | None = None,
         batch_size: int = 128,
         chunk_size: int = 1,
         preload_nchunks: int | None = None,
     ) -> None:
-        super().__init__(adata, dm)
+        super().__init__(adata, dm, dtype=dtype, device=device)
         sampler_kwargs = {
             "batch_size": batch_size,
             "chunk_size": chunk_size,
@@ -322,6 +398,12 @@ class EvalLoader(_StepDataBridge):
     :param max_per_group: Per-group cap (``None`` = every cell, ``N`` = at most N, ``1`` = one representative
         per group / dedup). See :class:`scfit.data.EvalLoader`.
     :type max_per_group: class: `int | None`
+
+    :param dtype: Torch dtype every emitted tensor is cast to (``None`` = leave as streamed).
+    :type dtype: class: `torch.dtype | None`
+
+    :param device: Device the streamed batches must already be on (``None`` = no check); see :class:`Loader`.
+    :type device: class: `str | None`
     """
 
     def __init__(
@@ -336,9 +418,11 @@ class EvalLoader(_StepDataBridge):
         max_per_group: int | None = None,
         subsample: str | Callable = "head",
         to: str | None = None,
+        dtype: torch.dtype | None = None,
+        device: str | None = None,
         seed: int = 0,
     ) -> None:
-        super().__init__(adata, dm)
+        super().__init__(adata, dm, dtype=dtype, device=device)
         self._has_state = require_target_state
         state_reps = (self._state_loc,) if require_target_state else ()
         primary_reps = (*state_reps, *self._cond_cont_locs, *self._resp_cont_locs)

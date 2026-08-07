@@ -62,19 +62,24 @@ class Trainer:
         self,
         loader: Iterable[StepData],
         val_id: str,
-        *args,
-        **kwargs,
+        *,
+        predict_kwargs: dict[str, Any] | None = None,
+        cb_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Run validation over one loader (one finite pass) and store predictions.
 
-        ``loader`` is any iterable yielding ready ``StepData`` batches.
+        ``loader`` is any iterable yielding ready ``StepData`` batches. The two kwarg dicts go to
+        different places and are kept apart: ``predict_kwargs`` to the method's inference (e.g. CFM's
+        ``n_samples``), ``cb_kwargs`` to the callbacks.
         """
+        predict_kwargs = {} if predict_kwargs is None else predict_kwargs
+        cb_kwargs = {} if cb_kwargs is None else cb_kwargs
         predictions_dict = {}
         for node_id, step_data in enumerate(loader):
             # The loader yields ready `StepData`; the ground-truth target is its
             # `target_state` tensor (the metric callbacks accept tensors directly).
             target_array = step_data["target_state"]
-            preds = self._method.predict(step_data, *args, **kwargs)
+            preds = self._method.predict(step_data, **predict_kwargs)
             # Extract the actual data from PredictionData object
             if hasattr(preds, "samples"):
                 preds_array = preds.samples
@@ -83,7 +88,7 @@ class Trainer:
             predictions_dict[str(node_id)] = {"predictions": preds_array, "targets": target_array}
 
         # Trigger callbacks with the predictions dictionary
-        metrics_dict = self._callbacks.on_valid_step(self, self._current_step, val_id, predictions_dict, **kwargs)
+        metrics_dict = self._callbacks.on_valid_step(self, self._current_step, val_id, predictions_dict, **cb_kwargs)
         metrics_dict.update({"step": self._current_step})
 
         # Store the metrics computed by the callbacks, tagged with the validation step.
@@ -109,21 +114,33 @@ class Trainer:
     def train(
         self,
         train_loader: Iterable[StepData],
-        *args,
+        *,
         val_loaders: dict[str, Iterable[StepData]] | None = None,
         valid_freq: int = 1_000,
         pbar_freq: int = 100,
+        train_step_kwargs: dict[str, Any] | None = None,
+        val_predict_kwargs: dict[str, Any] | None = None,
         cb_kwargs: dict[str, Any] | None = None,
-        **kwargs,
     ) -> None:
         """Trains the model by iterating ``train_loader`` -- its length is the number of steps.
 
         The caller sizes ``train_loader`` (e.g. ``Loader.set_n_iters(n_train_steps)``); the trainer just
         does one gradient step per streamed ``StepData`` and validates every ``valid_freq`` steps.
+
+        :param train_loader: Anything yielding ready ``StepData``; its length is the step count.
+        :param val_loaders: One ``{val_id: loader}`` per validation set, or ``None`` to skip validation.
+        :param valid_freq: Run validation every this many training steps.
+        :param pbar_freq: Refresh the progress-bar description every this many steps.
+        :param train_step_kwargs: Forwarded to :meth:`BaseMethod.train_step` (method-specific).
+        :param val_predict_kwargs: Forwarded to :meth:`BaseMethod.predict` during validation -- e.g. CFM's
+            ``n_samples``, which is required when the method generates from noise.
+        :param cb_kwargs: Forwarded to every callback hook.
         """
         do_validation = val_loaders is not None
 
-        # prepare callbacks keywargs
+        # Each dict goes to exactly one destination -- method train step, method inference, callbacks.
+        train_step_kwargs = {} if train_step_kwargs is None else train_step_kwargs
+        val_predict_kwargs = {} if val_predict_kwargs is None else val_predict_kwargs
         cb_kwargs = {} if cb_kwargs is None else cb_kwargs
 
         # Call on_train_begin
@@ -133,7 +150,7 @@ class Trainer:
         pbar = tqdm(train_loader)
         for step_data in pbar:
             self._current_step += 1
-            opt_data, step_dict = self._method.train_step(step_data, *args, **kwargs)
+            opt_data, step_dict = self._method.train_step(step_data, **train_step_kwargs)
             step_dict.update({"step": self._current_step})
             self._opt_manager.step(opt_data)
             self._append_train_log(step_dict)
@@ -151,7 +168,7 @@ class Trainer:
             # Validation step
             if self._current_step % valid_freq == 0 and do_validation:
                 for val_id, val_loader in val_loaders.items():
-                    self._run_val_on_loader(val_loader, val_id, **cb_kwargs)
+                    self._run_val_on_loader(val_loader, val_id, predict_kwargs=val_predict_kwargs, cb_kwargs=cb_kwargs)
 
         # Call on_train_end
         self._callbacks.on_train_end(self, **cb_kwargs)

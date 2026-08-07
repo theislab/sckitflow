@@ -54,7 +54,6 @@ def _loader(ad, dm, **overrides) -> Loader:
     kwargs = {
         "primary_weights": {("s0", "d0"): 1.0},
         "control_weights": {("s0", "control"): 1.0, ("s1", "control"): 1.0},
-        "to": "torch",
         "batch_size": 8,
     }
     kwargs.update(overrides)
@@ -137,4 +136,61 @@ class TestLoaderIterationContract:
     def test_needs_a_categorical_group_or_condition_column(self, loader_adata):
         """A schema with no group/condition column cannot be grouped on -> explicit error."""
         with pytest.raises(ValueError, match="at least one categorical"):
-            Loader(loader_adata, dm=DataManager(), to="torch")
+            Loader(loader_adata, dm=DataManager())
+
+
+class TestZeroCopyConversion:
+    """Batches stream as annbatch's native arrays (`to=None`) and become torch without a copy."""
+
+    def test_numpy_batches_share_memory_with_the_tensor(self):
+        from sckitflow.data._loader import _as_tensor
+
+        array = np.zeros((2, 3), dtype=np.float32)
+        tensor = _as_tensor(array)
+        tensor[0, 0] = 7.0
+        assert array[0, 0] == 7.0, "conversion copied instead of viewing the buffer"
+
+    def test_an_existing_tensor_passes_straight_through(self):
+        from sckitflow.data._loader import _as_tensor
+
+        tensor = torch.zeros(2, 3)
+        assert _as_tensor(tensor) is tensor
+
+
+class TestLoaderDtypeAndDevice:
+    """The last loading stage settles dtype/device, so batches reach the method ready to consume."""
+
+    def test_float64_source_is_cast_to_the_method_dtype(self, loader_adata):
+        """A float64 source would otherwise hit float32 modules ('mat1 and mat2 must have the same dtype')."""
+        ad = loader_adata
+        ad.X = ad.X.astype(np.float64)
+        ad.obsm["Xcond"] = ad.obsm["Xcond"].astype(np.float64)
+        sd = next(iter(_loader(ad, _dm(), dtype=torch.float32, device="cpu")))
+        assert sd["target_state"].dtype is torch.float32
+        assert sd["source_state"].dtype is torch.float32
+        assert sd["target_condition_data"]["Xcond"].dtype is torch.float32
+        # the tiled per-group encodings go through the same conform step
+        assert sd["target_group_data"]["source_split"].dtype is torch.float32
+
+    def test_no_dtype_leaves_the_streamed_tensors_untouched(self, loader_adata):
+        """Opting out is the default: nothing is cast or copied when neither dtype nor device is set."""
+        ad = loader_adata
+        ad.X = ad.X.astype(np.float64)
+        sd = next(iter(_loader(ad, _dm())))
+        assert sd["target_state"].dtype is torch.float64
+
+    def test_batches_on_the_wrong_device_raise(self, loader_adata, monkeypatch):
+        """A per-batch device copy is a real problem, so it fails loudly instead of being paid for."""
+        loader = _loader(loader_adata, _dm(), device="cpu")
+        # pretend the method runs elsewhere: batches stream on CPU, so every one would be copied
+        monkeypatch.setattr(loader, "_device_type", "cuda")
+        with pytest.raises(RuntimeError, match="copied across devices"):
+            next(iter(loader))
+
+    def test_host_encodings_are_moved_not_asserted(self, loader_adata, monkeypatch):
+        """`uns` encodings are host arrays by construction, so moving them is the only option."""
+        loader = _loader(loader_adata, _dm(), device="cpu")
+        monkeypatch.setattr(loader, "_device_type", "cuda")  # `_device` stays "cpu" so the move is a no-op
+        with pytest.raises(RuntimeError):
+            loader._conform(torch.zeros(2, 2))
+        assert loader._conform(torch.zeros(2, 2), streamed=False).device.type == "cpu"

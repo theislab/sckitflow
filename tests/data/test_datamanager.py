@@ -186,7 +186,7 @@ class TestGetDataloaders:
     def test_one_loader_per_split(self, adata_small: AnnData):
         ad = _with_split(adata_small)
         dm = _make_manager(control_values_dict={"drug": "control"})
-        loaders = dm.get_dataloaders(ad, split_by="split", to="torch", batch_size=8)
+        loaders = dm.get_dataloaders(ad, split_by="split", batch_size=8)
 
         # controls are the shared source, never their own split
         assert set(loaders) == {"train", "val"}
@@ -213,7 +213,7 @@ class TestGetEvalLoader:
 
     def test_paired_predicts_noncontrol_matched_to_controls(self, adata_small: AnnData):
         dm = _make_manager(control_values_dict={"drug": "control"})
-        el = dm.get_eval_loader(adata_small, to="torch")
+        el = dm.get_eval_loader(adata_small)
 
         assert len(el) == self._n_groups(adata_small, exclude_control=True)
         assert el.group_cols == ("cell_line", "drug")
@@ -224,7 +224,7 @@ class TestGetEvalLoader:
 
     def test_max_per_group_one_dedups_and_reiterates(self, adata_small: AnnData):
         dm = _make_manager(control_values_dict={"drug": "control"})
-        el = dm.get_eval_loader(adata_small, max_per_group=1, to="torch")
+        el = dm.get_eval_loader(adata_small, max_per_group=1)
 
         batches = list(el)
         assert all(step_data["target_state"].shape[0] == 1 for step_data, _ in batches)
@@ -233,7 +233,7 @@ class TestGetEvalLoader:
 
     def test_unpaired_predicts_all_groups_without_source(self, adata_small: AnnData):
         dm = _make_manager()  # no control_values_dict
-        el = dm.get_eval_loader(adata_small, to="torch")
+        el = dm.get_eval_loader(adata_small)
 
         assert len(el) == self._n_groups(adata_small, exclude_control=False)
         step_data, _ = next(iter(el))
@@ -241,7 +241,7 @@ class TestGetEvalLoader:
 
     def test_control_values_override_makes_it_paired(self, adata_small: AnnData):
         dm = _make_manager()  # instance is unpaired
-        el = dm.get_eval_loader(adata_small, control_values_dict={"drug": "control"}, to="torch")
+        el = dm.get_eval_loader(adata_small, control_values_dict={"drug": "control"})
 
         assert len(el) == self._n_groups(adata_small, exclude_control=True)
         for step_data, leaf in el:

@@ -1,11 +1,15 @@
+from __future__ import annotations
+
 from collections.abc import Collection, Mapping
-from typing import TYPE_CHECKING, Any, TypedDict, Unpack
+from typing import TYPE_CHECKING, TypedDict, Unpack
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
 
 if TYPE_CHECKING:
+    import torch
+
     from sckitflow.data._loader import EvalLoader, Loader
 
 from sckitflow._types import TargetCovariatesEncodingId
@@ -24,7 +28,45 @@ from sckitflow.data.schemas import (
     StateDataSchema,
 )
 
-__all__ = ["DataManagerKwargs", "DataManager"]
+__all__ = ["DataManagerKwargs", "LoaderKwargs", "DataManager"]
+
+
+class LoaderKwargs(TypedDict, total=False):
+    """The :class:`~sckitflow.data._loader.Loader` options :meth:`DataManager.get_dataloaders` forwards.
+
+    Declared here rather than beside :class:`~sckitflow.data._loader.Loader` so that typing a call site
+    does not import the scfit/annbatch stack (~2s) that the loader module pulls in.
+
+    Everything describing *which* cells a loader streams (``primary_weights``, ``control_adata``,
+    ``control_weights``) is derived by :meth:`DataManager.get_dataloaders` and so is deliberately absent:
+    these are the knobs that survive being passed through.
+    """
+
+    to: str | None
+    """scfit's batch backend. ``None`` (the default) keeps annbatch's native arrays -- numpy on the host,
+    cupy on a GPU-resident read window -- which the loader then maps onto torch without copying."""
+
+    dtype: torch.dtype | None
+    """Torch dtype every emitted tensor is cast to. ``None`` leaves the streamed dtype alone."""
+
+    device: str | None
+    """Device the streamed batches must *already* be on -- an assertion, not a move (a mismatch raises
+    rather than copying every batch). ``None`` skips the check."""
+
+    seed: int
+    """Seed for scfit's sampling schedule."""
+
+    n_iters: int | None
+    """Batches one pass yields. ``None`` = one epoch over the primary."""
+
+    batch_size: int
+    """Rows per emitted batch."""
+
+    chunk_size: int
+    """annbatch read-slice size; ``1`` reads per row, ``>1`` requires leaf-contiguous runs."""
+
+    preload_nchunks: int | None
+    """Chunks per annbatch read window. ``None`` = ``batch_size // chunk_size``."""
 
 
 class DataManagerKwargs(TypedDict, total=False):
@@ -256,8 +298,8 @@ class DataManager:
         *,
         split_by: str = "split",
         control_adata: AnnData | None = None,
-        **loader_kwargs: Any,
-    ) -> dict[str, "Loader"]:
+        **loader_kwargs: Unpack[LoaderKwargs],
+    ) -> dict[str, Loader]:
         """Build one streaming data loader per split value of ``adata.obs[split_by]``.
 
         Selection is by scfit weights over scfit's own leaf factorization -- no subset copying. The whole
@@ -275,8 +317,8 @@ class DataManager:
         :param control_adata: Optional separate control (source) pool, shared by every split.
         :type control_adata: class: `AnnData | None`
 
-        :param loader_kwargs: Forwarded to each :class:`Loader` (e.g. ``to``, ``batch_size``,
-            ``chunk_size``, ``preload_nchunks``, ``seed``).
+        :param loader_kwargs: Forwarded to each :class:`Loader`. See :class:`LoaderKwargs` for the
+            accepted options.
 
         :returns: Mapping from each split value (that has perturbed groups) to its loader.
         :rtype: class: `dict[str, Loader]`
@@ -325,9 +367,11 @@ class DataManager:
         control_adata: AnnData | None = None,
         control_values_dict: dict[str, str] | None = None,
         subsample: str = "head",
-        to: str | None = "torch",
+        to: str | None = None,
+        dtype: torch.dtype | None = None,
+        device: str | None = None,
         seed: int = 0,
-    ) -> "EvalLoader":
+    ) -> EvalLoader:
         """Build a deterministic, per-group :class:`~sckitflow.data._loader.EvalLoader` for prediction.
 
         Walks every perturbed group once (or a ``max_per_group`` cap), each matched to its control leaf,
@@ -356,6 +400,13 @@ class DataManager:
 
         :param subsample: How ``max_per_group`` picks cells: ``"head"``, ``"random"``, or a callable.
         :type subsample: class: `str`
+
+        :param dtype: Torch dtype every emitted tensor is cast to; ``None`` leaves them as streamed.
+        :type dtype: class: `torch.dtype | None`
+
+        :param device: Device the streamed batches must already be on; ``None`` skips the check. A
+            mismatch raises rather than copying every batch.
+        :type device: class: `str | None`
         """
         from sckitflow.data._loader import EvalLoader
 
@@ -385,6 +436,8 @@ class DataManager:
             max_per_group=max_per_group,
             subsample=subsample,
             to=to,
+            dtype=dtype,
+            device=device,
             seed=seed,
         )
 

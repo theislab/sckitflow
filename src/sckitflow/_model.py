@@ -1,10 +1,12 @@
+from __future__ import annotations
+
 import logging
 import tarfile
 import tempfile
 from collections import defaultdict
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Literal, Unpack, overload
+from typing import TYPE_CHECKING, Any, Literal, Unpack, overload
 
 import cloudpickle
 import numpy as np
@@ -20,6 +22,10 @@ from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sckitflow.trainer._trainer import Trainer
+
+if TYPE_CHECKING:
+    # Typing only: importing `_loader` eagerly would pull scfit into `import sckitflow`.
+    from sckitflow.data._loader import LoaderKwargs
 
 __all__ = ["Model", "ModelBuilder"]
 
@@ -53,7 +59,7 @@ class ModelBuilder:
         cls,
         adata: AnnData,
         **dm_kwargs: Unpack[DataManagerKwargs],
-    ) -> "ModelBuilder":
+    ) -> ModelBuilder:
         """Prepare the data side of a model from an annotated data object.
 
         Initializes the :class:`DataManager` from ``dm_kwargs`` and derives the
@@ -88,7 +94,7 @@ class ModelBuilder:
         method_cls: type[BaseMethod] | None = None,
         method_id: str | None = None,
         **kwargs,
-    ) -> "Model":
+    ) -> Model:
         """Attach a method and return a ready-to-train :class:`Model`.
 
         Either pass an already-constructed ``method`` instance, or select a
@@ -233,7 +239,7 @@ class Model:
     def predict(
         self,
         adata: AnnData,
-        *args,
+        *,
         return_raw: Literal[False] = ...,
         **kwargs,
     ) -> AnnData:
@@ -243,7 +249,7 @@ class Model:
     def predict(
         self,
         adata: AnnData,
-        *args,
+        *,
         return_raw: Literal[True],
         **kwargs,
     ) -> tuple[AnnData, PredictionData]:
@@ -403,17 +409,20 @@ class Model:
     def train(
         self,
         adata: AnnData,
-        *args,
+        *,
         split_by: str = "split",
         train_split: str = "train",
         control_adata: AnnData | None = None,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
         n_train_steps: int = 100_000,
         valid_freq: int = 1_000,
+        pbar_freq: int = 100,
         batch_size: int = 128,
-        loader_kwargs: dict[str, Any] | None = None,
-        optim_kwargs: dict[str, Any] | None = None,
-        **kwargs,
+        loader_kwargs: LoaderKwargs | None = None,
+        optim_config: OptimConfig | None = None,
+        train_step_kwargs: dict[str, Any] | None = None,
+        val_predict_kwargs: dict[str, Any] | None = None,
+        cb_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Trains the model by streaming ``StepData`` batches from scfit-backed loaders.
 
@@ -447,24 +456,40 @@ class Model:
             Defaults to ``1_000``.
         :type valid_freq: class: `int`
 
+        :param pbar_freq: The frequency (in steps) of progress-bar description refreshes.
+            Defaults to ``100``.
+        :type pbar_freq: class: `int`
+
         :param batch_size: Number of observations per streamed batch. Defaults to ``128``.
         :type batch_size: class: `int`
 
-        :param loader_kwargs: Extra keyword arguments forwarded to each loader (e.g. ``to``,
-            ``chunk_size``, ``preload_nchunks``, ``seed``). Defaults to ``None``.
-        :type loader_kwargs: class: `dict[str, Any] | None`
+        :param loader_kwargs: Options for each streaming loader; see :class:`~sckitflow.data.LoaderKwargs`.
+            Defaults to ``None``.
+        :type loader_kwargs: class: `LoaderKwargs | None`
 
-        :param optim_kwargs: Keyword arguments to configure the optimization manager (optimizer,
-            scheduler, etc.). Defaults to ``None``.
-        :type optim_kwargs: class: `dict[str, Any] | None`
+        :param optim_config: The optimizer / scheduler configuration. Defaults to ``None`` (an
+            :class:`~sckitflow.core.methods._opt.OptimConfig` with its own defaults).
+        :type optim_config: class: `OptimConfig | None`
 
-        :param args: Positional arguments forwarded to :meth:`Trainer.train`.
-        :param kwargs: Keyword arguments forwarded to :meth:`Trainer.train`.
+        :param train_step_kwargs: Forwarded to :meth:`BaseMethod.train_step` (method-specific).
+        :type train_step_kwargs: class: `dict[str, Any] | None`
+
+        :param val_predict_kwargs: Forwarded to :meth:`BaseMethod.predict` during validation -- e.g.
+            CFM's ``n_samples``, required when the method generates from noise.
+        :type val_predict_kwargs: class: `dict[str, Any] | None`
+
+        :param cb_kwargs: Forwarded to every callback hook.
+        :type cb_kwargs: class: `dict[str, Any] | None`
         """
         # Build one streaming loader per split (scfit weights over the whole adata -- no copies).
         loader_kwargs = dict(loader_kwargs or {})
-        loader_kwargs.setdefault("to", "torch")
+        # `to=None`: keep annbatch's native arrays (numpy on host, cupy on a GPU-resident window) and let
+        # the loader map them onto torch itself, without a copy or a device round-trip.
+        loader_kwargs.setdefault("to", None)
         loader_kwargs.setdefault("batch_size", batch_size)
+        # The loader settles dtype/device as its last stage, so batches reach the method ready to consume.
+        loader_kwargs.setdefault("dtype", self._method.dtype)
+        loader_kwargs.setdefault("device", self._method.device_id)
         loaders = self._dm.get_dataloaders(adata, split_by=split_by, control_adata=control_adata, **loader_kwargs)
         if train_split not in loaders:
             raise KeyError(
@@ -478,8 +503,7 @@ class Model:
         val_loaders = {split: loader for split, loader in loaders.items() if split != train_split}
 
         # prepare optimization manager
-        optim_config = OptimConfig(**(optim_kwargs or {}))
-        opt_manager = OptimizationManager.from_config(self._method._module, optim_config)
+        opt_manager = OptimizationManager.from_config(self._method._module, optim_config or OptimConfig())
 
         # initialize trainer (once; later calls continue from the current step)
         if self._trainer is None:
@@ -491,22 +515,24 @@ class Model:
         # train model
         self._trainer.train(
             train_loader,
-            *args,
             val_loaders=val_loaders or None,
             valid_freq=valid_freq,
-            **kwargs,
+            pbar_freq=pbar_freq,
+            train_step_kwargs=train_step_kwargs,
+            val_predict_kwargs=val_predict_kwargs,
+            cb_kwargs=cb_kwargs,
         )
 
     def predict(
         self,
         adata: AnnData,
-        *args,
+        *,
         return_raw: bool = False,
         max_per_group: int | None = None,
         require_target_state: bool = True,
         control_values_dict: dict[str, str] | None = None,
         control_adata: AnnData | None = None,
-        **kwargs,
+        predict_kwargs: dict[str, Any] | None = None,
     ) -> AnnData | tuple[AnnData, PredictionData]:
         """Generate flow predictions, one deterministic pass per group via :class:`EvalLoader`.
 
@@ -540,11 +566,16 @@ class Model:
         :param control_adata: Optional separate control (source) pool, matched on the group columns.
         :type control_adata: class: `AnnData | None`
 
+        :param predict_kwargs: Forwarded to :meth:`BaseMethod.predict` (method-specific) -- e.g. CFM's
+            ``n_samples`` / ``n_steps`` / ``return_trajectory``. Defaults to ``None``.
+        :type predict_kwargs: class: `dict[str, Any] | None`
+
         :return: Either an AnnData with predictions, or a tuple ``(AnnData, PredictionData)`` if
             ``return_raw`` is ``True``.
         """
         # Set module to evaluation mode (backend-agnostic)
         self._method.set_train_mode(False)
+        predict_kwargs = {} if predict_kwargs is None else predict_kwargs
 
         eval_loader = self._dm.get_eval_loader(
             adata,
@@ -552,7 +583,9 @@ class Model:
             require_target_state=require_target_state,
             control_values_dict=control_values_dict,
             control_adata=control_adata,
-            to="torch",
+            to=None,  # native arrays in, zero-copy to torch in the loader (see `Model.train`)
+            dtype=self._method.dtype,
+            device=self._method.device_id,
         )
 
         # early return when nothing to predict
@@ -569,7 +602,7 @@ class Model:
         # Iterate one ready `StepData` per group (with its `leaf` group identity)
         for step_data, leaf in tqdm(eval_loader, total=len(eval_loader), desc="Predicting"):
             # 1. Inference
-            pred_obj = self._method.predict(step_data, *args, **kwargs)
+            pred_obj = self._method.predict(step_data, **predict_kwargs)
             all_preds.append(pred_obj)
 
             # 2. Construct obs from the group's leaf (no ann_df / container round-trip)
@@ -624,7 +657,7 @@ class Model:
         adata: AnnData | None = None,
         map_location: str | None = None,
         **register_kwargs,
-    ) -> "Model":
+    ) -> Model:
         """
         Load a saved model from a tarball.
 

@@ -65,11 +65,10 @@ def mock_dims_registry():
 
 @pytest.fixture
 def mock_data_manager():
-    # Unpaired setting: `is_paired_setting` reads both of these off the data manager,
-    # so they must be explicitly None rather than auto-created Mock attributes.
+    # Unpaired setting: `is_paired_setting` reads `control_values_dict` off the data
+    # manager, so it must be explicitly None rather than an auto-created Mock attribute.
     dm = Mock(spec=DataManager)
     dm.control_values_dict = None
-    dm.matched_keys = None
     return dm
 
 
@@ -100,7 +99,6 @@ def torch_gen_flow(mock_dims_registry, mock_data_manager):
 def mock_paired_data_manager():
     dm = Mock(spec=DataManager)
     dm.control_values_dict = {"drug": "control"}
-    dm.matched_keys = None
     return dm
 
 
@@ -143,14 +141,6 @@ class TestBaseMethod:
         torch_method.module.train.assert_called_once()
         torch_method.set_train_mode(False)
         torch_method.module.eval.assert_called_once()
-
-    def test_safe_subscript_obj(self, torch_method):
-        data = torch.tensor([1, 2, 3, 4])
-        idx = torch.tensor([0, 2])
-        result = torch_method._safe_subscript_obj(data, idx)
-        assert torch.equal(result, torch.tensor([1, 3]))
-        assert torch_method._safe_subscript_obj(None, idx) is None
-        assert torch_method._safe_subscript_obj(data, None) is data
 
 
 # -----------------------------------------------------------------------------

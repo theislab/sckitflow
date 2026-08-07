@@ -1,6 +1,6 @@
 name: Notebooks
 
-# Executes every notebook under docs/notebooks/ end to end. All four are
+# Executes every notebook under docs/notebooks/ end to end. All three are
 # self-contained (no external downloads, no GPU) and the two that train do so
 # for a couple of thousand cheap steps, so the whole job is a minute or two.
 # Keep it that way: a notebook that needs a GPU or a real training run does not

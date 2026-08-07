@@ -21,11 +21,11 @@ classifiers = [
 ]
 dynamic = [ "version" ]
 dependencies = [
-  "anndata>=0.11",
+  "anndata>=0.13",     # scfit streams via the anndata>=0.13 acc reference system
   "cloudpickle>=3",
   "numpy>=1.26",
   "pandas>=2",
-  "scfit>=0.0.4",
+  "scfit>=0.0.7",      # annbatch-native streaming data layer (scfit.data.Loader/EvalLoader/Stream)
   "scikit-learn>=1.4",
   "scipy>=1.12",
   "tqdm>=4.66",
@@ -63,6 +63,10 @@ optional-dependencies.doc = [
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
 ]
+# GPU-resident streaming: scfit/annbatch can keep the read window on-device via cupy (Linux/CUDA only).
+optional-dependencies.gpu = [
+  "scfit[cuda12]>=0.0.7",
+]
 # Imported lazily inside `sckitflow.trainer._callbacks.WandBLogger`.
 optional-dependencies.logging = [
   "omegaconf",
@@ -87,6 +91,7 @@ optional-dependencies.test = [
 ]
 optional-dependencies.torch = [
   "pot>=0.9",
+  "scfit[torch]>=0.0.7", # the loaders stream with `to=None` and map the native arrays onto torch
   "torch>=2.2",
   "torchdiffeq>=0.2.4",
   "torchmetrics>=1.4",

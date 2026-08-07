@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
+from tests.data.shared import with_split
 
 from sckitflow import Model, ModelBuilder
 from sckitflow.core.methods._base import BaseMethod
@@ -73,16 +74,6 @@ class DummyMethod(BaseMethod):
     def __init__(self, dims_registry, dm, *args, **kwargs):
         super().__init__(dims_registry, dm, *args, **kwargs)
 
-    def extract_state_data(self, matched_distr):
-        """Return dummy StateData from the target state of the matched distribution."""
-        from sckitflow.data.containers._state import StateData
-
-        # Dummy state: zeros with correct number of observations and feature dimension
-        n_obs = len(matched_distr.target_distr.ann_df)
-        n_feat = len(self._dims_registry.feature_names)
-        X = np.zeros((n_obs, n_feat))
-        return StateData(X)
-
     def set_train_mode(self, mode: bool):
         self._train_mode = mode
 
@@ -96,9 +87,10 @@ class DummyMethod(BaseMethod):
         if step_data["target_state"] is not None:
             n_obs = step_data["target_state"].shape[0]
         else:
-            # `require_target_state=False`: no state tensor, fall back to the group
-            # metadata (always present) to determine how many observations to predict for.
-            n_obs = len(step_data["target_group_data"].ann_df)
+            # `require_target_state=False`: no state tensor, so take the batch size from any
+            # conditioning tensor (condition/group dicts are tiled to the batch).
+            cond = step_data["target_condition_data"] or step_data["target_group_data"] or {}
+            n_obs = next(iter(cond.values())).shape[0]
         samples = np.zeros((n_obs, n_feat))
         return DummyPredictionData(samples)
 
@@ -110,6 +102,22 @@ def _make_model(adata: AnnData, method_cls=DummyMethod, dm_kwargs=None, **method
     """Build a Model from an AnnData using the two-step ModelBuilder flow."""
     builder = ModelBuilder.from_adata(adata, **(dm_kwargs or {}))
     return builder.build(method_cls=method_cls, **method_kwargs)
+
+
+# Training now streams from `DataManager.get_dataloaders(adata, split_by=...)`, so the train tests
+# need (a) a group/condition schema for the loader to group on and (b) a `split` column in `.obs`.
+# This schema is unpaired (no control_values_dict), so `is_paired_setting` stays False.
+_DM_TRAIN_KWARGS = {
+    "conditions": {"drug": ("drugA",)},
+    "conditions_reps": {"drug": "drug"},
+    "groups": ("source_split",),
+    "groups_reps": {"source_split": "source_split"},
+}
+
+
+def _with_split(adata: AnnData, labels=("train", "val1", "val2")) -> AnnData:
+    """Attach a deterministic ``split`` column, each ``(source_split, drugA)`` group wholly in one split."""
+    return with_split(adata, cols=("source_split", "drugA"), labels=labels)
 
 
 # -----------------------------------------------------------------------------
@@ -205,12 +213,13 @@ class TestModel:
     # Training Orchestration (with mocking)
     # --------------------------------------------------------------------------
     def test_train_calls_trainer_and_sets_mode(self, adata: AnnData, mock_optim_manager):
-        model = _make_model(adata)
+        adata = _with_split(adata)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
         with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
             set_train_mode_spy = MagicMock(wraps=model.method.set_train_mode)
             model.method.set_train_mode = set_train_mode_spy
-            model.train(adata, n_train_steps=10, valid_freq=5, train_batch_size=32, sort=True)
+            model.train(adata, n_train_steps=10, valid_freq=5, batch_size=32)
 
             mock_trainer_cls.assert_called_once()
             args, _ = mock_trainer_cls.call_args
@@ -218,69 +227,88 @@ class TestModel:
             assert args[1] is mock_optim_manager
             set_train_mode_spy.assert_called_once_with(True)
             mock_trainer.train.assert_called_once()
-            call_kwargs = mock_trainer.train.call_args[1]
-            assert call_kwargs["n_train_steps"] == 10
+            train_args, call_kwargs = mock_trainer.train.call_args
+            # the train func sizes the train loader to n_train_steps; the trainer just iterates it
+            assert len(train_args[0]) == 10
             assert call_kwargs["valid_freq"] == 5
 
-    def test_train_with_validation_samplers(self, adata: AnnData, mock_optim_manager):
-        model = _make_model(adata)
+    def test_train_with_validation_loaders(self, adata: AnnData, mock_optim_manager):
+        # Splits come from `adata.obs['split']`; every split except the train split becomes a val loader.
+        adata = _with_split(adata)  # splits: train, val1, val2
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
         with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
-            val_adatas = {"val1": adata, "val2": adata}
-            model.train(adata, val_adatas_dict=val_adatas, n_train_steps=5, sort=True)
+            model.train(adata, n_train_steps=5)
 
             call_kwargs = mock_trainer.train.call_args.kwargs
-            val_samplers = call_kwargs["val_samplers_dict"]
-            assert isinstance(val_samplers, dict)
-            assert set(val_samplers.keys()) == {"val1", "val2"}
+            val_loaders = call_kwargs["val_loaders"]
+            assert isinstance(val_loaders, dict)
+            assert set(val_loaders.keys()) == {"val1", "val2"}
 
     # --------------------------------------------------------------------------
     # Prediction Pipeline
     # --------------------------------------------------------------------------
     def test_predict_returns_anndata_with_correct_shape(self, adata: AnnData):
-        model = _make_model(adata)
-        pred_adata = model.predict(adata, sort=True)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
+        pred_adata = model.predict(adata)
         assert isinstance(pred_adata, AnnData)
+        # unpaired: every group, every cell is predicted
         assert pred_adata.n_obs == adata.n_obs
         assert pred_adata.n_vars == adata.n_vars
-        pd.testing.assert_index_equal(pred_adata.obs.index, adata.obs.index)
+        # obs is rebuilt from each group's leaf -> the group_by columns
+        assert set(pred_adata.obs.columns) == {"source_split", "drugA"}
 
     def test_predict_without_target_state(self, adata: AnnData):
-        """predict(require_target_state=False) works on an AnnData with no `.X`."""
-        model = _make_model(adata)
+        """predict(require_target_state=False, max_per_group=1) works with no target state -- metadata only."""
+        dm_kwargs = {**_DM_TRAIN_KWARGS, "conditions_covariates": ["X_repr"]}
+        model = _make_model(adata, dm_kwargs=dm_kwargs)
 
-        # only `.obs` is needed - no expression data, no obsm sample representation
-        no_state_adata = AnnData(obs=pd.DataFrame(index=adata.obs_names[:5]))
+        # no target state (.X unused); obs + uns encodings + the continuous conditioning rep are enough
+        meta = AnnData(obs=adata.obs[["source_split", "drugA"]].copy())
+        meta.uns = dict(adata.uns)
+        meta.obsm["X_repr"] = np.random.randn(meta.n_obs, 8).astype(np.float32)
 
-        pred_adata = model.predict(no_state_adata, sort=True, require_target_state=False)
+        pred_adata = model.predict(meta, require_target_state=False, max_per_group=1)
 
         assert isinstance(pred_adata, AnnData)
-        assert pred_adata.n_obs == 5
+        n_groups = meta.obs.astype(str).drop_duplicates().shape[0]
+        assert pred_adata.n_obs == n_groups
         assert pred_adata.n_vars == adata.n_vars
+        assert "X_repr" in pred_adata.obsm  # the continuous conditioning rides to obsm
 
     def test_predict_with_return_raw(self, adata: AnnData):
-        model = _make_model(adata)
-        result = model.predict(adata, return_raw=True, sort=True)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
+        result = model.predict(adata, return_raw=True)
         assert isinstance(result, tuple) and len(result) == 2
         pred_adata, pred_data = result
         assert isinstance(pred_adata, AnnData)
         assert hasattr(pred_data, "X") and hasattr(pred_data, "traj")
 
-    def test_predict_empty_tree_returns_empty_anndata(self, adata: AnnData, monkeypatch):
-        model = _make_model(adata)
-        mock_tree = MagicMock()
-        mock_tree.flatten.return_value = ()
-        # The lambda must accept any keyword arguments (sort, control_values_dict, ...)
-        monkeypatch.setattr(model._dm, "compile_adata", lambda x, **kwargs: mock_tree)
-        pred_adata = model.predict(adata, sort=True)
+    def test_predict_empty_returns_empty_anndata(self, adata: AnnData, monkeypatch):
+        """An eval loader with no groups yields an empty prediction AnnData."""
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
+
+        class _EmptyEval:
+            group_cols = ()
+            cond_cont_keys = ()
+            resp_keys = ()
+
+            def __len__(self):
+                return 0
+
+            def __iter__(self):
+                return iter(())
+
+        monkeypatch.setattr(model._dm, "get_eval_loader", lambda *a, **k: _EmptyEval())
+        pred_adata = model.predict(adata)
         assert pred_adata.n_obs == 0
         assert pred_adata.n_vars == adata.n_vars
 
     def test_predict_sets_eval_mode(self, adata: AnnData):
-        model = _make_model(adata)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
         set_train_mode_spy = MagicMock(wraps=model.method.set_train_mode)
         model.method.set_train_mode = set_train_mode_spy
-        model.predict(adata, sort=True)
+        model.predict(adata)
         set_train_mode_spy.assert_called_once_with(False)
 
     # --------------------------------------------------------------------------
@@ -293,30 +321,33 @@ class TestModel:
         assert isinstance(model.method, BaseMethod)
         assert model.trainer is None
         assert model.condition_state_key is None
+        adata = _with_split(adata)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
         with patch("sckitflow._model.Trainer") as _mock_trainer_cls:
-            model.train(adata, n_train_steps=1, sort=True)
+            model.train(adata, n_train_steps=1)
         assert model.trainer is not None
 
     # --------------------------------------------------------------------------
     # Save / Load (without mocking the optimizer manager)
     # --------------------------------------------------------------------------
     def test_save_load_and_predict(self, adata):
-        model = _make_model(adata)
-        pred1 = model.predict(adata, sort=True)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
+        pred1 = model.predict(adata)
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp_path = tmp.name
         model.save(tmp_path, allow_overwrite=True)
 
         loaded = Model.load(tmp_path, map_location="cpu")
-        pred2 = loaded.predict(adata, sort=True)
+        pred2 = loaded.predict(adata)
 
         np.testing.assert_array_equal(pred1.X, pred2.X)
         os.unlink(tmp_path)
 
     def test_save_load_and_continue_training(self, adata):
-        """Test save/load with a real tiny module (not a mock)."""
+        """Test save/load with a real tiny module (not a mock), training end-to-end via the loader."""
         torch = pytest.importorskip("torch")
+        adata = _with_split(adata)
 
         # Define a real torch module with parameters
         class RealDummyModule(torch.nn.Module):
@@ -338,21 +369,13 @@ class TestModel:
             def __init__(self, dims_registry, dm, *args, **kwargs):
                 super().__init__(dims_registry, dm, *args, **kwargs)
 
-            def extract_state_data(self, matched_distr):
-                from sckitflow.data.containers._state import StateData
-
-                n_obs = len(matched_distr.target_distr.ann_df)
-                n_feat = len(self._dims_registry.feature_names)
-                X = np.zeros((n_obs, n_feat))
-                return StateData(X)
-
             def set_train_mode(self, mode: bool):
                 if mode:
                     self._module.train()
                 else:
                     self._module.eval()
 
-            def compute_loss(self, matched_distr, *args, **kwargs):
+            def compute_loss(self, step_data, *args, **kwargs):
                 # Create a dummy input that requires grad
                 dummy_x = torch.randn(4, 2, requires_grad=True)
                 t = torch.tensor(0.5, requires_grad=False)
@@ -360,23 +383,23 @@ class TestModel:
                 loss = output.sum()
                 return loss, {"loss": loss.item()}
 
-            def infer(self, matched_distr, *args, **kwargs):
-                n_obs = len(matched_distr.target_distr.ann_df)
+            def infer(self, step_data, *args, **kwargs):
+                n_obs = step_data["target_state"].shape[0]
                 n_feat = len(self._dims_registry.feature_names)
                 samples = np.zeros((n_obs, n_feat))
                 from tests.test_model import DummyPredictionData
 
                 return DummyPredictionData(samples)
 
-        model = _make_model(adata, method_cls=RealDummyMethod)
-        model.train(adata, n_train_steps=5, train_batch_size=4, sort=True)
+        model = _make_model(adata, method_cls=RealDummyMethod, dm_kwargs=_DM_TRAIN_KWARGS)
+        model.train(adata, n_train_steps=5, batch_size=4)
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp_path = tmp.name
         model.save(tmp_path, allow_overwrite=True)
 
         loaded = Model.load(tmp_path, map_location="cpu")
-        loaded.train(adata, n_train_steps=5, train_batch_size=4)
+        loaded.train(adata, n_train_steps=5, batch_size=4)
 
         os.unlink(tmp_path)
 
@@ -403,20 +426,20 @@ class TestModelConditionSpace:
     def test_train_with_condition_space(self, adata: AnnData, mock_optim_manager):
         """Training with the condition-space view correctly compiles the data."""
         adata = _add_continuous_covariate(adata)
+        adata = _with_split(adata)
         model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
 
-        # Create a spy on compile_adata to record calls while preserving original behavior
-        original_compile = model._dm.compile_adata
-        mock_compile = MagicMock(wraps=original_compile)
-        model._dm.compile_adata = mock_compile
+        # Training now streams via get_dataloaders (compile_adata is predict-only); spy on it.
+        mock_get_dataloaders = MagicMock(wraps=model._dm.get_dataloaders)
+        model._dm.get_dataloaders = mock_get_dataloaders
 
         with patch("sckitflow._model.Trainer") as mock_trainer_cls:
             mock_trainer = mock_trainer_cls.return_value
-            model.train(adata, n_train_steps=10, train_batch_size=32, sort=True)
+            model.train(adata, n_train_steps=10, batch_size=32)
 
-            # Verify compile_adata was called; the condition-space view is driven
+            # Verify get_dataloaders was called; the condition-space view is driven
             # by the data manager's condition_state_key attribute.
-            mock_compile.assert_called_once()
+            mock_get_dataloaders.assert_called_once()
             assert model.condition_state_key == "X_repr"
             mock_trainer.train.assert_called_once()
 
@@ -424,7 +447,7 @@ class TestModelConditionSpace:
         """Predict with condition space yields predictions with correct shape."""
         adata = _add_continuous_covariate(adata)
         model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
-        pred_adata = model.predict(adata, sort=True)
+        pred_adata = model.predict(adata)
 
         assert isinstance(pred_adata, AnnData)
         assert pred_adata.n_obs == adata.n_obs
@@ -435,7 +458,7 @@ class TestModelConditionSpace:
         """Save and load a model configured with the condition-space view."""
         adata = _add_continuous_covariate(adata)
         model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
-        pred1 = model.predict(adata, sort=True)
+        pred1 = model.predict(adata)
 
         with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
             tmp_path = tmp.name
@@ -492,6 +515,10 @@ class TestModelPredictCombinations:
         # Skip invalid: view_on_condition_space requires has_cont_cond
         if view_on_condition_space and not has_cont_cond:
             pytest.skip("view_on_condition_space requires a continuous condition covariate")
+        # EvalLoader groups by the categorical group/condition columns; need at least one.
+        # (has_source without a categorical condition adds a `dummy_paired` condition column below.)
+        if not (has_cat_cond or has_groups or has_source):
+            pytest.skip("EvalLoader requires a categorical group/condition column")
 
         adata = adata.copy()
         base_n_obs = adata.n_obs
@@ -580,7 +607,7 @@ class TestModelPredictCombinations:
 
         model.method.predict = spy_predict
 
-        pred_adata = model.predict(adata, sort=True)
+        pred_adata = model.predict(adata)
 
         # --- Compute expected number of observations ---
         if has_source:
@@ -589,90 +616,56 @@ class TestModelPredictCombinations:
             cond_schema = model._dm.condition_data_schema
             realm = next(iter(control_dict.keys()))
             control_val = control_dict[realm]
-            cols = cond_schema.conditions[realm]  # tuple of column names
-            col = cols[0]  # our tests use a single column
+            col = cond_schema.conditions[realm][0]  # our tests use a single column
             expected_n_obs = (adata.obs[col] != control_val).sum()
         else:
             # No pairing: all cells are predicted.
             expected_n_obs = base_n_obs
 
         # --- Assertions ---
-        # 1. Output AnnData has correct number of observations
+        # 1. Output AnnData has the correct number of observations
         assert pred_adata.n_obs == expected_n_obs
 
-        # 2. Feature dimension
+        # 2. Feature dimension (the dummy method sizes output by `feature_names`, which the
+        #    condition-space view derives from the continuous covariate).
         if view_on_condition_space:
             expected_n_vars = adata.obsm[cont_key].shape[1]
         else:
             expected_n_vars = len(model._dims_registry.feature_names)
         assert pred_adata.n_vars == expected_n_vars
 
-        # 3. If view_on_condition_space, verify condition_data contents
-        if view_on_condition_space:
-            step_data = captured_step_data[0]
-            cond_data = step_data["target_condition_data"]
-
-            # The state key must have been removed from continuous covariates
-            if cond_data is not None and cond_data.continuous_covariates is not None:
-                assert cont_key not in cond_data.continuous_covariates.mapping
-
-            # Additional checks depending on presence of other conditions
-            # We don't enforce emptiness because a dummy categorical condition may exist.
-            # Groups must be as requested
-            if has_groups:
-                assert step_data["target_group_data"] is not None
-                assert group_col in step_data["target_group_data"].ann_df.columns
-            else:
-                groups_obj = step_data["target_group_data"]
-                # Accept None or a groups object with zero columns
-                if groups_obj is not None:
-                    assert len(groups_obj.ann_df.columns) == 0
-
-        # 4. Source distribution presence
+        # 3. Conditioning is now a dict of per-group encoding tensors (no ann_df containers).
         step_data = captured_step_data[0]
-        if has_source:
-            assert step_data["source_state"] is not None
-        else:
-            assert step_data["source_state"] is None
+        if has_groups:
+            assert step_data["target_group_data"] is not None
+            assert group_col in step_data["target_group_data"]
+        if has_cat_cond:
+            assert step_data["target_condition_data"] is not None
+            assert realm_col in step_data["target_condition_data"]
 
-    def test_condition_space_preserves_all_other_covariates(self, adata):
-        """Explicit test that after view_on_condition_space, all non-state condition
-        covariates (categorical and continuous) and groups remain."""
+        # 4. Source distribution present iff paired
+        assert (step_data["source_state"] is not None) == has_source
+
+    def test_continuous_covariates_flow_to_step_data_and_obsm(self, adata):
+        """Continuous condition covariates ride per-cell into the StepData dict and out to obsm."""
         adata = adata.copy()
-        # Add two continuous covariates: one will be the state, one a regular condition
-        cond_state_key = "X_paired_condition"
         cond_key = "paired_condition"
-        adata.obsm[cond_state_key] = np.random.randn(adata.n_obs, 4)
-        adata.obsm[cond_key] = np.random.randn(adata.n_obs, 3)
+        adata.obsm[cond_key] = np.random.randn(adata.n_obs, 3).astype(np.float32)
 
-        # Use categorical condition and groups
         cat_cond_col = "drugA"
         group_col = "source_split"
-
-        # Keep only the relevant columns in obs to avoid automatic detection
         adata.obs = adata.obs[[cat_cond_col, group_col]].copy()
-
-        # Add dummy representations in uns for categorical condition and groups
-        unique_cat = adata.obs[cat_cond_col].unique()
-        adata.uns[cat_cond_col] = {val: np.random.randn(2) for val in unique_cat}
-        unique_group = adata.obs[group_col].unique()
-        adata.uns[group_col] = {val: np.random.randn(2) for val in unique_group}
+        adata.uns[cat_cond_col] = {val: np.random.randn(2) for val in adata.obs[cat_cond_col].unique()}
+        adata.uns[group_col] = {val: np.random.randn(2) for val in adata.obs[group_col].unique()}
 
         dm_kwargs = {
-            "condition_state_key": cond_state_key,
             "conditions": {cat_cond_col: (cat_cond_col,)},
             "conditions_reps": {cat_cond_col: cat_cond_col},
-            "conditions_covariates": [cond_state_key, cond_key],
+            "conditions_covariates": [cond_key],
             "groups": (group_col,),
             "groups_reps": {group_col: group_col},
         }
-
         model = _make_model(adata, dm_kwargs=dm_kwargs)
-
-        # Use DataManager.sort_adata to get the sorted version of adata
-        # This matches the internal sorting when sort=True is passed to predict.
-        sorted_adata = model._dm.sort_adata(adata)
-        sorted_cond_array = sorted_adata.obsm[cond_key]
 
         captured = []
         original_predict = model.method.predict
@@ -683,153 +676,20 @@ class TestModelPredictCombinations:
 
         model.method.predict = spy
 
-        model.predict(adata, sort=True)
+        pred = model.predict(adata)
 
-        # Collect continuous condition arrays from all nodes and concatenate
-        cond_arrays = []
+        # Each group's StepData carries the categorical encoding + the per-cell continuous covariate.
         for step_data in captured:
-            cond_data = step_data["target_condition_data"]
-            assert cond_data is not None
-            assert cond_data.continuous_covariates is not None
-            assert cond_key in cond_data.continuous_covariates.mapping
-            assert cond_state_key not in cond_data.continuous_covariates.mapping
-            cond_arrays.append(cond_data.continuous_covariates.mapping[cond_key])
-
-        concatenated_cond_array = np.vstack(cond_arrays)
-        np.testing.assert_array_equal(concatenated_cond_array, sorted_cond_array)
-
-        # Also verify each node has categorical and groups data
-        for step_data in captured:
-            cond_data = step_data["target_condition_data"]
-            assert cond_data.categorical_covariates is not None
-            assert cat_cond_col in cond_data.categorical_covariates.ann_df.columns
-
+            cond = step_data["target_condition_data"]
+            assert cond is not None
+            assert cat_cond_col in cond  # categorical rep key
+            assert cond_key in cond  # continuous covariate, per-cell
             assert step_data["target_group_data"] is not None
-            assert group_col in step_data["target_group_data"].ann_df.columns
+            assert group_col in step_data["target_group_data"]
 
-
-class TestModelPredictMatchedKeys:
-    """Test the matched_keys argument in Model.predict."""
-
-    def _setup_paired_data(self, adata, has_continuous=False):
-        """Create a paired dataset with drug condition and cell_line groups."""
-        adata = adata.copy()
-        # Use existing drugA column for conditions
-        adata.obs = adata.obs[["drugA", "source_split"]].copy()
-        # Ensure 'control' values exist
-        adata.obs["drugA"] = adata.obs["drugA"].astype(str)
-        # Set half of the rows to 'control'
-        n_obs = len(adata)
-        control_vals = ["control"] * (n_obs // 2)
-        treatment_vals = ["treatment"] * (n_obs - n_obs // 2)
-        adata.obs["drugA"] = control_vals + treatment_vals
-        # Add representation for the categorical condition
-        adata.uns["drug"] = {"control": np.random.randn(4), "treatment": np.random.randn(4)}
-        # Groups representation
-        unique_groups = adata.obs["source_split"].unique()
-        adata.uns["source_split"] = {g: np.random.randn(2) for g in unique_groups}
-        if has_continuous:
-            adata.obsm["X_repr"] = np.random.randn(n_obs, 5)
-        return adata
-
-    def test_predict_with_matched_keys_override(self, adata):
-        """Passing matched_keys to predict overrides the instance's matched_keys."""
-        adata = self._setup_paired_data(adata)
-        # Build with instance matched_keys
-        instance_keys = {("control",): ("treatment",)}
-        model = _make_model(
-            adata,
-            dm_kwargs={
-                "conditions": {"drug": ("drugA",)},
-                "conditions_reps": {"drug": "drug"},
-                "groups": ("source_split",),
-                "groups_reps": {"source_split": "source_split"},
-                "control_values_dict": {"drug": "control"},
-                "matched_keys": instance_keys,
-            },
-        )
-        # Override with different keys at predict time
-        override_keys = {("control",): ("treatment",)}  # same for simplicity; could be different
-        pred_adata = model.predict(adata, sort=True, matched_keys=override_keys)
-        # Check that only treatment rows are predicted (since pairing uses override)
-        assert pred_adata.n_obs > 0
-        assert all(pred_adata.obs["drugA"] == "treatment")
-
-    def test_predict_matched_keys_none_uses_instance(self, adata):
-        """When matched_keys=None, the instance's matched_keys is used."""
-        adata = self._setup_paired_data(adata)
-        instance_keys = {("control",): ("treatment",)}
-        model = _make_model(
-            adata,
-            dm_kwargs={
-                "conditions": {"drug": ("drugA",)},
-                "conditions_reps": {"drug": "drug"},
-                "groups": ("source_split",),
-                "groups_reps": {"source_split": "source_split"},
-                "control_values_dict": {"drug": "control"},
-                "matched_keys": instance_keys,
-            },
-        )
-        pred_adata = model.predict(adata, sort=True, matched_keys=None)
-        assert pred_adata.n_obs > 0
-        assert all(pred_adata.obs["drugA"] == "treatment")
-
-    def test_predict_matched_keys_without_control_values(self, adata):
-        """When control_values_dict is None, matched_keys can still define source-target pairs."""
-        adata = self._setup_paired_data(adata)
-        # No control_values_dict, only matched_keys
-        keys = {("control",): ("treatment",)}
-        model = _make_model(
-            adata,
-            dm_kwargs={
-                "conditions": {"drug": ("drugA",)},
-                "conditions_reps": {"drug": "drug"},
-                "groups": ("source_split",),
-                "groups_reps": {"source_split": "source_split"},
-                "matched_keys": keys,  # no control_values_dict
-            },
-        )
-        pred_adata = model.predict(adata, sort=True, matched_keys=keys)
-        assert pred_adata.n_obs > 0
-        assert all(pred_adata.obs["drugA"] == "treatment")
-
-    def test_predict_matched_keys_honored_on_condition_view(self, adata):
-        """With a condition_state_key set, matched_keys are honored."""
-        adata = self._setup_paired_data(adata, has_continuous=True)
-        keys = {("control",): ("treatment",)}
-        model = _make_model(
-            adata,
-            dm_kwargs={
-                "condition_state_key": "X_repr",
-                "conditions": {"drug": ("drugA",)},
-                "conditions_reps": {"drug": "drug"},
-                "conditions_covariates": ["X_repr"],
-                "groups": ("source_split",),
-                "groups_reps": {"source_split": "source_split"},
-                "control_values_dict": {"drug": "control"},
-                "matched_keys": keys,
-            },
-        )
-        pred_adata = model.predict(adata, sort=True, matched_keys=keys)
-        assert pred_adata.n_obs > 0
-        assert all(pred_adata.obs["drugA"] == "treatment")
-
-    def test_predict_matched_keys_invalid_target_raises(self, adata):
-        """If matched_keys contains a target key not present in the data, an error should be raised."""
-        adata = self._setup_paired_data(adata)
-        keys = {("control",): ("nonexistent",)}
-        model = _make_model(
-            adata,
-            dm_kwargs={
-                "conditions": {"drug": ("drugA",)},
-                "conditions_reps": {"drug": "drug"},
-                "groups": ("source_split",),
-                "groups_reps": {"source_split": "source_split"},
-                "control_values_dict": {"drug": "control"},
-            },
-        )
-        with pytest.raises(KeyError, match="nonexistent"):
-            model.predict(adata, sort=True, matched_keys=keys)
+        # The continuous condition covariate rides out to obsm, one row per predicted cell.
+        assert cond_key in pred.obsm
+        assert pred.obsm[cond_key].shape[0] == pred.n_obs
 
 
 class TestModelPredictControlValues:
@@ -867,7 +727,7 @@ class TestModelPredictControlValues:
         adata = self._setup_paired_data(adata)
         model = _make_model(adata, dm_kwargs=self._base_dm_kwargs({"drug": "control"}))
         override_dict = {"drug": "control"}  # same value; test that override is used
-        pred_adata = model.predict(adata, sort=True, control_values_dict=override_dict)
+        pred_adata = model.predict(adata, control_values_dict=override_dict)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
 
@@ -875,7 +735,7 @@ class TestModelPredictControlValues:
         """When control_values_dict=None, the instance's control_values_dict is used."""
         adata = self._setup_paired_data(adata)
         model = _make_model(adata, dm_kwargs=self._base_dm_kwargs({"drug": "control"}))
-        pred_adata = model.predict(adata, sort=True, control_values_dict=None)
+        pred_adata = model.predict(adata, control_values_dict=None)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
 
@@ -884,7 +744,7 @@ class TestModelPredictControlValues:
         adata = self._setup_paired_data(adata)
         model = _make_model(adata, dm_kwargs=self._base_dm_kwargs())
         custom_dict = {"drug": "control"}
-        pred_adata = model.predict(adata, sort=True, control_values_dict=custom_dict)
+        pred_adata = model.predict(adata, control_values_dict=custom_dict)
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
 
@@ -895,13 +755,14 @@ class TestModelPredictControlValues:
         dm_kwargs["condition_state_key"] = "X_repr"
         dm_kwargs["conditions_covariates"] = ["X_repr"]
         model = _make_model(adata, dm_kwargs=dm_kwargs)
-        pred_adata = model.predict(adata, sort=True, control_values_dict={"drug": "control"})
+        pred_adata = model.predict(adata, control_values_dict={"drug": "control"})
         assert pred_adata.n_obs > 0
         assert all(pred_adata.obs["drugA"] == "treatment")
 
-    def test_predict_control_values_invalid_control_raises(self, adata):
-        """If control_values_dict contains a value not present in the data, an error should be raised."""
+    def test_predict_control_values_invalid_control_predicts_all(self, adata):
+        """A control value absent from the data marks nothing as control -> every group is predicted."""
         adata = self._setup_paired_data(adata)
         model = _make_model(adata, dm_kwargs=self._base_dm_kwargs())
-        with pytest.raises(KeyError, match="nonexistent"):
-            model.predict(adata, sort=True, control_values_dict={"drug": "nonexistent"})
+        pred_adata = model.predict(adata, control_values_dict={"drug": "nonexistent"})
+        # nothing is treated as control, so both drug values are predicted (no pairing)
+        assert set(pred_adata.obs["drugA"].unique()) == {"control", "treatment"}

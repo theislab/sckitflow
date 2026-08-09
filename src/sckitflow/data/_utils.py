@@ -28,13 +28,19 @@ def with_derived_obs(adata: AnnData, **cols: Any) -> AnnData:
     **view** it materializes the whole thing (anndata's "initializing view as actual") -- the copy an
     out-of-core path exists to avoid. ``adata.copy()`` is worse still: a deep copy of ``X`` to add one column.
 
-    ``copy.copy`` shares ``X`` / ``obsm`` / ``uns`` by reference and the fresh obs frame keeps the addition
-    local, so no cell data is copied. Because the arrays *are* shared, writing to the result's ``X`` writes
-    through to ``adata``. (A view still materializes its own subset -- a view's obs is a slice -- but the
-    caller's object stays untouched.)
+    ``copy.copy`` shares ``X`` / ``obsm`` / ``uns`` by reference, and the obs frame is copied *shallowly*:
+    a new frame whose existing columns still point at the original buffers, with the derived ones added to
+    it. Nothing is duplicated but the frame itself -- adding a column to a shallow copy cannot write through
+    to the original, while ``assign`` would deep-copy the columns on a pandas without copy-on-write. Because
+    the arrays *are* shared, writing to the result's ``X`` (or to an existing obs column) writes through to
+    ``adata``. (A view still materializes its own subset -- a view's obs is a slice -- but the caller's
+    object stays untouched.)
     """
     local = copy.copy(adata)
-    local.obs = adata.obs.assign(**cols)
+    obs = adata.obs.copy(deep=False)
+    for name, values in cols.items():
+        obs[name] = values
+    local.obs = obs
     return local
 
 

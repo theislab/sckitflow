@@ -462,13 +462,33 @@ class FlowMatching:
             return pert, []
         cols = [split_by] if isinstance(split_by, str) else list(split_by)
         idx = [self._problem.group_by.index(c) for c in cols]
-        ratios = self._data.get("split_ratios", {"train": 0.8, "val": 0.2})
-        val_frac = float(ratios["val"]) / (float(ratios["train"]) + float(ratios["val"]))
         keys = sorted({tuple(str(lf[i]) for i in idx) for lf in pert})
-        rng = np.random.default_rng(self.seed)
-        rng.shuffle(keys)
-        n_val = max(1, round(len(keys) * val_frac)) if len(keys) > 1 else 0
-        val_keys = set(keys[:n_val])
+        # `{val: [...], test: [...]}` wins over the ratio draw, which assigns whole VALUES at random and so
+        # cannot name specific conditions. `test` is held out of BOTH train and val — it is never seen here.
+        if predefined := self._data.get("predefined_split"):
+            named = {k: {tuple(str(v) for v in row) for row in rows} for k, rows in predefined.items() if rows}
+            if bad := sorted(set(named) - {"val", "test"}):
+                raise ValueError(f"predefined_split keys must be 'val'/'test', got {bad}.")
+            if unknown := sorted(set().union(*named.values()) - set(keys)) if named else []:
+                raise ValueError(
+                    f"predefined_split names {len(unknown)} condition group(s) not present in the data "
+                    f"(e.g. {unknown[:3]}); split_by={cols} has {len(keys)} distinct groups.")
+            if both := named.get("val", set()) & named.get("test", set()):
+                raise ValueError(f"{len(both)} condition group(s) are in BOTH val and test: {sorted(both)[:3]}")
+            val_keys = named.get("val", set())
+            held = val_keys | named.get("test", set())
+            train = [lf for lf in pert if tuple(str(lf[i]) for i in idx) not in held]
+            val = [lf for lf in pert if tuple(str(lf[i]) for i in idx) in val_keys]
+            logger.info("predefined_split: %d train, %d val, %d test leaves held out entirely",
+                        len(train), len(val), len(held) - len(val_keys))
+            return train, val
+        else:
+            ratios = self._data.get("split_ratios", {"train": 0.8, "val": 0.2})
+            val_frac = float(ratios["val"]) / (float(ratios["train"]) + float(ratios["val"]))
+            rng = np.random.default_rng(self.seed)
+            rng.shuffle(keys)
+            n_val = max(1, round(len(keys) * val_frac)) if len(keys) > 1 else 0
+            val_keys = set(keys[:n_val])
         train = [lf for lf in pert if tuple(str(lf[i]) for i in idx) not in val_keys]
         val = [lf for lf in pert if tuple(str(lf[i]) for i in idx) in val_keys]
         logger.info("split_by=%s held out %d/%d condition groups", cols, len(val_keys), len(keys))

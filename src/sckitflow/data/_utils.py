@@ -33,13 +33,12 @@ def with_derived_obs(adata: AnnData, **cols: Any) -> AnnData:
     it. Nothing is duplicated but the frame itself -- adding a column to a shallow copy cannot write through
     to the original, while ``assign`` would deep-copy the columns on a pandas without copy-on-write.
 
-    The result is therefore **read-only by contract**, and only its obs is enforced as such: writing an
-    existing obs column is caught by copy-on-write (always on from pandas 3, off by default on the pandas 2
-    this package still supports), but ``X`` and ``obsm`` are the caller's own arrays and a write to them
-    lands in ``adata``. That cannot be prevented without copying the cell data this helper exists to share
-    -- marking them non-writeable would disable writes on the caller's AnnData too, since it is the same
-    array object. (A view still materializes its own subset -- a view's obs is a slice -- but the caller's
-    object stays untouched.)
+    The result is therefore **read-only by convention** -- add derived columns, read everything else. Nothing
+    enforces it: ``X`` and ``obsm`` are the caller's own arrays, so a write to them lands in ``adata``, and
+    on a pandas without copy-on-write (off by default before 3.0) so can a write to an *existing* obs column.
+    That cannot be prevented without copying the cell data this helper exists to share -- marking the arrays
+    non-writeable would disable writes on the caller's AnnData too, since it is the same array object. (A view
+    still materializes its own subset -- a view's obs is a slice -- but the caller's object stays untouched.)
     """
     local = copy.copy(adata)
     obs = adata.obs.copy(deep=False)

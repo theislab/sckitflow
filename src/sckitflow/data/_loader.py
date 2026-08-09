@@ -292,9 +292,10 @@ class _StepDataBridge:
         }
 
         # TODO: the ``*_coupling_lin`` / ``*_coupling_quad`` keys stay None, so `_match_observations` is a
-        # no-op and any `match_fn` (OT coupling) never runs. Populate them -- the coupling reps default to
-        # the state rep, so it is the same streamed tensor unless `source_rep` / `n_shared_dims` is set --
-        # and verify against OTFM, whose whole point is the coupling.
+        # no-op and any `match_fn` (OT coupling) never runs. Until then `GenerativeFlow.__init__` refuses a
+        # `match_fn` outright, so nobody gets a silently un-coupled run. To lift that: populate these keys --
+        # the coupling reps default to the state rep, so it is the same streamed tensor unless `source_rep` /
+        # `n_shared_dims` is set -- and verify against OTFM, whose whole point is the coupling.
         step_data: dict[str, Any] = dict.fromkeys(_STEP_DATA_KEYS)
         step_data["target_state"] = target_state
         step_data["source_state"] = source_state

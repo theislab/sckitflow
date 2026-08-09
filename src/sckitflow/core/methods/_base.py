@@ -175,6 +175,19 @@ class GenerativeFlow(BaseMethod):
             **kwargs,
         )
 
+        if match_fn is not None:
+            # The streaming loaders leave every `*_coupling_lin` / `*_coupling_quad` field of a batch as
+            # None, so `_match_observations` returns early and the coupling would never run. Refusing is the
+            # honest answer until the loaders populate the coupling reps (see the TODO in `data._loader`) --
+            # accepting a `match_fn` that silently does nothing is how an OTFM run quietly becomes a plain
+            # flow-matching run.
+            raise NotImplementedError(
+                "`match_fn` (OT coupling) is not wired through the streaming data loaders yet: they emit no "
+                "coupling representations, so the matching would silently never run. The same holds for the "
+                "`source_rep` / `n_shared_dims` coupling schema, which only reaches a method through a "
+                "`match_fn`. Train without it for now."
+            )
+
         # set attributes
         self._probability_path = probability_path
         self._match_fn = match_fn

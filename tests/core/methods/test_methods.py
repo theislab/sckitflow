@@ -156,6 +156,11 @@ class TestBaseMethod:
 class TestGenerativeFlow:
     """Tests for GenerativeFlow matching and training logic."""
 
+    def test_a_match_fn_is_refused_while_the_loaders_emit_no_coupling(self, mock_dims_registry, mock_data_manager):
+        """Accepting it would mean the requested OT coupling silently never runs (batches carry no coupling)."""
+        with pytest.raises(NotImplementedError, match="not wired through the streaming data loaders"):
+            DummyGenerativeFlow(mock_dims_registry, mock_data_manager, match_fn=Mock())
+
     def test_call_match_fn_safe_no_source(self, torch_gen_flow):
         src_lin = src_quad = None
         tgt_lin = Mock()
@@ -273,20 +278,20 @@ class TestGenerativeFlow:
 
     def test_properties_return_assigned_values(self, mock_dims_registry, mock_paired_data_manager):
         prob_path = Mock()
-        match_fn = Mock()
         noise_sampler = Mock()
         time_sampler = Mock()
         flow = DummyGenerativeFlow(
             mock_dims_registry,
             mock_paired_data_manager,
             probability_path=prob_path,
-            match_fn=match_fn,
             noise_sampler=noise_sampler,
             time_sampler=time_sampler,
             generate_from_noise=True,
         )
         assert flow.probability_path is prob_path
-        assert flow.match_fn is match_fn
+        # `match_fn` cannot be assigned at construction while the loaders emit no coupling -- see
+        # `test_a_match_fn_is_refused_while_the_loaders_emit_no_coupling`.
+        assert flow.match_fn is None
         assert flow.noise_sampler is noise_sampler
         assert flow.time_sampler is time_sampler
         assert flow.generate_from_noise is True

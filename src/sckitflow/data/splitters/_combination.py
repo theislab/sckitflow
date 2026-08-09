@@ -13,18 +13,28 @@ __all__ = ["CombinationSplitter"]
 
 
 class CombinationSplitter(Splitter):
-    """Split unique ``group_keys`` combinations into train/test, keeping every ``always_train_keys`` value seen.
+    """Hold out whole ``group_keys`` combinations, so a held-out combination is unseen at training time.
 
-    The unit of splitting is a unique combination of ``group_keys`` (e.g. ``(cell_line, drug)`` or
-    ``(a, b, c)``). Hold-out is stratified by ``always_train_keys`` (a subset of ``group_keys``): within
-    each of its value combinations, ``floor(test_fraction * k)`` of the ``k`` combinations move to test,
-    capped at ``k - 1`` -- so every ``always_train_keys`` value keeps at least one combination in train and
-    is never pushed entirely into the held-out split. Control rows (``control_key == control_value``) are
-    labeled ``control_label`` and never split. Deterministic given ``seed``.
+    **What is split.** Not cells but *combinations*: the unique values of ``group_keys`` together, e.g. each
+    ``(cell_line, drug)`` pair. Every cell of a combination gets the same label, so a test combination never
+    leaks a single cell into train.
 
-    Because the fraction is applied *per stratum* and rounds down, a stratum with fewer than
-    ``ceil(1 / test_fraction)`` combinations contributes nothing to the hold-out; :meth:`assign` warns when
-    that leaves the test split empty altogether.
+    **What is protected.** ``always_train_keys`` is a subset of ``group_keys`` naming what must stay
+    represented in train -- pass ``["cell_line"]`` and no cell line is ever held out entirely, only some of
+    its drugs. Concretely, the combinations are grouped by their ``always_train_keys`` values (each group is
+    a *stratum*), and a stratum of ``k`` combinations gives up ``floor(test_fraction * k)`` of them, never
+    more than ``k - 1``.
+
+    **What that implies.** Rounding down is per stratum, so a stratum with fewer than
+    ``ceil(1 / test_fraction)`` combinations gives up none: at ``test_fraction=0.2``, a cell line with 4
+    drugs keeps all 4. :meth:`assign` warns if that leaves no test split at all.
+
+    Control rows (``control_key == control_value``) are labelled ``control_label`` and never take part -- they
+    are the shared source population, not a split. The choice is deterministic given ``seed``.
+
+    Example, ``group_keys=["cell_line", "drug"]`` and ``always_train_keys=["cell_line"]`` at
+    ``test_fraction=0.5``: cell line A with drugs ``d0..d3`` gives up 2 of them to test and keeps 2 in train;
+    cell line B with a single drug keeps it; every control row is labelled ``control``.
     """
 
     def __init__(

@@ -104,14 +104,16 @@ def _make_model(adata: AnnData, method_cls=DummyMethod, dm_kwargs=None, **method
     return builder.build(method_cls=method_cls, **method_kwargs)
 
 
-# Training now streams from `DataManager.get_dataloaders(adata, split_by=...)`, so the train tests
-# need (a) a group/condition schema for the loader to group on and (b) a `split` column in `.obs`.
-# This schema is unpaired (no control_values_dict), so `is_paired_setting` stays False.
+# Training streams from `DataManager.get_dataloaders`, which splits as the schema declares -- so the train
+# tests need (a) a group/condition schema for the loader to group on and (b) a declared `split_by` matching
+# the column `_with_split` writes. This schema is unpaired (no control_values_dict), so `is_paired_setting`
+# stays False.
 _DM_TRAIN_KWARGS = {
     "conditions": {"drug": ("drugA",)},
     "conditions_reps": {"drug": "drug"},
     "groups": ("source_split",),
     "groups_reps": {"source_split": "source_split"},
+    "split_by": "split",
 }
 
 
@@ -427,7 +429,7 @@ class TestModelConditionSpace:
         """Training with the condition-space view correctly compiles the data."""
         adata = _add_continuous_covariate(adata)
         adata = _with_split(adata)
-        model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
+        model = _make_model(adata, dm_kwargs={**self._condition_space_dm_kwargs(), "split_by": "split"})
 
         # Training now streams via get_dataloaders (compile_adata is predict-only); spy on it.
         mock_get_dataloaders = MagicMock(wraps=model._dm.get_dataloaders)

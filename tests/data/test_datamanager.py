@@ -10,6 +10,7 @@ from sckitflow.data.containers._coupling import CouplingData
 from sckitflow.data.containers._distribution import DistributionData
 from sckitflow.data.containers._mixed_type import MixedTypeData
 from sckitflow.data.containers._state import StateData
+from sckitflow.data.splitters import CombinationSplitter
 
 
 def _make_manager(**overrides) -> DataManager:
@@ -172,8 +173,8 @@ class TestGetDataloaders:
 
     def test_one_loader_per_split(self, adata_small: AnnData):
         ad = _with_split(adata_small)
-        dm = _make_manager(control_values_dict={"drug": "control"})
-        loaders = dm.get_dataloaders(ad, split_by="split", batch_size=8)
+        dm = _make_manager(control_values_dict={"drug": "control"}, split_by="split")
+        loaders = dm.get_dataloaders(ad, batch_size=8)
 
         # controls are the shared source, never their own split
         assert set(loaders) == {"train", "val"}
@@ -184,9 +185,10 @@ class TestGetDataloaders:
             assert step_data["source_state"] is not None  # matched controls
 
     def test_missing_split_column_raises(self, adata_small: AnnData):
-        dm = _make_manager()
-        with pytest.raises(KeyError, match="not found"):
-            dm.get_dataloaders(adata_small, split_by="does_not_exist")
+        """A declared split column that the data does not carry: the one case that must never pass."""
+        dm = _make_manager(split_by="does_not_exist")
+        with pytest.raises(KeyError, match="declared on this DataManager"):
+            dm.get_dataloaders(adata_small)
 
     def test_a_split_never_streams_another_splits_cells(self, adata_small: AnnData):
         """A per-cell split makes every group span both splits; weights must still exclude the cells."""
@@ -196,13 +198,50 @@ class TestGetDataloaders:
         ad.obs["split"] = pd.Categorical(["train" if i % 2 == 0 else "val" for i in range(ad.n_obs)])
         train_rows = set(np.flatnonzero((ad.obs["split"] == "train").to_numpy()).tolist())
 
-        dm = _make_manager()  # no control values: every group is primary, so nothing is filtered out
-        loaders = dm.get_dataloaders(ad, split_by="split", batch_size=2)
+        dm = _make_manager(split_by="split")  # no control values: every group is primary
+        loaders = dm.get_dataloaders(ad, batch_size=2)
         assert set(loaders) == {"train", "val"}
 
         streamed = {int(v) for _ in range(10) for sd in loaders["val"] for v in sd["target_state"][:, 0].tolist()}
         assert streamed, "the val loader must stream something"
         assert not (streamed & train_rows), f"val loader streamed train cells: {sorted(streamed & train_rows)}"
+
+
+class TestSplitOwnership:
+    """The split is declared on the schema -- by a splitter or a column -- and checked, never assumed."""
+
+    def test_splitter_and_split_by_together_are_rejected(self):
+        with pytest.raises(ValueError, match="not both"):
+            _make_manager(
+                split_by="split",
+                splitter=CombinationSplitter(group_keys=["cell_line", "drug"], always_train_keys=["cell_line"]),
+            )
+
+    def test_a_splitter_derives_the_split_without_touching_the_caller(self, adata_small: AnnData):
+        """The schema owns the split, so no preprocessing step has to have written the column first."""
+        dm = _make_manager(
+            control_values_dict={"drug": "control"},
+            splitter=CombinationSplitter(
+                group_keys=["cell_line", "drug"],
+                always_train_keys=["cell_line"],
+                control_key="drug",
+                test_fraction=0.5,
+            ),
+        )
+        loaders = dm.get_dataloaders(adata_small, batch_size=8)
+
+        assert set(loaders) == {"train", "test"}
+        assert "split" not in adata_small.obs.columns  # derived on a shallow copy, not the caller's object
+
+    def test_an_undeclared_split_column_is_refused(self, adata_small: AnnData):
+        """Silently training on held-out cells is the one outcome the previous `split_by="split"` default hid."""
+        ad = _with_split(adata_small)
+        with pytest.raises(ValueError, match="declares neither"):
+            _make_manager().get_dataloaders(ad, batch_size=8)
+
+    def test_no_split_declared_and_none_present_trains_on_everything(self, adata_small: AnnData):
+        loaders = _make_manager().get_dataloaders(adata_small, batch_size=8)
+        assert set(loaders) == {"train"}
 
 
 class TestGetEvalLoader:
@@ -326,7 +365,7 @@ class TestMatchedKeys:
         """Same guarantee on the sampling path: the bound control sampler must follow the pair, not the group."""
         ad, ids = self._tagged(adata_small)
         ad = with_split(ad, cols=["cell_line", "drug"], labels=("train",))
-        loaders = _make_manager(matched_keys=self.PAIRS).get_dataloaders(ad, split_by="split", batch_size=4)
+        loaders = _make_manager(matched_keys=self.PAIRS, split_by="split").get_dataloaders(ad, batch_size=4)
         assert set(loaders) == {"train"}
 
         pair_of = {ids[target]: ids[source] for source, target in self.PAIRS.items()}
@@ -345,7 +384,7 @@ class TestMatchedKeys:
         before = list(adata_small.obs.columns)
         dm = _make_manager(matched_keys=self.PAIRS)
         list(dm.get_eval_loader(adata_small))
-        dm.get_dataloaders(adata_small, split_by=None, batch_size=4)
+        dm.get_dataloaders(adata_small, batch_size=4)
 
         assert list(adata_small.obs.columns) == before
 
@@ -370,7 +409,7 @@ class TestUnconditionalStreaming:
     """A schema with no groups/conditions still trains: one implicit group, no split."""
 
     def test_split_by_none_yields_a_single_train_loader(self, adata_small: AnnData):
-        loaders = _make_manager().get_dataloaders(adata_small, split_by=None, batch_size=8)
+        loaders = _make_manager().get_dataloaders(adata_small, batch_size=8)
         assert set(loaders) == {"train"}
         assert next(iter(loaders["train"]))["target_state"].shape[0] == 8
 
@@ -379,7 +418,7 @@ class TestUnconditionalStreaming:
         ad.obs = ad.obs.iloc[:, :0]  # strip every covariate column
         dm = DataManager()
 
-        loaders = dm.get_dataloaders(ad, split_by=None, batch_size=8)
+        loaders = dm.get_dataloaders(ad, batch_size=8)
         step_data = next(iter(loaders["train"]))
         assert step_data["target_state"].shape == (8, ad.n_vars)
         assert step_data["target_condition_data"] is None

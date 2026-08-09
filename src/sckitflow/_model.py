@@ -410,7 +410,6 @@ class Model:
         self,
         adata: AnnData,
         *,
-        split_by: str | None = "split",
         train_split: str = "train",
         control_adata: AnnData | None = None,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
@@ -426,18 +425,15 @@ class Model:
     ) -> None:
         """Trains the model by streaming ``StepData`` batches from scfit-backed loaders.
 
-        One loader is built per split value of ``adata.obs[split_by]`` via
-        :meth:`DataManager.get_dataloaders`. The ``train_split`` loader drives the optimizer -- one
-        gradient step per streamed batch, cycling epochs -- and every other split becomes a
-        validation loader (iterated for one epoch per validation). Selection is by scfit weights over
-        the whole ``adata`` (no subset copying), and controls are shared across splits (see
-        :meth:`DataManager.get_dataloaders`).
+        One loader is built per split value via :meth:`DataManager.get_dataloaders`, splitting as the
+        :class:`DataManager`'s schema declares (its ``splitter`` or its ``split_by``; neither means
+        everything trains). The ``train_split`` loader drives the optimizer -- one gradient step per
+        streamed batch, cycling epochs -- and every other split becomes a validation loader (iterated
+        for one epoch per validation). Selection is by scfit weights over the whole ``adata`` (no
+        subset copying), and controls are shared across splits (see :meth:`DataManager.get_dataloaders`).
 
-        :param adata: The annotated data object to stream; must carry ``split_by`` in ``.obs``.
+        :param adata: The annotated data object to stream.
         :type adata: class: `AnnData`
-
-        :param split_by: The ``.obs`` column whose values define the splits. Defaults to ``"split"``.
-        :type split_by: class: `str`
 
         :param train_split: The split value whose loader drives optimization. Defaults to ``"train"``.
         :type train_split: class: `str`
@@ -490,7 +486,7 @@ class Model:
         # The loader settles dtype/device as its last stage, so batches reach the method ready to consume.
         loader_kwargs.setdefault("dtype", self._method.dtype)
         loader_kwargs.setdefault("device", self._method.device_id)
-        loaders = self._dm.get_dataloaders(adata, split_by=split_by, control_adata=control_adata, **loader_kwargs)
+        loaders = self._dm.get_dataloaders(adata, control_adata=control_adata, **loader_kwargs)
         if train_split not in loaders:
             raise KeyError(
                 f"train split {train_split!r} has no loader; available splits: {list(loaders)}. "

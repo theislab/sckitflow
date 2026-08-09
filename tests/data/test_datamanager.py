@@ -244,6 +244,24 @@ class TestSplitOwnership:
         assert set(loaders) == {"train"}
 
 
+class TestControlPool:
+    """A separate control pool is streamed as the source whether or not the schema declares pairing."""
+
+    def test_a_paired_schema_streams_the_pool(self, adata_small: AnnData):
+        dm = _make_manager(control_values_dict={"drug": "control"})
+        step_data, _ = next(iter(dm.get_eval_loader(adata_small, control_adata=adata_small)))
+        assert step_data["source_state"] is not None
+
+    def test_an_unpaired_schema_streams_the_pool_too(self, adata_small: AnnData):
+        """Pairing follows the data: a pool given at call time is a source, not something to discard."""
+        step_data, _ = next(iter(_make_manager().get_eval_loader(adata_small, control_adata=adata_small)))
+        assert step_data["source_state"] is not None
+
+    def test_training_loaders_stream_the_pool_without_a_declared_pairing(self, adata_small: AnnData):
+        loaders = _make_manager().get_dataloaders(adata_small, control_adata=adata_small, batch_size=8)
+        assert next(iter(loaders["train"]))["source_state"] is not None
+
+
 class TestGetEvalLoader:
     """get_eval_loader: deterministic per-group (StepData, leaf) for prediction."""
 

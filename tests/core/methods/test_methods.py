@@ -259,17 +259,17 @@ class TestGenerativeFlow:
         assert flow._match_fn is None
         assert flow._noise_sampler is None
         assert flow._time_sampler is None
-        assert flow.generate_from_noise is True
+        assert flow.generate_from_noise is False  # noise is chosen per batch, when a batch has no source
 
-    def test_generate_from_noise_forced_when_unpaired(self, mock_dims_registry, mock_data_manager):
-        """When the data manager is unpaired, generate_from_noise should be forced to True."""
-        flow = DummyGenerativeFlow(
-            mock_dims_registry,
-            mock_data_manager,
-            generate_from_noise=False,  # user tries to set False
-        )
-        # In BaseGenerativeFlow.__init__, if not paired, generate_from_noise becomes True
-        assert flow.generate_from_noise is True
+    def test_an_unpaired_schema_does_not_force_noise_generation(self, mock_dims_registry, mock_data_manager):
+        """The flag means "noise even when a source exists"; a schema cannot know whether a batch has one.
+
+        Forcing it here used to make a control pool passed at call time -- after this object is built --
+        be streamed and then discarded. Batches without a source still get noise, via `prepare_latent_*`.
+        """
+        flow = DummyGenerativeFlow(mock_dims_registry, mock_data_manager, generate_from_noise=False)
+        assert flow.generate_from_noise is False
+        assert flow.is_paired_setting is False  # unpaired schema, but the decision is no longer made here
 
     def test_generate_from_noise_respected_when_paired(self, mock_dims_registry, mock_paired_data_manager):
         """When paired, generate_from_noise can be set to False."""

@@ -194,10 +194,12 @@ class GenerativeFlow(BaseMethod):
         self._noise_sampler = noise_sampler
         self._time_sampler = time_sampler
 
-        # automatically fall back to noise generation when
-        # no control values are provided
-        if not self.is_paired_setting:
-            generate_from_noise = True
+        # Not forced on for an unpaired schema: whether a batch has a source to flow from is a property of
+        # the batch, and `prepare_latent_train` / `prepare_latent_inference` already sample noise whenever
+        # `source_state` is None. Deriving it from the schema instead made a real streamed source -- a
+        # `control_adata` pool given at call time, after this object was built -- be silently discarded in
+        # favour of noise. This flag now means only what it says: generate from noise *even when a source
+        # is available*.
         self._generate_from_noise = generate_from_noise
 
     def _call_match_fn_safe(

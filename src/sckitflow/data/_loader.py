@@ -20,6 +20,7 @@ without any ``ann_df`` / container round-trip.
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator
+from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -150,14 +151,23 @@ class _StepDataBridge:
         self._leaves: list[tuple] = list(map(tuple, uniq.to_numpy()))
         self._leaf_to_gid: dict[tuple, int] = {leaf: i for i, leaf in enumerate(self._leaves)}
         self._rep_idx: list[int] = uniq.index.to_numpy().tolist()
-        # Cells per group. `groupby(sort=False)` and `drop_duplicates` both order by first appearance, so
-        # the counts zip straight onto the leaves (`strict` makes a divergence loud rather than silent).
-        sizes = sub.groupby(list(self._group_cols), observed=True, sort=False).size()
-        self._leaf_size: dict[tuple, int] = {
-            leaf: int(n) for leaf, n in zip(self._leaves, sizes.to_numpy(), strict=True)
-        }
         self._adata = adata
         self._encode_cache: dict[int, tuple[dict[str, Any], dict[str, Any]]] = {}
+
+    @cached_property
+    def _leaf_size(self) -> dict[tuple, int]:
+        """Cells per group -- a full-obs groupby, so it is paid on first use rather than at construction.
+
+        Only :class:`EvalLoader` ever asks (to size a metadata-only batch): training reads its row count off
+        the delivered tensor. Computing it eagerly meant every training loader -- one per split -- swept the
+        whole obs for a number it never read.
+
+        ``groupby(sort=False)`` and the ``drop_duplicates`` behind :attr:`_leaves` both order by first
+        appearance, so the counts zip straight onto the leaves (``strict`` makes a divergence loud).
+        """
+        sub = self._adata.obs.loc[:, list(self._group_cols)]
+        sizes = sub.groupby(list(self._group_cols), observed=True, sort=False).size()
+        return {leaf: int(n) for leaf, n in zip(self._leaves, sizes.to_numpy(), strict=True)}
 
     def _conform(self, tensor: Any, *, streamed: bool = True) -> Any:
         """Cast one tensor to the configured ``dtype`` and assert its ``device`` -- the single place both apply.

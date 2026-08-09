@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
-from typing import TYPE_CHECKING, TypedDict, Unpack
+from typing import TYPE_CHECKING, NamedTuple, TypedDict, Unpack
 
 import numpy as np
 import pandas as pd
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 from sckitflow._types import TargetCovariatesEncodingId
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._group_encoders import GroupEncoder, GroupEncoderId
+from sckitflow.data._utils import with_derived_obs
 from sckitflow.data.containers._categorical import CategoricalData
 from sckitflow.data.containers._coupling import CouplingData
 from sckitflow.data.containers._distribution import DistributionData
@@ -29,6 +30,29 @@ from sckitflow.data.schemas import (
 )
 
 __all__ = ["DataManagerKwargs", "LoaderKwargs", "DataManager"]
+
+# ponytail: the derived `.obs` column carrying the pair id behind `matched_keys` -- a shim. scfit matches a
+# linked stream to the primary by value equality on a shared column, so an explicit {source: target} mapping
+# is only expressible once both members of a pair carry one shared value. It is written to a *shallow copy*
+# of the caller's AnnData (`with_derived_obs`), never their object. Delete this and `_pair_*` once scfit
+# grows explicit leaf->leaf pairing (a code-level remap of the factorization it already owns, no column).
+_PAIR_KEY = "_sckitflow_pair"
+
+
+class _Selection(NamedTuple):
+    """What to stream and how to weight it, per unique group combination. See :meth:`DataManager._selection`.
+
+    ``keys[i]`` is combination ``i``'s scfit weight key -- its group values, plus the pair id under fixed
+    matching -- and ``extras[i]`` the ``extra_cols`` values (e.g. the split) that prefix it on the primary.
+    """
+
+    adata: AnnData
+    control_adata: AnnData | None
+    pair_key: str | None
+    extras: list[tuple]
+    keys: list[tuple]
+    is_source: np.ndarray
+    is_target: np.ndarray
 
 
 class LoaderKwargs(TypedDict, total=False):
@@ -68,6 +92,11 @@ class LoaderKwargs(TypedDict, total=False):
     preload_nchunks: int | None
     """Chunks per annbatch read window. ``None`` = ``batch_size // chunk_size``."""
 
+    preload_to_gpu: bool
+    """Hand scfit/annbatch a GPU-resident read window, so batches arrive on the device rather than being
+    copied there -- what ``device`` asserts, and on a GPU the only way to satisfy it (requires
+    ``sckitflow[gpu]``: cupy, Linux/CUDA only)."""
+
 
 class DataManagerKwargs(TypedDict, total=False):
     """Keyword arguments accepted by :class:`DataManager`."""
@@ -91,7 +120,15 @@ class DataManagerKwargs(TypedDict, total=False):
 
     control_values_dict: dict[str, str] | None
     """Dictionary mapping each condition level to the corresponding value used to indicate control
-    observations. Defaults to `None`."""
+    observations. Defaults to `None`. Pass `{}` at call time (`get_eval_loader`, `Model.predict`) to predict
+    unpaired, ignoring the registered controls."""
+
+    matched_keys: dict[tuple, tuple] | None
+    """Fixed matching: `{source group key: target group key}` over `group_cols` values, naming the pairs
+    outright instead of deriving them from `control_values_dict` (whose source is always the control condition
+    sharing a target's group columns). Takes precedence over `control_values_dict`. A group may appear in at
+    most one pair -- it carries a single pair id -- so chains (`a -> b`, `b -> c`) and two sources for one
+    target are rejected. Defaults to `None`."""
 
     condition_state_key: str | None
     """The key for the continuous condition covariates to be viewed as state when
@@ -136,6 +173,7 @@ class DataManager:
     def __init__(self, **kwargs: Unpack[DataManagerKwargs]) -> None:
         """Initializes the object. See :class:`DataManagerKwargs` for parameter descriptions."""
         self._control_values_dict = kwargs.get("control_values_dict")
+        self._matched_keys = kwargs.get("matched_keys")
         self._condition_state_key = kwargs.get("condition_state_key")
 
         self._state_data_schema = StateDataSchema(sample_rep=kwargs.get("sample_rep"))
@@ -292,26 +330,106 @@ class DataManager:
         n_features = self._get_state_data(adata).X.shape[1]
         return self._get_feature_names(adata, n_features)
 
-    def _control_group_mask(
-        self,
-        adata: AnnData,
-        *,
-        extra_cols: Collection[str] = (),
-        control_values_dict: dict[str, str] | None = None,
-    ) -> tuple[pd.DataFrame, list[tuple], np.ndarray]:
-        """The unique ``extra_cols + group_cols`` combinations, and which of them are controls."""
-        uniq = adata.obs.loc[:, [*extra_cols, *self.group_cols]].drop_duplicates()
-        combos = [tuple(row) for row in uniq.loc[:, list(self.group_cols)].to_numpy()]
+    def _combos(self, adata: AnnData) -> list[tuple]:
+        """The unique ``group_cols`` combinations present in ``adata.obs``."""
+        return [tuple(row) for row in adata.obs.loc[:, list(self.group_cols)].drop_duplicates().to_numpy()]
 
+    def _is_control(self, uniq: pd.DataFrame, control_values_dict: dict[str, str] | None) -> np.ndarray:
+        """Which rows of ``uniq`` are controls, per the control value of every condition level."""
         cvd = control_values_dict if control_values_dict is not None else self._control_values_dict
         conditions = self._condition_data_schema.conditions
         checks = [(col, str(val)) for level, val in (cvd or {}).items() for col in conditions[level]]
-        is_control = (
-            np.logical_and.reduce([uniq[col].astype(str).to_numpy() == val for col, val in checks])
-            if checks
-            else np.zeros(len(uniq), dtype=bool)
+        if not checks:
+            return np.zeros(len(uniq), dtype=bool)
+        return np.logical_and.reduce([uniq[col].astype(str).to_numpy() == val for col, val in checks])
+
+    def _pair_ids(self, matched_keys: Mapping[tuple, tuple]) -> dict[tuple, str]:
+        """``{group combination: pair id}`` -- one id shared by a source group and its matched target.
+
+        A group holds exactly one id, which rules out a group being in two pairs: a chain (``a -> b``,
+        ``b -> c``) or two sources for one target. Both are rejected here rather than silently resolving to
+        whichever pair happened to be assigned last. See :data:`_PAIR_KEY` for why an id exists at all.
+        """
+        ids: dict[tuple, str] = {}
+        for i, (source_key, target_key) in enumerate(matched_keys.items()):
+            for key in (tuple(source_key), tuple(target_key)):
+                if key in ids:
+                    raise ValueError(
+                        f"group key {key} appears in more than one entry of matched_keys; a group carries a "
+                        "single pair id, so it can be the source or the target of exactly one pair."
+                    )
+                ids[key] = str(i)
+        return ids
+
+    def _pair_column(self, adata: AnnData, ids: dict[tuple, str]) -> pd.Categorical:
+        """Per-cell pair id: its group's id, or ``""`` for a group in no pair (never matched, never streamed).
+
+        Factorizes the group columns once (O(N) at C level) and looks the id up per *group*, so the per-cell
+        mapping never runs python per row.
+        """
+        codes, uniques = pd.factorize(pd.MultiIndex.from_frame(adata.obs.loc[:, list(self.group_cols)]))
+        lut = np.array([ids.get(tuple(key), "") for key in uniques], dtype=object)
+        return pd.Categorical(lut[codes])
+
+    @staticmethod
+    def _assert_keys_present(keys: Collection[tuple], combos: Collection[tuple], side: str) -> None:
+        """Every ``matched_keys`` key must name a group combination that actually exists."""
+        present = set(combos)
+        missing = sorted(str(key) for key in keys if key not in present)
+        if missing:
+            raise KeyError(
+                f"matched_keys {side} keys not found among the group combinations present: {missing}. Keys are "
+                "tuples of `group_cols` values, in that order."
+            )
+
+    def _selection(
+        self,
+        adata: AnnData,
+        *,
+        control_adata: AnnData | None = None,
+        extra_cols: Collection[str] = (),
+        control_values_dict: dict[str, str] | None = None,
+        matched_keys: Mapping[tuple, tuple] | None = None,
+    ) -> _Selection:
+        """Which unique combinations scfit streams as targets, which as sources, and under what weight key.
+
+        Two matching modes, one shape. ``control_values_dict`` marks sources by their condition value, and a
+        target's source is whatever shares its group columns. ``matched_keys`` names the pairs outright; each
+        gets a pair id (:meth:`_pair_ids`) written to a derived column -- on a **shallow copy**, so the
+        caller's AnnData is never touched -- which becomes both the trailing element of every weight key and
+        the column the control link matches on.
+        """
+        uniq = adata.obs.loc[:, [*extra_cols, *self.group_cols]].drop_duplicates()
+        combos = [tuple(row) for row in uniq.loc[:, list(self.group_cols)].to_numpy()]
+        extras = [tuple(row) for row in uniq.loc[:, list(extra_cols)].to_numpy()]
+
+        matched_keys = self._matched_keys if matched_keys is None else matched_keys
+        if not matched_keys:
+            is_source = self._is_control(uniq, control_values_dict)
+            # Without named pairs, every non-control combination is a target.
+            return _Selection(adata, control_adata, None, extras, combos, is_source, ~is_source)
+
+        ids = self._pair_ids(matched_keys)
+        sources = {tuple(key) for key in matched_keys}
+        targets = {tuple(key) for key in matched_keys.values()}
+        # Sources live in the control pool when there is one, in `adata` otherwise. An unknown key is a hard
+        # error: streaming nothing for it is how a typo becomes a training run.
+        self._assert_keys_present(targets, combos, "target")
+        pool = self._combos(control_adata) if control_adata is not None else combos
+        self._assert_keys_present(sources, pool, "source")
+
+        adata = with_derived_obs(adata, **{_PAIR_KEY: self._pair_column(adata, ids)})
+        if control_adata is not None:
+            control_adata = with_derived_obs(control_adata, **{_PAIR_KEY: self._pair_column(control_adata, ids)})
+        return _Selection(
+            adata,
+            control_adata,
+            _PAIR_KEY,
+            extras,
+            [(*combo, ids.get(combo, "")) for combo in combos],
+            np.array([combo in sources for combo in combos], dtype=bool),
+            np.array([combo in targets for combo in combos], dtype=bool),
         )
-        return uniq, combos, is_control
 
     def get_dataloaders(
         self,
@@ -334,6 +452,9 @@ class DataManager:
         per-cell split rather than a per-combination one): weighting on the group columns alone would let
         the held-out loader stream training cells.
 
+        Which group is a target and which its source comes from the schema's ``control_values_dict``, or from
+        its ``matched_keys`` for fixed pairs (see :meth:`_selection`).
+
         :param adata: The annotated data object; must carry the ``split_by`` column in ``.obs``.
         :type adata: class: `AnnData`
 
@@ -354,19 +475,20 @@ class DataManager:
         if split_by is None:
             # No split at all: one loader over every perturbed group, keyed "train". With no schema to
             # group on there is nothing to weight either -- `None` streams the whole adata uniformly.
+            sel = self._selection(adata, control_adata=control_adata)
             if self.group_cols:
-                _, combos, is_control = self._control_group_mask(adata)
-                weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if not ctrl}
-                controls = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if ctrl}
+                weights = {key: 1.0 for key, tgt in zip(sel.keys, sel.is_target, strict=True) if tgt}
+                controls = {key: 1.0 for key, src in zip(sel.keys, sel.is_source, strict=True) if src}
             else:
                 weights, controls = None, None
             return {
                 "train": Loader(
-                    adata,
+                    sel.adata,
                     dm=self,
                     primary_weights=weights,
-                    control_adata=control_adata,
-                    control_weights=None if control_adata is not None else controls,
+                    control_adata=sel.control_adata,
+                    control_weights=None if sel.control_adata is not None else controls,
+                    pair_key=sel.pair_key,
                     **loader_kwargs,
                 )
             }
@@ -374,25 +496,27 @@ class DataManager:
         if split_by not in adata.obs.columns:
             raise KeyError(f"{split_by!r} not found in adata.obs (columns: {list(adata.obs.columns)}).")
 
-        uniq, combos, is_control = self._control_group_mask(adata, extra_cols=(split_by,))
-        splits = uniq[split_by].to_numpy()
+        sel = self._selection(adata, control_adata=control_adata, extra_cols=(split_by,))
 
-        # Controls are shared across splits, so their weights key on the group columns alone (the control
-        # link does not group on the split). The primary's do carry the split, one leaf per (split, group).
-        control_weights = {c for c, ctrl in zip(combos, is_control, strict=True) if ctrl}
+        # Controls are shared across splits, so their weights carry no split (the control link does not group
+        # on it). The primary's do, one leaf per (split, group).
+        control_weights = {key for key, src in zip(sel.keys, sel.is_source, strict=True) if src}
         primary_weights: dict[str, dict[tuple, float]] = {}
-        for split_value, combo, ctrl in zip(splits, combos, is_control, strict=True):
-            if not ctrl:
-                primary_weights.setdefault(str(split_value), {})[(split_value, *combo)] = 1.0
+        for extra, key, tgt in zip(sel.extras, sel.keys, sel.is_target, strict=True):
+            if tgt:
+                primary_weights.setdefault(str(extra[0]), {})[(*extra, *key)] = 1.0
 
         return {
             split_value: Loader(
-                adata,
+                sel.adata,
                 dm=self,
                 split_by=split_by,
                 primary_weights=weights,
-                control_adata=control_adata,
-                control_weights=None if control_adata is not None else (dict.fromkeys(control_weights, 1.0) or None),
+                control_adata=sel.control_adata,
+                control_weights=(
+                    None if sel.control_adata is not None else (dict.fromkeys(control_weights, 1.0) or None)
+                ),
+                pair_key=sel.pair_key,
                 **loader_kwargs,
             )
             for split_value, weights in primary_weights.items()
@@ -406,6 +530,7 @@ class DataManager:
         require_target_state: bool = True,
         control_adata: AnnData | None = None,
         control_values_dict: dict[str, str] | None = None,
+        matched_keys: Mapping[tuple, tuple] | None = None,
         subsample: str = "head",
         to: str | None = None,
         dtype: torch.dtype | None = None,
@@ -415,10 +540,11 @@ class DataManager:
         """Build a deterministic, per-group :class:`~sckitflow.data._loader.EvalLoader` for prediction.
 
         Walks every perturbed group once (or a ``max_per_group`` cap), each matched to its control leaf,
-        yielding ``(StepData, leaf)``. Controls are identified from ``control_values_dict`` (this argument
-        overrides the instance's, to allow inference over arbitrary control keys); when it resolves to
-        ``None`` (unpaired) every group is predicted with no source. Selection is by scfit weights over the
-        whole ``adata`` -- no subset copying.
+        yielding ``(StepData, leaf)``. Controls are identified from ``control_values_dict``, or the pairs are
+        named outright by ``matched_keys``; both arguments override the instance's, so inference is not bound
+        to the controls or the pairs registered for training. With neither (``control_values_dict={}``) every
+        group is predicted unpaired, with no source. Selection is by scfit weights over the whole ``adata``
+        -- no subset copying.
 
         :param adata: The annotated data object to predict over.
         :type adata: class: `AnnData`
@@ -435,8 +561,12 @@ class DataManager:
         :type control_adata: class: `AnnData | None`
 
         :param control_values_dict: Overrides the instance's control values for this call. Defaults to
-            ``None`` (use the instance's).
+            ``None`` (use the instance's); ``{}`` predicts unpaired.
         :type control_values_dict: class: `dict[str, str] | None`
+
+        :param matched_keys: Overrides the instance's fixed ``{source key: target key}`` pairs for this call.
+            Defaults to ``None`` (use the instance's).
+        :type matched_keys: class: `Mapping[tuple, tuple] | None`
 
         :param subsample: How ``max_per_group`` picks cells: ``"head"``, ``"random"``, or a callable.
         :type subsample: class: `str`
@@ -444,26 +574,33 @@ class DataManager:
         :param dtype: Torch dtype every emitted tensor is cast to; ``None`` leaves them as streamed.
         :type dtype: class: `torch.dtype | None`
 
-        :param device: Device the streamed batches must already be on; ``None`` skips the check. A
-            mismatch raises rather than copying every batch.
+        :param device: Device every emitted tensor is moved to; ``None`` leaves them as streamed. Unlike
+            training this moves rather than asserts -- the eval path reads rows directly, so its one copy per
+            group is unavoidable.
         :type device: class: `str | None`
         """
         from sckitflow.data._loader import EvalLoader
 
+        sel = self._selection(
+            adata,
+            control_adata=control_adata,
+            control_values_dict=control_values_dict,
+            matched_keys=matched_keys,
+        )
         if self.group_cols:
-            _, combos, is_control = self._control_group_mask(adata, control_values_dict=control_values_dict)
-            # Primary = perturbed groups (all groups when unpaired); control link = the control groups.
-            primary_weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if not ctrl}
-            control_weights = {c: 1.0 for c, ctrl in zip(combos, is_control, strict=True) if ctrl}
+            # Primary = target groups (every non-control group when unpaired); control link = the sources.
+            primary_weights = {key: 1.0 for key, tgt in zip(sel.keys, sel.is_target, strict=True) if tgt}
+            control_weights = {key: 1.0 for key, src in zip(sel.keys, sel.is_source, strict=True) if src}
         else:
             # Unconditional schema: one implicit group, nothing to select or pair against.
             primary_weights, control_weights = None, None
         return EvalLoader(
-            adata,
+            sel.adata,
             dm=self,
             primary_weights=primary_weights,
-            control_adata=control_adata,
+            control_adata=sel.control_adata,
             control_weights=control_weights,
+            pair_key=sel.pair_key,
             require_target_state=require_target_state,
             max_per_group=max_per_group,
             subsample=subsample,
@@ -482,6 +619,11 @@ class DataManager:
     def control_values_dict(self) -> dict[str, str] | None:
         """Exposes the homonymous attribute set at initialization."""
         return self._control_values_dict
+
+    @property
+    def matched_keys(self) -> dict[tuple, tuple] | None:
+        """Exposes the homonymous attribute set at initialization."""
+        return self._matched_keys
 
     @property
     def state_data_schema(self) -> StateDataSchema:

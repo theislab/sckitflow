@@ -138,12 +138,15 @@ class TestLoaderIterationContract:
         from sckitflow.data._loader import _ALL_CELLS
 
         ad = loader_adata
-        sd = next(iter(Loader(ad, dm=DataManager(), batch_size=8)))
+        before = list(ad.obs.columns)
+        loader = Loader(ad, dm=DataManager(), batch_size=8)
+        sd = next(iter(loader))
 
         assert sd["target_state"].shape == (8, ad.n_vars)
         assert sd["source_state"] is None  # nothing to pair against
         assert sd["target_condition_data"] is None and sd["target_group_data"] is None
-        assert ad.obs[_ALL_CELLS].nunique() == 1  # one group covering every cell
+        assert loader.group_cols == (_ALL_CELLS,)  # one group covering every cell
+        assert list(ad.obs.columns) == before  # ...synthesized on a shallow copy, not the caller's obs
 
 
 class TestSourceAlignment:

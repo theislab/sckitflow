@@ -284,6 +284,88 @@ class TestGetEvalLoader:
             assert step_data["source_state"] is not None
 
 
+class TestMatchedKeys:
+    """Fixed matching: `{source key: target key}` pairs instead of control-value matching."""
+
+    # (cell_line, drug) pairs: a *non-control* source, which control_values_dict cannot express.
+    PAIRS = {("HeLa", "aspirin"): ("HeLa", "ibuprofen"), ("Jurkat", "aspirin"): ("Jurkat", "paclitaxel")}
+
+    def test_only_named_targets_stream_matched_to_their_named_source(self, adata_small: AnnData):
+        dm = _make_manager(matched_keys=self.PAIRS)
+        el = dm.get_eval_loader(adata_small)
+
+        streamed = {leaf for _, leaf in el}
+        assert streamed == set(self.PAIRS.values())  # nothing else is a target
+        assert len(el) == len(self.PAIRS)
+        for step_data, _ in el:
+            assert step_data["source_state"] is not None
+
+    @staticmethod
+    def _tagged(adata: AnnData) -> tuple[AnnData, dict[tuple, int]]:
+        """A copy whose ``.X[:, 0]`` holds each cell's (cell_line, drug) id, so a streamed row names its group."""
+        ad = adata.copy()
+        combos = list(ad.obs[["cell_line", "drug"]].astype(str).itertuples(index=False, name=None))
+        ids = {combo: i for i, combo in enumerate(dict.fromkeys(combos))}
+        ad.X[:, 0] = np.array([ids[c] for c in combos], dtype=np.float32)
+        return ad, ids
+
+    def test_the_source_is_the_paired_group_not_the_control(self, adata_small: AnnData):
+        """Each target's source rows must be exactly its partner group's cells."""
+        ad, ids = self._tagged(adata_small)
+        dm = _make_manager(matched_keys=self.PAIRS)
+        source_of = {target: source for source, target in self.PAIRS.items()}
+
+        seen = 0
+        for step_data, leaf in dm.get_eval_loader(ad):
+            source_ids = {round(v) for v in step_data["source_state"][:, 0].tolist()}
+            assert source_ids == {ids[source_of[leaf]]}, f"{leaf} flowed from the wrong group"
+            seen += 1
+        assert seen == len(self.PAIRS)
+
+    def test_training_batches_bind_each_target_to_its_paired_source(self, adata_small: AnnData):
+        """Same guarantee on the sampling path: the bound control sampler must follow the pair, not the group."""
+        ad, ids = self._tagged(adata_small)
+        ad = with_split(ad, cols=["cell_line", "drug"], labels=("train",))
+        loaders = _make_manager(matched_keys=self.PAIRS).get_dataloaders(ad, split_by="split", batch_size=4)
+        assert set(loaders) == {"train"}
+
+        pair_of = {ids[target]: ids[source] for source, target in self.PAIRS.items()}
+        batches = list(loaders["train"])
+        assert batches, "the train loader must stream something"
+        for step_data in batches:
+            n = step_data["target_state"].shape[0]
+            assert step_data["source_state"].shape[0] == n  # matched, row-aligned
+            target_ids = {round(v) for v in step_data["target_state"][:, 0].tolist()}
+            source_ids = {round(v) for v in step_data["source_state"][:, 0].tolist()}
+            assert len(target_ids) == 1, "a batch is drawn from one group"
+            assert source_ids == {pair_of[target_ids.pop()]}
+
+    def test_the_callers_adata_is_never_written_to(self, adata_small: AnnData):
+        """The pair column lives on a shallow copy; the caller's obs (and any view) stays untouched."""
+        before = list(adata_small.obs.columns)
+        dm = _make_manager(matched_keys=self.PAIRS)
+        list(dm.get_eval_loader(adata_small))
+        dm.get_dataloaders(adata_small, split_by=None, batch_size=4)
+
+        assert list(adata_small.obs.columns) == before
+
+    def test_matched_keys_override_at_inference(self, adata_small: AnnData):
+        dm = _make_manager(matched_keys=self.PAIRS)  # registered pairs
+        other = {("HEK293", "control"): ("HEK293", "aspirin")}
+        el = dm.get_eval_loader(adata_small, matched_keys=other)
+
+        assert {leaf for _, leaf in el} == set(other.values())
+
+    def test_a_group_in_two_pairs_is_rejected(self, adata_small: AnnData):
+        chain = {("HeLa", "control"): ("HeLa", "aspirin"), ("HeLa", "aspirin"): ("HeLa", "ibuprofen")}
+        with pytest.raises(ValueError, match="more than one entry of matched_keys"):
+            _make_manager(matched_keys=chain).get_eval_loader(adata_small)
+
+    def test_an_unknown_key_is_rejected(self, adata_small: AnnData):
+        with pytest.raises(KeyError, match="target keys not found"):
+            _make_manager(matched_keys={("HeLa", "control"): ("HeLa", "nosuchdrug")}).get_eval_loader(adata_small)
+
+
 class TestUnconditionalStreaming:
     """A schema with no groups/conditions still trains: one implicit group, no split."""
 

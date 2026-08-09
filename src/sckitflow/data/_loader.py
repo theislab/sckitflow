@@ -29,6 +29,8 @@ from scfit.data import EvalLoader as ScfitEvalLoader
 from scfit.data import Loader as ScfitLoader
 from scfit.data import Stream
 
+from sckitflow.data._utils import with_derived_obs
+
 if TYPE_CHECKING:
     import torch
 
@@ -113,24 +115,29 @@ class _StepDataBridge:
         adata: AnnData,
         dm: DataManager,
         *,
+        pair_key: str | None = None,
         dtype: torch.dtype | None = None,
         device: str | None = None,
+        assert_device: bool = True,
     ) -> None:
         self._dm = dm
         self._dtype = dtype
         # Compared by device *type* ("cuda" vs "cuda:0"), matching ``Model.to_device``.
         self._device = device
         self._device_type = device.split(":")[0] if device is not None else None
+        self._assert_device = assert_device
         cond_schema = dm.condition_data_schema
         self._state_loc = _state_loc(dm.state_data_schema.sample_rep)
         # group_by = group columns + categorical condition columns (continuous covs are streamed reps).
         self._group_cols: tuple[str, ...] = dm.group_cols
+        # Fixed matching (`matched_keys`) rides as one derived column shared by a target group and the source
+        # group it flows from -- appended to `group_by` so scfit can `match_on` it, and stripped back off
+        # before a leaf is used as a group identity (see `_strip`).
+        self._pair_cols: tuple[str, ...] = (pair_key,) if pair_key is not None else ()
         if not self._group_cols:
-            # Unconditional schema (no groups, no conditions): scfit must still group on something, so
-            # stream one implicit group holding every cell. Written onto `adata.obs` because that is
-            # where scfit reads grouping from; it is constant and idempotent.
-            if _ALL_CELLS not in adata.obs:
-                adata.obs[_ALL_CELLS] = pd.Categorical(np.full(adata.n_obs, "all"))
+            # Unconditional schema (no groups, no conditions): scfit must still group on something, so stream
+            # one implicit group holding every cell, on a shallow copy of the caller's AnnData.
+            adata = with_derived_obs(adata, **{_ALL_CELLS: pd.Categorical(np.full(adata.n_obs, "all"))})
             self._group_cols = (_ALL_CELLS,)
         # Continuous covariates ride as aligned reps: {rep loc -> StepData dict key}.
         self._cond_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in cond_schema.conditions_covariates}
@@ -155,23 +162,37 @@ class _StepDataBridge:
     def _conform(self, tensor: Any, *, streamed: bool = True) -> Any:
         """Cast one tensor to the configured ``dtype`` and assert its ``device`` -- the single place both apply.
 
-        ``device`` is checked, never fixed, for a ``streamed`` tensor: those come straight off scfit, which
-        already reads on the streaming device, so a mismatch means the read window is on the wrong device
-        and *every* batch would be copied. That is a real problem and it fails here rather than being
-        silently paid for. The per-group ``uns`` encodings are not streamed -- they are host arrays by
-        construction, so they are moved once, when their cache entry is first filled.
+        ``device`` is checked, never fixed, for a ``streamed`` tensor *when the loader asserts it*: those come
+        straight off scfit, which already reads on the streaming device, so a mismatch means the read window is
+        on the wrong device and *every* training batch would be copied. That is a real problem and it fails
+        here rather than being silently paid for -- the fix is ``preload_to_gpu=True``, scfit's GPU-resident
+        read window. :class:`EvalLoader` passes ``assert_device=False``: scfit's eval path reads rows directly,
+        so there is no read window to place on the device, its one copy per group is the only option, and
+        raising would just make GPU prediction impossible. The per-group ``uns`` encodings are not streamed --
+        they are host arrays by construction, so they are moved once, when their cache entry is first filled.
         """
         if self._dtype is not None and tensor.dtype is not self._dtype:
             tensor = tensor.to(self._dtype)
         if self._device_type is not None and tensor.device.type != self._device_type:
-            if streamed:
+            if streamed and self._assert_device:
                 raise RuntimeError(
                     f"batches stream on {tensor.device.type!r} but the method runs on {self._device!r}; "
                     "every batch would be copied across devices. Stream on the compute device instead "
-                    "(scfit's GPU-resident read window), or run the method where the data is."
+                    "(`preload_to_gpu=True`, scfit's GPU-resident read window), or run the method where the "
+                    "data is."
                 )
             tensor = tensor.to(self._device)
         return tensor
+
+    def _strip(self, leaf: Any, n_prefix: int = 0) -> tuple:
+        """The plain group leaf: the streamed leaf without its ``split_by`` prefix or pair-id suffix.
+
+        Both are selectors bolted onto ``group_by`` -- a split excludes cells, a pair id names the source
+        group -- and neither is part of the group's identity, so neither may reach ``_leaf_to_gid`` or the
+        caller's output ``obs``.
+        """
+        leaf = tuple(leaf)
+        return leaf[n_prefix : len(leaf) - len(self._pair_cols)]
 
     def _conform_batch(self, step_data: dict[str, Any]) -> dict[str, Any]:
         """One pass over the assembled batch -- the last stage of loading, where dtype/device are settled."""
@@ -239,7 +260,8 @@ class _StepDataBridge:
             raise ValueError(
                 "a group was matched to zero control cells, so there is no source to flow from. Check that "
                 "every group value present in the primary also has controls (matching is on the group "
-                "columns), or predict unpaired by passing `control_values_dict=None`."
+                "columns, or on the pair id under `matched_keys`), or predict unpaired by passing "
+                "`control_values_dict={}`."
             )
         import torch
 
@@ -287,11 +309,18 @@ class _StepDataBridge:
         control_weights: dict[tuple, float] | None,
         **stream_kwargs: Any,
     ) -> tuple[AnnData | None, Stream | None]:
-        match_cols = tuple(self._dm.groups_data_schema.groups)
+        # Under fixed matching the pair column *is* the match: one id shared by a target group and the source
+        # group it flows from, which is the only thing scfit's value-equality matching can key on. Otherwise a
+        # target is matched to whatever shares its group columns.
+        match_cols = self._pair_cols or tuple(self._dm.groups_data_schema.groups)
+        # The control stream carries the pair column so `match_on` can reach it; without one it groups on the
+        # full group columns (what its weights' keys are).
+        group_by = [*self._group_cols, *self._pair_cols]
         if control_adata is not None:
             return control_adata, Stream(
                 _CONTROL,
-                group_by=list(match_cols) if match_cols else list(self._group_cols),
+                # A separate pool groups on just what it is matched by, plus the pair column when fixed.
+                group_by=group_by if self._pair_cols else list(match_cols or self._group_cols),
                 reps=(self._state_loc,),
                 match_on=list(match_cols),
                 **stream_kwargs,
@@ -299,7 +328,7 @@ class _StepDataBridge:
         if control_weights:
             return None, Stream(
                 _PRIMARY,  # same source as the primary; weights pick out the controls
-                group_by=list(self._group_cols),
+                group_by=group_by,
                 reps=(self._state_loc,),
                 weights=control_weights,
                 match_on=list(match_cols),
@@ -350,13 +379,24 @@ class Loader(_StepDataBridge):
         used only when ``control_adata`` is ``None``. ``None`` (and no ``control_adata``) => unpaired.
     :type control_weights: class: `dict | None`
 
+    :param pair_key: An ``.obs`` column whose value a target group shares with the source group it flows
+        from -- how fixed matching (:class:`DataManager`'s ``matched_keys``) is expressed. Appended to both
+        streams' ``group_by`` and matched on, then stripped back off the leaf. ``None`` matches on the group
+        columns instead.
+    :type pair_key: class: `str | None`
+
     :param dtype: Torch dtype every emitted tensor is cast to (``None`` = leave as streamed). Set from the
         method's ``dtype`` so a ``float64`` source does not reach ``float32`` modules.
     :type dtype: class: `torch.dtype | None`
 
     :param device: Device the streamed batches must *already* be on (``None`` = no check). This is an
-        assertion, not a move: a mismatch means every batch would be copied, so it raises instead.
+        assertion, not a move: a mismatch means every batch would be copied, so it raises instead. Pass
+        ``preload_to_gpu=True`` to actually stream on a GPU.
     :type device: class: `str | None`
+
+    :param preload_to_gpu: Hand scfit/annbatch a GPU-resident read window, so batches arrive on the device
+        instead of being copied there (requires ``sckitflow[gpu]``). Defaults to ``False``.
+    :type preload_to_gpu: class: `bool`
 
     :param n_iters: Number of batches one pass yields. ``None`` = one epoch over the primary. The trainer
         sets this to the training-step count (via :meth:`set_n_iters`) and iterates the loader.
@@ -372,6 +412,7 @@ class Loader(_StepDataBridge):
         primary_weights: dict[tuple, float] | None = None,
         control_adata: AnnData | None = None,
         control_weights: dict[tuple, float] | None = None,
+        pair_key: str | None = None,
         to: str | None = None,
         dtype: torch.dtype | None = None,
         device: str | None = None,
@@ -380,8 +421,9 @@ class Loader(_StepDataBridge):
         batch_size: int = 128,
         chunk_size: int = 1,
         preload_nchunks: int | None = None,
+        preload_to_gpu: bool = False,
     ) -> None:
-        super().__init__(adata, dm, dtype=dtype, device=device)
+        super().__init__(adata, dm, pair_key=pair_key, dtype=dtype, device=device)
         self._rows_per_batch = batch_size
         sampler_kwargs = {
             "batch_size": batch_size,
@@ -397,12 +439,14 @@ class Loader(_StepDataBridge):
 
         primary = Stream(
             _PRIMARY,
-            group_by=[*prefix_cols, *self._group_cols],
+            group_by=[*prefix_cols, *self._group_cols, *self._pair_cols],
             reps=primary_reps,
             weights=primary_weights,
             **sampler_kwargs,
         )
-        sources: dict[str, AnnData] = {_PRIMARY: adata}
+        # `self._adata`, not the argument: an unconditional schema streams a shallow copy carrying the
+        # implicit all-cells group column (see `with_derived_obs`).
+        sources: dict[str, AnnData] = {_PRIMARY: self._adata}
         links: dict[str, Stream] = {}
 
         # Control link -- `in_memory` materializes just the selected control cells, a small pool re-drawn
@@ -417,7 +461,9 @@ class Loader(_StepDataBridge):
 
         # Make the scfit loader finite (one epoch by default) so a plain pass terminates and is
         # re-iterable; the caller (e.g. the trainer) sets the training length via `set_n_iters`.
-        self._loader = ScfitLoader(sources, primary=primary, links=links, seed=seed, to=to)
+        self._loader = ScfitLoader(
+            sources, primary=primary, links=links, seed=seed, to=to, preload_to_gpu=preload_to_gpu
+        )
         self._loader.set_n_iters(n_iters if n_iters is not None else self._loader.n_batches)
 
     def set_n_iters(self, n_iters: int) -> Loader:
@@ -430,10 +476,10 @@ class Loader(_StepDataBridge):
     def _to_step_data(self, batch: dict) -> StepData:
         """Assemble one sampled scfit batch into a ``StepData``.
 
-        ``batch["leaves"][primary]`` is the group this batch was drawn from; past any ``split_by`` prefix
-        it is a plain group leaf, which keys the cached categorical encoding.
+        ``batch["leaves"][primary]`` is the group this batch was drawn from; past any ``split_by`` prefix and
+        pair-id suffix it is a plain group leaf, which keys the cached categorical encoding.
         """
-        leaf = tuple(batch["leaves"][_PRIMARY])[self._n_prefix :]
+        leaf = self._strip(batch["leaves"][_PRIMARY], self._n_prefix)
         # every training batch is exactly `batch_size` rows (the sampler drops the short tail)
         return self._assemble(batch, self._leaf_to_gid[leaf], has_state=True, n_rows=self._rows_per_batch)
 
@@ -462,10 +508,16 @@ class EvalLoader(_StepDataBridge):
         per group / dedup). See :class:`scfit.data.EvalLoader`.
     :type max_per_group: class: `int | None`
 
+    :param pair_key: An ``.obs`` column tying a target group to its source group -- fixed matching; see
+        :class:`Loader`.
+    :type pair_key: class: `str | None`
+
     :param dtype: Torch dtype every emitted tensor is cast to (``None`` = leave as streamed).
     :type dtype: class: `torch.dtype | None`
 
-    :param device: Device the streamed batches must already be on (``None`` = no check); see :class:`Loader`.
+    :param device: Device every emitted tensor is moved to (``None`` = leave as streamed). Unlike
+        :class:`Loader` this *moves* rather than asserts: scfit's eval path reads rows directly, so there is no
+        read window to place on the device and the one copy per group is unavoidable.
     :type device: class: `str | None`
     """
 
@@ -477,6 +529,7 @@ class EvalLoader(_StepDataBridge):
         primary_weights: dict[tuple, float] | None = None,
         control_adata: AnnData | None = None,
         control_weights: dict[tuple, float] | None = None,
+        pair_key: str | None = None,
         require_target_state: bool = True,
         max_per_group: int | None = None,
         subsample: str | Callable = "head",
@@ -485,14 +538,19 @@ class EvalLoader(_StepDataBridge):
         device: str | None = None,
         seed: int = 0,
     ) -> None:
-        super().__init__(adata, dm, dtype=dtype, device=device)
+        super().__init__(adata, dm, pair_key=pair_key, dtype=dtype, device=device, assert_device=False)
         self._has_state = require_target_state
         self._max_per_group = max_per_group
         state_reps = (self._state_loc,) if require_target_state else ()
         primary_reps = (*state_reps, *self._cond_cont_locs, *self._resp_cont_locs)
 
-        primary = Stream(_PRIMARY, group_by=list(self._group_cols), reps=primary_reps, weights=primary_weights)
-        sources: dict[str, AnnData] = {_PRIMARY: adata}
+        primary = Stream(
+            _PRIMARY,
+            group_by=[*self._group_cols, *self._pair_cols],
+            reps=primary_reps,
+            weights=primary_weights,
+        )
+        sources: dict[str, AnnData] = {_PRIMARY: self._adata}
         links: dict[str, Stream] = {}
 
         # Control link (source), matched on the group columns -- controls always carry a state to flow from.
@@ -509,7 +567,7 @@ class EvalLoader(_StepDataBridge):
     def __iter__(self) -> Iterator[tuple[StepData, tuple]]:
         """Yield ``(StepData, leaf)`` per selected group, deterministically."""
         for batch in self._loader:
-            leaf = tuple(batch["leaf"])
+            leaf = self._strip(batch["leaf"])
             # the group's cell count, capped the same way scfit caps the rows it reads
             n_rows = self._leaf_size[leaf]
             if self._max_per_group is not None:

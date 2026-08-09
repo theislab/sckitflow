@@ -4,7 +4,7 @@ import logging
 import tarfile
 import tempfile
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Unpack, overload
 
@@ -531,6 +531,7 @@ class Model:
         max_per_group: int | None = None,
         require_target_state: bool = True,
         control_values_dict: dict[str, str] | None = None,
+        matched_keys: Mapping[tuple, tuple] | None = None,
         control_adata: AnnData | None = None,
         predict_kwargs: dict[str, Any] | None = None,
     ) -> AnnData | tuple[AnnData, PredictionData]:
@@ -560,8 +561,13 @@ class Model:
 
         :param control_values_dict: Optional mapping from each condition level to its control value,
             overriding the instance's for this call (to allow inference over arbitrary control keys).
-            Defaults to ``None`` (use the instance's).
+            Defaults to ``None`` (use the instance's); pass ``{}`` to predict unpaired.
         :type control_values_dict: class: `dict[str, str] | None`
+
+        :param matched_keys: Optional ``{source group key: target group key}`` pairs for fixed matching,
+            overriding the instance's for this call (to allow inference over arbitrary pairs). Defaults to
+            ``None`` (use the instance's).
+        :type matched_keys: class: `Mapping[tuple, tuple] | None`
 
         :param control_adata: Optional separate control (source) pool, matched on the group columns.
         :type control_adata: class: `AnnData | None`
@@ -582,6 +588,7 @@ class Model:
             max_per_group=max_per_group,
             require_target_state=require_target_state,
             control_values_dict=control_values_dict,
+            matched_keys=matched_keys,
             control_adata=control_adata,
             to=None,  # native arrays in, zero-copy to torch in the loader (see `Model.train`)
             dtype=self._method.dtype,
@@ -714,7 +721,7 @@ class Model:
     @property
     def is_paired_setting(self) -> bool:
         """Whether the data was registered in a paired setting."""
-        return self._dm.control_values_dict is not None
+        return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
 
     @property
     def method(self) -> BaseMethod:

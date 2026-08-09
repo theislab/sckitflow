@@ -141,7 +141,7 @@ class BaseMethod(abc.ABC):
 
     @property
     def is_paired_setting(self) -> bool:
-        return self._dm.control_values_dict is not None
+        return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
 
     @property
     def device_id(self) -> str:

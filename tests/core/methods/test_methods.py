@@ -65,10 +65,11 @@ def mock_dims_registry():
 
 @pytest.fixture
 def mock_data_manager():
-    # Unpaired setting: `is_paired_setting` reads `control_values_dict` off the data
-    # manager, so it must be explicitly None rather than an auto-created Mock attribute.
+    # Unpaired setting: `is_paired_setting` reads `control_values_dict` / `matched_keys` off the data
+    # manager, so both must be explicitly None rather than auto-created (truthy) Mock attributes.
     dm = Mock(spec=DataManager)
     dm.control_values_dict = None
+    dm.matched_keys = None
     return dm
 
 
@@ -99,6 +100,7 @@ def torch_gen_flow(mock_dims_registry, mock_data_manager):
 def mock_paired_data_manager():
     dm = Mock(spec=DataManager)
     dm.control_values_dict = {"drug": "control"}
+    dm.matched_keys = None
     return dm
 
 
@@ -125,6 +127,11 @@ class TestBaseMethod:
         """is_paired_setting is derived from the data manager's control/matched config."""
         method = DummyMethod(mock_dims_registry, mock_paired_data_manager)
         assert method.is_paired_setting is True
+
+    def test_matched_keys_alone_is_a_paired_setting(self, mock_dims_registry, mock_data_manager):
+        """Fixed pairs supply a source without any control values, so the setting is paired."""
+        mock_data_manager.matched_keys = {("HeLa", "aspirin"): ("HeLa", "ibuprofen")}
+        assert DummyMethod(mock_dims_registry, mock_data_manager).is_paired_setting is True
 
     def test_properties_return_correct_values(self, mock_dims_registry, mock_paired_data_manager):
         method = DummyMethod(mock_dims_registry, mock_paired_data_manager)

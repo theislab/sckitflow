@@ -244,6 +244,71 @@ class TestSplitOwnership:
         assert set(loaders) == {"train"}
 
 
+def _buffer(series: pd.Series) -> np.ndarray:
+    """The array actually backing a column -- a categorical's codes, otherwise its values.
+
+    ``Series.cat.codes`` builds a fresh array on each access, so it can never be compared for sharing;
+    the internal ``_codes`` is the buffer a copy would have duplicated.
+    """
+    return series.array._codes if isinstance(series.dtype, pd.CategoricalDtype) else series.to_numpy()
+
+
+class TestStreamingLeavesTheCallersDataAlone:
+    """The invariant behind `with_derived_obs`: streaming derives obs columns without copying or mutating.
+
+    Each case exercises one derived column -- the split label, the ``matched_keys`` pair id, the implicit
+    all-cells group -- since each is a separate place sckitflow could have written to the caller's object.
+    Nothing at runtime enforces this (``X`` and ``obsm`` are the caller's own arrays, and on a pandas
+    without copy-on-write so are the obs columns), so it is pinned here instead.
+    """
+
+    def _managers(self):
+        return {
+            "splitter": _make_manager(
+                control_values_dict={"drug": "control"},
+                splitter=CombinationSplitter(
+                    group_keys=["cell_line", "drug"],
+                    always_train_keys=["cell_line"],
+                    control_key="drug",
+                    test_fraction=0.5,
+                ),
+            ),
+            "matched_keys": _make_manager(matched_keys={("HeLa", "aspirin"): ("HeLa", "ibuprofen")}),
+            "unconditional": DataManager(),  # no group columns -> the implicit all-cells group
+        }
+
+    def _assert_shares_everything(self, streamed: AnnData, adata: AnnData) -> None:
+        """The streamed adata must be a *shallow* derivative: same arrays, extra obs columns only."""
+        assert streamed is not adata, "a derived column means a new object, not the caller's"
+        assert streamed.X is adata.X
+        for key in adata.obsm:
+            assert streamed.obsm[key] is adata.obsm[key], f"obsm[{key!r}] was copied"
+        for col in adata.obs.columns:
+            assert np.shares_memory(_buffer(adata.obs[col]), _buffer(streamed.obs[col])), f"obs[{col!r}] was copied"
+
+    @pytest.mark.parametrize("case", ["splitter", "matched_keys", "unconditional"])
+    def test_training_derives_obs_without_copying_or_mutating(self, adata_small: AnnData, case):
+        adata_small.obsm["X_repr"] = np.zeros((adata_small.n_obs, 3), dtype=np.float32)
+        before = list(adata_small.obs.columns)
+        dm = self._managers()[case]
+
+        loaders = dm.get_dataloaders(adata_small, batch_size=8)
+        for loader in loaders.values():
+            next(iter(loader))  # actually stream, so nothing is derived lazily on first read
+            self._assert_shares_everything(loader._adata, adata_small)
+        assert list(adata_small.obs.columns) == before, "the caller's obs gained a column"
+
+    @pytest.mark.parametrize("case", ["matched_keys", "unconditional"])
+    def test_prediction_derives_obs_without_copying_or_mutating(self, adata_small: AnnData, case):
+        adata_small.obsm["X_repr"] = np.zeros((adata_small.n_obs, 3), dtype=np.float32)
+        before = list(adata_small.obs.columns)
+        el = self._managers()[case].get_eval_loader(adata_small)
+
+        next(iter(el))
+        self._assert_shares_everything(el._adata, adata_small)
+        assert list(adata_small.obs.columns) == before
+
+
 class TestControlPool:
     """A separate control pool is streamed as the source whether or not the schema declares pairing."""
 

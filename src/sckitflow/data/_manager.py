@@ -184,7 +184,32 @@ class DataManagerKwargs(TypedDict, total=False):
 
 
 class DataManager:
-    """Class for managing data configurations."""
+    """The schema: everything sckitflow needs to know about an ``AnnData`` before it can read one.
+
+    Its job is to answer, from configuration alone, three questions a batch cannot answer for itself --
+    **what** each cell's state and covariates are (``sample_rep``, ``conditions``, ``groups``, the
+    ``*_covs``), **which cells flow into which** (``control_values_dict``, or ``matched_keys`` for fixed
+    pairs), and **which cells are held out** (``splitter`` or ``split_by``). The loaders then read only what
+    the schema declared.
+
+    Two boundaries follow from that, and both are enforced rather than documented-and-hoped:
+
+    **One owner per question.** Anything the schema declares is declared once, here, not re-passed per call:
+    :meth:`get_dataloaders` takes no ``split_by``, and the split has exactly one source -- a ``splitter``
+    this class applies itself, or a ``split_by`` column it requires to be present. Passing both raises, a
+    declared column that is missing raises, and an *undeclared* ``"split"`` column raises rather than
+    quietly training on held-out cells. Only inference-time overrides are per call
+    (:meth:`get_eval_loader`'s ``control_values_dict`` / ``matched_keys``), because predicting over
+    different controls than were registered is the point of them.
+
+    **Derived columns never touch the caller's object.** The split label and the ``matched_keys`` pair id
+    are sckitflow's own bookkeeping, but they have to live in ``.obs`` because that is where scfit reads
+    grouping from. They are written to a shallow copy that shares ``X`` / ``obsm`` / ``uns``
+    (:func:`~sckitflow.data._utils.with_derived_obs`), so nothing is duplicated and the caller's AnnData
+    gains no columns it did not ask for -- which also keeps a *view* from being silently materialized.
+
+    See :class:`DataManagerKwargs` for the individual options.
+    """
 
     def __init__(self, **kwargs: Unpack[DataManagerKwargs]) -> None:
         """Initializes the object. See :class:`DataManagerKwargs` for parameter descriptions."""

@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 
+from sckitflow._utils import check_sequence_query_against_reference
 from sckitflow.data.splitters._base import Splitter
 
 __all__ = ["CombinationSplitter"]
@@ -71,10 +72,12 @@ class CombinationSplitter(Splitter):
         self._always_train_keys = tuple(always_train_keys)
         if not self._group_keys:
             raise ValueError("group_keys must be non-empty.")
-        if not set(self._always_train_keys) <= set(self._group_keys):
-            raise ValueError(
-                f"always_train_keys {self._always_train_keys} must be a subset of group_keys {self._group_keys}."
-            )
+        check_sequence_query_against_reference(
+            self._always_train_keys,
+            self._group_keys,
+            query_name="always_train_keys",
+            reference_name="group_keys",
+        )
         if test_fraction > 0 and set(self._always_train_keys) == set(self._group_keys):
             # Every stratum would then be a single combination, and the "keep >=1 in train" cap makes its
             # hold-out 0 -- so no test_fraction could ever hold anything out. A config mistake, not a split.

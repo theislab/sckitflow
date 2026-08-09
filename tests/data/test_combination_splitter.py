@@ -124,7 +124,8 @@ class TestCombinationSplitter:
             _splitter(test_fraction=1.0)
 
     def test_always_train_keys_must_be_subset(self):
-        with pytest.raises(ValueError, match="subset"):
+        """The message names the offending key and both parameters, not just that something is wrong."""
+        with pytest.raises(ValueError, match=r"always_train_keys entries not found in group_keys: \['drug'\]"):
             CombinationSplitter(group_keys=["cell_line"], always_train_keys=["drug"])
 
     def test_missing_column_raises(self):

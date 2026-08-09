@@ -1,7 +1,10 @@
+import copy
 from collections.abc import Callable, Collection, Mapping
+from typing import Any
 
 import numpy as np
 import pandas as pd
+from anndata import AnnData
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sckitflow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
@@ -12,7 +15,27 @@ __all__ = [
     "get_label_encoder",
     "get_one_hot_encoder",
     "convert_to_categorical_in_place",
+    "with_derived_obs",
 ]
+
+
+def with_derived_obs(adata: AnnData, **cols: Any) -> AnnData:
+    """A shallow AnnData sharing ``adata``'s arrays but carrying extra ``.obs`` columns.
+
+    For a column sckitflow derives -- a split label, the implicit all-cells group, the pair id behind fixed
+    matching. Such a column has to be in the obs the consumer reads (scfit reads grouping only from ``.obs``),
+    but it has no business being in the caller's object: writing one there mutates their AnnData, and on a
+    **view** it materializes the whole thing (anndata's "initializing view as actual") -- the copy an
+    out-of-core path exists to avoid. ``adata.copy()`` is worse still: a deep copy of ``X`` to add one column.
+
+    ``copy.copy`` shares ``X`` / ``obsm`` / ``uns`` by reference and the fresh obs frame keeps the addition
+    local, so no cell data is copied. Because the arrays *are* shared, writing to the result's ``X`` writes
+    through to ``adata``. (A view still materializes its own subset -- a view's obs is a slice -- but the
+    caller's object stays untouched.)
+    """
+    local = copy.copy(adata)
+    local.obs = adata.obs.assign(**cols)
+    return local
 
 
 def get_covariates_encoders_from_dict(

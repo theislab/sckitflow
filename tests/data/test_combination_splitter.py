@@ -95,7 +95,14 @@ class TestCombinationSplitter:
         adata = _make_adata()
         out = _splitter(split_key="my_split").split(adata, copy=True)
         assert "my_split" in out.obs.columns
-        assert "my_split" not in adata.obs.columns  # copy=True leaves the input untouched
+        assert "my_split" not in adata.obs.columns  # copy=True leaves the input's obs untouched
+        assert out.X is adata.X  # ...and shares the cell matrix: obs-only copy, no data copied
+
+    def test_split_refuses_to_overwrite_an_existing_split(self):
+        """A split already in obs is someone's hold-out decision; replacing it silently is data loss."""
+        adata = _splitter().split(_make_adata())
+        with pytest.raises(ValueError, match="refusing to overwrite"):
+            _splitter(seed=1).split(adata)
 
     def test_invalid_fraction_raises(self):
         with pytest.raises(ValueError, match="test_fraction"):

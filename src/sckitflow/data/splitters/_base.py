@@ -3,6 +3,8 @@ from __future__ import annotations
 import pandas as pd
 from anndata import AnnData
 
+from sckitflow.data._utils import with_derived_obs
+
 __all__ = ["Splitter"]
 
 
@@ -48,20 +50,31 @@ class Splitter:
     def split(self, adata: AnnData, *, copy: bool = False) -> AnnData:
         """Writes the split label into ``adata.obs[self.split_key]``.
 
+        Refuses to overwrite an existing ``split_key`` column: a previous split is someone's decision about
+        which cells are held out, and silently replacing it makes every downstream loader disagree with the
+        run that produced it. Drop the column (or pass a different ``split_key``) to re-split deliberately.
+
         :param adata: The annotated data object to annotate.
         :type adata: class: `AnnData`
 
-        :param copy: If ``True``, annotate and return a copy, leaving the input untouched.
-            Defaults to ``False`` (annotate in place and return the same object).
+        :param copy: If ``True``, write to a *shallow* copy and return that, leaving the input's ``.obs``
+            untouched -- ``X`` / ``obsm`` / ``uns`` stay shared, so no cell data is copied. Defaults to
+            ``False`` (annotate in place and return the same object).
         :type copy: class: `bool`
 
-        :returns: The annotated annotated data object (a copy when ``copy=True``).
+        :returns: The annotated annotated data object (a shallow copy when ``copy=True``).
         :rtype: class: `AnnData`
         """
+        if self._split_key in adata.obs.columns:
+            raise ValueError(
+                f"adata.obs already has a {self._split_key!r} column; refusing to overwrite an existing split. "
+                f"Drop it (`del adata.obs[{self._split_key!r}]`) to re-split, or construct this splitter with "
+                "another `split_key`."
+            )
+        labels = pd.Categorical(self.assign(adata).reindex(adata.obs_names).to_numpy())
         if copy:
-            adata = adata.copy()
-        labels = self.assign(adata)
-        adata.obs[self._split_key] = pd.Categorical(labels.reindex(adata.obs_names).to_numpy())
+            return with_derived_obs(adata, **{self._split_key: labels})
+        adata.obs[self._split_key] = labels
         return adata
 
     def __call__(self, adata: AnnData, *, copy: bool = False) -> AnnData:

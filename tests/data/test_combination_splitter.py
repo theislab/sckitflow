@@ -104,6 +104,21 @@ class TestCombinationSplitter:
         with pytest.raises(ValueError, match="refusing to overwrite"):
             _splitter(seed=1).split(adata)
 
+    def test_an_empty_hold_out_warns(self):
+        """`floor(fraction * k)` rounds to 0 for every small stratum -- a split that silently didn't split."""
+        adata = _make_adata()
+        # A and B carry 6 perturbed drugs each; at 1/6 per stratum floor(1/6 * 6) == 1, so go below that.
+        with pytest.warns(UserWarning, match="nothing was held out"):
+            labels = _splitter(test_fraction=0.1).assign(adata)
+        assert set(labels.unique()) == {"train", "control"}
+
+    def test_always_train_covering_every_group_key_raises(self):
+        """Each stratum would be one combination, so no test_fraction could ever hold anything out."""
+        with pytest.raises(ValueError, match="covers every group key"):
+            _splitter(always_train_keys=["cell_line", "drug"])
+        # ...unless no hold-out was asked for in the first place.
+        _splitter(always_train_keys=["cell_line", "drug"], test_fraction=0.0)
+
     def test_invalid_fraction_raises(self):
         with pytest.raises(ValueError, match="test_fraction"):
             _splitter(test_fraction=1.0)

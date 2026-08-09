@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import warnings
 from collections.abc import Sequence
 
 import numpy as np
@@ -20,6 +21,10 @@ class CombinationSplitter(Splitter):
     capped at ``k - 1`` -- so every ``always_train_keys`` value keeps at least one combination in train and
     is never pushed entirely into the held-out split. Control rows (``control_key == control_value``) are
     labeled ``control_label`` and never split. Deterministic given ``seed``.
+
+    Because the fraction is applied *per stratum* and rounds down, a stratum with fewer than
+    ``ceil(1 / test_fraction)`` combinations contributes nothing to the hold-out; :meth:`assign` warns when
+    that leaves the test split empty altogether.
     """
 
     def __init__(
@@ -60,6 +65,14 @@ class CombinationSplitter(Splitter):
             raise ValueError(
                 f"always_train_keys {self._always_train_keys} must be a subset of group_keys {self._group_keys}."
             )
+        if test_fraction > 0 and set(self._always_train_keys) == set(self._group_keys):
+            # Every stratum would then be a single combination, and the "keep >=1 in train" cap makes its
+            # hold-out 0 -- so no test_fraction could ever hold anything out. A config mistake, not a split.
+            raise ValueError(
+                f"always_train_keys {self._always_train_keys} covers every group key, so each stratum is one "
+                "combination and nothing can ever be held out. Drop a key from always_train_keys, or pass "
+                "test_fraction=0 if no hold-out is intended."
+            )
         self._control_key = control_key
         self._control_value = control_value
         self._test_fraction = test_fraction
@@ -87,12 +100,27 @@ class CombinationSplitter(Splitter):
         # Hold out per stratum (each `always_train_keys` value), always leaving >=1 combination in train.
         rng = np.random.default_rng(self._seed)
         test_combos: list[tuple] = []
+        largest_stratum = 0
         strata = combos.groupby(atk, sort=True) if atk else [(None, combos)]
         for _, grp in strata:
             rows = list(map(tuple, grp[gk].to_numpy()))
+            largest_stratum = max(largest_stratum, len(rows))
             n_test = min(int(np.floor(self._test_fraction * len(rows))), len(rows) - 1)
             if n_test > 0:
                 test_combos.extend(rows[i] for i in np.sort(rng.choice(len(rows), size=n_test, replace=False)))
+
+        if self._test_fraction > 0 and not test_combos:
+            # `floor(test_fraction * k)` rounds down to 0 for every small stratum, so a hold-out was asked for
+            # and none happened. Silence here reads as "split done" and only surfaces much later, as training
+            # with no validation set.
+            warnings.warn(
+                f"nothing was held out: with test_fraction={self._test_fraction} a stratum needs at least "
+                f"{int(np.ceil(1 / self._test_fraction))} combinations before floor(test_fraction * k) reaches "
+                f"1, and the largest stratum here has {largest_stratum}. Every non-control observation is "
+                f"labelled {self._train_label!r}.",
+                UserWarning,
+                stacklevel=2,
+            )
 
         labels = np.full(len(obs), self._train_label, dtype=object)
         if test_combos:

@@ -27,8 +27,6 @@ __all__ = [
 
 def batchmixin_to_torch(
     data: mixins.BatchMixin | dict[str, np.ndarray | torch.Tensor] | None,
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> dict[str, torch.Tensor]:
     """Converts the elements of a mixin to torch tensors."""
     if data is None:
@@ -36,25 +34,21 @@ def batchmixin_to_torch(
     data_dict = data.mapping if isinstance(data, mixins.BatchMixin) else data
     if not isinstance(data_dict, dict):
         raise ValueError(f"Data dictionary of the wrong type, expected `dict` got {type(data_dict)}.")
-    return {k: to_torch_tensor(v, dtype=dtype, device=device) for k, v in data_dict.items()}
+    return {k: to_torch_tensor(v) for k, v in data_dict.items()}
 
 
-def extract_state_data(
-    state_data: StateData | None, dtype: torch.dtype | None = None, device: torch.device | None = None
-) -> torch.Tensor | None:
+def extract_state_data(state_data: StateData | None) -> torch.Tensor | None:
     """Extracts torch tensors from the state data."""
     if state_data is None:
         return None
     X_state = state_data.X
-    X_state = to_torch_tensor(X_state, device=device, dtype=dtype)
+    X_state = to_torch_tensor(X_state)
     return X_state
 
 
 def extract_coupling_data(
     distribution_data: DistributionData,
     mode: Literal["source", "target"],
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> tuple[torch.Tensor | None, torch.Tensor | None]:
     """Extracts torch tensors from the coupling data."""
     # retrieve coupling data
@@ -69,20 +63,18 @@ def extract_coupling_data(
     state_quad: StateData | None = coupling_data.state_quad
 
     # get states for linear term
-    X_lin = extract_state_data(state_lin, device=device, dtype=dtype)
-    X_quad = extract_state_data(state_quad, device=device, dtype=dtype)
+    X_lin = extract_state_data(state_lin)
+    X_quad = extract_state_data(state_quad)
     return X_lin, X_quad
 
 
 def extract_distribution_data(
     distribution_data: DistributionData,
     mode: Literal["source", "target"],
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> tuple[Any]:
     """Extracts torch tensors from the distribution data."""
     coupling_lin, coupling_quad = extract_coupling_data(distribution_data, mode)
-    state_data = extract_state_data(distribution_data.state_data, device=device, dtype=dtype)
+    state_data = extract_state_data(distribution_data.state_data)
     condition_data = distribution_data.condition_data
     groups_data = distribution_data.groups_data
     return (coupling_lin, coupling_quad, state_data, condition_data, groups_data)
@@ -90,19 +82,15 @@ def extract_distribution_data(
 
 def get_tensor_dict_from_data(
     data: MixedTypeData | CategoricalData | dict[str, np.ndarray | torch.Tensor] | None,
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> dict[str, torch.Tensor]:
     """Extracts torch tensors from the distribution data."""
     if data is None:
         return {}
     data_dict = data.extract_reps() if isinstance(data, MixedTypeData | CategoricalData) else data
-    return batchmixin_to_torch(data_dict, device=device, dtype=dtype)
+    return batchmixin_to_torch(data_dict)
 
 
-def extract_step_data(
-    matched_distr: MatchedData, dtype: torch.dtype | None = None, device: torch.device | None = None
-) -> StepData:
+def extract_step_data(matched_distr: MatchedData) -> StepData:
     """Extracts torch tensors from the matched distribution data."""
     # parse dictionary of matched distributions
     source_data_dict: DistributionData | None = matched_distr.get("source")
@@ -111,7 +99,7 @@ def extract_step_data(
     # parse target data dictionary
     if target_data_dict is not None:
         (target_coupling_lin, target_coupling_quad, target_state, target_condition_data, target_group_data) = (
-            extract_distribution_data(target_data_dict, "target", device=device, dtype=dtype)
+            extract_distribution_data(target_data_dict, "target")
         )
         # target-side covariates: not consumed by the model, kept for output reconstruction
         target_response_data = target_data_dict.response_data
@@ -126,7 +114,7 @@ def extract_step_data(
     # optionally parse target data dictionary
     if source_data_dict is not None:
         (source_coupling_lin, source_coupling_quad, source_state, source_condition_data, source_group_data) = (
-            extract_distribution_data(source_data_dict, "source", device=device, dtype=dtype)
+            extract_distribution_data(source_data_dict, "source")
         )
     else:
         source_coupling_lin = None
@@ -211,8 +199,6 @@ def write_continuous_cond_cov_to_step_data(
     condition_key: str,
     x: torch.Tensor,
     base_data: MatchedData | None = None,
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> StepData:
     """Overrides the base data to store the input tensor at the specified key."""
     # ---- 1. No base data provided ----
@@ -221,7 +207,7 @@ def write_continuous_cond_cov_to_step_data(
         return new_step_data(target_condition_data=condition_dict)
     else:
         # ---- Retrieve Metadata ----
-        step_data: StepData = extract_step_data(base_data, device=device, dtype=dtype)
+        step_data: StepData = extract_step_data(base_data)
         target_condition_data: MixedTypeData = step_data["target_condition_data"]
 
         # --- Update covariates ----
@@ -263,17 +249,10 @@ def prepare_latent_train(
     target: torch.Tensor,
     noise_sampler: TNoiseSamplerFn,
     generate_from_noise: bool = False,
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> torch.Tensor:
     """Called from compute_loss - always returns single noise per batch element."""
     if source is None or generate_from_noise:
-        samples = noise_sampler(target.shape)
-        if dtype:
-            samples = samples.to(dtype)
-        if device:
-            samples = samples.to(device)
-        return samples
+        return noise_sampler(target.shape)
     return source
 
 
@@ -283,8 +262,6 @@ def prepare_latent_inference(
     noise_sampler: TNoiseSamplerFn,
     n_samples: int | None = None,
     generate_from_noise: bool = False,
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> torch.Tensor:
     """Called from infer.
 
@@ -297,12 +274,7 @@ def prepare_latent_inference(
         shape = target_reference.shape
         if n_samples is not None:
             shape = (n_samples, *shape)
-        samples = noise_sampler(shape)
-        if dtype:
-            samples = samples.to(dtype)
-        if device:
-            samples = samples.to(device)
-        return samples
+        return noise_sampler(shape)
     return source
 
 
@@ -361,8 +333,8 @@ class TorchMixedTypeData(MixedTypeData):
         else:
             mapping = {key: x_cond}
 
-        # ---- 3. Handle data type and device for other covariates and initialize mixin ----
-        mapping = {k: to_torch_tensor(v, dtype=x_cond.dtype, device=x_cond.device) for k, v in mapping.items()}
+        # ---- 3. Handle data type for other covariates and initialize mixin ----
+        mapping = {k: to_torch_tensor(v) for k, v in mapping.items()}
         mixin = TensorMixin(mapping)
 
         # ---- 4. Initialize class ----

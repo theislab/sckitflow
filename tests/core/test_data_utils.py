@@ -61,9 +61,11 @@ def matched_data():
 
 class TestDataUtils:
     def test_batchmixin_to_torch(self, batch_mixin):
-        result = data_utils.batchmixin_to_torch(batch_mixin, dtype=torch.float32)
+        result = data_utils.batchmixin_to_torch(batch_mixin)
         assert isinstance(result["a"], torch.Tensor)
-        assert result["a"].dtype == torch.float32
+        # dtype is carried over from numpy, never cast here
+        assert result["a"].dtype == torch.int64
+        assert result["b"].dtype == torch.float64
         assert result["a"].tolist() == [1, 2]
         assert result["b"].tolist() == [3.0, 4.0]
 

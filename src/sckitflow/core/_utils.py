@@ -14,30 +14,18 @@ __all__ = [
 ]
 
 
-def to_torch_tensor(
-    data: np.ndarray | torch.Tensor, dtype: torch.dtype | None = None, device: torch.device | None = None
-) -> torch.Tensor:
-    """Convert to a torch tensor, asserting -- not fixing -- the device.
+def to_torch_tensor(data: np.ndarray | torch.Tensor) -> torch.Tensor:
+    """Wrap host numpy in a tensor, changing nothing else.
 
-    ``device`` is a *check*, not a move: an already-tensor argument that sits somewhere else was produced
-    on the wrong device, and silently copying it every call hides a real (and slow) problem behind a
-    working test suite. Host numpy is the one exception -- it has no device, so the transfer is the only
-    possible direction.
+    Deliberately takes no ``dtype`` or ``device``: extraction never casts and never copies. An array
+    that reaches the model with the wrong dtype was produced wrong -- cast it in preprocessing -- and
+    the host->device transfer belongs at the batch boundary. Silently fixing either here hides a real
+    (and slow) problem behind a working test suite.
     """
-    from_host = isinstance(data, np.ndarray)
-    if from_host:
+    if isinstance(data, np.ndarray):
         data = torch.from_numpy(data)
     if not isinstance(data, torch.Tensor):
         raise ValueError(f"Data is of the wrong type: found {type(data)} but expected torch.Tensor")
-    if dtype is not None:
-        data = data.to(dtype)
-    if device is not None and data.device.type != torch.device(device).type:
-        if not from_host:
-            raise RuntimeError(
-                f"tensor is on {data.device} but {device} was requested; it was produced on the wrong "
-                "device. Fix where it is created rather than copying it here."
-            )
-        data = data.to(device)
     return data
 
 

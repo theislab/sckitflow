@@ -21,8 +21,6 @@ __all__ = [
 
 def batchmixin_to_torch(
     data: mixins.BatchMixin | dict[str, np.ndarray | torch.Tensor] | None,
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> dict[str, torch.Tensor]:
     """Converts the elements of a mixin to torch tensors."""
     if data is None:
@@ -30,19 +28,17 @@ def batchmixin_to_torch(
     data_dict = data.mapping if isinstance(data, mixins.BatchMixin) else data
     if not isinstance(data_dict, dict):
         raise ValueError(f"Data dictionary of the wrong type, expected `dict` got {type(data_dict)}.")
-    return {k: to_torch_tensor(v, dtype=dtype, device=device) for k, v in data_dict.items()}
+    return {k: to_torch_tensor(v) for k, v in data_dict.items()}
 
 
 def get_tensor_dict_from_data(
     data: MixedTypeData | CategoricalData | dict[str, np.ndarray | torch.Tensor] | None,
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> dict[str, torch.Tensor]:
     """Extracts torch tensors from the distribution data."""
     if data is None:
         return {}
     data_dict = data.extract_reps() if isinstance(data, MixedTypeData | CategoricalData) else data
-    return batchmixin_to_torch(data_dict, device=device, dtype=dtype)
+    return batchmixin_to_torch(data_dict)
 
 
 _SOURCE_FIELDS = (
@@ -137,17 +133,10 @@ def prepare_latent_train(
     target: torch.Tensor,
     noise_sampler: TNoiseSamplerFn,
     generate_from_noise: bool = False,
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> torch.Tensor:
     """Called from compute_loss - always returns single noise per batch element."""
     if source is None or generate_from_noise:
-        samples = noise_sampler(target.shape)
-        if dtype:
-            samples = samples.to(dtype)
-        if device:
-            samples = samples.to(device)
-        return samples
+        return noise_sampler(target.shape)
     return source
 
 
@@ -157,8 +146,6 @@ def prepare_latent_inference(
     noise_sampler: TNoiseSamplerFn,
     n_samples: int | None = None,
     generate_from_noise: bool = False,
-    dtype: torch.dtype | None = None,
-    device: torch.device | None = None,
 ) -> torch.Tensor:
     """Called from infer.
 
@@ -171,12 +158,7 @@ def prepare_latent_inference(
         shape = target_reference.shape
         if n_samples is not None:
             shape = (n_samples, *shape)
-        samples = noise_sampler(shape)
-        if dtype:
-            samples = samples.to(dtype)
-        if device:
-            samples = samples.to(device)
-        return samples
+        return noise_sampler(shape)
     return source
 
 
@@ -235,8 +217,8 @@ class TorchMixedTypeData(MixedTypeData):
         else:
             mapping = {key: x_cond}
 
-        # ---- 3. Handle data type and device for other covariates and initialize mixin ----
-        mapping = {k: to_torch_tensor(v, dtype=x_cond.dtype, device=x_cond.device) for k, v in mapping.items()}
+        # ---- 3. Handle data type for other covariates and initialize mixin ----
+        mapping = {k: to_torch_tensor(v) for k, v in mapping.items()}
         mixin = TensorMixin(mapping)
 
         # ---- 4. Initialize class ----

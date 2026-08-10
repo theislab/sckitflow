@@ -55,7 +55,7 @@ class CombinationSplitter(Splitter):
         """Initializes the splitter.
 
         :param group_keys: ``adata.obs`` columns whose unique combination is the unit of splitting.
-        :param always_train_keys: subset of ``group_keys`` whose every value keeps >=1 combination in train.
+        :param always_train_keys: subset of ``group_keys`` for which every unique value keeps >=1 combination in train.
         :param control_key: optional ``adata.obs`` column marking controls (never split). ``None`` = no controls.
         :param control_value: value of ``control_key`` marking a control row. Defaults to ``"control"``.
         :param test_fraction: target fraction of each stratum's combinations to hold out, in ``[0, 1)``.

@@ -39,12 +39,8 @@ class CFM(GenerativeFlow):
         source = step_data["source_state"]
 
         # condition data as tensors
-        condition_data = get_tensor_dict_from_data(
-            step_data["target_condition_data"], device=self._device_id, dtype=self._dtype
-        )
-        group_data = get_tensor_dict_from_data(
-            step_data["target_group_data"], device=self._device_id, dtype=self._dtype
-        )
+        condition_data = get_tensor_dict_from_data(step_data["target_condition_data"])
+        group_data = get_tensor_dict_from_data(step_data["target_group_data"])
         cond = {**condition_data, **group_data}
 
         # latent (noise) – shape (batch_size, dim)
@@ -53,8 +49,6 @@ class CFM(GenerativeFlow):
             target,
             self._noise_sampler,
             generate_from_noise=self._generate_from_noise,
-            dtype=self._dtype,
-            device=self._device_id,
         )
         batch_size = latent.shape[0]
 
@@ -176,17 +170,11 @@ class CFM(GenerativeFlow):
                 self._noise_sampler,
                 n_samples=n_samples,
                 generate_from_noise=self._generate_from_noise,
-                dtype=self._dtype,
-                device=self._device_id,
             )
 
         # ----- 2. Build conditioning dict -----
-        condition_reps_dict = get_tensor_dict_from_data(
-            step_data["target_condition_data"], device=self._device_id, dtype=self._dtype
-        )
-        group_reps_dict = get_tensor_dict_from_data(
-            step_data["target_group_data"], device=self._device_id, dtype=self._dtype
-        )
+        condition_reps_dict = get_tensor_dict_from_data(step_data["target_condition_data"])
+        group_reps_dict = get_tensor_dict_from_data(step_data["target_group_data"])
         condition_dict = {**condition_reps_dict, **group_reps_dict}
 
         # ----- 3. Expand conditioning to match latent dimensions -----

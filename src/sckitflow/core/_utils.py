@@ -14,17 +14,18 @@ __all__ = [
 ]
 
 
-def to_torch_tensor(
-    data: np.ndarray | torch.Tensor, dtype: torch.dtype | None = None, device: torch.device | None = None
-) -> torch.Tensor:
+def to_torch_tensor(data: np.ndarray | torch.Tensor) -> torch.Tensor:
+    """Wrap host numpy in a tensor, changing nothing else.
+
+    Deliberately takes no ``dtype`` or ``device``: extraction never casts and never copies. An array
+    that reaches the model with the wrong dtype was produced wrong -- cast it in preprocessing -- and
+    the host->device transfer belongs at the batch boundary. Silently fixing either here hides a real
+    (and slow) problem behind a working test suite.
+    """
     if isinstance(data, np.ndarray):
         data = torch.from_numpy(data)
     if not isinstance(data, torch.Tensor):
         raise ValueError(f"Data is of the wrong type: found {type(data)} but expected torch.Tensor")
-    if dtype is not None:
-        data = data.to(dtype)
-    if device is not None:
-        data = data.to(dtype)
     return data
 
 

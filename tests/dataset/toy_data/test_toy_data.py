@@ -38,6 +38,12 @@ class TestGetToyDataset:
         assert info["random_state"] == 7
 
     @pytest.mark.parametrize("name", DATASET_NAMES)
+    def test_X_is_float32(self, name):
+        # The torch models run in float32 and extraction never casts, so float64 here would only
+        # blow up deep in a matmul ("mat1 and mat2 must have the same dtype").
+        assert get_toy_dataset(name, n_samples=50, random_state=0).adata.X.dtype == np.float32
+
+    @pytest.mark.parametrize("name", DATASET_NAMES)
     def test_random_state_is_reproducible(self, name):
         first = get_toy_dataset(name, n_samples=40, random_state=3).adata
         second = get_toy_dataset(name, n_samples=40, random_state=3).adata
@@ -79,7 +85,7 @@ class TestLabels:
 
         labels = adata.obsm["Y"]
         assert labels.shape == (60, 1)
-        assert labels.dtype.kind == "f"
+        assert labels.dtype == np.float32
         # A manifold position, so it varies continuously rather than taking a few values.
         assert len(np.unique(labels)) > 2
 

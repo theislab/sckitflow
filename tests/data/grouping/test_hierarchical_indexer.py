@@ -39,11 +39,11 @@ class TestHierarchicalIndexer:
         convert_to_categorical_in_place(obs, conditions_cols)
 
         if groups_cols is not None and wrong_key in groups_cols:
-            with pytest.raises(ValueError, match=r"The following query columns dont appear in the reference:"):
+            with pytest.raises(ValueError, match=r"query entries not found in reference:"):
                 idxs = indexer.create_index(obs)
             return None
         if conditions_cols is not None and wrong_key in conditions_cols:
-            with pytest.raises(ValueError, match=r"The following query columns dont appear in the reference:"):
+            with pytest.raises(ValueError, match=r"query entries not found in reference:"):
                 idxs = indexer.create_index(obs)
             return None
         idxs = indexer.create_index(obs)
@@ -90,7 +90,7 @@ class TestHierarchicalIndexer:
         convert_to_categorical_in_place(obs, all_cols)
 
         if level_cols is not None and wrong_key in level_cols:
-            with pytest.raises(ValueError, match=r"The following query columns dont appear in the reference:"):
+            with pytest.raises(ValueError, match=r"query entries not found in reference:"):
                 idxs = indexer.create_index(obs)
             return None
         idxs = indexer.create_index(obs)

@@ -184,8 +184,35 @@ def check_sequence_query_against_reference(
     reference: Collection[str],
     allow_missing_from_query: bool = True,
     allow_missing_from_reference: bool = False,
+    *,
+    query_name: str = "query",
+    reference_name: str = "reference",
 ) -> None:
-    """"""  # noqa
+    """Checks a collection of names against a reference collection.
+
+    :param query: The names to check.
+    :type query: class: `Collection[str]`
+
+    :param reference: The names to check against.
+    :type reference: class: `Collection[str]`
+
+    :param allow_missing_from_query: Whether the query may omit reference names. Defaults to `True`.
+    :type allow_missing_from_query: class: `bool`
+
+    :param allow_missing_from_reference: Whether the query may contain names absent from the reference
+        (i.e. whether it need not be a subset). Defaults to `False`.
+    :type allow_missing_from_reference: class: `bool`
+
+    :param query_name: What the query is called in the error message -- pass the caller's own parameter
+        name (e.g. `"always_train_keys"`) so the message points at the argument to fix. Defaults to
+        `"query"`.
+    :type query_name: class: `str`
+
+    :param reference_name: What the reference is called in the error message. Defaults to `"reference"`.
+    :type reference_name: class: `str`
+
+    :raises ValueError: If either side is missing names the corresponding flag does not allow.
+    """
     # set logic for overlap
     union = set(query).union(set(reference))
     missing_from_reference = union - set(reference)
@@ -193,10 +220,14 @@ def check_sequence_query_against_reference(
 
     # strictly checking that we have all reference columns
     if len(missing_from_query) and not allow_missing_from_query:
-        msg = f"The following reference columns are missing from the query: {missing_from_query}"
+        # sorted, so the message is stable across runs (set iteration order is not)
+        msg = f"{reference_name} entries missing from {query_name}: {sorted(missing_from_query)}."
         raise ValueError(msg)
 
     # query value not found in reference set
     if len(missing_from_reference) and not allow_missing_from_reference:
-        msg = f"The following query columns dont appear in the reference: {missing_from_reference}"
+        msg = (
+            f"{query_name} entries not found in {reference_name}: {sorted(missing_from_reference)}. "
+            f"{query_name} must be a subset of {reference_name} ({sorted(reference)})."
+        )
         raise ValueError(msg)

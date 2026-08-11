@@ -406,21 +406,13 @@ class Model:
 
         return pred_adata
 
-    def _to_step_data(self, node: MatchedData) -> StepData:
-        """Extracts ready :class:`StepData` from a node on the method's device/dtype.
-
-        Used as the samplers' ``dispatch_fn`` so training/validation samplers yield
-        ``StepData`` directly (the samplers never depend on ``core`` themselves).
-        """
-        return extract_step_data(node, device=self._method.device_id, dtype=self._method.dtype)
-
     def _node_to_step_data(self, node: MatchedData) -> StepData:
         """Prediction-path conversion: extract, then align the source side.
 
         Alignment (matching the source length to the target) is a ``StepData`` transform
-        applied only for inference; training uses :meth:`_to_step_data` (no alignment).
+        applied only for inference; training dispatches ``extract_step_data`` alone.
         """
-        return align_step_data(self._to_step_data(node))
+        return align_step_data(extract_step_data(node))
 
     def _predict_on_node(self, step_data: StepData, *args, **kwargs) -> PredictionData:
         """Runs inference on a ready :class:`StepData` batch.
@@ -542,7 +534,7 @@ class Model:
         # `StepData` (on the method's device/dtype), so the sampler yields `StepData`.
         if train_sampler_kwargs is None:
             train_sampler_kwargs = {}
-        train_sampler_kwargs.setdefault("dispatch_fn", self._to_step_data)
+        train_sampler_kwargs.setdefault("dispatch_fn", extract_step_data)
         train_sampler = FTrainSampler(
             train_tree,
             batch_size=train_batch_size,
@@ -552,7 +544,7 @@ class Model:
         # create validation samplers (same `StepData` dispatch)
         if val_sampler_kwargs is None:
             val_sampler_kwargs = {}
-        val_sampler_kwargs.setdefault("dispatch_fn", self._to_step_data)
+        val_sampler_kwargs.setdefault("dispatch_fn", extract_step_data)
         val_samplers_dict = {
             val_id: FValidationSampler(val_tree, max_n_obs=val_max_n_obs, **val_sampler_kwargs)
             for val_id, val_tree in val_trees_dict.items()

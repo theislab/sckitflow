@@ -59,7 +59,9 @@ class BaseDummyDataset(ABC):
             Annotated data object with standardized structure
         """
         # Step 1: Create the core AnnData structure
-        adata = AnnData(X=X)
+        # float32 is the dtype the torch models run in; sklearn hands us float64. Extraction never casts,
+        # so a float64 `X` would only surface much later as a `Double` vs `Float` matmul error.
+        adata = AnnData(X=X.astype(np.float32))
 
         # Step 2: Add cluster labels if provided
         # Labels are stored as strings for categorical data
@@ -69,7 +71,7 @@ class BaseDummyDataset(ABC):
                 # adata.obsm["Y"] = adata.obsm["Y"].astype("category")
 
             else:
-                adata.obsm["Y"] = y.astype(float)
+                adata.obsm["Y"] = y.astype(np.float32)
 
         # Step 3: Store metadata about the dataset
         adata.uns["dataset_info"] = {

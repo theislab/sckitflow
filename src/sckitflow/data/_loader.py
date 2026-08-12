@@ -282,7 +282,7 @@ class _StepDataBridge:
 
         return source_state[torch.arange(batch_size, device=source_state.device) % n_source]
 
-    def _assemble(self, batch: dict, gid: int, *, has_state: bool, n_rows: int) -> StepData:
+    def _step_data_from_batch(self, batch: dict, gid: int, *, has_state: bool, n_rows: int) -> StepData:
         """Assemble one scfit batch (+ its group id) into a ``StepData``.
 
         The categorical condition/group encoding is cached per group and tiled to the batch; continuous
@@ -521,7 +521,7 @@ class Loader(_StepDataBridge):
         """
         leaf = self._strip(batch["leaves"][_PRIMARY], self._n_prefix)
         # every training batch is exactly `batch_size` rows (the sampler drops the short tail)
-        return self._assemble(batch, self._leaf_to_gid[leaf], has_state=True, n_rows=self._rows_per_batch)
+        return self._step_data_from_batch(batch, self._leaf_to_gid[leaf], has_state=True, n_rows=self._rows_per_batch)
 
     def __iter__(self) -> Iterator[StepData]:
         """One finite pass of ``StepData`` batches; re-iterable, so the trainer just iterates it."""
@@ -637,7 +637,7 @@ class EvalLoader(_StepDataBridge):
             n_rows = self._leaf_size[leaf]
             if self._max_per_group is not None:
                 n_rows = min(n_rows, self._max_per_group)
-            yield self._assemble(batch, self._leaf_to_gid[leaf], has_state=self._has_state, n_rows=n_rows), leaf
+            yield self._step_data_from_batch(batch, self._leaf_to_gid[leaf], has_state=self._has_state, n_rows=n_rows), leaf
 
     def __len__(self) -> int:
         """Number of groups (== number of batches) this pass yields."""

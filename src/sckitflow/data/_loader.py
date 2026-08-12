@@ -19,7 +19,7 @@ without any ``ann_df`` / container round-trip.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Iterator
+from collections.abc import Callable, Collection, Iterator
 from functools import cached_property
 from typing import TYPE_CHECKING, Any
 
@@ -38,7 +38,7 @@ if TYPE_CHECKING:
     # StepData lives in ``core`` (which imports ``data``); import it for typing only to avoid a
     # runtime import cycle. At runtime we build the plain dict directly (see ``_STEP_DATA_KEYS``).
     from sckitflow.core._types import StepData
-    from sckitflow.data._manager import DataManager
+    from sckitflow.data.schemas import ConditionDataSchema, GroupsDataSchema
 
 # The kwargs contract for these loaders is :class:`~sckitflow.data._manager.LoaderKwargs` -- declared
 # there, next to its only consumer (``DataManager.get_dataloaders``), so typing a call site does not
@@ -114,23 +114,28 @@ class _StepDataBridge:
     def __init__(
         self,
         adata: AnnData,
-        dm: DataManager,
         *,
+        condition_schema: ConditionDataSchema,
+        groups_schema: GroupsDataSchema,
+        sample_rep: str | None = None,
+        response_covs: Collection[str] = (),
         pair_key: str | None = None,
         dtype: torch.dtype | None = None,
         device: str | None = None,
         assert_device: bool = True,
     ) -> None:
-        self._dm = dm
+        # The two schemas that answer a *per-group* question (`_encode_group`, so they outlive construction);
+        # everything else the schema declares is read once here, into the locs and columns below.
+        self._cond_schema = condition_schema
+        self._groups_schema = groups_schema
         self._dtype = dtype
         # Compared by device *type* ("cuda" vs "cuda:0"), matching ``Model.to_device``.
         self._device = device
         self._device_type = device.split(":")[0] if device is not None else None
         self._assert_device = assert_device
-        cond_schema = dm.condition_data_schema
-        self._state_loc = _state_loc(dm.state_data_schema.sample_rep)
+        self._state_loc = _state_loc(sample_rep)
         # group_by = group columns + categorical condition columns (continuous covs are streamed reps).
-        self._group_cols: tuple[str, ...] = dm.group_cols
+        self._group_cols: tuple[str, ...] = (*groups_schema.groups, *condition_schema.all_condition_cols)
         # Fixed matching (`matched_keys`) rides as one derived column shared by a target group and the source
         # group it flows from -- appended to `group_by` so scfit can `match_on` it, and stripped back off
         # before a leaf is used as a group identity (see `_strip`).
@@ -141,8 +146,8 @@ class _StepDataBridge:
             adata = with_derived_obs(adata, **{_ALL_CELLS: pd.Categorical(np.full(adata.n_obs, "all"))})
             self._group_cols = (_ALL_CELLS,)
         # Continuous covariates ride as aligned reps: {rep loc -> StepData dict key}.
-        self._cond_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in cond_schema.conditions_covariates}
-        self._resp_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in dm.target_data_schema.continuous_covs}
+        self._cond_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in condition_schema.conditions_covariates}
+        self._resp_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in response_covs}
 
         # One O(N) drop_duplicates gives the group combos + a representative row per group (no per-cell logic).
         # The categorical -> encoding is deferred to batch time (cached), keyed by the group's id.
@@ -235,12 +240,12 @@ class _StepDataBridge:
         entry: dict[str, np.ndarray] = {}
         cond_keys: list[str] = []
         group_keys: list[str] = []
-        condition_data = self._dm.condition_data_schema.get_data(cell)
+        condition_data = self._cond_schema.get_data(cell)
         if condition_data is not None and condition_data.categorical_covariates is not None:
             reps = condition_data.categorical_covariates.extract_reps().mapping
             entry.update({k: _leaf_vector(v) for k, v in reps.items()})
             cond_keys = list(reps)
-        groups_data = self._dm.groups_data_schema.get_data(cell)
+        groups_data = self._groups_schema.get_data(cell)
         if groups_data is not None:
             reps = groups_data.extract_reps().mapping
             entry.update({k: _leaf_vector(v) for k, v in reps.items()})
@@ -323,7 +328,7 @@ class _StepDataBridge:
         # Under fixed matching the pair column *is* the match: one id shared by a target group and the source
         # group it flows from, which is the only thing scfit's value-equality matching can key on. Otherwise a
         # target is matched to whatever shares its group columns.
-        match_cols = self._pair_cols or tuple(self._dm.groups_data_schema.groups)
+        match_cols = self._pair_cols or tuple(self._groups_schema.groups)
         # The control stream carries the pair column so `match_on` can reach it; without one it groups on the
         # full group columns (what its weights' keys are).
         group_by = [*self._group_cols, *self._pair_cols]
@@ -369,8 +374,20 @@ class Loader(_StepDataBridge):
     :param adata: The annotated data object to stream (the whole thing -- selection is by weights).
     :type adata: class: `AnnData`
 
-    :param dm: The data manager whose schema defines the state/condition/group layout.
-    :type dm: class: `DataManager`
+    :param condition_schema: The condition schema: its columns join ``group_by``, its continuous covariates
+        stream as reps, and it encodes each group's categorical conditions.
+    :type condition_schema: class: `ConditionDataSchema`
+
+    :param groups_schema: The groups schema: its columns lead ``group_by`` and are what a control is matched
+        on, and it encodes each group's categorical groups.
+    :type groups_schema: class: `GroupsDataSchema`
+
+    :param sample_rep: The ``obsm`` key holding the state representation, or ``None`` for ``.X``.
+    :type sample_rep: class: `str | None`
+
+    :param response_covs: Continuous response covariate ``obsm`` keys, streamed per-cell into
+        ``target_response_data``.
+    :type response_covs: class: `Collection[str]`
 
     :param split_by: An ``.obs`` column prepended to the primary's ``group_by``, so a leaf is
         ``(split, *group_cols)`` and ``primary_weights`` select cells rather than whole groups. ``None``
@@ -418,7 +435,10 @@ class Loader(_StepDataBridge):
         self,
         adata: AnnData,
         *,
-        dm: DataManager,
+        condition_schema: ConditionDataSchema,
+        groups_schema: GroupsDataSchema,
+        sample_rep: str | None = None,
+        response_covs: Collection[str] = (),
         split_by: str | None = None,
         primary_weights: dict[tuple, float] | None = None,
         control_adata: AnnData | None = None,
@@ -434,7 +454,16 @@ class Loader(_StepDataBridge):
         preload_nchunks: int | None = None,
         preload_to_gpu: bool = False,
     ) -> None:
-        super().__init__(adata, dm, pair_key=pair_key, dtype=dtype, device=device)
+        super().__init__(
+            adata,
+            condition_schema=condition_schema,
+            groups_schema=groups_schema,
+            sample_rep=sample_rep,
+            response_covs=response_covs,
+            pair_key=pair_key,
+            dtype=dtype,
+            device=device,
+        )
         self._rows_per_batch = batch_size
         sampler_kwargs = {
             "batch_size": batch_size,
@@ -511,6 +540,18 @@ class EvalLoader(_StepDataBridge):
     predict-once-per-condition), each matched to its control leaf. ``leaf`` is the group's ``group_by`` value
     tuple -- ordered as :attr:`group_cols` -- from which the caller rebuilds the output ``obs`` directly.
 
+    :param condition_schema: The condition schema; see :class:`Loader`.
+    :type condition_schema: class: `ConditionDataSchema`
+
+    :param groups_schema: The groups schema; see :class:`Loader`.
+    :type groups_schema: class: `GroupsDataSchema`
+
+    :param sample_rep: The ``obsm`` key holding the state representation, or ``None`` for ``.X``.
+    :type sample_rep: class: `str | None`
+
+    :param response_covs: Continuous response covariate ``obsm`` keys; see :class:`Loader`.
+    :type response_covs: class: `Collection[str]`
+
     :param require_target_state: When ``False``, the target state is not read (metadata-only prediction);
         ``StepData["target_state"]`` is ``None`` and batches carry only conditioning.
     :type require_target_state: class: `bool`
@@ -536,7 +577,10 @@ class EvalLoader(_StepDataBridge):
         self,
         adata: AnnData,
         *,
-        dm: DataManager,
+        condition_schema: ConditionDataSchema,
+        groups_schema: GroupsDataSchema,
+        sample_rep: str | None = None,
+        response_covs: Collection[str] = (),
         primary_weights: dict[tuple, float] | None = None,
         control_adata: AnnData | None = None,
         control_weights: dict[tuple, float] | None = None,
@@ -549,7 +593,17 @@ class EvalLoader(_StepDataBridge):
         device: str | None = None,
         seed: int = 0,
     ) -> None:
-        super().__init__(adata, dm, pair_key=pair_key, dtype=dtype, device=device, assert_device=False)
+        super().__init__(
+            adata,
+            condition_schema=condition_schema,
+            groups_schema=groups_schema,
+            sample_rep=sample_rep,
+            response_covs=response_covs,
+            pair_key=pair_key,
+            dtype=dtype,
+            device=device,
+            assert_device=False,
+        )
         self._has_state = require_target_state
         self._max_per_group = max_per_group
         state_reps = (self._state_loc,) if require_target_state else ()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Collection, Mapping
-from typing import TYPE_CHECKING, NamedTuple, TypedDict, Unpack
+from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, Unpack
 
 import numpy as np
 import pandas as pd
@@ -254,6 +254,22 @@ class DataManager:
     @property
     def _view_on_condition_space(self) -> bool:
         return self._condition_state_key is not None
+
+    @property
+    def _loader_schema(self) -> dict[str, Any]:
+        """Everything a loader reads off this schema -- handed over once, at construction.
+
+        The loaders take this, not a ``DataManager``: what they need is the state rep, the covariate keys to
+        stream, and the two schemas that encode a group (the only per-group question left at batch time).
+        Nothing about splits, controls or pairs -- :meth:`get_dataloaders` / :meth:`get_eval_loader` have
+        already turned those into weights by the time a loader exists.
+        """
+        return {
+            "condition_schema": self._condition_data_schema,
+            "groups_schema": self._groups_data_schema,
+            "sample_rep": self._state_data_schema.sample_rep,
+            "response_covs": self._target_data_schema.continuous_covs,
+        }
 
     def _get_feature_names(
         self,
@@ -569,7 +585,7 @@ class DataManager:
             return {
                 "train": Loader(
                     sel.adata,
-                    dm=self,
+                    **self._loader_schema,
                     primary_weights=weights,
                     control_adata=sel.control_adata,
                     control_weights=None if sel.control_adata is not None else controls,
@@ -591,7 +607,7 @@ class DataManager:
         return {
             split_value: Loader(
                 sel.adata,
-                dm=self,
+                **self._loader_schema,
                 split_by=split_by,
                 primary_weights=weights,
                 control_adata=sel.control_adata,
@@ -678,7 +694,7 @@ class DataManager:
             primary_weights, control_weights = None, None
         return EvalLoader(
             sel.adata,
-            dm=self,
+            **self._loader_schema,
             primary_weights=primary_weights,
             control_adata=sel.control_adata,
             control_weights=control_weights,

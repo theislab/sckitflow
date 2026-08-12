@@ -57,7 +57,7 @@ def _loader(ad, dm, **overrides) -> Loader:
         "batch_size": 8,
     }
     kwargs.update(overrides)
-    return Loader(ad, dm=dm, **kwargs)
+    return Loader(ad, **dm._loader_schema, **kwargs)
 
 
 class TestLoaderStepDataMapping:
@@ -139,7 +139,7 @@ class TestLoaderIterationContract:
 
         ad = loader_adata
         before = list(ad.obs.columns)
-        loader = Loader(ad, dm=DataManager(), batch_size=8)
+        loader = Loader(ad, **DataManager()._loader_schema, batch_size=8)
         sd = next(iter(loader))
 
         assert sd["target_state"].shape == (8, ad.n_vars)

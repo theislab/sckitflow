@@ -17,25 +17,6 @@ class DummyData(BaseData):
     def __getitem__(self, idx):
         return DummyData(self.X[idx])
 
-    @classmethod
-    def concat_collection(cls, collection: Collection["DummyData"]) -> "DummyData":
-        """Concatenate DummyData objects vertically."""
-        if not collection:
-            raise ValueError("Cannot concatenate empty collection")
-        X_list = []
-        ref_dim = None
-        for elem in collection:
-            if ref_dim is None:
-                ref_dim = elem.X.shape[1] if elem.X.ndim > 1 else 1  # handle 1D
-            else:
-                dim = elem.X.shape[1] if elem.X.ndim > 1 else 1
-                if dim != ref_dim:
-                    raise ValueError("Mismatched number of columns")
-            X_list.append(elem.X)
-        X_concat = np.concatenate(X_list, axis=0)
-        return cls(X_concat)
-
-
 class TestBaseData:
     def test_get_query_idxs_valid(self) -> None:
         ref = pd.MultiIndex.from_tuples(
@@ -116,49 +97,3 @@ class TestBaseData:
 
         with pytest.raises(KeyError, match="not present in reference index"):
             data.slice_with_index(ref, qry)
-
-    def test_concat_collection_two_objects(self) -> None:
-        """Concatenate two DummyData objects."""
-        d1 = DummyData(np.random.randn(5, 3))
-        d2 = DummyData(np.random.randn(7, 3))
-        result = DummyData.concat_collection([d1, d2])
-        assert len(result) == 12
-        np.testing.assert_array_equal(result.X, np.vstack([d1.X, d2.X]))
-
-    def test_concat_collection_three_objects(self) -> None:
-        """Concatenate three DummyData objects."""
-        d1 = DummyData(np.random.randn(2, 4))
-        d2 = DummyData(np.random.randn(3, 4))
-        d3 = DummyData(np.random.randn(4, 4))
-        result = DummyData.concat_collection([d1, d2, d3])
-        assert len(result) == 9
-        expected = np.vstack([d1.X, d2.X, d3.X])
-        np.testing.assert_array_equal(result.X, expected)
-
-    def test_concat_collection_empty_raises(self) -> None:
-        """Empty collection raises ValueError."""
-        with pytest.raises(ValueError, match="Cannot concatenate empty collection"):
-            DummyData.concat_collection([])
-
-    def test_concat_collection_single_returns_new_instance(self) -> None:
-        """Single-element concatenation returns a new instance with same data."""
-        original = DummyData(np.random.randn(4, 2))
-        result = DummyData.concat_collection([original])
-        assert result is not original
-        np.testing.assert_array_equal(result.X, original.X)
-
-    def test_concat_collection_mismatched_dimensions_raises(self) -> None:
-        """Mismatched number of columns raises ValueError."""
-        d1 = DummyData(np.random.randn(5, 3))
-        d2 = DummyData(np.random.randn(5, 4))  # different second dimension
-        with pytest.raises(ValueError, match="Mismatched number of columns"):
-            DummyData.concat_collection([d1, d2])
-
-    def test_concat_collection_1d_arrays(self) -> None:
-        """Handle 1D arrays (shape (n,))."""
-        d1 = DummyData(np.random.randn(5))
-        d2 = DummyData(np.random.randn(3))
-        result = DummyData.concat_collection([d1, d2])
-        assert len(result) == 8
-        # For 1D, we treat columns=1 implicitly
-        np.testing.assert_array_equal(result.X, np.concatenate([d1.X, d2.X]))

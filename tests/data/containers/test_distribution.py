@@ -299,6 +299,7 @@ class TestDistributionData:
         assert len(new_dist.target_coupling_data) == adata.n_obs
         assert new_dist.source_coupling_data is not new_dist.target_coupling_data
 
+
 class TestDistributionDataNoneState:
     """No target state available: prediction-without-target-states use case."""
 

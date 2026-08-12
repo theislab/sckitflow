@@ -1,4 +1,3 @@
-
 import numpy as np
 import pandas as pd
 import pytest
@@ -15,6 +14,7 @@ class DummyData(BaseData):
 
     def __getitem__(self, idx):
         return DummyData(self.X[idx])
+
 
 class TestBaseData:
     def test_get_query_idxs_valid(self) -> None:

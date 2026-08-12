@@ -1,4 +1,3 @@
-from collections.abc import Collection
 from dataclasses import dataclass
 
 import numpy as np
@@ -106,72 +105,3 @@ class CouplingData(BaseData):
             state_lin = state_data
             state_quad = None
         return cls(state_lin, state_quad)
-
-    @classmethod
-    def concat_collection(
-        cls,
-        collection: "Collection[CouplingData]",
-    ) -> "CouplingData":
-        """Concatenates a collection of instances into a single object."""
-        if len(collection) == 0:
-            raise ValueError("Need at least one element to concatenate.")
-
-        # initialize stores
-        state_lin_list = []
-        state_quad_list = []
-
-        # check that there is at least a state modeled
-        # and that it is always the same
-        is_lin_modeled = False
-        is_quad_modeled = False
-
-        # iterate over each element
-        for idx, element in enumerate(collection):
-            # set standard for concatenation
-            # from first element
-            if idx == 0:
-                is_lin_modeled = element.state_lin is not None
-                is_quad_modeled = element.state_quad is not None
-                if not (is_lin_modeled or is_quad_modeled):
-                    raise ValueError("Need at least one among linear and quadratic term.")
-
-            # get linear and quadratic components
-            state_lin = element.state_lin
-            state_quad = element.state_quad
-
-            # linear terms
-            if state_lin is not None:
-                # raise error
-                if not is_lin_modeled:
-                    raise ValueError("Attempting concatentation between incompatible data.")
-
-                state_lin_list.append(state_lin)
-            elif is_lin_modeled:
-                raise ValueError("Attempting concatentation between incompatible data.")
-
-            # quadratic terms
-            if state_quad is not None:
-                # raise error
-                if not is_quad_modeled:
-                    raise ValueError("Attempting concatentation between incompatible data.")
-
-                state_quad_list.append(state_quad)
-            elif is_quad_modeled:
-                raise ValueError("Attempting concatentation between incompatible data.")
-
-        # concat linear terms
-        if len(state_lin_list) > 0:
-            state_lin = StateData.concat_collection(state_lin_list)
-        else:
-            state_lin = None
-
-        # concat quadratic terms
-        if len(state_quad_list) > 0:
-            state_quad = StateData.concat_collection(state_quad_list)
-        else:
-            state_quad = None
-
-        return cls(
-            state_lin=state_lin,
-            state_quad=state_quad,
-        )

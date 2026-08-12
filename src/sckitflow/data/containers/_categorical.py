@@ -1,5 +1,5 @@
 from collections import defaultdict
-from collections.abc import Collection, Hashable, Mapping
+from collections.abc import Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 
@@ -8,7 +8,6 @@ import pandas as pd
 from scipy.sparse import csr_matrix
 
 from sckitflow._types import TargetCovariatesEncoderCls
-from sckitflow._utils import check_sequence_query_against_reference
 from sckitflow.data._mixins import BatchMixin, MappedArray
 from sckitflow.data._utils import convert_to_categorical_in_place, get_one_hot_encoder
 from sckitflow.data.containers._base import BaseData
@@ -177,50 +176,3 @@ class CategoricalData(BaseData):
     def category_realms(self) -> list[str]:
         """Returns the category realms associated to the object."""
         return list(set(self.categorical_reps_map.values()))
-
-    @classmethod
-    def concat_collection(
-        cls,
-        collection: "Collection[CategoricalData]",
-    ) -> "CategoricalData":
-        """Concatenates a collection of instances into a single object."""
-        if len(collection) == 0:
-            raise ValueError("Need at least one element to concatenate.")
-
-        # store for data
-        ann_dfs_list = []
-        repr_dict = {}
-        categorical_encoders = {}
-        categorical_reps_map = {}
-
-        # prepare columns
-        ref_cols = None
-
-        # iterate over element of collection
-        for idx, element in enumerate(collection):
-            # get reference columns from first element
-            if idx == 0:
-                ref_cols = element.ann_df.columns
-
-            # check that columns are matching
-            check_sequence_query_against_reference(
-                element.ann_df.columns,
-                ref_cols,
-                allow_missing_from_reference=False,
-                allow_missing_from_query=False,
-            )
-
-            # update
-            ann_dfs_list.append(element.ann_df)
-            repr_dict.update(element.repr_dict)
-            categorical_encoders.update(element.categorical_encoders)
-            categorical_reps_map.update(element.categorical_reps_map)
-
-        # concatenate df
-        ann_df = pd.concat(ann_dfs_list, axis=0)
-        return cls(
-            ann_df,
-            repr_dict=repr_dict,
-            categorical_encoders=categorical_encoders,
-            categorical_reps_map=categorical_reps_map,
-        )

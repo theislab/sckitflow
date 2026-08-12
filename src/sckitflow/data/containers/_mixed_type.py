@@ -1,10 +1,7 @@
-from collections import defaultdict
-from collections.abc import Collection
 from dataclasses import dataclass
 
 import numpy as np
 
-from sckitflow._utils import check_sequence_query_against_reference
 from sckitflow.data._mixins import BatchMixin
 from sckitflow.data.containers._base import BaseData
 from sckitflow.data.containers._categorical import CategoricalData
@@ -76,12 +73,12 @@ class MixedTypeData(BaseData):
         self,
         idxs: np.ndarray | slice,
     ) -> "MixedTypeData":
-        def _take(e, idxs=idxs):
-            e = e[idxs]
-            return e
-
         categorical_covariates = None if self.categorical_covariates is None else self.categorical_covariates[idxs]
-        continuous_covariates = None if self.continuous_covariates is None else self.continuous_covariates.apply(_take)
+        continuous_covariates = (
+            None
+            if self.continuous_covariates is None
+            else BatchMixin({key: array[idxs] for key, array in self.continuous_covariates.mapping.items()})
+        )
         return self.__class__(
             categorical_covariates=categorical_covariates, continuous_covariates=continuous_covariates
         )
@@ -198,97 +195,3 @@ class MixedTypeData(BaseData):
             )
         else:
             raise KeyError(f"Key {key} not found.")
-
-    @classmethod
-    def concat_collection(
-        cls,
-        collection: "Collection[MixedTypeData]",
-    ) -> "MixedTypeData":
-        """Concatenates a collection of instances into a single object."""
-        # define store for data
-        categorical_covariates_list = []
-        continuous_covariates_list = []
-
-        # reference settings
-        has_categorical_covs = False
-        has_continuous_covs = False
-        continuous_covs_keys = []
-
-        # iterate over collection
-        for idx, element in enumerate(collection):
-            # get reference settings from first element
-            if idx == 0:
-                has_categorical_covs = element.categorical_covariates is not None
-                has_continuous_covs = element.continuous_covariates is not None
-                if has_continuous_covs:
-                    continuous_covs_keys = list(element.continuous_covariates.mapping.keys())
-
-            # ---- Categorical Covariates ----
-            # check that the current element has matching settings
-            if element.categorical_covariates is not None:
-                if not has_categorical_covs:
-                    raise ValueError("Trying to concatenate incompatible objects")
-
-                # update store
-                categorical_covariates_list.append(element.categorical_covariates)
-
-            # raise error when categorical covariates are missing but required
-            elif has_categorical_covs:
-                raise ValueError("Trying to concatenate incompatible objects")
-
-            # ---- Continuous Covariates ----
-            # check that the current element has matching settings
-            if element.continuous_covariates is not None:
-                # continuous covariates are required
-                if not has_continuous_covs:
-                    raise ValueError("Trying to concatenate incompatible objects")
-
-                # check that we have the same keys
-                check_sequence_query_against_reference(
-                    continuous_covs_keys,
-                    list(element.continuous_covariates.mapping.keys()),
-                    allow_missing_from_reference=False,
-                    allow_missing_from_query=False,
-                )
-
-                # update store
-                continuous_covariates_list.append(element.continuous_covariates)
-
-            # raise error when continuous covariates are missing but required
-            elif has_continuous_covs:
-                raise ValueError("Trying to concatenate incompatible objects")
-
-        # concatenate categorical covariates
-        if len(categorical_covariates_list) > 0:
-            categorical_covariates = CategoricalData.concat_collection(categorical_covariates_list)
-        else:
-            categorical_covariates = None
-
-        # concatenate continuous covariates
-        if len(continuous_covariates_list) > 0:
-            mapping = defaultdict(list)
-
-            for element in continuous_covariates_list:
-                for key, v in element.mapping.items():
-                    mapping[key].append(v)
-
-            mapping = {key: np.concatenate(val, axis=0) for key, val in mapping.items()}
-            continuous_covariates = BatchMixin(mapping)
-
-        else:
-            continuous_covariates = None
-
-        return cls(
-            categorical_covariates=categorical_covariates,
-            continuous_covariates=continuous_covariates,
-        )
-
-    @property
-    def has_continuous_covariates(self) -> bool:
-        """Whether the mixed type data entails continuous covariates."""
-        return self.continuous_covariates is not None
-
-    @property
-    def has_categorical_covariates(self) -> bool:
-        """Whether the mixed type data entails categorical covariates."""
-        return self.categorical_covariates is not None

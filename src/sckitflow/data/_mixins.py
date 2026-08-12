@@ -1,13 +1,13 @@
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Hashable, Mapping
+from collections.abc import Collection, Hashable, Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 from typing import Any, ClassVar
 
 import numpy as np
 
-__all__ = ["MappedTree", "MappedLevelIndex", "MappedArray", "BatchMixin", "NumpyMixin"]
+__all__ = ["MappedTree", "MappedArray", "BatchMixin"]
 
 
 @dataclass(frozen=True)
@@ -40,85 +40,6 @@ class MappedTree[KeyT: Hashable, ValT]:
             if not isinstance(key, self._REQUIRED_KEY_TYPE):
                 msg = f"The keys should respect the pre-defined type. Got {type(value)} for {key}, expected {self._REQUIRED_VALUE_TYPE}."
                 raise TypeError(msg)
-
-    def _apply_to_level(
-        self,
-        level_value: ValT | MappedTree[KeyT, ValT],
-        function: Callable[[Any], Any],
-        *args,
-        output_key_type: type[Any] | None = None,
-        output_value_type: type[Any] | None = None,
-        **kwargs,
-    ) -> ValT | MappedTree[KeyT, ValT]:
-        """"""  # noqa
-        if isinstance(level_value, MappedTree):
-            return self._apply(
-                level_value,
-                function,
-                *args,
-                output_key_type=output_key_type,
-                output_value_type=output_value_type,
-            )
-        return function(level_value, *args, **kwargs)
-
-    def _apply(
-        self,
-        mapping: Mapping[Hashable, ValT | MappedTree[KeyT, ValT]],
-        function: Callable[[Any], Any],
-        *args,
-        output_key_type: type[Any] | None = None,
-        output_value_type: type[Any] | None = None,
-        **kwargs,
-    ) -> MappedTree[KeyT, ValT]:
-        """"""  # noqa
-        out_dict = {}
-        if isinstance(mapping, MappedTree):
-            mapping = mapping.mapping
-        for key, value in mapping.items():
-            out_dict[key] = self._apply_to_level(
-                value, function, *args, output_key_type=output_key_type, output_value_type=output_value_type, **kwargs
-            )
-        output_key_type = self._REQUIRED_KEY_TYPE if output_key_type is None else output_key_type
-        output_value_type = self._REQUIRED_VALUE_TYPE if output_value_type is None else output_value_type
-        return type(
-            self.__class__.__name__,
-            (self.__class__,),
-            {"_REQUIRED_KEY_TYPE": output_key_type, "_REQUIRED_VALUE_TYPE": output_value_type},
-        )(out_dict)
-
-    def apply(
-        self,
-        function: Callable[[Any], Any],
-        *args,
-        output_key_type: type[Any] | None = None,
-        output_value_type: type[Any] | None = None,
-        **kwargs,
-    ) -> MappedTree[KeyT, ValT]:
-        """"""  # noqa
-        return self._apply(
-            self.mapping,
-            function,
-            *args,
-            output_key_type=output_key_type,
-            output_value_type=output_value_type,
-            **kwargs,
-        )
-
-    @property
-    def is_leaf(self) -> bool:
-        return all(isinstance(v, self._REQUIRED_VALUE_TYPE) for v in self.mapping.values())
-
-    def flatten(self) -> tuple[ValT, ...]:
-        """Flattens itself into a list of nodes."""
-        if not self.is_leaf:
-            return tuple([v for val in self.mapping.values() for v in val.flatten()])
-        return tuple(self.mapping.values())
-
-
-@dataclass(frozen=True)
-class MappedLevelIndex(MappedTree):
-    _REQUIRED_KEY_TYPE: ClassVar[type[Any]] = tuple
-    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = slice
 
 
 @dataclass(frozen=True)
@@ -190,7 +111,3 @@ class BatchMixin[KeyT: Hashable, ValT](MappedTree[KeyT, ValT]):
             reference_array = next(iter(self.mapping.values()))
             return reference_array.shape[: self._MIN_DIMS]
         return []
-
-
-class NumpyMixin(BatchMixin[str, np.ndarray]):
-    _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = np.ndarray | np.generic

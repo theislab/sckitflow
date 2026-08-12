@@ -144,34 +144,6 @@ class DistributionData(BaseData):
             target_coupling_data=target_coupling_data,
         )
 
-    def get_metadata_dict(self) -> BatchMixin:
-        """Gets the metadata associated to the current distribution."""
-        # extract condition data
-        if self.condition_data is not None:
-            condition_reps = self.condition_data.extract_reps()
-        else:
-            condition_reps = BatchMixin({})
-
-        # extract group data
-        if self.groups_data is not None:
-            groups_reps = self.groups_data.extract_reps()
-        else:
-            groups_reps = BatchMixin({})
-
-        # extract response data
-        if self.response_data is not None:
-            response_reps = self.response_data.extract_reps()
-        else:
-            response_reps = BatchMixin({})
-
-        return BatchMixin(
-            {
-                "condition": condition_reps,
-                "groups": groups_reps,
-                "response_reps": response_reps,
-            }
-        )
-
     def view_on_condition_space(self, state_key: str):
         """Views the current distribution as being defined on the condition space.
 
@@ -200,33 +172,9 @@ class DistributionData(BaseData):
             target_coupling_data=target_coupling_data,
         )
 
-    @property
-    def is_sorted(self) -> bool:
-        """Whether the data is sorted lexicographically by annotation columns."""
-        df = self.ann_df
-        if df.shape[1] == 0:
-            return True
-        sort_keys = [df.iloc[:, i] for i in reversed(range(df.shape[1]))]
-        order = np.lexsort(sort_keys)
-        return bool(np.all(order[1:] >= order[:-1]))
-
-    def sort(self) -> "DistributionData":
-        """"""  # noqa
-        df = self.ann_df
-        if df.shape[1] == 0:
-            return self
-        sort_keys = [df.iloc[:, i] for i in reversed(range(df.shape[1]))]
-        sorted_idxs = np.lexsort(sort_keys)
-        return self[sorted_idxs]
-
     @cached_property
     def ann_df(self) -> pd.DataFrame:
-        """Returns the annotation data frame from groups then conditions.
-
-        Column order matches the hierarchy (groups first, conditions second)
-        so that the lexsort-based ``is_sorted`` / ``sort()`` stay mutually
-        consistent.
-        """
+        """Returns the annotation data frame from groups then conditions."""
         return build_ann_df(self.condition_data, self.groups_data)
 
     @cached_property

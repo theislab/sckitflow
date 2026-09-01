@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 import torch
 from anndata import AnnData
+from scipy import sparse
 
 from sckitflow.data._loader import Loader
 from sckitflow.data._manager import DataManager
@@ -187,6 +188,58 @@ class TestZeroCopyConversion:
 
         tensor = torch.zeros(2, 3)
         assert _as_tensor(tensor) is tensor
+
+    def test_a_non_dlpack_object_is_refused_by_name(self):
+        """A non-array (sparse, pandas, None) must name itself rather than raise from inside torch."""
+        from sckitflow.data._loader import _as_tensor
+
+        with pytest.raises(TypeError, match=r"streamed csr_matrix.*DLPack"):
+            _as_tensor(sparse.csr_matrix((2, 3), dtype=np.float32))
+
+    def test_a_dlpack_array_converts(self):
+        """Anything exposing ``__dlpack__`` passes the guard -- the cupy path, exercised via numpy."""
+        from sckitflow.data._loader import _as_tensor
+
+        class OnlyDLPack:
+            """A numpy array behind a wrapper exposing *only* the DLPack protocol."""
+
+            def __init__(self, array):
+                self._array = array
+
+            def __dlpack__(self, *args, **kwargs):
+                return self._array.__dlpack__(*args, **kwargs)
+
+            def __dlpack_device__(self):
+                return self._array.__dlpack_device__()
+
+        tensor = _as_tensor(OnlyDLPack(np.ones((2, 3), dtype=np.float32)))
+        assert tensor.shape == (2, 3)
+
+
+class TestLeafVector:
+    """A group encoding comes off a single representative cell, so its leading axis must be that one cell."""
+
+    def test_one_dimensional_passes_through(self):
+        from sckitflow.data._loader import _leaf_vector
+
+        assert _leaf_vector(np.arange(3)).shape == (3,)
+
+    def test_singleton_leading_dimension_is_dropped(self):
+        from sckitflow.data._loader import _leaf_vector
+
+        assert _leaf_vector(np.arange(3).reshape(1, 3)).tolist() == [0, 1, 2]
+
+    def test_multiple_rows_raise_instead_of_silently_truncating(self):
+        from sckitflow.data._loader import _leaf_vector
+
+        with pytest.raises(ValueError, match=r"one representative row.*got 2"):
+            _leaf_vector(np.zeros((2, 3)))
+
+    def test_more_than_two_dimensions_raise(self):
+        from sckitflow.data._loader import _leaf_vector
+
+        with pytest.raises(ValueError, match=r"1- or 2-dimensional, got 3"):
+            _leaf_vector(np.zeros((1, 2, 3)))
 
 
 class TestLoaderDtypeAndDevice:

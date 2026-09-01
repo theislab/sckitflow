@@ -77,3 +77,21 @@ class TestSubscriptStepData:
 
         assert _col(batch["target_state"]) == [0.0, 1.0, 2.0, 3.0]
         assert _col(batch["target_response_data"]["ytgt"]) == [400.0, 401.0, 402.0, 403.0]
+
+
+class TestFieldCoverage:
+    """A field missing from both side tuples would be silently left misaligned by a permutation."""
+
+    def test_every_step_data_field_is_assigned_to_a_side(self):
+        from sckitflow.core._data_utils import _SOURCE_FIELDS, _TARGET_FIELDS
+        from sckitflow.core._types import StepData
+
+        sides = {*_SOURCE_FIELDS, *_TARGET_FIELDS}
+        declared = StepData.__required_keys__ | StepData.__optional_keys__
+        assert declared - sides == set(), "StepData field not assigned to a side"
+        assert sides - declared == set(), "side tuple names a field StepData does not declare"
+
+    def test_the_two_sides_are_disjoint(self):
+        from sckitflow.core._data_utils import _SOURCE_FIELDS, _TARGET_FIELDS
+
+        assert set(_SOURCE_FIELDS).isdisjoint(_TARGET_FIELDS)

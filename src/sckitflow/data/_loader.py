@@ -86,6 +86,15 @@ def _as_tensor(array: Any) -> Any:
         return array
     if isinstance(array, np.ndarray):
         return torch.as_tensor(array)
+    # ``from_dlpack`` accepts a DLPack capsule or any object exposing ``__dlpack__``; anything else
+    # raises from inside torch, naming neither the offending type nor the stream it came off. Since this
+    # is the per-batch hot path, check here so a bad rep loc or a non-array (sparse, pandas) says so.
+    if not (hasattr(array, "__dlpack__") or type(array).__name__ == "PyCapsule"):
+        raise TypeError(
+            f"cannot convert a streamed {type(array).__name__} to a torch tensor without copying: expected "
+            "a numpy/torch array, or an array exposing the DLPack protocol (`__dlpack__`, e.g. cupy on a "
+            "GPU-resident read window). Check that the streamed rep holds a dense array."
+        )
     return torch.from_dlpack(array)
 
 
@@ -98,9 +107,25 @@ def _tile(vector: Any, batch_size: int) -> Any:
 
 
 def _leaf_vector(rep: Any) -> np.ndarray:
-    """One representative encoding ``(dim,)`` for a group leaf (rows are identical within a group)."""
+    """One representative encoding ``(dim,)`` for a group leaf.
+
+    The encoders run on a *single* representative cell (see :meth:`_StepDataBridge._encode_group_cached`),
+    so a categorical encoding arrives as either ``(dim,)`` or ``(1, dim)`` -- the leading axis, when
+    present, is that one cell. Both are accepted and return ``(dim,)``; anything else means the encoder
+    returned something other than a per-cell categorical encoding, which would otherwise be silently
+    truncated to its first row.
+    """
     array = np.asarray(rep)
-    return array[0] if array.ndim >= 2 else array
+    if array.ndim == 1:
+        return array
+    if array.ndim == 2:
+        if array.shape[0] != 1:
+            raise ValueError(
+                f"expected one representative row per group encoding, got {array.shape[0]}. A group leaf is "
+                "encoded from a single cell, so the leading dimension must be 1."
+            )
+        return array[0]
+    raise ValueError(f"group encodings must be 1- or 2-dimensional, got {array.ndim} dimensions.")
 
 
 class _StepDataBridge:

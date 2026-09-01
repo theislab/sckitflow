@@ -124,3 +124,51 @@ class TestCategoricalData:
         # repr_dict_keys includes 'cell_type', categorical_encoders_keys includes 'batch'
         assert "repr_dict_keys=['cell_type']" in rep
         assert "categorical_encoders_keys=['batch']" in rep
+
+
+class TestStoredRepresentationShape:
+    """A stored representation is one vector per value; an ambiguous shape must fail, not be flattened."""
+
+    @staticmethod
+    def _reps(stored: np.ndarray) -> np.ndarray:
+        cat = CategoricalData.from_pandas(
+            pd.DataFrame({"drug": ["d0"]}),
+            repr_dict={"drug": {"d0": stored}},
+            categorical_reps_map={"drug": "drug"},
+        )
+        (rep,) = cat.extract_reps().mapping.values()
+        return np.asarray(rep)
+
+    @pytest.mark.parametrize("stored", [np.arange(5.0), np.arange(5.0).reshape(1, 5)])
+    def test_both_vector_forms_are_accepted(self, stored):
+        """`(d,)` and the equivalent row form `(1, d)` are both in use across the repo."""
+        assert self._reps(stored).shape == (1, 1, 5)
+
+    @pytest.mark.parametrize("bad", [(2, 3), (1, 2, 3), (3, 1)])
+    def test_an_ambiguous_shape_is_refused(self, bad):
+        """A `reshape(1, -1)` here would flatten `(2, 3)` to `(1, 6)` while `DimsRegistry` reads 3."""
+        with pytest.raises(ValueError, match=r"must be one vector per value"):
+            self._reps(np.zeros(bad))
+
+    def test_values_of_a_realm_must_share_a_width(self):
+        """Nothing upstream checks this: a leaf holds one value, so `np.stack` never sees the mismatch.
+
+        `DataDimensionalitiesRegistry` reads a realm's width off whichever value comes first, so a
+        disagreement silently builds the model for one width and feeds it another.
+        """
+        cat = CategoricalData.from_pandas(
+            pd.DataFrame({"drug": ["d0"]}),
+            repr_dict={"drug": {"d0": np.zeros(5), "d1": np.zeros(3)}},
+            categorical_reps_map={"drug": "drug"},
+        )
+        with pytest.raises(ValueError, match=r"realm 'drug' have differing widths \[3, 5\]"):
+            cat.extract_reps()
+
+    def test_a_consistent_realm_still_works(self):
+        cat = CategoricalData.from_pandas(
+            pd.DataFrame({"drug": ["d0"]}),
+            repr_dict={"drug": {"d0": np.zeros(5), "d1": np.zeros(5)}},
+            categorical_reps_map={"drug": "drug"},
+        )
+        (rep,) = cat.extract_reps().mapping.values()
+        assert np.asarray(rep).shape == (1, 1, 5)

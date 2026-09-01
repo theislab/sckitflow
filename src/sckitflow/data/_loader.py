@@ -99,33 +99,41 @@ def _as_tensor(array: Any) -> Any:
 
 
 def _tile(vector: Any, batch_size: int) -> Any:
-    """Broadcast a per-group encoding ``(dim,)`` to a per-cell batch ``(batch_size, dim)``."""
+    """Broadcast one group's encoding to a per-cell batch, keeping the set axis intact.
+
+    A categorical encoding is ``(c, d)`` -- ``c`` is the number of columns mapped to the realm (see
+    :meth:`CategoricalData.extract_reps`) and ``d`` the encoding width -- so tiling prepends the batch
+    axis to give ``(batch_size, c, d)``. That is what :class:`SetEncoder` consumes: it pools over
+    ``dim=-2``, the ``c`` axis. Consuming the leading axis instead (``expand(batch_size, *shape[1:])``)
+    would emit ``(batch_size, d)``, which raises for ``c > 1`` and, for ``c == 1``, silently hands the
+    encoder a 2-D tensor whose pooling then reduces over the *batch*.
+    """
     tensor = _as_tensor(vector)
-    if tensor.ndim == 1:
+    if tensor.ndim == 1:  # a plain (d,) rep carries no set axis of its own
         tensor = tensor.unsqueeze(0)
-    return tensor.expand(batch_size, *tensor.shape[1:]).contiguous()
+    return tensor.unsqueeze(0).expand(batch_size, *tensor.shape).contiguous()
 
 
 def _leaf_vector(rep: Any) -> np.ndarray:
-    """One representative encoding ``(dim,)`` for a group leaf.
+    """Drop the per-cell axis from one group leaf's encoding.
 
     The encoders run on a *single* representative cell (see :meth:`_StepDataBridge._encode_group_cached`),
-    so a categorical encoding arrives as either ``(dim,)`` or ``(1, dim)`` -- the leading axis, when
-    present, is that one cell. Both are accepted and return ``(dim,)``; anything else means the encoder
-    returned something other than a per-cell categorical encoding, which would otherwise be silently
-    truncated to its first row.
+    so the leading axis is that one cell and everything after it is the encoding itself. What follows is
+    not always a flat ``(dim,)``: :meth:`CategoricalData.extract_reps` stacks the columns sharing a realm,
+    so a realm covering ``n`` columns arrives as ``(1, n, dim)`` and one covering a single column as
+    ``(1, 1, dim)``. Only the leading axis is dropped -- :func:`_tile` prepends the batch axis back -- and a
+    leading axis above 1 is refused rather than silently truncated to its first row, since that would mean
+    the encoding describes more than the one cell it was extracted from.
     """
     array = np.asarray(rep)
     if array.ndim == 1:
         return array
-    if array.ndim == 2:
-        if array.shape[0] != 1:
-            raise ValueError(
-                f"expected one representative row per group encoding, got {array.shape[0]}. A group leaf is "
-                "encoded from a single cell, so the leading dimension must be 1."
-            )
-        return array[0]
-    raise ValueError(f"group encodings must be 1- or 2-dimensional, got {array.ndim} dimensions.")
+    if array.shape[0] != 1:
+        raise ValueError(
+            f"expected one representative row per group encoding, got {array.shape[0]} (shape {array.shape}). "
+            "A group leaf is encoded from a single cell, so the leading dimension must be 1."
+        )
+    return array[0]
 
 
 class _StepDataBridge:

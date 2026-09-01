@@ -72,14 +72,17 @@ class TestLoaderStepDataMapping:
             b = sd["target_state"].shape[0]
             grp = sd["target_group_data"]["source_split"]
             drug = sd["target_condition_data"]["drug"]
-            assert grp.shape == (b, LINE_DIM)
-            assert drug.shape == (b, DRUG_DIM)
+            # (b, c, d): `c` is the columns mapped to the realm -- 1 here -- and is the axis the
+            # `SetEncoder` pools over, so it survives tiling rather than being consumed by the batch.
+            assert grp.shape == (b, 1, LINE_DIM)
+            assert drug.shape == (b, 1, DRUG_DIM)
             # tiled: label-gid -> one cached encoding -> broadcast to every row
             assert torch.allclose(grp, grp[0].expand_as(grp))
             assert torch.allclose(drug, drug[0].expand_as(drug))
             # and that single encoding is exactly the *selected* group's uns rep (weights => (s0, d0))
-            np.testing.assert_allclose(grp[0].numpy(), ad.uns["source_split"]["s0"].ravel(), rtol=1e-6)
-            np.testing.assert_allclose(drug[0].numpy(), ad.uns["drug"]["d0"].ravel(), rtol=1e-6)
+            # `[0]` picks a row, `.ravel()` flattens the single-column set axis to compare the values
+            np.testing.assert_allclose(grp[0].numpy().ravel(), ad.uns["source_split"]["s0"].ravel(), rtol=1e-6)
+            np.testing.assert_allclose(drug[0].numpy().ravel(), ad.uns["drug"]["d0"].ravel(), rtol=1e-6)
 
     def test_continuous_covariates_ride_as_per_cell_reps(self, loader_adata):
         """Continuous condition/target covariates stream per-cell straight from obsm (not tiled)."""
@@ -224,10 +227,13 @@ class TestLeafVector:
 
         assert _leaf_vector(np.arange(3)).shape == (3,)
 
-    def test_singleton_leading_dimension_is_dropped(self):
+    def test_only_the_leading_cell_axis_is_dropped(self):
+        """`CategoricalData.extract_reps` stacks a realm's columns, so encodings are `(1, n_cols, dim)`."""
         from sckitflow.data._loader import _leaf_vector
 
-        assert _leaf_vector(np.arange(3).reshape(1, 3)).tolist() == [0, 1, 2]
+        assert _leaf_vector(np.zeros((1, 3))).shape == (3,)
+        assert _leaf_vector(np.zeros((1, 1, 3))).shape == (1, 3)
+        assert _leaf_vector(np.zeros((1, 2, 3))).shape == (2, 3)
 
     def test_multiple_rows_raise_instead_of_silently_truncating(self):
         from sckitflow.data._loader import _leaf_vector
@@ -235,11 +241,52 @@ class TestLeafVector:
         with pytest.raises(ValueError, match=r"one representative row.*got 2"):
             _leaf_vector(np.zeros((2, 3)))
 
-    def test_more_than_two_dimensions_raise(self):
-        from sckitflow.data._loader import _leaf_vector
+    @pytest.mark.parametrize("pooling_mode", ["mean", "sum"])
+    def test_a_tiled_encoding_feeds_the_set_encoder_for_any_realm_width(self, pooling_mode):
+        """The loader -> `SetEncoder` shape contract, which nothing else covers end to end.
 
-        with pytest.raises(ValueError, match=r"1- or 2-dimensional, got 3"):
-            _leaf_vector(np.zeros((1, 2, 3)))
+        Model tests use a dummy method that never builds a `SetEncoder`, so a `_tile` that consumed the
+        set axis went unnoticed: for `c == 1` it emitted `(b, d)`, and the encoder's `mean(dim=-2)` then
+        reduced over the *batch*, returning `(d,)` instead of `(b, out)` -- silently, with no error.
+        """
+        from sckitflow.core.nn._set_encoder import SetEncoder
+        from sckitflow.data._loader import _leaf_vector, _tile
+
+        batch, dim, out_dim = 16, 3, 8
+        encoder = SetEncoder(
+            input_layers={"drug": {"input_dim": dim, "output_dim": out_dim}},
+            output_dim=out_dim,
+            pooling_mode=pooling_mode,
+            pooling_kwargs=None,
+            pooling_proj_dim=out_dim,
+            pooling_proj_bias=True,
+            covariates_not_pooled=[],
+            output_layers_kwargs={},
+        )
+        for n_cols in (1, 2, 3):
+            # the shape `CategoricalData.extract_reps` emits for a realm of `n_cols` columns
+            rep = np.zeros((1, n_cols, dim), dtype=np.float32)
+            tiled = _tile(_leaf_vector(rep), batch)
+            assert tuple(tiled.shape) == (batch, n_cols, dim), f"set axis lost for c={n_cols}"
+            assert tuple(encoder({"drug": tiled}).shape) == (batch, out_dim), f"batch lost for c={n_cols}"
+
+    def test_a_real_single_column_encoding_tiles_to_the_batch(self):
+        """The shape actually produced by the encoders survives `_leaf_vector` -> `_tile` intact."""
+        import pandas as pd
+
+        from sckitflow.data._loader import _leaf_vector, _tile
+        from sckitflow.data._utils import get_one_hot_encoder
+        from sckitflow.data.containers._categorical import CategoricalData
+
+        enc = get_one_hot_encoder(np.array(["d0", "d1", "control"]).reshape(-1, 1))
+        cd = CategoricalData.from_pandas(
+            pd.DataFrame({"drug": ["d0"]}),
+            categorical_encoders={"drug": enc},
+            categorical_reps_map={"drug": "drug"},
+        )
+        (rep,) = cd.extract_reps().mapping.values()
+        assert np.asarray(rep).shape == (1, 1, 3), "encoder contract changed"
+        assert tuple(_tile(_leaf_vector(rep), 7).shape) == (7, 1, 3)
 
 
 class TestLoaderDtypeAndDevice:

@@ -5,6 +5,7 @@ every per-observation field of a side moves with it -- including ``target_respon
 model never consumes but which must stay row-aligned with ``target_state`` for output reconstruction.
 """
 
+import pytest
 import torch
 
 from sckitflow.core._data_utils import subscript_step_data
@@ -79,19 +80,36 @@ class TestSubscriptStepData:
         assert _col(batch["target_response_data"]["ytgt"]) == [400.0, 401.0, 402.0, 403.0]
 
 
-class TestFieldCoverage:
-    """A field missing from both side tuples would be silently left misaligned by a permutation."""
+class TestUnalignedFields:
+    """A field belonging to neither side would keep its row order while the rest of the batch moves."""
 
-    def test_every_step_data_field_is_assigned_to_a_side(self):
-        from sckitflow.core._data_utils import _SOURCE_FIELDS, _TARGET_FIELDS
-        from sckitflow.core._types import StepData
+    def test_an_unassigned_field_is_refused_when_permuting(self):
+        batch = _batch()
+        batch["mystery_covariate"] = torch.arange(4)
 
-        sides = {*_SOURCE_FIELDS, *_TARGET_FIELDS}
-        declared = StepData.__required_keys__ | StepData.__optional_keys__
-        assert declared - sides == set(), "StepData field not assigned to a side"
-        assert sides - declared == set(), "side tuple names a field StepData does not declare"
+        with pytest.raises(ValueError, match=r"unaligned fields: \['mystery_covariate'\]"):
+            subscript_step_data(batch, tgt_idxs=torch.tensor([1, 0]))
 
-    def test_the_two_sides_are_disjoint(self):
-        from sckitflow.core._data_utils import _SOURCE_FIELDS, _TARGET_FIELDS
+    def test_an_unassigned_field_is_fine_when_nothing_is_permuted(self):
+        """Both indices ``None`` is a no-op, so an extra key cannot fall out of alignment."""
+        batch = _batch()
+        batch["mystery_covariate"] = torch.arange(4)
 
-        assert set(_SOURCE_FIELDS).isdisjoint(_TARGET_FIELDS)
+        out = subscript_step_data(batch)
+        assert _col(out["target_state"]) == [0.0, 1.0, 2.0, 3.0]
+        assert out["mystery_covariate"].tolist() == [0, 1, 2, 3]
+
+    def test_a_plain_step_data_permutes_without_complaint(self):
+        """The normal path: every field of a `StepData` belongs to a side, so nothing is flagged."""
+        out = subscript_step_data(_batch(), src_idxs=torch.tensor([1, 0]), tgt_idxs=torch.tensor([1, 0]))
+        assert _col(out["target_state"]) == [1.0, 0.0]
+
+    def test_every_step_data_field_belongs_to_a_side(self):
+        """A field added to `StepData` but not to a side tuple is caught here, by the guard itself.
+
+        Permuting a full batch raises exactly when a declared field is on neither side, so this fails
+        if `StepData` grows a field and `subscript_step_data` is not updated to place it.
+        """
+        from sckitflow.core._types import new_step_data
+
+        subscript_step_data(new_step_data(), src_idxs=torch.tensor([0]), tgt_idxs=torch.tensor([0]))

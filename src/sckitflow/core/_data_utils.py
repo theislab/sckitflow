@@ -41,26 +41,6 @@ def get_tensor_dict_from_data(
     return batchmixin_to_torch(data_dict)
 
 
-_SOURCE_FIELDS = (
-    "source_state",
-    "source_coupling_lin",
-    "source_coupling_quad",
-    "source_condition_data",
-    "source_group_data",
-)
-
-_TARGET_FIELDS = (
-    "target_state",
-    "target_coupling_lin",
-    "target_coupling_quad",
-    "target_condition_data",
-    "target_group_data",
-    # target-side covariates: not consumed by the model, but must stay row-aligned with
-    # ``target_state`` when the target is permuted/subsampled by matching.
-    "target_response_data",
-)
-
-
 def _index_obj(value: Any, idx: Any | None) -> Any:
     """Row-index one :class:`StepData` field by ``idx``.
 
@@ -96,9 +76,43 @@ def subscript_step_data(
 
     :param tgt_idxs: Index/mask applied to every target field. ``None`` leaves the target untouched.
     :type tgt_idxs: class: `Any | None`
+
+    :raises ValueError: If ``step_data`` carries a field belonging to neither side while that side is
+        being permuted -- such a field would silently keep its original row order.
     """
-    updates = {field: _index_obj(step_data.get(field), tgt_idxs) for field in _TARGET_FIELDS}
-    updates.update({field: _index_obj(step_data.get(field), src_idxs) for field in _SOURCE_FIELDS})
+    source_fields = (
+        "source_state",
+        "source_coupling_lin",
+        "source_coupling_quad",
+        "source_condition_data",
+        "source_group_data",
+    )
+    target_fields = (
+        "target_state",
+        "target_coupling_lin",
+        "target_coupling_quad",
+        "target_condition_data",
+        "target_group_data",
+        # target-side covariates: not consumed by the model, but must stay row-aligned with
+        # ``target_state`` when the target is permuted/subsampled by matching.
+        "target_response_data",
+    )
+
+    # A field on neither side is passed through untouched, so it would keep its original row order while
+    # the rest of the batch is permuted -- wrong rows, no error. Checked against the batch itself rather
+    # than against `StepData`, because the loaders build a plain dict and can carry anything. Only when
+    # an index is actually applied: with both `None` nothing moves, so nothing can fall out of alignment.
+    if src_idxs is not None or tgt_idxs is not None:
+        unassigned = set(step_data) - {*source_fields, *target_fields}
+        if unassigned:
+            raise ValueError(
+                f"cannot row-slice a batch carrying unaligned fields: {sorted(unassigned)}. Every "
+                "per-observation field must belong to a side, or a matching permutation leaves it "
+                "misaligned with the state it describes."
+            )
+
+    updates = {field: _index_obj(step_data.get(field), tgt_idxs) for field in target_fields}
+    updates.update({field: _index_obj(step_data.get(field), src_idxs) for field in source_fields})
     return {**step_data, **updates}
 
 

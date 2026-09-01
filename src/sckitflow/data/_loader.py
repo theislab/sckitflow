@@ -40,6 +40,8 @@ if TYPE_CHECKING:
     from sckitflow.core._types import StepData
     from sckitflow.data.schemas import ConditionDataSchema, GroupsDataSchema
 
+    ArrayLike = np.ndarray | torch.Tensor | Any
+
 # The kwargs contract for these loaders is :class:`~sckitflow.data._manager.LoaderKwargs` -- declared
 # there, next to its only consumer (``DataManager.get_dataloaders``), so typing a call site does not
 # drag in the scfit/annbatch stack this module imports.
@@ -72,23 +74,14 @@ def _state_loc(sample_rep: str | None) -> str:
     return "X" if sample_rep is None else f"obsm/{sample_rep}"
 
 
-def _as_tensor(array: Any) -> Any:
-    """Return ``array`` as a torch tensor **without copying**, on whatever device it already lives.
-
-    The loaders stream with scfit's ``to=None``, so annbatch hands back its native arrays -- numpy on the
-    host, cupy when the read window is GPU-resident. Both map onto torch for free (``from_numpy`` shares
-    the buffer; ``__dlpack__`` shares the device allocation), so a GPU-resident window never round-trips
-    through host memory. Converting here, rather than via scfit's ``to="torch"``, keeps that one place.
-    """
+def _as_tensor(array: ArrayLike) -> torch.Tensor:
+    """Any streamed array -> ``torch.Tensor`` sharing its buffer, on the device it already lives."""
     import torch
 
     if isinstance(array, torch.Tensor):
         return array
     if isinstance(array, np.ndarray):
         return torch.as_tensor(array)
-    # ``from_dlpack`` accepts a DLPack capsule or any object exposing ``__dlpack__``; anything else
-    # raises from inside torch, naming neither the offending type nor the stream it came off. Since this
-    # is the per-batch hot path, check here so a bad rep loc or a non-array (sparse, pandas) says so.
     if not (hasattr(array, "__dlpack__") or type(array).__name__ == "PyCapsule"):
         raise TypeError(
             f"cannot convert a streamed {type(array).__name__} to a torch tensor without copying: expected "
@@ -98,32 +91,11 @@ def _as_tensor(array: Any) -> Any:
     return torch.from_dlpack(array)
 
 
-def _tile(vector: Any, batch_size: int) -> Any:
-    """Broadcast one group's encoding to a per-cell batch, keeping the set axis intact.
+def _leaf_encoding(rep: ArrayLike) -> np.ndarray:
+    """One group leaf's encoding ``(1, c, d)`` -> ``(c, d)``; a flat ``(d,)`` passes through.
 
-    A categorical encoding is ``(c, d)`` -- ``c`` is the number of columns mapped to the realm (see
-    :meth:`CategoricalData.extract_reps`) and ``d`` the encoding width -- so tiling prepends the batch
-    axis to give ``(batch_size, c, d)``. That is what :class:`SetEncoder` consumes: it pools over
-    ``dim=-2``, the ``c`` axis. Consuming the leading axis instead (``expand(batch_size, *shape[1:])``)
-    would emit ``(batch_size, d)``, which raises for ``c > 1`` and, for ``c == 1``, silently hands the
-    encoder a 2-D tensor whose pooling then reduces over the *batch*.
-    """
-    tensor = _as_tensor(vector)
-    if tensor.ndim == 1:  # a plain (d,) rep carries no set axis of its own
-        tensor = tensor.unsqueeze(0)
-    return tensor.unsqueeze(0).expand(batch_size, *tensor.shape).contiguous()
-
-
-def _leaf_vector(rep: Any) -> np.ndarray:
-    """Drop the per-cell axis from one group leaf's encoding.
-
-    The encoders run on a *single* representative cell (see :meth:`_StepDataBridge._encode_group_cached`),
-    so the leading axis is that one cell and everything after it is the encoding itself. What follows is
-    not always a flat ``(dim,)``: :meth:`CategoricalData.extract_reps` stacks the columns sharing a realm,
-    so a realm covering ``n`` columns arrives as ``(1, n, dim)`` and one covering a single column as
-    ``(1, 1, dim)``. Only the leading axis is dropped -- :func:`_tile` prepends the batch axis back -- and a
-    leading axis above 1 is refused rather than silently truncated to its first row, since that would mean
-    the encoding describes more than the one cell it was extracted from.
+    ``c`` is the columns mapped to the realm, ``d`` the encoding width (:meth:`extract_reps`). The leading
+    axis is the single representative cell the encoding came from, so anything above 1 is a bug, not a set.
     """
     array = np.asarray(rep)
     if array.ndim == 1:
@@ -133,7 +105,26 @@ def _leaf_vector(rep: Any) -> np.ndarray:
             f"expected one representative row per group encoding, got {array.shape[0]} (shape {array.shape}). "
             "A group leaf is encoded from a single cell, so the leading dimension must be 1."
         )
+    if array.ndim != 3:
+        # `extract_reps` always emits (n_obs, c, d); another rank means it did not come from there.
+        raise ValueError(f"expected a group encoding of rank 1 or 3, got shape {array.shape}.")
     return array[0]
+
+
+def _tile(encoding: torch.Tensor, batch_size: int) -> torch.Tensor:
+    """One group's encoding ``(c, d)`` -> ``(batch_size, c, d)``, the shape :class:`SetEncoder` pools.
+
+    The ``c`` axis is what pooling reduces (``dim=-2``), so the batch axis is prepended, never written over.
+    """
+    if batch_size < 1:
+        raise ValueError(f"batch_size must be at least 1, got {batch_size}.")
+    if encoding.ndim == 1:  # a flat (d,) rep carries no set axis of its own
+        encoding = encoding.unsqueeze(0)
+    elif encoding.ndim != 2:
+        # Rank 3 here means the per-cell axis was never dropped -- `_leaf_encoding` was skipped -- and
+        # the batch axis would land in front of it, handing the encoder a 4-D tensor to pool.
+        raise ValueError(f"expected an encoding of rank 1 or 2, got shape {tuple(encoding.shape)}.")
+    return encoding.unsqueeze(0).expand(batch_size, *encoding.shape).contiguous()
 
 
 class _StepDataBridge:
@@ -276,12 +267,12 @@ class _StepDataBridge:
         condition_data = self._cond_schema.get_data(cell)
         if condition_data is not None and condition_data.categorical_covariates is not None:
             reps = condition_data.categorical_covariates.extract_reps().mapping
-            entry.update({k: _leaf_vector(v) for k, v in reps.items()})
+            entry.update({k: _leaf_encoding(v) for k, v in reps.items()})
             cond_keys = list(reps)
         groups_data = self._groups_schema.get_data(cell)
         if groups_data is not None:
             reps = groups_data.extract_reps().mapping
-            entry.update({k: _leaf_vector(v) for k, v in reps.items()})
+            entry.update({k: _leaf_encoding(v) for k, v in reps.items()})
             group_keys = list(reps)
         return entry, cond_keys, group_keys
 

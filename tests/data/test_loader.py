@@ -219,27 +219,49 @@ class TestZeroCopyConversion:
         assert tensor.shape == (2, 3)
 
 
-class TestLeafVector:
+class TestLeafEncoding:
     """A group encoding comes off a single representative cell, so its leading axis must be that one cell."""
 
     def test_one_dimensional_passes_through(self):
-        from sckitflow.data._loader import _leaf_vector
+        from sckitflow.data._loader import _leaf_encoding
 
-        assert _leaf_vector(np.arange(3)).shape == (3,)
+        assert _leaf_encoding(np.arange(3)).shape == (3,)
 
     def test_only_the_leading_cell_axis_is_dropped(self):
         """`CategoricalData.extract_reps` stacks a realm's columns, so encodings are `(1, n_cols, dim)`."""
-        from sckitflow.data._loader import _leaf_vector
+        from sckitflow.data._loader import _leaf_encoding
 
-        assert _leaf_vector(np.zeros((1, 3))).shape == (3,)
-        assert _leaf_vector(np.zeros((1, 1, 3))).shape == (1, 3)
-        assert _leaf_vector(np.zeros((1, 2, 3))).shape == (2, 3)
+        assert _leaf_encoding(np.zeros((1, 1, 3))).shape == (1, 3)
+        assert _leaf_encoding(np.zeros((1, 2, 3))).shape == (2, 3)
+
+    def test_a_rank_that_extract_reps_cannot_emit_is_refused(self):
+        """Only rank 3 (or a flat rank-1 rep) is reachable: `np.stack` always adds the set axis."""
+        from sckitflow.data._loader import _leaf_encoding
+
+        for bad in [(1, 3), (1, 2, 3, 4)]:
+            with pytest.raises(ValueError, match=r"rank 1 or 3"):
+                _leaf_encoding(np.zeros(bad))
+
+    def test_tile_refuses_an_undropped_cell_axis(self):
+        """Rank 3 into `_tile` means `_leaf_encoding` was skipped; the encoder would pool the wrong axis."""
+        from sckitflow.data._loader import _tile
+
+        with pytest.raises(ValueError, match=r"rank 1 or 2"):
+            _tile(torch.zeros(1, 2, 3), 8)
+
+    @pytest.mark.parametrize("batch_size", [0, -1])
+    def test_tile_refuses_a_non_positive_batch(self, batch_size):
+        """`expand(-1, ...)` is torch's "keep this dim" sentinel, so a negative would silently give 1."""
+        from sckitflow.data._loader import _tile
+
+        with pytest.raises(ValueError, match=r"batch_size must be at least 1"):
+            _tile(torch.zeros(2, 3), batch_size)
 
     def test_multiple_rows_raise_instead_of_silently_truncating(self):
-        from sckitflow.data._loader import _leaf_vector
+        from sckitflow.data._loader import _leaf_encoding
 
         with pytest.raises(ValueError, match=r"one representative row.*got 2"):
-            _leaf_vector(np.zeros((2, 3)))
+            _leaf_encoding(np.zeros((2, 3)))
 
     @pytest.mark.parametrize("pooling_mode", ["mean", "sum"])
     def test_a_tiled_encoding_feeds_the_set_encoder_for_any_realm_width(self, pooling_mode):
@@ -250,7 +272,7 @@ class TestLeafVector:
         reduced over the *batch*, returning `(d,)` instead of `(b, out)` -- silently, with no error.
         """
         from sckitflow.core.nn._set_encoder import SetEncoder
-        from sckitflow.data._loader import _leaf_vector, _tile
+        from sckitflow.data._loader import _leaf_encoding, _tile
 
         batch, dim, out_dim = 16, 3, 8
         encoder = SetEncoder(
@@ -266,15 +288,15 @@ class TestLeafVector:
         for n_cols in (1, 2, 3):
             # the shape `CategoricalData.extract_reps` emits for a realm of `n_cols` columns
             rep = np.zeros((1, n_cols, dim), dtype=np.float32)
-            tiled = _tile(_leaf_vector(rep), batch)
+            tiled = _tile(torch.as_tensor(_leaf_encoding(rep)), batch)
             assert tuple(tiled.shape) == (batch, n_cols, dim), f"set axis lost for c={n_cols}"
             assert tuple(encoder({"drug": tiled}).shape) == (batch, out_dim), f"batch lost for c={n_cols}"
 
     def test_a_real_single_column_encoding_tiles_to_the_batch(self):
-        """The shape actually produced by the encoders survives `_leaf_vector` -> `_tile` intact."""
+        """The shape actually produced by the encoders survives `_leaf_encoding` -> `_tile` intact."""
         import pandas as pd
 
-        from sckitflow.data._loader import _leaf_vector, _tile
+        from sckitflow.data._loader import _leaf_encoding, _tile
         from sckitflow.data._utils import get_one_hot_encoder
         from sckitflow.data.containers._categorical import CategoricalData
 
@@ -286,7 +308,7 @@ class TestLeafVector:
         )
         (rep,) = cd.extract_reps().mapping.values()
         assert np.asarray(rep).shape == (1, 1, 3), "encoder contract changed"
-        assert tuple(_tile(_leaf_vector(rep), 7).shape) == (7, 1, 3)
+        assert tuple(_tile(torch.as_tensor(_leaf_encoding(rep)), 7).shape) == (7, 1, 3)
 
 
 class TestLoaderDtypeAndDevice:

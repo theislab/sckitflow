@@ -14,8 +14,8 @@ class Splitter:
     A splitter is deliberately decoupled from :class:`~sckitflow.data.DataManager`: its only
     job is to write a categorical ``split`` column into ``adata.obs``. The data manager then
     consumes that column via ``split_by=<column>`` and builds one data loader per split value,
-    without knowing *how* the split was produced. This keeps splitting policy (which cells go
-    where) separate from data configuration (how cells are read and batched).
+    without knowing *how* the split was produced. This keeps splitting policy (which observations go
+    where) separate from data configuration (how observations are read and batched).
 
     Subclasses override :meth:`assign` to return a per-observation label series; :meth:`split`
     writes it into ``adata.obs``.
@@ -51,14 +51,14 @@ class Splitter:
         """Writes the split label into ``adata.obs[self.split_key]``.
 
         Refuses to overwrite an existing ``split_key`` column: a previous split is someone's decision about
-        which cells are held out, and silently replacing it makes every downstream loader disagree with the
+        which observations are held out, and silently replacing it makes every downstream loader disagree with the
         run that produced it. Drop the column (or pass a different ``split_key``) to re-split deliberately.
 
         :param adata: The annotated data object to annotate.
         :type adata: class: `AnnData`
 
         :param copy: If ``True``, write to a *shallow* copy and return that, leaving the input's ``.obs``
-            untouched -- ``X`` / ``obsm`` / ``uns`` stay shared, so no cell data is copied. Defaults to
+            untouched -- ``X`` / ``obsm`` / ``uns`` stay shared, so no observation data is copied. Defaults to
             ``False`` (annotate in place and return the same object).
         :type copy: class: `bool`
 

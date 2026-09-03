@@ -16,9 +16,9 @@ __all__ = ["CombinationSplitter"]
 class CombinationSplitter(Splitter):
     """Hold out whole ``group_keys`` combinations, so a held-out combination is unseen at training time.
 
-    **What is split.** Not cells but *combinations*: the unique values of ``group_keys`` together, e.g. each
-    ``(cell_line, drug)`` pair. Every cell of a combination gets the same label, so a test combination never
-    leaks a single cell into train.
+    **What is split.** Not observations but *combinations*: the unique values of ``group_keys`` together, e.g. each
+    ``(cell_line, drug)`` pair. Every observation of a combination gets the same label, so a test combination
+    never leaks a single row into train.
 
     **What is protected.** ``always_train_keys`` is a subset of ``group_keys`` naming what must stay
     represented in train -- pass ``["cell_line"]`` and no cell line is ever held out entirely, only some of

@@ -91,7 +91,7 @@ class CategoricalData(BaseData):
         stacked into ``(n_obs, n_cols, d)``. That trailing pair is the set axis the conditioning
         encoder pools over, so the ``n_cols`` axis is kept even for a single-column realm.
 
-        Only categorical covariates come through here: continuous ones are per-cell ``obsm`` arrays
+        Only categorical covariates come through here: continuous ones are per-obs ``obsm`` arrays
         that the loaders stream straight into the batch, already ``(n_obs, d)``.
         """
         data_dict = defaultdict(list)

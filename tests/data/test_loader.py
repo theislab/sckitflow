@@ -158,7 +158,7 @@ class TestSourceAlignment:
 
     def test_source_is_sliced_when_longer_and_tiled_when_shorter(self, loader_adata):
         loader = _loader(loader_adata, _dm())
-        src = torch.arange(3.0).unsqueeze(1)  # three control cells
+        src = torch.arange(3.0).unsqueeze(1)  # three control observations
 
         assert loader._align_source(src, 3) is src  # already aligned: no gather at all
         assert loader._align_source(src, 2).squeeze(1).tolist() == [0.0, 1.0]
@@ -171,7 +171,7 @@ class TestSourceAlignment:
     def test_zero_matched_controls_raise(self, loader_adata):
         """A group with no matched control has nothing to flow from -- that is a data problem, not a 0-row batch."""
         loader = _loader(loader_adata, _dm())
-        with pytest.raises(ValueError, match="zero control cells"):
+        with pytest.raises(ValueError, match="zero control observations"):
             loader._align_source(torch.empty(0, 7), 4)
 
 

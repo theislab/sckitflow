@@ -264,7 +264,7 @@ class Model:
         return empty_adata if not return_raw else (empty_adata, None)
 
     def _pred_obs_from_leaf(self, group_cols: tuple[str, ...], leaf: tuple, pred_obj: PredictionData) -> pd.DataFrame:
-        """Rebuild a group's obs rows from its ``leaf`` (the ``group_by`` value tuple), one per predicted cell.
+        """Rebuild a group's obs rows from its ``leaf`` (the ``group_by`` value tuple), one per predicted observation.
 
         The group identity is the ``leaf`` surfaced by :class:`~sckitflow.data._loader.EvalLoader` -- a tuple
         of the categorical group/condition values, ordered as ``group_cols`` -- so no ``ann_df`` round-trip is
@@ -296,8 +296,8 @@ class Model:
                 f"got {traj_np.shape}, expected first dimension to equal "
                 f"n_obs ({n_obs}) or, for 3D trajectories, second "
                 "dimension to equal n_obs so it can be transposed from "
-                "(n_time_steps, n_cells, n_features) to "
-                "(n_cells, n_time_steps, n_features)."
+                "(n_time_steps, n_obs, n_features) to "
+                "(n_obs, n_time_steps, n_features)."
             )
 
     def _get_pred_raw_samples(self, pred_obj: PredictionData) -> np.ndarray | None:
@@ -338,7 +338,7 @@ class Model:
         if raw_samples is not None:
             obsm_dict["raw_samples"] = raw_samples
 
-        # ---- Continuous condition/response covariates: per-cell reps carried in the StepData dicts ----
+        # ---- Continuous condition/response covariates: per-obs reps carried in the StepData dicts ----
         condition = step_data["target_condition_data"] or {}
         response = step_data["target_response_data"] or {}
         for key in cont_keys:
@@ -546,7 +546,7 @@ class Model:
             computation graph alive). Defaults to ``False``.
         :type return_raw: class: `bool`
 
-        :param max_per_group: Per-group cap on cells: ``None`` = every cell, ``N`` = at most N, ``1`` =
+        :param max_per_group: Per-group cap on observations: ``None`` = all, ``N`` = at most N, ``1`` =
             predict once per condition (dedup / metadata-only). Defaults to ``None``.
         :type max_per_group: class: `int | None`
 
@@ -611,7 +611,7 @@ class Model:
             # 2. Construct obs from the group's leaf (no ann_df / container round-trip)
             all_obs.append(self._pred_obs_from_leaf(group_cols, leaf, pred_obj))
 
-            # 3. Construct obsm (continuous covariates ride per-cell in the StepData dicts)
+            # 3. Construct obsm (continuous covariates ride per-obs in the StepData dicts)
             node_obsm_dict = self._get_pred_obsm_dict(step_data, pred_obj, cont_keys)
             for key, val in node_obsm_dict.items():
                 all_obsm[key].append(val)

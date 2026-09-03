@@ -2,12 +2,12 @@ r"""scfit-batch to ``StepData`` adapters: :class:`Loader` (training) and :class:
 
 Selection is entirely scfit-native: one AnnData is streamed and the split + perturbed/control choice is
 expressed as scfit **weights** over scfit's own leaf factorization (weight 0 == excluded, ``in_memory``
-materializes only the selected cells). No Python-side masking or copying of subsets.
+materializes only the selected observations). No Python-side masking or copying of subsets.
 
 * the **primary** stream is the target/perturbed population -- controls get weight 0;
 * the **control** link is the source population -- a separate ``control_adata`` (fast to load, and the
   cross-dataset case), or, when none is given, the *same* adata weighted so only controls are nonzero;
-* **continuous** covariates ride as *aligned reps* (per-cell, straight from ``obsm``);
+* **continuous** covariates ride as *aligned reps* (per-obs, straight from ``obsm``);
 * **categorical** condition/group encodings are computed per group at batch time (cached), keyed off the
   group the batch belongs to, then tiled to the batch.
 
@@ -91,19 +91,19 @@ def _as_tensor(array: ArrayLike) -> torch.Tensor:
     return torch.from_dlpack(array)
 
 
-def _leaf_encoding(rep: ArrayLike) -> np.ndarray:
+def _leaf_encoding(array: np.ndarray) -> np.ndarray:
     """One group leaf's encoding ``(1, c, d)`` -> ``(c, d)``; a flat ``(d,)`` passes through.
 
     ``c`` is the columns mapped to the realm, ``d`` the encoding width (:meth:`extract_reps`). The leading
-    axis is the single representative cell the encoding came from, so anything above 1 is a bug, not a set.
+    axis is the single representative observation the encoding came from, so anything above 1 is a bug,
+    not a set.
     """
-    array = np.asarray(rep)
     if array.ndim == 1:
         return array
     if array.shape[0] != 1:
         raise ValueError(
             f"expected one representative row per group encoding, got {array.shape[0]} (shape {array.shape}). "
-            "A group leaf is encoded from a single cell, so the leading dimension must be 1."
+            "A group leaf is encoded from a single observation, so the leading dimension must be 1."
         )
     if array.ndim != 3:
         # `extract_reps` always emits (n_obs, c, d); another rank means it did not come from there.
@@ -121,7 +121,7 @@ def _tile(encoding: torch.Tensor, batch_size: int) -> torch.Tensor:
     if encoding.ndim == 1:  # a flat (d,) rep carries no set axis of its own
         encoding = encoding.unsqueeze(0)
     elif encoding.ndim != 2:
-        # Rank 3 here means the per-cell axis was never dropped -- `_leaf_encoding` was skipped -- and
+        # Rank 3 here means the per-observation axis was never dropped -- `_leaf_encoding` was skipped -- and
         # the batch axis would land in front of it, handing the encoder a 4-D tensor to pool.
         raise ValueError(f"expected an encoding of rank 1 or 2, got shape {tuple(encoding.shape)}.")
     return encoding.unsqueeze(0).expand(batch_size, *encoding.shape).contiguous()
@@ -166,14 +166,14 @@ class _StepDataBridge:
         self._pair_cols: tuple[str, ...] = (pair_key,) if pair_key is not None else ()
         if not self._group_cols:
             # Unconditional schema (no groups, no conditions): scfit must still group on something, so stream
-            # one implicit group holding every cell, on a shallow copy of the caller's AnnData.
+            # one implicit group holding every observation, on a shallow copy of the caller's AnnData.
             adata = with_derived_obs(adata, **{_ALL_CELLS: pd.Categorical(np.full(adata.n_obs, "all"))})
             self._group_cols = (_ALL_CELLS,)
         # Continuous covariates ride as aligned reps: {rep loc -> StepData dict key}.
         self._cond_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in condition_schema.conditions_covariates}
         self._resp_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in response_covs}
 
-        # One O(N) drop_duplicates gives the group combos + a representative row per group (no per-cell logic).
+        # One O(N) drop_duplicates gives the group combos + a representative row per group (no per-obs logic).
         # The categorical -> encoding is deferred to batch time (cached), keyed by the group's id.
         sub = adata.obs.loc[:, list(self._group_cols)].reset_index(drop=True)
         uniq = sub.drop_duplicates()
@@ -185,7 +185,7 @@ class _StepDataBridge:
 
     @cached_property
     def _leaf_size(self) -> dict[tuple, int]:
-        """Cells per group -- a full-obs groupby, so it is paid on first use rather than at construction.
+        """Observations per group -- a full-obs groupby, so it is paid on first use rather than at construction.
 
         Only :class:`EvalLoader` ever asks (to size a metadata-only batch): training reads its row count off
         the delivered tensor. Computing it eagerly meant every training loader -- one per split -- swept the
@@ -226,7 +226,7 @@ class _StepDataBridge:
     def _strip(self, leaf: Any, n_prefix: int = 0) -> tuple:
         """The plain group leaf: the streamed leaf without its ``split_by`` prefix or pair-id suffix.
 
-        Both are selectors bolted onto ``group_by`` -- a split excludes cells, a pair id names the source
+        Both are selectors bolted onto ``group_by`` -- a split excludes observations, a pair id names the source
         group -- and neither is part of the group's identity, so neither may reach ``_leaf_to_gid`` or the
         caller's output ``obs``.
         """
@@ -281,7 +281,7 @@ class _StepDataBridge:
 
         Measuring the delivered tensor is authoritative -- it already accounts for the sampler's
         ``drop_last`` and for a group shorter than its cap. Only a metadata-only pass (``reps=()``) reads
-        no cells at all, and there the caller knows the count outright.
+        no observations at all, and there the caller knows the count outright.
         """
         if target_state is not None:
             return int(target_state.shape[0])
@@ -297,7 +297,7 @@ class _StepDataBridge:
         n_source = int(source_state.shape[0])
         if n_source == 0:
             raise ValueError(
-                "a group was matched to zero control cells, so there is no source to flow from. Check that "
+                "a group was matched to zero control observations, so there is no source to flow from. Check that "
                 "every group value present in the primary also has controls (matching is on the group "
                 "columns, or on the pair id under `matched_keys`), or predict unpaired by passing "
                 "`control_values_dict={}`."
@@ -310,7 +310,7 @@ class _StepDataBridge:
         """Assemble one scfit batch (+ its group id) into a ``StepData``.
 
         The categorical condition/group encoding is cached per group and tiled to the batch; continuous
-        covariates are the per-cell aligned reps already in the batch, and the source is row-aligned to
+        covariates are the per-obs aligned reps already in the batch, and the source is row-aligned to
         the same count. ``has_state=False`` omits the target state (metadata-only prediction), and
         ``n_rows`` is the caller's row count for that case -- see :meth:`_batch_size`.
         """
@@ -322,7 +322,7 @@ class _StepDataBridge:
         cond_enc, group_enc = self._encode_group_cached(gid)
         condition: dict[str, Any] = {k: _tile(v, batch_size) for k, v in cond_enc.items()}
         group: dict[str, Any] = {k: _tile(v, batch_size) for k, v in group_enc.items()}
-        # continuous covariates: per-cell aligned reps (present only when the stream carries them)
+        # continuous covariates: per-obs aligned reps (present only when the stream carries them)
         for loc, key in self._cond_cont_locs.items():
             if loc in batch[_PRIMARY]:
                 condition[key] = _as_tensor(batch[_PRIMARY][loc])
@@ -383,12 +383,12 @@ class _StepDataBridge:
 
     @property
     def cond_cont_keys(self) -> tuple[str, ...]:
-        """Continuous condition covariate keys carried per-cell in ``target_condition_data``."""
+        """Continuous condition covariate keys carried per-obs in ``target_condition_data``."""
         return tuple(self._cond_cont_locs.values())
 
     @property
     def resp_keys(self) -> tuple[str, ...]:
-        """Continuous response covariate keys carried per-cell in ``target_response_data``."""
+        """Continuous response covariate keys carried per-obs in ``target_response_data``."""
         return tuple(self._resp_cont_locs.values())
 
 
@@ -409,12 +409,12 @@ class Loader(_StepDataBridge):
     :param sample_rep: The ``obsm`` key holding the state representation, or ``None`` for ``.X``.
     :type sample_rep: class: `str | None`
 
-    :param response_covs: Continuous response covariate ``obsm`` keys, streamed per-cell into
+    :param response_covs: Continuous response covariate ``obsm`` keys, streamed per-obs into
         ``target_response_data``.
     :type response_covs: class: `Collection[str]`
 
     :param split_by: An ``.obs`` column prepended to the primary's ``group_by``, so a leaf is
-        ``(split, *group_cols)`` and ``primary_weights`` select cells rather than whole groups. ``None``
+        ``(split, *group_cols)`` and ``primary_weights`` select observations rather than whole groups. ``None``
         (the default) groups on the group columns alone.
     :type split_by: class: `str | None`
 
@@ -495,7 +495,7 @@ class Loader(_StepDataBridge):
             "preload_nchunks": preload_nchunks if preload_nchunks is not None else batch_size // chunk_size,
         }
         primary_reps = (self._state_loc, *self._cond_cont_locs, *self._resp_cont_locs)
-        # With a split column the leaf is ``(split, *group_cols)``, so a weight of 0 excludes the *cells*
+        # With a split column the leaf is ``(split, *group_cols)``, so a weight of 0 excludes the *observations*
         # of another split rather than the whole group -- see `DataManager.get_dataloaders`. The split is
         # only a selector, so `_to_step_data` strips it back off before looking the group's encoding up.
         prefix_cols = (split_by,) if split_by is not None else ()
@@ -509,11 +509,11 @@ class Loader(_StepDataBridge):
             **sampler_kwargs,
         )
         # `self._adata`, not the argument: an unconditional schema streams a shallow copy carrying the
-        # implicit all-cells group column (see `with_derived_obs`).
+        # implicit all-observations group column (see `with_derived_obs`).
         sources: dict[str, AnnData] = {_PRIMARY: self._adata}
         links: dict[str, Stream] = {}
 
-        # Control link -- `in_memory` materializes just the selected control cells, a small pool re-drawn
+        # Control link -- `in_memory` materializes just the selected control observations, a small pool re-drawn
         # every batch. The control stream never groups on the split: controls are shared across splits.
         control_source, control_stream = self._control_link(
             control_adata, control_weights, in_memory=True, **sampler_kwargs
@@ -580,7 +580,7 @@ class EvalLoader(_StepDataBridge):
         ``StepData["target_state"]`` is ``None`` and batches carry only conditioning.
     :type require_target_state: class: `bool`
 
-    :param max_per_group: Per-group cap (``None`` = every cell, ``N`` = at most N, ``1`` = one representative
+    :param max_per_group: Per-group cap (``None`` = all observations, ``N`` = at most N, ``1`` = one representative
         per group / dedup). See :class:`scfit.data.EvalLoader`.
     :type max_per_group: class: `int | None`
 

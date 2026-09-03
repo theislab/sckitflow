@@ -66,7 +66,7 @@ class LoaderKwargs(TypedDict, total=False):
     Declared here rather than beside :class:`~sckitflow.data._loader.Loader` so that typing a call site
     does not import the scfit/annbatch stack (~2s) that the loader module pulls in.
 
-    Everything describing *which* cells a loader streams (``primary_weights``, ``control_adata``,
+    Everything describing *which* observations a loader streams (``primary_weights``, ``control_adata``,
     ``control_weights``) is derived by :meth:`DataManager.get_dataloaders` and so is deliberately absent:
     these are the knobs that survive being passed through.
     """
@@ -187,9 +187,9 @@ class DataManager:
     """The schema: everything sckitflow needs to know about an ``AnnData`` before it can read one.
 
     Its job is to answer, from configuration alone, three questions a batch cannot answer for itself --
-    **what** each cell's state and covariates are (``sample_rep``, ``conditions``, ``groups``, the
-    ``*_covs``), **which cells flow into which** (``control_values_dict``, or ``matched_keys`` for fixed
-    pairs), and **which cells are held out** (``splitter`` or ``split_by``). The loaders then read only what
+    **what** each observation's state and covariates are (``sample_rep``, ``conditions``, ``groups``, the
+    ``*_covs``), **which observations flow into which** (``control_values_dict``, or ``matched_keys`` for fixed
+    pairs), and **which observations are held out** (``splitter`` or ``split_by``). The loaders then read only what
     the schema declared.
 
     Two boundaries follow from that, and both are enforced rather than documented-and-hoped:
@@ -198,7 +198,7 @@ class DataManager:
     :meth:`get_dataloaders` takes no ``split_by``, and the split has exactly one source -- a ``splitter``
     this class applies itself, or a ``split_by`` column it requires to be present. Passing both raises, a
     declared column that is missing raises, and an *undeclared* ``"split"`` column raises rather than
-    quietly training on held-out cells. Only inference-time overrides are per call
+    quietly training on held-out observations. Only inference-time overrides are per call
     (:meth:`get_eval_loader`'s ``control_values_dict`` / ``matched_keys``), because predicting over
     different controls than were registered is the point of them.
 
@@ -218,7 +218,7 @@ class DataManager:
         self._condition_state_key = kwargs.get("condition_state_key")
 
         # One owner for the split: either sckitflow derives it (`splitter`) or the data already carries it
-        # (`split_by`). Accepting both would mean two answers to "which cells are held out", decided by
+        # (`split_by`). Accepting both would mean two answers to "which observations are held out", decided by
         # whichever the loader consulted -- exactly the ambiguity this schema exists to remove.
         self._splitter: Splitter | None = kwargs.get("splitter")
         self._split_by: str | None = kwargs.get("split_by")
@@ -432,9 +432,9 @@ class DataManager:
         return ids
 
     def _pair_column(self, adata: AnnData, ids: dict[tuple, str]) -> pd.Categorical:
-        """Per-cell pair id: its group's id, or ``""`` for a group in no pair (never matched, never streamed).
+        """Per-obs pair id: its group's id, or ``""`` for a group in no pair (never matched, never streamed).
 
-        Factorizes the group columns once (O(N) at C level) and looks the id up per *group*, so the per-cell
+        Factorizes the group columns once (O(N) at C level) and looks the id up per *group*, so the per-obs
         mapping never runs python per row.
         """
         codes, uniques = pd.factorize(pd.MultiIndex.from_frame(adata.obs.loc[:, list(self.group_cols)]))
@@ -539,7 +539,7 @@ class DataManager:
     ) -> dict[str, Loader]:
         """Build one streaming data loader per split value, as declared by the schema.
 
-        Which cells are held out is the schema's business, not this call's: the ``splitter`` given to
+        Which observations are held out is the schema's business, not this call's: the ``splitter`` given to
         :class:`DataManager` is applied here, or the declared ``split_by`` column is read (and required). With
         neither, everything trains under a single ``"train"`` loader.
 
@@ -550,9 +550,9 @@ class DataManager:
         ``adata`` itself by weight.
 
         The split column is part of the primary's ``group_by``, so a leaf is ``(split, *group_cols)`` and a
-        split's weights exclude cells rather than whole groups. That matters when a group spans splits (a
-        per-cell split rather than a per-combination one): weighting on the group columns alone would let
-        the held-out loader stream training cells.
+        split's weights exclude observations rather than whole groups. That matters when a group spans splits (a
+        per-obs split rather than a per-combination one): weighting on the group columns alone would let
+        the held-out loader stream training observations.
 
         Which group is a target and which its source comes from the schema's ``control_values_dict``, or from
         its ``matched_keys`` for fixed pairs (see :meth:`_selection`).
@@ -647,7 +647,7 @@ class DataManager:
         :param adata: The annotated data object to predict over.
         :type adata: class: `AnnData`
 
-        :param max_per_group: Per-group cap on cells: ``None`` = all, ``N`` = at most N, ``1`` =
+        :param max_per_group: Per-group cap on observations: ``None`` = all, ``N`` = at most N, ``1`` =
             predict-once-per-condition (dedup). Defaults to ``None``.
         :type max_per_group: class: `int | None`
 
@@ -666,7 +666,7 @@ class DataManager:
             Defaults to ``None`` (use the instance's).
         :type matched_keys: class: `Mapping[tuple, tuple] | None`
 
-        :param subsample: How ``max_per_group`` picks cells: ``"head"``, ``"random"``, or a callable.
+        :param subsample: How ``max_per_group`` picks observations: ``"head"``, ``"random"``, or a callable.
         :type subsample: class: `str`
 
         :param dtype: Torch dtype every emitted tensor is cast to; ``None`` leaves them as streamed.

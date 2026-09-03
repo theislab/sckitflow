@@ -172,3 +172,54 @@ class TestStoredRepresentationShape:
         )
         (rep,) = cat.extract_reps().mapping.values()
         assert np.asarray(rep).shape == (1, 1, 5)
+
+
+class TestEncoderOutputShape:
+    """Every encoder must stack to `(n_obs, n_cols, d)`; `LabelEncoder` is the 1-D odd one out."""
+
+    @staticmethod
+    def _reps(encoder_id: str, values: list[str]) -> np.ndarray:
+        from sckitflow.data._group_encoders import GroupEncoderContext, as_group_encoder
+
+        col = np.asarray(values)
+        encoder = as_group_encoder(encoder_id).build(GroupEncoderContext(col))
+        cat = CategoricalData.from_pandas(
+            pd.DataFrame({"ko": col}),
+            categorical_encoders={"ko": encoder},
+            categorical_reps_map={"ko": "ko"},
+        )
+        (rep,) = cat.extract_reps().mapping.values()
+        return np.asarray(rep)
+
+    def test_label_encoder_keeps_a_width_axis(self):
+        """`LabelEncoder.transform` returns `(n_obs,)`; without the restored axis this stacks to (n, 1).
+
+        `DimsRegistry` reports dim 1 for a label encoder, so a rank-2 stack builds the model for a
+        width the loader never delivers -- and `_leaf_encoding` rejects the rank outright.
+        """
+        assert self._reps("label", ["koA", "control", "koA"]).shape == (3, 1, 1)
+
+    def test_one_hot_encoder_width_is_the_vocabulary(self):
+        assert self._reps("one-hot", ["koA", "control", "koA"]).shape == (3, 1, 2)
+
+    def test_label_encoding_does_not_warn(self):
+        """A column-vector into `LabelEncoder` "works" but raises sklearn's `DataConversionWarning`."""
+        import warnings
+
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            self._reps("label", ["koA", "control"])
+        assert [w for w in record if "column-vector" in str(w.message)] == []
+
+    def test_a_rank_3_encoder_output_is_refused(self):
+        class RankThreeEncoder:
+            def transform(self, X):
+                return np.zeros((X.shape[0], 2, 2))
+
+        cat = CategoricalData.from_pandas(
+            pd.DataFrame({"ko": ["koA"]}),
+            categorical_encoders={"ko": RankThreeEncoder()},
+            categorical_reps_map={"ko": "ko"},
+        )
+        with pytest.raises(ValueError, match=r"rank-3 array"):
+            cat.extract_reps()

@@ -1,11 +1,12 @@
 from collections import defaultdict
-from collections.abc import Hashable, Mapping
+from collections.abc import Mapping
 from dataclasses import dataclass
 from dataclasses import field as dc_field
 
 import numpy as np
 import pandas as pd
 from scipy.sparse import csr_matrix
+from sklearn.preprocessing import LabelEncoder
 
 from sckitflow._types import TargetCovariatesEncoderCls
 from sckitflow.data._mixins import BatchMixin, MappedArray
@@ -150,9 +151,25 @@ class CategoricalData(BaseData):
                         f"Column {col!r} of the annotation frame is {col_values.ndim}-dimensional; a "
                         "categorical column must be a single 1-dimensional series."
                     )
-                col_repr = self.categorical_encoders[realm].transform(col_values[:, None])
+                # `LabelEncoder` is the one sklearn transformer that takes the raw 1-D column; the
+                # rest want `(n_samples, n_features)`. Passing a column-vector to it "works" but
+                # raises `DataConversionWarning`, so branch on what the encoder actually asks for.
+                encoder = self.categorical_encoders[realm]
+                col_repr = encoder.transform(col_values if isinstance(encoder, LabelEncoder) else col_values[:, None])
                 if isinstance(col_repr, csr_matrix):
                     col_repr = col_repr.toarray()
+                col_repr = np.asarray(col_repr)
+                if col_repr.ndim == 1:
+                    # `LabelEncoder` emits one integer code per row, `(n_obs,)`, where every other
+                    # encoder emits `(n_obs, d)`. Restore the width axis so the realm stacks to
+                    # `(n_obs, n_cols, d)` like the rest -- a `d` of 1 is still a width.
+                    col_repr = col_repr[:, None]
+                elif col_repr.ndim != 2:
+                    raise ValueError(
+                        f"The encoder for realm {realm!r} returned a rank-{col_repr.ndim} array "
+                        f"(shape {col_repr.shape}) for column {col!r}; a categorical encoder must emit "
+                        "one row per observation, so `(n_obs,)` or `(n_obs, d)`."
+                    )
 
             else:  # unreachable: `__post_init__` requires every column's realm to have one or the other
                 raise KeyError(f"No representation found for column {col} associated to realm {realm}.")

@@ -1,9 +1,10 @@
 import abc
-from typing import Any, TypeVar
+from typing import Any
 
 import torch
 
-from sckitflow.core._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn, new_step_data
+from sckitflow.core._data_utils import subscript_step_data
+from sckitflow.core._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.core.probability_paths import BaseProbabilityPath
 from sckitflow.core.solvers import BaseSolver
@@ -11,8 +12,6 @@ from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager
 
 __all__ = ["BaseMethod", "GenerativeFlow"]
-
-T = TypeVar("T")
 
 
 class BaseMethod(abc.ABC):
@@ -44,14 +43,6 @@ class BaseMethod(abc.ABC):
 
         # move module to device
         self._module.to(self._dtype).to(self._device_id)
-
-    @staticmethod
-    def _safe_subscript_obj(data: T | None, idx: Any | None) -> T | None:  # TODO: Probably remove from here
-        if data is None:
-            return None
-        if idx is None:
-            return data
-        return data[idx]
 
     @abc.abstractmethod
     def compute_loss(
@@ -103,8 +94,7 @@ class BaseMethod(abc.ABC):
     ) -> dict[str, Any]:
         """Single training step on a ready :class:`StepData` batch.
 
-        Callers are responsible for turning a ``MatchedData`` node into a
-        :class:`StepData` (via ``extract_step_data``) before calling this method.
+        Callers pass a :class:`StepData` already assembled by the data loaders.
 
         :param step_data: Ready-to-consume batch of torch tensors.
         :type step_data: class: `StepData`
@@ -120,8 +110,7 @@ class BaseMethod(abc.ABC):
     ) -> PredictionData:
         """Prediction on a ready :class:`StepData` batch.
 
-        Callers are responsible for turning a ``MatchedData`` node into a
-        :class:`StepData` (via ``extract_step_data``) before calling this method.
+        Callers pass a :class:`StepData` already assembled by the data loaders.
         """
         # optionally stop gradients
         if no_grad:
@@ -186,16 +175,31 @@ class GenerativeFlow(BaseMethod):
             **kwargs,
         )
 
+        if match_fn is not None:
+            # The streaming loaders leave every `*_coupling_lin` / `*_coupling_quad` field of a batch as
+            # None, so `_match_observations` returns early and the coupling would never run. Refusing is the
+            # honest answer until the loaders populate the coupling reps (see the TODO in `data._loader`) --
+            # accepting a `match_fn` that silently does nothing is how an OTFM run quietly becomes a plain
+            # flow-matching run.
+            raise NotImplementedError(
+                "`match_fn` (OT coupling) is not wired through the streaming data loaders yet: they emit no "
+                "coupling representations, so the matching would silently never run. The same holds for the "
+                "`source_rep` / `n_shared_dims` coupling schema, which only reaches a method through a "
+                "`match_fn`. Train without it for now."
+            )
+
         # set attributes
         self._probability_path = probability_path
         self._match_fn = match_fn
         self._noise_sampler = noise_sampler
         self._time_sampler = time_sampler
 
-        # automatically fall back to noise generation when
-        # no control values are provided
-        if not self.is_paired_setting:
-            generate_from_noise = True
+        # Not forced on for an unpaired schema: whether a batch has a source to flow from is a property of
+        # the batch, and `prepare_latent_train` / `prepare_latent_inference` already sample noise whenever
+        # `source_state` is None. Deriving it from the schema instead made a real streamed source -- a
+        # `control_adata` pool given at call time, after this object was built -- be silently discarded in
+        # favour of noise. This flag now means only what it says: generate from noise *even when a source
+        # is available*.
         self._generate_from_noise = generate_from_noise
 
     def _call_match_fn_safe(
@@ -232,38 +236,13 @@ class GenerativeFlow(BaseMethod):
             step_data["target_coupling_quad"],
         )
 
-        # Case: no source distribution → return step_data unchanged (or with source=None)
+        # Case: no source distribution → return step_data unchanged
         if src_idxs is None and tgt_idxs is None:
-            # Already no source; keep target as is
             return step_data
 
-        # Slice source side
-        source_state = self._safe_subscript_obj(step_data["source_state"], src_idxs)
-        source_condition_data = self._safe_subscript_obj(step_data["source_condition_data"], src_idxs)
-        source_group_data = self._safe_subscript_obj(step_data["source_group_data"], src_idxs)
-        source_coupling_lin = self._safe_subscript_obj(step_data["source_coupling_lin"], src_idxs)
-        source_coupling_quad = self._safe_subscript_obj(step_data["source_coupling_quad"], src_idxs)
-
-        # Slice target side
-        target_state = self._safe_subscript_obj(step_data["target_state"], tgt_idxs)
-        target_condition_data = self._safe_subscript_obj(step_data["target_condition_data"], tgt_idxs)
-        target_group_data = self._safe_subscript_obj(step_data["target_group_data"], tgt_idxs)
-        target_coupling_lin = self._safe_subscript_obj(step_data["target_coupling_lin"], tgt_idxs)
-        target_coupling_quad = self._safe_subscript_obj(step_data["target_coupling_quad"], tgt_idxs)
-
-        # Return new StepData with matched slices
-        return new_step_data(
-            target_state=target_state,
-            target_coupling_lin=target_coupling_lin,
-            target_coupling_quad=target_coupling_quad,
-            target_condition_data=target_condition_data,
-            target_group_data=target_group_data,
-            source_state=source_state,
-            source_coupling_lin=source_coupling_lin,
-            source_coupling_quad=source_coupling_quad,
-            source_condition_data=source_condition_data,
-            source_group_data=source_group_data,
-        )
+        # Apply the matching permutation to both sides. The target side includes
+        # ``target_response_data`` so target covariates stay row-aligned with ``target_state``.
+        return subscript_step_data(step_data, src_idxs=src_idxs, tgt_idxs=tgt_idxs)
 
     @abc.abstractmethod
     def infer(

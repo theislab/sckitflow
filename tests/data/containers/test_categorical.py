@@ -125,105 +125,101 @@ class TestCategoricalData:
         assert "repr_dict_keys=['cell_type']" in rep
         assert "categorical_encoders_keys=['batch']" in rep
 
-    def test_concat_collection_two_objects(self) -> None:
-        """Concatenate two compatible CategoricalData objects."""
-        df1 = pd.DataFrame({"cell_type": ["A", "B"], "batch": ["x", "x"]})
-        df2 = pd.DataFrame({"cell_type": ["C", "D"], "batch": ["y", "y"]})
 
-        encoders = {col: DummyEncoder() for col in df1.columns}
-        cat1 = CategoricalData.from_pandas(df1, categorical_encoders=encoders)
-        cat2 = CategoricalData.from_pandas(df2, categorical_encoders=encoders)
+class TestStoredRepresentationShape:
+    """A stored representation is one vector per value; an ambiguous shape must fail, not be flattened."""
 
-        concatenated = CategoricalData.concat_collection([cat1, cat2])
-
-        assert len(concatenated) == 4
-        pd.testing.assert_frame_equal(
-            concatenated.ann_df.reset_index(drop=True),
-            pd.concat([df1, df2], axis=0).reset_index(drop=True),
-            check_categorical=False,
+    @staticmethod
+    def _reps(stored: np.ndarray) -> np.ndarray:
+        cat = CategoricalData.from_pandas(
+            pd.DataFrame({"drug": ["d0"]}),
+            repr_dict={"drug": {"d0": stored}},
+            categorical_reps_map={"drug": "drug"},
         )
-        # Merged dictionaries should contain all keys from both objects
-        assert concatenated.categorical_encoders.keys() == encoders.keys()
-        # Since both used the same encoders, the dicts are identical; update results in same
-        assert concatenated.categorical_reps_map == {"cell_type": "cell_type", "batch": "batch"}
+        (rep,) = cat.extract_reps().mapping.values()
+        return np.asarray(rep)
 
-    def test_concat_collection_three_objects(self) -> None:
-        """Concatenate three compatible objects."""
-        dfs = [
-            pd.DataFrame({"a": ["x"], "b": [1]}),
-            pd.DataFrame({"a": ["y"], "b": [2]}),
-            pd.DataFrame({"a": ["z"], "b": [3]}),
-        ]
-        encoders = {col: DummyEncoder() for col in dfs[0].columns}
-        cats = [CategoricalData.from_pandas(df, categorical_encoders=encoders) for df in dfs]
+    @pytest.mark.parametrize("stored", [np.arange(5.0), np.arange(5.0).reshape(1, 5)])
+    def test_both_vector_forms_are_accepted(self, stored):
+        """`(d,)` and the equivalent row form `(1, d)` are both in use across the repo."""
+        assert self._reps(stored).shape == (1, 1, 5)
 
-        concatenated = CategoricalData.concat_collection(cats)
-        assert len(concatenated) == 3
-        expected_df = pd.concat(dfs, axis=0).reset_index(drop=True)
-        pd.testing.assert_frame_equal(
-            concatenated.ann_df.reset_index(drop=True),
-            expected_df,
-            check_categorical=False,
+    @pytest.mark.parametrize("bad", [(2, 3), (1, 2, 3), (3, 1)])
+    def test_an_ambiguous_shape_is_refused(self, bad):
+        """A `reshape(1, -1)` here would flatten `(2, 3)` to `(1, 6)` while `DimsRegistry` reads 3."""
+        with pytest.raises(ValueError, match=r"must be one vector per value"):
+            self._reps(np.zeros(bad))
+
+    def test_values_of_a_realm_must_share_a_width(self):
+        """Nothing upstream checks this: a leaf holds one value, so `np.stack` never sees the mismatch.
+
+        `DataDimensionalitiesRegistry` reads a realm's width off whichever value comes first, so a
+        disagreement silently builds the model for one width and feeds it another.
+        """
+        cat = CategoricalData.from_pandas(
+            pd.DataFrame({"drug": ["d0"]}),
+            repr_dict={"drug": {"d0": np.zeros(5), "d1": np.zeros(3)}},
+            categorical_reps_map={"drug": "drug"},
         )
+        with pytest.raises(ValueError, match=r"realm 'drug' have differing widths \[3, 5\]"):
+            cat.extract_reps()
 
-    def test_concat_collection_preserves_repr_dict_and_encoders(self) -> None:
-        """Different objects may have different representation sources (repr_dict vs encoder)."""
-        # First object uses repr_dict for 'cell_type'
-        df1 = pd.DataFrame({"cell_type": ["A"], "batch": ["x"]})
-        repr_dict = {"cell_type": {"A": np.array([1, 0])}}
-        cat1 = CategoricalData.from_pandas(df1, repr_dict=repr_dict)
+    def test_a_consistent_realm_still_works(self):
+        cat = CategoricalData.from_pandas(
+            pd.DataFrame({"drug": ["d0"]}),
+            repr_dict={"drug": {"d0": np.zeros(5), "d1": np.zeros(5)}},
+            categorical_reps_map={"drug": "drug"},
+        )
+        (rep,) = cat.extract_reps().mapping.values()
+        assert np.asarray(rep).shape == (1, 1, 5)
 
-        # Second object uses encoder for 'cell_type' (no repr_dict entry)
-        df2 = pd.DataFrame({"cell_type": ["B"], "batch": ["y"]})
-        encoders = {"cell_type": DummyEncoder(), "batch": DummyEncoder()}
-        cat2 = CategoricalData.from_pandas(df2, categorical_encoders=encoders)
 
-        concatenated = CategoricalData.concat_collection([cat1, cat2])
+class TestEncoderOutputShape:
+    """Every encoder must stack to `(n_obs, n_cols, d)`; `LabelEncoder` is the 1-D odd one out."""
 
-        # Both representation sources should be merged
-        assert "cell_type" in concatenated.repr_dict
-        assert concatenated.repr_dict["cell_type"].keys() == {"A"}
-        np.testing.assert_array_equal(concatenated.repr_dict["cell_type"]["A"], np.array([1, 0]))
-        assert "cell_type" in concatenated.categorical_encoders
-        assert concatenated.categorical_encoders["cell_type"] is encoders["cell_type"]
-        assert "batch" in concatenated.categorical_encoders
-        assert concatenated.categorical_encoders["batch"] is encoders["batch"]
+    @staticmethod
+    def _reps(encoder_id: str, values: list[str]) -> np.ndarray:
+        from sckitflow.data._group_encoders import GroupEncoderContext, as_group_encoder
 
-        # categorical_reps_map should combine entries from both (keys are column names)
-        expected_map = {"cell_type": "cell_type", "batch": "batch"}
-        assert concatenated.categorical_reps_map == expected_map
+        col = np.asarray(values)
+        encoder = as_group_encoder(encoder_id).build(GroupEncoderContext(col))
+        cat = CategoricalData.from_pandas(
+            pd.DataFrame({"ko": col}),
+            categorical_encoders={"ko": encoder},
+            categorical_reps_map={"ko": "ko"},
+        )
+        (rep,) = cat.extract_reps().mapping.values()
+        return np.asarray(rep)
 
-    def test_concat_collection_mismatched_columns_raises(self) -> None:
-        """Concatenating objects with different column sets should raise."""
-        df1 = pd.DataFrame({"col1": [1, 2], "col2": ["a", "b"]})
-        df2 = pd.DataFrame({"col1": [3, 4], "col3": ["c", "d"]})  # different second column
+    def test_label_encoder_keeps_a_width_axis(self):
+        """`LabelEncoder.transform` returns `(n_obs,)`; without the restored axis this stacks to (n, 1).
 
-        encoders = {col: DummyEncoder() for col in df1.columns}
-        cat1 = CategoricalData.from_pandas(df1, categorical_encoders=encoders)
-        # Need encoders for df2 columns as well
-        encoders2 = {col: DummyEncoder() for col in df2.columns}
-        cat2 = CategoricalData.from_pandas(df2, categorical_encoders=encoders2)
+        `DimsRegistry` reports dim 1 for a label encoder, so a rank-2 stack builds the model for a
+        width the loader never delivers -- and `_leaf_encoding` rejects the rank outright.
+        """
+        assert self._reps("label", ["koA", "control", "koA"]).shape == (3, 1, 1)
 
-        with pytest.raises(ValueError):  # check_sequence_query_against_reference raises ValueError
-            CategoricalData.concat_collection([cat1, cat2])
+    def test_one_hot_encoder_width_is_the_vocabulary(self):
+        assert self._reps("one-hot", ["koA", "control", "koA"]).shape == (3, 1, 2)
 
-    def test_concat_collection_empty_collection_raises(self) -> None:
-        """Concatenating an empty list should raise an appropriate error."""
-        with pytest.raises(ValueError, match="at least one"):
-            CategoricalData.concat_collection([])
+    def test_label_encoding_does_not_warn(self):
+        """A column-vector into `LabelEncoder` "works" but raises sklearn's `DataConversionWarning`."""
+        import warnings
 
-    def test_concat_collection_single_object_returns_copy(self) -> None:
-        """Concatenating a single object should return a new (but equivalent) object."""
-        df = pd.DataFrame({"A": ["a"], "B": [1]})
-        encoders = {col: DummyEncoder() for col in df.columns}
-        cat = CategoricalData.from_pandas(df, categorical_encoders=encoders)
+        with warnings.catch_warnings(record=True) as record:
+            warnings.simplefilter("always")
+            self._reps("label", ["koA", "control"])
+        assert [w for w in record if "column-vector" in str(w.message)] == []
 
-        concatenated = CategoricalData.concat_collection([cat])
+    def test_a_rank_3_encoder_output_is_refused(self):
+        class RankThreeEncoder:
+            def transform(self, X):
+                return np.zeros((X.shape[0], 2, 2))
 
-        assert concatenated is not cat
-        assert len(concatenated) == len(cat)
-        pd.testing.assert_frame_equal(concatenated.ann_df, cat.ann_df, check_categorical=False)
-        # Dictionaries should be shallow copies? In current implementation they are merged (updated),
-        # which for a single object results in identical content but new dict objects.
-        assert concatenated.categorical_encoders == cat.categorical_encoders
-        assert concatenated.repr_dict == cat.repr_dict
+        cat = CategoricalData.from_pandas(
+            pd.DataFrame({"ko": ["koA"]}),
+            categorical_encoders={"ko": RankThreeEncoder()},
+            categorical_reps_map={"ko": "ko"},
+        )
+        with pytest.raises(ValueError, match=r"rank-3 array"):
+            cat.extract_reps()

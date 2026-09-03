@@ -65,8 +65,8 @@ def mock_dims_registry():
 
 @pytest.fixture
 def mock_data_manager():
-    # Unpaired setting: `is_paired_setting` reads both of these off the data manager,
-    # so they must be explicitly None rather than auto-created Mock attributes.
+    # Unpaired setting: `is_paired_setting` reads `control_values_dict` / `matched_keys` off the data
+    # manager, so both must be explicitly None rather than auto-created (truthy) Mock attributes.
     dm = Mock(spec=DataManager)
     dm.control_values_dict = None
     dm.matched_keys = None
@@ -128,6 +128,11 @@ class TestBaseMethod:
         method = DummyMethod(mock_dims_registry, mock_paired_data_manager)
         assert method.is_paired_setting is True
 
+    def test_matched_keys_alone_is_a_paired_setting(self, mock_dims_registry, mock_data_manager):
+        """Fixed pairs supply a source without any control values, so the setting is paired."""
+        mock_data_manager.matched_keys = {("HeLa", "aspirin"): ("HeLa", "ibuprofen")}
+        assert DummyMethod(mock_dims_registry, mock_data_manager).is_paired_setting is True
+
     def test_properties_return_correct_values(self, mock_dims_registry, mock_paired_data_manager):
         method = DummyMethod(mock_dims_registry, mock_paired_data_manager)
         assert method.module is not None
@@ -144,20 +149,17 @@ class TestBaseMethod:
         torch_method.set_train_mode(False)
         torch_method.module.eval.assert_called_once()
 
-    def test_safe_subscript_obj(self, torch_method):
-        data = torch.tensor([1, 2, 3, 4])
-        idx = torch.tensor([0, 2])
-        result = torch_method._safe_subscript_obj(data, idx)
-        assert torch.equal(result, torch.tensor([1, 3]))
-        assert torch_method._safe_subscript_obj(None, idx) is None
-        assert torch_method._safe_subscript_obj(data, None) is data
-
 
 # -----------------------------------------------------------------------------
 # Test suite for GenerativeFlow
 # -----------------------------------------------------------------------------
 class TestGenerativeFlow:
     """Tests for GenerativeFlow matching and training logic."""
+
+    def test_a_match_fn_is_refused_while_the_loaders_emit_no_coupling(self, mock_dims_registry, mock_data_manager):
+        """Accepting it would mean the requested OT coupling silently never runs (batches carry no coupling)."""
+        with pytest.raises(NotImplementedError, match="not wired through the streaming data loaders"):
+            DummyGenerativeFlow(mock_dims_registry, mock_data_manager, match_fn=Mock())
 
     def test_call_match_fn_safe_no_source(self, torch_gen_flow):
         src_lin = src_quad = None
@@ -257,17 +259,17 @@ class TestGenerativeFlow:
         assert flow._match_fn is None
         assert flow._noise_sampler is None
         assert flow._time_sampler is None
-        assert flow.generate_from_noise is True
+        assert flow.generate_from_noise is False  # noise is chosen per batch, when a batch has no source
 
-    def test_generate_from_noise_forced_when_unpaired(self, mock_dims_registry, mock_data_manager):
-        """When the data manager is unpaired, generate_from_noise should be forced to True."""
-        flow = DummyGenerativeFlow(
-            mock_dims_registry,
-            mock_data_manager,
-            generate_from_noise=False,  # user tries to set False
-        )
-        # In BaseGenerativeFlow.__init__, if not paired, generate_from_noise becomes True
-        assert flow.generate_from_noise is True
+    def test_an_unpaired_schema_does_not_force_noise_generation(self, mock_dims_registry, mock_data_manager):
+        """The flag means "noise even when a source exists"; a schema cannot know whether a batch has one.
+
+        Forcing it here used to make a control pool passed at call time -- after this object is built --
+        be streamed and then discarded. Batches without a source still get noise, via `prepare_latent_*`.
+        """
+        flow = DummyGenerativeFlow(mock_dims_registry, mock_data_manager, generate_from_noise=False)
+        assert flow.generate_from_noise is False
+        assert flow.is_paired_setting is False  # unpaired schema, but the decision is no longer made here
 
     def test_generate_from_noise_respected_when_paired(self, mock_dims_registry, mock_paired_data_manager):
         """When paired, generate_from_noise can be set to False."""
@@ -276,20 +278,20 @@ class TestGenerativeFlow:
 
     def test_properties_return_assigned_values(self, mock_dims_registry, mock_paired_data_manager):
         prob_path = Mock()
-        match_fn = Mock()
         noise_sampler = Mock()
         time_sampler = Mock()
         flow = DummyGenerativeFlow(
             mock_dims_registry,
             mock_paired_data_manager,
             probability_path=prob_path,
-            match_fn=match_fn,
             noise_sampler=noise_sampler,
             time_sampler=time_sampler,
             generate_from_noise=True,
         )
         assert flow.probability_path is prob_path
-        assert flow.match_fn is match_fn
+        # `match_fn` cannot be assigned at construction while the loaders emit no coupling -- see
+        # `test_a_match_fn_is_refused_while_the_loaders_emit_no_coupling`.
+        assert flow.match_fn is None
         assert flow.noise_sampler is noise_sampler
         assert flow.time_sampler is time_sampler
         assert flow.generate_from_noise is True

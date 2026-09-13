@@ -10,20 +10,87 @@ from sckitflow.core.probability_paths._probability_paths import BaseProbabilityP
 
 __all__ = [
     "ProtocolSpecs",
-    "MatchingSpecs",
-    "MatchedProtocolSpecs",
-    "FlowMethodSpecs",
+    "FlowSpecs",
     "BaseTrainingProtocol",
+    "BaseFlowTrainingProtocol",
     "BaseInferenceProtocol",
-    "BaseMethod",
+    "BaseFlowInferenceProtocol",
     "BaseMatchingProtocol",
     "MatchingProtocol",
     "ProtocolMixin",
     "TrainingProtocolWrapper",
     "InferenceProtocolWrapper",
-    "MethodWrapper",
     "MatchedTrainingProtocol",
 ]
+
+
+# -------------------- Initialization behaviors --------------------
+class ProtocolSpecs:
+    def __init__(
+        self,
+        module: BaseModule,
+        dtype: torch.dtype = torch.float32,
+        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
+    ):
+        self._dtype = dtype
+        self._device_id = device_id
+        self._module = module.to(device=self._device_id, dtype=self._dtype)
+
+    def set_train_mode(self, mode: bool) -> None:
+        if mode:
+            self.module.train()
+        else:
+            self.module.eval()
+
+    @property
+    def module(self) -> BaseModule:
+        return self._module
+
+    @property
+    def dtype(self) -> torch.dtype:
+        return self._dtype
+
+    @property
+    def device_id(self) -> str:
+        return self._device_id
+
+
+class FlowSpecs(ProtocolSpecs):
+    def __init__(
+        self,
+        module: BaseModule,
+        probability_path: BaseProbabilityPath,
+        time_sampler: TTimeSamplerFn,
+        noise_sampler: TNoiseSamplerFn | None = None,
+        generate_from_noise: bool = False,
+        dtype: torch.dtype = torch.float32,
+        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
+    ) -> None:
+        if generate_from_noise and noise_sampler is None:
+            raise TypeError("When generating from noise you need to pass a noise sampler.")
+
+        super().__init__(module, dtype=dtype, device_id=device_id)
+
+        self._probability_path = probability_path
+        self._noise_sampler = noise_sampler
+        self._time_sampler = time_sampler
+        self._generate_from_noise = generate_from_noise
+
+    @property
+    def probability_path(self) -> BaseProbabilityPath:
+        return self._probability_path
+
+    @property
+    def noise_sampler(self) -> TNoiseSamplerFn | None:
+        return self._noise_sampler
+
+    @property
+    def time_sampler(self) -> TTimeSamplerFn:
+        return self._time_sampler
+
+    @property
+    def generate_from_noise(self) -> bool:
+        return self._generate_from_noise
 
 
 # -------------------- Abstract Contracts (no storage) --------------------
@@ -31,7 +98,7 @@ class _AbstractTrainingProtocol(abc.ABC):
     """Pure abstract contract for training protocols."""
 
     @abc.abstractmethod
-    def train_step(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]: ...
+    def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]: ...
 
 
 class _AbstractInferenceProtocol(abc.ABC):
@@ -48,154 +115,26 @@ class _AbstractMatchingProtocol(abc.ABC):
     def match(self, step_data: StepData) -> StepData: ...
 
 
-class _AbstractMethod(_AbstractTrainingProtocol, _AbstractInferenceProtocol):
-    """Combined contract for full training + inference protocols."""
-
-    pass
+# -------------------- Base Protocol Classes (still abstract) --------------------
+class BaseTrainingProtocol(ProtocolSpecs, _AbstractTrainingProtocol): ...
 
 
-# -------------------- Storage Base --------------------
-class ProtocolSpecs:
-    """Mixin providing storage for module, dtype, and device.
-
-    This class does **not** inherit from any abstract protocol; it only holds
-    the neural module and associated properties. Concrete protocol classes
-    combine this with the appropriate abstract contracts.
-    """
-
-    def __init__(
-        self,
-        module: BaseModule,
-        dtype: torch.dtype = torch.float32,
-        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
-    ) -> None:
-        self._dtype = dtype
-        self._device_id = device_id
-        self._module = module.to(dtype=self._dtype, device=self._device_id)
-
-    @property
-    def dtype(self) -> torch.dtype:
-        return self._dtype
-
-    @property
-    def device_id(self) -> str:
-        return self._device_id
-
-    @property
-    def module(self) -> BaseModule:
-        return self._module
-
-    def set_train_mode(self, mode: bool) -> None:
-        """Set the underlying module to training or evaluation mode."""
-        if mode:
-            self.module.train()
-        else:
-            self.module.eval()
+class BaseFlowTrainingProtocol(FlowSpecs, _AbstractTrainingProtocol): ...
 
 
-class MatchingSpecs:
-    """Mixin to store the information for the matching.
+class BaseInferenceProtocol(ProtocolSpecs, _AbstractInferenceProtocol): ...
 
-    The only information that is required is the `match_fn` callable,
-    used to match the step data on its predefined coupling fields.
-    """
 
+class BaseFlowInferenceProtocol(FlowSpecs, _AbstractInferenceProtocol): ...
+
+
+class BaseMatchingProtocol(_AbstractMatchingProtocol):
     def __init__(self, match_fn: TMatchFn):
-        self._match_fn: TMatchFn = match_fn
+        self._match_fn = match_fn
 
     @property
     def match_fn(self) -> TMatchFn:
         return self._match_fn
-
-
-class MatchedProtocolSpecs(ProtocolSpecs, MatchingSpecs):
-    """Mixin to jointly store matching and protocol information."""
-
-    def __init__(
-        self,
-        module: BaseModule,
-        match_fn: TMatchFn,
-        dtype: torch.dtype = torch.float32,
-        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
-    ) -> None:
-        ProtocolSpecs.__init__(self, module, dtype=dtype, device_id=device_id)
-        MatchingSpecs.__init__(self, match_fn)
-
-
-class FlowMethodSpecs(MatchedProtocolSpecs):
-    def __init__(
-        self,
-        module: BaseModule,
-        match_fn: TMatchFn,
-        dtype: torch.dtype = torch.float32,
-        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
-        probability_path: BaseProbabilityPath | None = None,
-        noise_sampler: TNoiseSamplerFn | None = None,
-        time_sampler: TTimeSamplerFn | None = None,
-        generate_from_noise: bool = False,
-    ) -> None:
-        super().__init__(module, match_fn, dtype=dtype, device_id=device_id)
-
-        self._probability_path = probability_path
-        self._noise_sampler = noise_sampler
-        self._time_sampler = time_sampler
-        self._generate_from_noise = generate_from_noise
-
-    @property
-    def probability_path(self) -> BaseProbabilityPath | None:
-        return self._probability_path
-
-    @property
-    def noise_sampler(self) -> TNoiseSamplerFn | None:
-        return self._noise_sampler
-
-    @property
-    def time_sampler(self) -> TTimeSamplerFn | None:
-        return self._time_sampler
-
-    @property
-    def generate_from_noise(self) -> bool:
-        return self._generate_from_noise
-
-
-# -------------------- Base Protocol Classes (still abstract) --------------------
-class BaseTrainingProtocol(ProtocolSpecs, _AbstractTrainingProtocol):
-    """Base class for training‑only protocols.
-
-    Subclass this and implement `train_step`. The module, dtype, and device are
-    stored automatically.
-    """
-
-    pass
-
-
-class BaseInferenceProtocol(ProtocolSpecs, _AbstractInferenceProtocol):
-    """Base class for inference‑only protocols.
-
-    Subclass this and implement `predict`. The module, dtype, and device are
-    stored automatically.
-    """
-
-    pass
-
-
-class BaseMethod(ProtocolSpecs, _AbstractMethod):
-    """Base class for full protocols (training + inference).
-
-    Subclass this and implement both `train_step` and `predict`.
-    """
-
-    pass
-
-
-class BaseMatchingProtocol(MatchingSpecs, _AbstractMatchingProtocol):
-    """Base class for matching protocols.
-
-    Subclass this and implement `match`. The matching function is stored
-    automatically.
-    """
-
-    pass
 
 
 # -------------------- Matching protocol with callable --------------------
@@ -267,49 +206,35 @@ class ProtocolMixin(Generic[_P]):
 
 
 # -------------------- Ready‑made Wrapper Classes --------------------
-class TrainingProtocolWrapper(ProtocolMixin[BaseTrainingProtocol], _AbstractTrainingProtocol):
+class TrainingProtocolWrapper(
+    ProtocolMixin[BaseTrainingProtocol | BaseFlowTrainingProtocol], _AbstractTrainingProtocol
+):
     """Concrete wrapper for a training protocol.
 
-    Delegates `train_step` to the wrapped protocol.
+    Delegates `compute_loss` to the wrapped protocol.
     """
 
-    def __init__(self, protocol: BaseTrainingProtocol):
-        if not isinstance(protocol, BaseTrainingProtocol):
-            raise TypeError("Wrapped protocol must provide train_step.")
+    def __init__(self, protocol: BaseTrainingProtocol | BaseFlowTrainingProtocol):
+        if not isinstance(protocol, BaseTrainingProtocol | BaseFlowTrainingProtocol):
+            raise TypeError("Wrapped protocol must provide compute_loss.")
         super().__init__(protocol)
 
-    def train_step(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
-        return self._protocol.train_step(step_data)
+    def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
+        return self._protocol.compute_loss(step_data)
 
 
-class InferenceProtocolWrapper(ProtocolMixin[BaseInferenceProtocol], _AbstractInferenceProtocol):
+class InferenceProtocolWrapper(
+    ProtocolMixin[BaseInferenceProtocol | BaseFlowInferenceProtocol], _AbstractInferenceProtocol
+):
     """Concrete wrapper for an inference protocol.
 
     Delegates `predict` to the wrapped protocol.
     """
 
-    def __init__(self, protocol: BaseInferenceProtocol):
-        if not isinstance(protocol, BaseInferenceProtocol):
+    def __init__(self, protocol: BaseInferenceProtocol | BaseFlowInferenceProtocol):
+        if not isinstance(protocol, BaseInferenceProtocol | BaseFlowInferenceProtocol):
             raise TypeError("Wrapped protocol must provide predict.")
         super().__init__(protocol)
-
-    def predict(self, step_data: StepData) -> PredictionData:
-        return self._protocol.predict(step_data)
-
-
-class MethodWrapper(ProtocolMixin[BaseMethod], _AbstractMethod):
-    """Concrete wrapper for a full protocol (training + inference).
-
-    Delegates both `train_step` and `predict` to the wrapped protocol.
-    """
-
-    def __init__(self, protocol: BaseMethod):
-        if not isinstance(protocol, BaseMethod):
-            raise TypeError("Wrapped protocol must provide both train_step and predict.")
-        super().__init__(protocol)
-
-    def train_step(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
-        return self._protocol.train_step(step_data)
 
     def predict(self, step_data: StepData) -> PredictionData:
         return self._protocol.predict(step_data)
@@ -322,26 +247,26 @@ class MatchedTrainingProtocol(TrainingProtocolWrapper):
     The matching callable is used to instantiate the `self.matcher` attribute,
     a `MatchingProtocol`, defined in terms of the `match_fn`.
 
-    The `.train_step` method of the wrapped protocol is called on the matched
+    The `.compute_loss` method of the wrapped protocol is called on the matched
     `step_data`; that is, the step data is first matched using `self.matcher.match(...)`, then the
-    resulting matched data is passed to `self.protocol.train_step`.
+    resulting matched data is passed to `self.protocol.compute_loss`.
     """
 
-    def __init__(self, protocol: BaseTrainingProtocol, match_fn: TMatchFn) -> None:
+    def __init__(self, protocol: BaseTrainingProtocol | BaseFlowTrainingProtocol, match_fn: TMatchFn) -> None:
         """Initializes the matched training protocol.
 
         :param protocol: An instance of a `BaseTrainingProtocol` to wrap around;
-            the wrapped class needs to implement the `.train_step` method.
+            the wrapped class needs to implement the `.compute_loss` method.
         :param match_fn: The matching function, used to couple the batches.
             It needs to satisfy the contract specified by `TMatchFn`.
         """
         super().__init__(protocol)
         self._matcher = MatchingProtocol(match_fn)
 
-    def train_step(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
-        """Wraps around the `self.protocol.train_step`, calling it on matched data."""
+    def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Wraps around the `self.protocol.compute_loss`, calling it on matched data."""
         matched = self._matcher.match(step_data)
-        return self._protocol.train_step(matched)
+        return self._protocol.compute_loss(matched)
 
     @property
     def matcher(self) -> MatchingProtocol:

@@ -107,6 +107,8 @@ class MatchingSpecs:
 
 
 class MatchedProtocolSpecs(ProtocolSpecs, MatchingSpecs):
+    """Mixin to jointly store matching and protocol information."""
+
     def __init__(
         self,
         module: BaseModule,

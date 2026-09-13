@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 from sckitflow._types import PredictionData
 from sckitflow.core._types import StepData
-from sckitflow.core.methods import AVAILABLE_INFERENCE_PROTOCOLS, AVAILABLE_TRAINING_PROTOCOLS
+from sckitflow.core.methods import INFERENCE_PROTOCOLS_REGISTRY, TRAINING_PROTOCOLS_REGISTRY
 from sckitflow.core.methods._base import BaseInferenceProtocol, BaseTrainingProtocol
 from sckitflow.core.methods._opt import OptimConfig, OptimizationManager
 from sckitflow.core.nn._modules import BaseModule
@@ -93,9 +93,9 @@ def _build_protocol(
 
         # ----- 2.2 Retrieve registry conditionally on the mode -----
         if mode == "training":
-            registry = AVAILABLE_TRAINING_PROTOCOLS
+            registry = TRAINING_PROTOCOLS_REGISTRY
         elif mode == "inference":
-            registry = AVAILABLE_INFERENCE_PROTOCOLS
+            registry = INFERENCE_PROTOCOLS_REGISTRY
         else:
             raise ValueError(f"Invalid mode {mode}: set to `training` or `inference`.")
 

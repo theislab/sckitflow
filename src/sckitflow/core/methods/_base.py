@@ -6,7 +6,7 @@ import torch
 from sckitflow.core._data_utils import subscript_step_data
 from sckitflow.core._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
 from sckitflow.core.nn._modules import BaseModule
-from sckitflow.core.probability_paths._probability_paths import BaseProbabilityPath
+from sckitflow.core.probability_paths._probability_paths import BaseProbabilityPath, LinearDiracProbabilityPath
 
 __all__ = [
     "ProtocolSpecs",
@@ -26,17 +26,37 @@ __all__ = [
 
 # -------------------- Initialization behaviors --------------------
 class ProtocolSpecs:
+    """Store for the protocol specifications.
+
+    This class simply holds the necessary information required to
+    define a protocol. It is used to instantiate both training and inference
+    protocols.
+    """
+
     def __init__(
         self,
         module: BaseModule,
         dtype: torch.dtype = torch.float32,
         device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
-    ):
+    ) -> None:
+        """Initializes the protocol specifications with the given settings.
+
+        :param module: An initialized neural module the protocol builds upon. It should be
+            an initialized instance of a class inheriting from `BaseModule`.
+        :param dtype: A `torch.dtype` object used to store the module weights.
+        :param device_id: A string identifier of the device location for the module
+            weights and input data.
+        """
         self._dtype = dtype
         self._device_id = device_id
         self._module = module.to(device=self._device_id, dtype=self._dtype)
 
     def set_train_mode(self, mode: bool) -> None:
+        """Sets the underlying module in training or inference mode.
+
+        :param mode: When `True`, the neural module will be set to `train`.
+            When `False`, its forward pass will be performed in evaluation mode.
+        """
         if mode:
             self.module.train()
         else:
@@ -56,24 +76,56 @@ class ProtocolSpecs:
 
 
 class FlowSpecs(ProtocolSpecs):
+    """Store for the flow specifications.
+
+    This class simply holds the necessary information required to
+    define a flow model. It is used to instantiate both training and inference
+    flow protocols.
+
+    This class bases `ProtocolSpecs`; as additional arguments, it expects a
+    probability path, a time sampler, a noise sampler and a boolean flag indicating
+    whether the generation starts from noise.
+    """
+
     def __init__(
         self,
         module: BaseModule,
-        probability_path: BaseProbabilityPath,
-        time_sampler: TTimeSamplerFn,
+        probability_path: BaseProbabilityPath | None = None,
+        time_sampler: TTimeSamplerFn | None = None,
         noise_sampler: TNoiseSamplerFn | None = None,
         generate_from_noise: bool = False,
         dtype: torch.dtype = torch.float32,
         device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
     ) -> None:
+        """Initializes the flow specifications.
+
+        :param module: An initialized neural module the protocol builds upon. It should be
+            an initialized instance of a class inheriting from `BaseModule`.
+        :param probability_path: (Optional) An instance of `BaseProbabilityPath` used to define the
+            tractable conditional probability path for the flow model. When `None`, the constructor
+            will automatically initialize a `LinearDiracProbability`.
+        :param time_sampler: (Optional) a callable to sample random time indices for the flow model.
+            When `None`, it will be automatically initialized to a uniform distribution over [0, 1].
+        :param noise_sampler: (Optional) a callable o sample random noise states as source for the flow model.
+            It is only used when `generate_from_noise` is `True`, or when the data does not contain source states.
+            When `None`, it will automatically set initialized to an isotropic Gaussian distribution.
+        :param generate_from_noise: Boolean flag indicating whether the model interpolates from a tractable
+            noise distribution, rather than from a control distribution. Defaults to `False`, in which case
+            a source distribution is expected. When `True`, the interpolation will happen from noise, even
+            when source states are present; the information on the source states will be injected as an
+            extra conditioning in the neural module.
+        :param dtype: A `torch.dtype` object used to store the module weights.
+        :param device_id: A string identifier of the device location for the module
+            weights and input data.
+        """
         if generate_from_noise and noise_sampler is None:
             raise TypeError("When generating from noise you need to pass a noise sampler.")
 
         super().__init__(module, dtype=dtype, device_id=device_id)
 
-        self._probability_path = probability_path
-        self._noise_sampler = noise_sampler
-        self._time_sampler = time_sampler
+        self._probability_path = LinearDiracProbabilityPath() if probability_path is None else probability_path
+        self._noise_sampler = torch.randn if noise_sampler is None else noise_sampler
+        self._time_sampler = torch.rand if time_sampler is None else time_sampler
         self._generate_from_noise = generate_from_noise
 
     @property
@@ -95,41 +147,73 @@ class FlowSpecs(ProtocolSpecs):
 
 # -------------------- Abstract Contracts (no storage) --------------------
 class _AbstractTrainingProtocol(abc.ABC):
-    """Pure abstract contract for training protocols."""
+    """Pure abstract contract for training protocols.
+
+    A training protocol is required to define the `compute_loss` method.
+    """
 
     @abc.abstractmethod
     def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]: ...
 
 
 class _AbstractInferenceProtocol(abc.ABC):
-    """Pure abstract contract for inference protocols."""
+    """Pure abstract contract for inference protocols.
+
+    An inference protocol is required to define the `predict` method.
+    """
 
     @abc.abstractmethod
     def predict(self, step_data: StepData) -> PredictionData: ...
 
 
 class _AbstractMatchingProtocol(abc.ABC):
-    """Pure abstract contract for matching protocols."""
+    """Pure abstract contract for matching protocols.
+
+    A matching protocol is required to define the `predict` method.
+    """
 
     @abc.abstractmethod
     def match(self, step_data: StepData) -> StepData: ...
 
 
 # -------------------- Base Protocol Classes (still abstract) --------------------
-class BaseTrainingProtocol(ProtocolSpecs, _AbstractTrainingProtocol): ...
+class BaseTrainingProtocol(ProtocolSpecs, _AbstractTrainingProtocol):
+    """Base training protocol, inheriting from both `ProtocolSpecs` and `_AbstractTrainingProtocol`"""
+
+    ...
 
 
-class BaseFlowTrainingProtocol(FlowSpecs, _AbstractTrainingProtocol): ...
+class BaseFlowTrainingProtocol(FlowSpecs, _AbstractTrainingProtocol):
+    """Base flow training protocol, inheriting from both `FlowSpecs` and `_AbstractTrainingProtocol`"""
+
+    ...
 
 
-class BaseInferenceProtocol(ProtocolSpecs, _AbstractInferenceProtocol): ...
+class BaseInferenceProtocol(ProtocolSpecs, _AbstractInferenceProtocol):
+    """Base inference protocol, inheriting from both `ProtocolSpecs` and `_AbstractInferenceProtocol`"""
+
+    ...
 
 
-class BaseFlowInferenceProtocol(FlowSpecs, _AbstractInferenceProtocol): ...
+class BaseFlowInferenceProtocol(FlowSpecs, _AbstractInferenceProtocol):
+    """Base flow inference protocol, inheriting from both `FlowSpecs` and `_AbstractInferenceProtocol`"""
+
+    ...
 
 
 class BaseMatchingProtocol(_AbstractMatchingProtocol):
+    """Base class for matching protocols.
+
+    Matching protocols are defined in terms of the `match_fn` callable, used to match source
+    and target populations.
+    """
+
     def __init__(self, match_fn: TMatchFn):
+        """Initializes the matching protocol with the input `match_fn`.
+
+        :param match_fn: A callable, satisfying the contract specified by `TMatchFn`,
+            used to match source and target populations from a batch of data.
+        """
         self._match_fn = match_fn
 
     @property
@@ -150,6 +234,15 @@ class MatchingProtocol(BaseMatchingProtocol):
         self,
         step_data: StepData,
     ) -> StepData:
+        """Matches the input state data using the underlying `match_fn`.
+
+        When neither `source_coupling_lin` nor `source_coupling_quad`
+        are present, it will return the step data unchanged. This will also
+        be the case when the `match_fn` returns either `src_idxs` or `tgt_idxs`
+        as `None` - no operation will be performed on the data
+
+        :param step_data: The input state data to match.
+        """
         # ---- Parse coupling data ----
         source_lin = step_data["source_coupling_lin"]
         source_quad = step_data["source_coupling_quad"]
@@ -215,11 +308,17 @@ class TrainingProtocolWrapper(
     """
 
     def __init__(self, protocol: BaseTrainingProtocol | BaseFlowTrainingProtocol):
+        """Initializes the wrapped training protocol from an underlying one.
+
+        :param protocol: The base protocol to wrap around. It needs to be an instance of
+            `BaseTrainingProtocol` or `BaseFlowTrainingProtocol`.
+        """
         if not isinstance(protocol, BaseTrainingProtocol | BaseFlowTrainingProtocol):
             raise TypeError("Wrapped protocol must provide compute_loss.")
         super().__init__(protocol)
 
     def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Wraps around the `.compute_loss` call from underlying protocol."""
         return self._protocol.compute_loss(step_data)
 
 
@@ -232,11 +331,17 @@ class InferenceProtocolWrapper(
     """
 
     def __init__(self, protocol: BaseInferenceProtocol | BaseFlowInferenceProtocol):
+        """Initializes the wrapped training protocol from an underlying one.
+
+        :param protocol: The base protocol to wrap around. It needs to be an instance of
+            `BaseInferenceProtocol` or `BaseFlowInferenceProtocol`.
+        """
         if not isinstance(protocol, BaseInferenceProtocol | BaseFlowInferenceProtocol):
             raise TypeError("Wrapped protocol must provide predict.")
         super().__init__(protocol)
 
     def predict(self, step_data: StepData) -> PredictionData:
+        """Wraps around the `.compute_loss` call from underlying protocol."""
         return self._protocol.predict(step_data)
 
 

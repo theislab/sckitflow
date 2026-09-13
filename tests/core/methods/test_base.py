@@ -181,7 +181,7 @@ def test_flow_specs_initialization_and_properties(dummy_module, flow_specs_kwarg
     assert specs.device_id == "cpu"
     assert specs.probability_path is flow_specs_kwargs["probability_path"]
     assert specs.time_sampler is flow_specs_kwargs["time_sampler"]
-    assert specs.noise_sampler is None
+    assert specs.noise_sampler is torch.randn
     assert specs.generate_from_noise is False
 
 

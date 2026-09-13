@@ -81,7 +81,7 @@ def test_init_stores_flow_specs_and_extras(make_inference, dummy_module):
     assert inference.device_id == "cpu"
     assert inference.dtype == torch.float32
     assert inference.generate_from_noise is False
-    assert inference.noise_sampler is None
+    assert inference.noise_sampler is torch.randn
 
     # Extras
     assert inference.solver_kwargs == {"rtol": 1e-5}
@@ -111,17 +111,6 @@ def test_predict_raises_when_generating_from_noise_without_n_samples(make_infere
         n_samples=None,
     )
     with pytest.raises(ValueError, match="number of samples"):
-        inference.predict(step_data)
-
-
-def test_predict_raises_when_generating_from_noise_without_noise_sampler(make_inference, step_data):
-    # Bypass the __init__ guard by constructing FlowSpecs first, then
-    # flipping the flag manually.
-    inference = make_inference()
-    inference._generate_from_noise = True
-    inference._n_samples = 3
-
-    with pytest.raises(TypeError, match="noise_sampler"):
         inference.predict(step_data)
 
 

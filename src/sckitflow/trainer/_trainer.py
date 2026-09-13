@@ -5,7 +5,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from sckitflow.core._types import StepData
-from sckitflow.core.methods._base import BaseMethod
+from sckitflow.core.methods._base import BaseInferenceProtocol, BaseTrainingProtocol
 from sckitflow.core.methods._opt import OptimizationManager
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 
@@ -23,11 +23,13 @@ class Trainer:
 
     def __init__(
         self,
-        method: BaseMethod,
+        training_protocol: BaseTrainingProtocol,
         opt_manager: OptimizationManager,
+        inference_protocol: BaseInferenceProtocol | None = None,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
     ) -> None:
-        self._method = method
+        self._training_protocol = training_protocol
+        self._inference_protocol = inference_protocol
         self._opt_manager = opt_manager
 
         # Normalize callbacks to a TrainingCallbacks instance
@@ -72,6 +74,10 @@ class Trainer:
         different places and are kept apart: ``predict_kwargs`` to the method's inference (e.g. CFM's
         ``n_samples``), ``cb_kwargs`` to the callbacks.
         """
+        # early return when no inference protocol is provided
+        if self._inference_protocol is None:
+            return None
+
         predict_kwargs = {} if predict_kwargs is None else predict_kwargs
         cb_kwargs = {} if cb_kwargs is None else cb_kwargs
         predictions_dict = {}
@@ -79,10 +85,10 @@ class Trainer:
             # The loader yields ready `StepData`; the ground-truth target is its
             # `target_state` tensor (the metric callbacks accept tensors directly).
             target_array = step_data["target_state"]
-            preds = self._method.predict(step_data, **predict_kwargs)
+            preds = self._inference_protocol.predict(step_data, **predict_kwargs)
             # Extract the actual data from PredictionData object
-            if hasattr(preds, "samples"):
-                preds_array = preds.samples
+            if hasattr(preds, "X"):
+                preds_array = preds.X
             else:
                 preds_array = preds
             predictions_dict[str(node_id)] = {"predictions": preds_array, "targets": target_array}
@@ -118,7 +124,7 @@ class Trainer:
         val_loaders: dict[str, Iterable[StepData]] | None = None,
         valid_freq: int = 1_000,
         pbar_freq: int = 100,
-        train_step_kwargs: dict[str, Any] | None = None,
+        compute_loss_kwargs: dict[str, Any] | None = None,
         val_predict_kwargs: dict[str, Any] | None = None,
         cb_kwargs: dict[str, Any] | None = None,
     ) -> None:
@@ -131,7 +137,7 @@ class Trainer:
         :param val_loaders: One ``{val_id: loader}`` per validation set, or ``None`` to skip validation.
         :param valid_freq: Run validation every this many training steps.
         :param pbar_freq: Refresh the progress-bar description every this many steps.
-        :param train_step_kwargs: Forwarded to :meth:`BaseMethod.train_step` (method-specific).
+        :param compute_loss_kwargs: Forwarded to :meth:`BaseMethod.train_step` (method-specific).
         :param val_predict_kwargs: Forwarded to :meth:`BaseMethod.predict` during validation -- e.g. CFM's
             ``n_samples``, which is required when the method generates from noise.
         :param cb_kwargs: Forwarded to every callback hook.
@@ -139,7 +145,7 @@ class Trainer:
         do_validation = val_loaders is not None
 
         # Each dict goes to exactly one destination -- method train step, method inference, callbacks.
-        train_step_kwargs = {} if train_step_kwargs is None else train_step_kwargs
+        compute_loss_kwargs = {} if compute_loss_kwargs is None else compute_loss_kwargs
         val_predict_kwargs = {} if val_predict_kwargs is None else val_predict_kwargs
         cb_kwargs = {} if cb_kwargs is None else cb_kwargs
 
@@ -150,7 +156,7 @@ class Trainer:
         pbar = tqdm(train_loader)
         for step_data in pbar:
             self._current_step += 1
-            opt_data, step_dict = self._method.train_step(step_data, **train_step_kwargs)
+            opt_data, step_dict = self._training_protocol.compute_loss(step_data, **compute_loss_kwargs)
             step_dict.update({"step": self._current_step})
             self._opt_manager.step(opt_data)
             self._append_train_log(step_dict)
@@ -189,6 +195,14 @@ class Trainer:
             # `.get` so an unknown id yields an empty frame instead of a KeyError.
             return self._get_logs_df(self._val_logs.get(val_id))
         return {vid: self._get_logs_df(logs) for vid, logs in self._val_logs.items()}
+
+    @property
+    def training_protocol(self) -> BaseTrainingProtocol:
+        return self._training_protocol
+
+    @property
+    def inference_protocol(self) -> BaseInferenceProtocol:
+        return self._inference_protocol
 
     @property
     def train_logs_raw(self) -> list[dict[str, Any]]:

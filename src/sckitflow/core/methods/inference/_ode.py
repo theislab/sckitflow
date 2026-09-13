@@ -15,7 +15,7 @@ from sckitflow.core._types import (
 )
 from sckitflow.core.methods._base import BaseFlowInferenceProtocol
 from sckitflow.core.methods.inference._utils import aggregate_predictions
-from sckitflow.core.nn._modules import BaseModule
+from sckitflow.core.nn._vf import BaseVelocityField
 from sckitflow.core.probability_paths._probability_paths import BaseProbabilityPath
 from sckitflow.core.solvers import ODESolver
 
@@ -23,9 +23,14 @@ __all__ = ["ODEInference"]
 
 
 class ODEInference(BaseFlowInferenceProtocol):
+    """Class for handling ODE integrations from an underlying module.
+
+    This class can be used for standard ODE inference with CNFs.
+    """
+
     def __init__(
         self,
-        module: BaseModule,
+        module: BaseVelocityField,
         probability_path: BaseProbabilityPath,
         time_sampler: TTimeSamplerFn,
         noise_sampler: TNoiseSamplerFn | None = None,
@@ -38,6 +43,24 @@ class ODEInference(BaseFlowInferenceProtocol):
         latent: torch.Tensor | None = None,
         n_samples: int | None = None,
     ) -> None:
+        """Initializes the inference class.
+
+        The underlying module should inherit from `BaseVelocityField`; the
+        module is expected to implement the `.get_vf_fn` method, to compile the
+        velocity field function with the signature `vf_fn(t, xt)` -- this
+        requirement is needed for compatibility with `torchdiffeq`.
+
+        Shares the same arguments as `BaseFlowInferenceProtocol`, with some
+        additional attributes
+
+        :param solver_kwargs: The keyword arguments used to instantiate ODE solvers.
+        :param return_trajectory: Boolean flag indicating wether to return the whole
+            trajectory of the simulation, or only the endpoint.
+        :param n_steps: The number of discretization steps used to simulate the dynamics.
+        :param latent: The optional latent state used to initialize the dynamics from.
+        :param n_samples: The number of samples used to run the simulation; it will only be
+            used when `generate_from_noise` is `True`.
+        """
         # ---- 0. Initialize parent class ----
         super().__init__(
             module,

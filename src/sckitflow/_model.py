@@ -16,8 +16,10 @@ from tqdm import tqdm
 
 from sckitflow._types import PredictionData
 from sckitflow.core._types import StepData
-from sckitflow.core.methods._base import BaseMethod
+from sckitflow.core.methods import AVAILABLE_INFERENCE_PROTOCOLS, AVAILABLE_TRAINING_PROTOCOLS
+from sckitflow.core.methods._base import BaseInferenceProtocol, BaseTrainingProtocol
 from sckitflow.core.methods._opt import OptimConfig, OptimizationManager
+from sckitflow.core.nn._modules import BaseModule
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
 from sckitflow.data._manager import DataManager, DataManagerKwargs
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
@@ -28,6 +30,92 @@ if TYPE_CHECKING:
     from sckitflow.data._loader import LoaderKwargs
 
 __all__ = ["Model", "ModelBuilder"]
+
+
+def _build_module(
+    module: BaseModule | None = None,
+    module_cls: type[BaseModule] | None = None,
+    data_dims: DataDimensionalitiesRegistry | None = None,
+    module_kwargs: dict[str, Any] | None = None,
+) -> BaseModule:
+    """Returns an instantiated module from the given inputs.
+
+    The resolution occurs with the following hierarchy:
+    1. The `module` argument, with the instantiated protocol is considered.
+    2. The `module_cls` is considered, it will be initialized with the `module_kwargs`.
+    3. A TypeError is thrown.
+    """
+    # ---- 1. Return already instantiated module ----
+    if module is not None:
+        return module
+
+    # ---- 2. Instantiate module class ----
+    if module_cls is not None:
+        # ---- 2.1 Raise error if no data dims are provided ----
+        if data_dims is None:
+            raise ValueError("When initializing the module with `module_cls`, `data_dims` should be provided.")
+
+        # ---- 2.2 Prepare keyword arguments ----
+        module_kwargs = {} if module_kwargs is None else module_kwargs
+        return module_cls.init_from_dims_registry(data_dims, **module_kwargs)
+
+    # ---- 3. Raise error when neither is provided -----
+    else:
+        raise ValueError("At least one of `module` or `module_cls` must be passed.")
+
+
+def _build_protocol(
+    module: BaseModule,
+    mode: Literal["inference", "training"],
+    protocol_cls: type[object] | None = None,
+    protocol_id: str | None = None,
+    protocol_kwargs: dict[str, Any] | None = None,
+    allow_none: bool = False,
+) -> BaseTrainingProtocol | BaseInferenceProtocol | None:
+    """Returns an instantiated protocol from the given inputs.
+
+    The resolution occurs with the following hierarchy:
+    1. The `object_cls` is considered, it will be initialized with the `protocol_kwargs`.
+    2. The `object_id` is considered, it will be initialized with the `protocol_kwargs`.
+    3. When `allow_none` is `True`, return `None`.
+    4. Otherwise, A TypeError is thrown.
+    """
+    # ---- 1. Fall back to `protocol_cls` when `protocol` is None ----
+    if protocol_cls is not None:
+        # ---- 1.1 Handle keyword arguments -----
+        protocol_kwargs = {} if protocol_kwargs is None else protocol_kwargs
+        return protocol_cls(module, **protocol_kwargs)
+
+    # ---- 2. Fall back to protocol_id when `protocol_cls` is None ----
+    elif protocol_id is not None:
+        # ----- 2.1. Handle keyword arguments -----
+        protocol_kwargs = {} if protocol_kwargs is None else protocol_kwargs
+
+        # ----- 2.2 Retrieve registry conditionally on the mode -----
+        if mode == "training":
+            registry = AVAILABLE_TRAINING_PROTOCOLS
+        elif mode == "inference":
+            registry = AVAILABLE_INFERENCE_PROTOCOLS
+        else:
+            raise ValueError(f"Invalid mode {mode}: set to `training` or `inference`.")
+
+        # ----- 2.3 Initialize protocol -----
+        protocol_cls = registry[protocol_id]
+        return protocol_cls(module, **protocol_kwargs)
+
+    # ---- 3. If none of the above cases is met, return none if `allow_none` ----
+    elif allow_none:
+        return None
+
+    # ---- 4. Otherwise raise ValueError ----
+    else:
+        raise ValueError(
+            "At least one of `protocol`, `protocol_cls` or `protocol_id` "
+            "must be passed or `allow_none` should be set to True."
+        )
+
+
+# class ModelKwargs(TypedDict, total=True)
 
 
 class ModelBuilder:
@@ -89,43 +177,64 @@ class ModelBuilder:
 
     def build(
         self,
-        *args,
-        method: BaseMethod | None = None,
-        method_cls: type[BaseMethod] | None = None,
-        method_id: str | None = None,
-        **kwargs,
+        module: BaseModule | None = None,
+        module_cls: type[BaseModule] | None = None,
+        module_kwargs: dict[str, Any] | None = None,
+        training_protocol_cls: type[BaseTrainingProtocol] | None = None,
+        training_protocol_id: str | None = None,
+        training_protocol_kwargs: dict[str, Any] | None = None,
+        inference_protocol_cls: type[BaseInferenceProtocol] | None = None,
+        inference_protocol_id: str | None = None,
+        inference_protocol_kwargs: dict[str, Any] | None = None,
     ) -> Model:
-        """Attach a method and return a ready-to-train :class:`Model`.
+        """Attach a training, an inference protocol and a module to the Model.
 
-        Either pass an already-constructed ``method`` instance, or select a
-        method via ``method_cls`` / ``method_id`` and let it be constructed
-        from the prepared data manager and dimensionalities using ``args`` /
-        ``kwargs``.
-
-        :param method: A pre-built method instance. When provided,
-            ``method_cls`` / ``method_id`` and any extra ``args`` / ``kwargs``
-            are ignored. Defaults to `None`.
-        :type method: class: `BaseMethod | None`
-
-        :param method_cls: The method class to instantiate. Mutually exclusive
-            with ``method_id``. Defaults to `None`.
-        :type method_cls: class: `type[BaseMethod] | None`
-
-        :param method_id: Identifier of a registered method to instantiate.
-            Mutually exclusive with ``method_cls``. Defaults to `None`.
-        :type method_id: class: `str | None`
-
-        :param args: Extra positional arguments forwarded to the method.
-        :param kwargs: Extra keyword arguments forwarded to the method.
+        :param module: The neural module used to instantiate the model.
+            When provided, it takes precedence over `module_cls`.
+        :param module_cls: A reference to a neural module class, inheriting from
+            `BaseModule`; it will be initialized only when `module` is `None`,
+            using the `module_kwargs` as keyword arguments. It needs to be
+            specified, when `module` is `None`.
+        :param module_kwargs: Optional keyword arguments used to initialized the
+            neural module; only used when initializing the neural module from
+            `module_cls`.
+        :param training_protocol_cls: A reference to a `BaseTrainingProtocol` class,
+            that will be initialized using the underlying neural module.
+            When provided, it takes precedence over the `training_protocol_id`
+            argument. The training protocol will be initialized using the
+            `training_protocol_kwargs` argument.
+        :param training_protocol_id: String identifier to a training protocol
+            from the `AVAILABLE_TRAINING_PROTOCOLS` registry. It is used only
+            when `training_protocol_cls` is `None`. The training protocol
+            will be initialized using the `training_protocol_kwargs` argument,
+            on the underlying neural module.
+        :param training_protocol_kwargs: Keyword arguments used to initialize the
+            training protocol.
+        :param inference_protocol_cls: A reference to a `BaseInferenceProtocol` class,
+            that will be initialized using the underlying neural module.
+            When provided, it takes precedence over the `inference_protocol_id`
+            argument. The inference protocol will be initialized using the
+            `inference_protocol_kwargs` argument.
+        :param inference_protocol_id: String identifier to an inference protocol
+            from the `AVAILABLE_INFERENCE_PROTOCOLS` registry. It is used only
+            when `inference_protocol_cls` is `None`. The inference protocol
+            will be initialized using the `inference_protocol_kwargs` argument,
+            on the underlying neural module.
+        :param inference_protocol_kwargs: Keyword arguments used to initialize the
+            inference protocol.
         """
         return Model(
             self._dm,
             self._data_dims,
-            *args,
-            method=method,
-            method_cls=method_cls,
-            method_id=method_id,
-            **kwargs,
+            module=module,
+            module_cls=module_cls,
+            module_kwargs=module_kwargs,
+            training_protocol_cls=training_protocol_cls,
+            training_protocol_id=training_protocol_id,
+            training_protocol_kwargs=training_protocol_kwargs,
+            inference_protocol_cls=inference_protocol_cls,
+            inference_protocol_id=inference_protocol_id,
+            inference_protocol_kwargs=inference_protocol_kwargs,
         )
 
 
@@ -134,11 +243,15 @@ class Model:
         self,
         dm: DataManager,
         data_dims: DataDimensionalitiesRegistry,
-        *args,
-        method: BaseMethod | None = None,
-        method_cls: type[BaseMethod] | None = None,
-        method_id: str | None = None,
-        **kwargs,
+        module: BaseModule | None = None,
+        module_cls: type[BaseModule] | None = None,
+        module_kwargs: dict[str, Any] | None = None,
+        training_protocol_cls: type[BaseTrainingProtocol] | None = None,
+        training_protocol_id: str | None = None,
+        training_protocol_kwargs: dict[str, Any] | None = None,
+        inference_protocol_cls: type[BaseInferenceProtocol] | None = None,
+        inference_protocol_id: str | None = None,
+        inference_protocol_kwargs: dict[str, Any] | None = None,
     ) -> None:
         """Initialize a model from a fitted data manager and its dimensionalities.
 
@@ -167,38 +280,38 @@ class Model:
         :param args: Extra positional arguments forwarded to the method.
         :param kwargs: Extra keyword arguments forwarded to the method.
         """
-        # store data manager and dimensionalities
+        # ----- Store data manager and dimensionalities -----
         self._dm = dm
         self._dims_registry = data_dims
 
-        # use the provided method instance when given
-        if method is not None:
-            self._method: BaseMethod = method
-        else:
-            # get method cls
-            if method_cls is None and method_id is None:
-                msg = "At least one of `method`, `method_id` or `method_cls` should be specified."
-                raise ValueError(msg)
+        # ---- Initialize module ----
+        self._module: BaseModule = _build_module(
+            module=module,
+            module_cls=module_cls,
+            data_dims=self._dims_registry,
+            module_kwargs=module_kwargs,
+        )
 
-            # use registry when method not provided
-            if method_cls is None:
-                from sckitflow.core.methods import METHODS_REGISTRY
+        # ----- Initialize protocols ----
+        self._training_protocol: BaseTrainingProtocol = _build_protocol(
+            self._module,
+            "training",
+            protocol_cls=training_protocol_cls,
+            protocol_id=training_protocol_id,
+            protocol_kwargs=training_protocol_kwargs,
+            allow_none=False,
+        )
 
-                # get method from registry
-                if method_id not in METHODS_REGISTRY:
-                    msg = f"Method {method_id} not supported, possible options are {list(METHODS_REGISTRY.keys())}."
-                    raise KeyError(msg)
-                method_cls = METHODS_REGISTRY[method_id]
+        self._inference_protocol: BaseInferenceProtocol = _build_protocol(
+            self._module,
+            "inference",
+            protocol_cls=inference_protocol_cls,
+            protocol_id=inference_protocol_id,
+            protocol_kwargs=inference_protocol_kwargs,
+            allow_none=False,
+        )
 
-            # initialize method
-            self._method = method_cls(
-                self._dims_registry,
-                self._dm,
-                *args,
-                **kwargs,
-            )
-
-        # prepare attributes
+        # ----- Initialize additional attributes -----
         self._trainer: Trainer | None = None
 
     @overload
@@ -394,7 +507,7 @@ class Model:
         """Move the underlying PyTorch module and optimizer state to the specified device."""
         import torch
 
-        self._method._module.to(device)
+        self._module.to(device)
         if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
             opt = self._trainer.opt_manager.optimizer
             for param_group in opt.param_groups:
@@ -410,6 +523,12 @@ class Model:
         self,
         adata: AnnData,
         *,
+        training_protocol_cls: type[BaseTrainingProtocol] | None = None,
+        training_protocol_id: str | None = None,
+        training_protocol_kwargs: dict[str, Any] | None = None,
+        inference_protocol_cls: type[BaseInferenceProtocol] | None = None,
+        inference_protocol_id: str | None = None,
+        inference_protocol_kwargs: dict[str, Any] | None = None,
         train_split: str = "train",
         control_adata: AnnData | None = None,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
@@ -419,7 +538,7 @@ class Model:
         batch_size: int = 128,
         loader_kwargs: LoaderKwargs | None = None,
         optim_config: OptimConfig | None = None,
-        train_step_kwargs: dict[str, Any] | None = None,
+        compute_loss_kwargs: dict[str, Any] | None = None,
         val_predict_kwargs: dict[str, Any] | None = None,
         cb_kwargs: dict[str, Any] | None = None,
     ) -> None:
@@ -467,8 +586,8 @@ class Model:
             :class:`~sckitflow.core.methods._opt.OptimConfig` with its own defaults).
         :type optim_config: class: `OptimConfig | None`
 
-        :param train_step_kwargs: Forwarded to :meth:`BaseMethod.train_step` (method-specific).
-        :type train_step_kwargs: class: `dict[str, Any] | None`
+        :param compute_loss_kwargs: Forwarded to :meth:`BaseMethod.compute_loss` (method-specific).
+        :type compute_loss_kwargs: class: `dict[str, Any] | None`
 
         :param val_predict_kwargs: Forwarded to :meth:`BaseMethod.predict` during validation -- e.g.
             CFM's ``n_samples``, required when the method generates from noise.
@@ -477,6 +596,30 @@ class Model:
         :param cb_kwargs: Forwarded to every callback hook.
         :type cb_kwargs: class: `dict[str, Any] | None`
         """
+        # get training protocol
+        training_protocol: BaseTrainingProtocol | None = _build_protocol(
+            self._module,
+            "training",
+            protocol_cls=training_protocol_cls,
+            protocol_id=training_protocol_id,
+            protocol_kwargs=training_protocol_kwargs,
+            allow_none=True,
+        )
+        if training_protocol is None:
+            training_protocol = self._training_protocol
+
+        # get inference protocol
+        inference_protocol: BaseInferenceProtocol | None = _build_protocol(
+            self._module,
+            "inference",
+            protocol_cls=inference_protocol_cls,
+            protocol_id=inference_protocol_id,
+            protocol_kwargs=inference_protocol_kwargs,
+            allow_none=True,
+        )
+        if inference_protocol is None:
+            inference_protocol = self._inference_protocol
+
         # Build one streaming loader per split (scfit weights over the whole adata -- no copies).
         loader_kwargs = dict(loader_kwargs or {})
         # `to=None`: keep annbatch's native arrays (numpy on host, cupy on a GPU-resident window) and let
@@ -484,8 +627,8 @@ class Model:
         loader_kwargs.setdefault("to", None)
         loader_kwargs.setdefault("batch_size", batch_size)
         # The loader settles dtype/device as its last stage, so batches reach the method ready to consume.
-        loader_kwargs.setdefault("dtype", self._method.dtype)
-        loader_kwargs.setdefault("device", self._method.device_id)
+        loader_kwargs.setdefault("dtype", training_protocol.dtype)
+        loader_kwargs.setdefault("device", training_protocol.device_id)
         loaders = self._dm.get_dataloaders(adata, control_adata=control_adata, **loader_kwargs)
         if train_split not in loaders:
             raise KeyError(
@@ -499,14 +642,15 @@ class Model:
         val_loaders = {split: loader for split, loader in loaders.items() if split != train_split}
 
         # prepare optimization manager
-        opt_manager = OptimizationManager.from_config(self._method._module, optim_config or OptimConfig())
+        opt_manager = OptimizationManager.from_config(self._module, optim_config or OptimConfig())
 
-        # initialize trainer (once; later calls continue from the current step)
-        if self._trainer is None:
-            self._trainer = Trainer(self._method, opt_manager, callbacks)
+        # initialize trainer and update history of trainers.
+        self._trainer = Trainer(
+            training_protocol, opt_manager, inference_protocol=inference_protocol, callbacks=callbacks
+        )
 
         # module in training mode
-        self._method.set_train_mode(True)
+        training_protocol.set_train_mode(True)
 
         # train model
         self._trainer.train(
@@ -514,7 +658,7 @@ class Model:
             val_loaders=val_loaders or None,
             valid_freq=valid_freq,
             pbar_freq=pbar_freq,
-            train_step_kwargs=train_step_kwargs,
+            compute_loss_kwargs=compute_loss_kwargs,
             val_predict_kwargs=val_predict_kwargs,
             cb_kwargs=cb_kwargs,
         )
@@ -523,6 +667,9 @@ class Model:
         self,
         adata: AnnData,
         *,
+        inference_protocol_cls: type[BaseInferenceProtocol] | None = None,
+        inference_protocol_id: str | None = None,
+        inference_protocol_kwargs: dict[str, Any] | None = None,
         return_raw: bool = False,
         max_per_group: int | None = None,
         require_target_state: bool = True,
@@ -575,8 +722,20 @@ class Model:
         :return: Either an AnnData with predictions, or a tuple ``(AnnData, PredictionData)`` if
             ``return_raw`` is ``True``.
         """
+        # get inference protocol
+        inference_protocol: BaseInferenceProtocol | None = _build_protocol(
+            self._module,
+            "inference",
+            protocol_cls=inference_protocol_cls,
+            protocol_id=inference_protocol_id,
+            protocol_kwargs=inference_protocol_kwargs,
+            allow_none=True,
+        )
+        if inference_protocol is None:
+            inference_protocol = self._inference_protocol
+
         # Set module to evaluation mode (backend-agnostic)
-        self._method.set_train_mode(False)
+        inference_protocol.set_train_mode(False)
         predict_kwargs = {} if predict_kwargs is None else predict_kwargs
 
         eval_loader = self._dm.get_eval_loader(
@@ -587,8 +746,8 @@ class Model:
             matched_keys=matched_keys,
             control_adata=control_adata,
             to=None,  # native arrays in, zero-copy to torch in the loader (see `Model.train`)
-            dtype=self._method.dtype,
-            device=self._method.device_id,
+            dtype=inference_protocol.dtype,
+            device=inference_protocol.device_id,
         )
 
         # early return when nothing to predict
@@ -605,7 +764,7 @@ class Model:
         # Iterate one ready `StepData` per group (with its `leaf` group identity)
         for step_data, leaf in tqdm(eval_loader, total=len(eval_loader), desc="Predicting"):
             # 1. Inference
-            pred_obj = self._method.predict(step_data, **predict_kwargs)
+            pred_obj = inference_protocol.predict(step_data, **predict_kwargs)
             all_preds.append(pred_obj)
 
             # 2. Construct obs from the group's leaf (no ann_df / container round-trip)
@@ -634,7 +793,7 @@ class Model:
         # Move model to CPU before pickling
         import torch
 
-        self._method._module.cpu()
+        self._module.cpu()
         # Fixed: access optimizer via trainer, not via method
         if self._trainer is not None and hasattr(self._trainer, "opt_manager"):
             opt = self._trainer.opt_manager.optimizer
@@ -720,12 +879,22 @@ class Model:
         return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
 
     @property
-    def method(self) -> BaseMethod:
-        """Returns the underlying method."""
-        return self._method
+    def module(self) -> BaseModule:
+        """Returns the underlying module."""
+        return self._module
 
     @property
-    def trainer(self) -> Trainer:
+    def training_protocol(self) -> BaseTrainingProtocol:
+        """Returns the underlying training protocol."""
+        return self._training_protocol
+
+    @property
+    def inference_protocol(self) -> BaseInferenceProtocol:
+        """Returns the underlying inference protocol."""
+        return self._inference_protocol
+
+    @property
+    def trainer(self) -> Trainer | None:
         """Returns the trainer used to fit the model."""
         return self._trainer
 

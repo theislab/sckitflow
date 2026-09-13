@@ -1,274 +1,149 @@
 import abc
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 import torch
 
 from sckitflow.core._data_utils import subscript_step_data
 from sckitflow.core._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
 from sckitflow.core.nn._modules import BaseModule
-from sckitflow.core.probability_paths import BaseProbabilityPath
-from sckitflow.core.solvers import BaseSolver
-from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
-from sckitflow.data._manager import DataManager
+from sckitflow.core.probability_paths._probability_paths import BaseProbabilityPath
 
-__all__ = ["BaseMethod", "GenerativeFlow"]
+__all__ = [
+    "ProtocolSpecs",
+    "MatchingSpecs",
+    "MatchedProtocolSpecs",
+    "FlowMethodSpecs",
+    "BaseTrainingProtocol",
+    "BaseInferenceProtocol",
+    "BaseMethod",
+    "BaseMatchingProtocol",
+    "MatchingProtocol",
+    "ProtocolMixin",
+    "TrainingProtocolWrapper",
+    "InferenceProtocolWrapper",
+    "MethodWrapper",
+    "MatchedTrainingProtocol",
+]
 
 
-class BaseMethod(abc.ABC):
-    _module_cls: type[BaseModule] | None = None
+# -------------------- Abstract Contracts (no storage) --------------------
+class _AbstractTrainingProtocol(abc.ABC):
+    """Pure abstract contract for training protocols."""
+
+    @abc.abstractmethod
+    def train_step(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]: ...
+
+
+class _AbstractInferenceProtocol(abc.ABC):
+    """Pure abstract contract for inference protocols."""
+
+    @abc.abstractmethod
+    def predict(self, step_data: StepData) -> PredictionData: ...
+
+
+class _AbstractMatchingProtocol(abc.ABC):
+    """Pure abstract contract for matching protocols."""
+
+    @abc.abstractmethod
+    def match(self, step_data: StepData) -> StepData: ...
+
+
+class _AbstractMethod(_AbstractTrainingProtocol, _AbstractInferenceProtocol):
+    """Combined contract for full training + inference protocols."""
+
+    pass
+
+
+# -------------------- Storage Base --------------------
+class ProtocolSpecs:
+    """Mixin providing storage for module, dtype, and device.
+
+    This class does **not** inherit from any abstract protocol; it only holds
+    the neural module and associated properties. Concrete protocol classes
+    combine this with the appropriate abstract contracts.
+    """
 
     def __init__(
         self,
-        dims_registry: DataDimensionalitiesRegistry,
-        dm: DataManager,
-        *args,
+        module: BaseModule,
         dtype: torch.dtype = torch.float32,
         device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
-        **kwargs,
     ) -> None:
-        # initialize attributes
-        self._dims_registry = dims_registry
-        self._dm = dm
-
-        # check module is passed
-        if self._module_cls is None:
-            raise NotImplementedError(f"{self.__class__.__name__} must define a `_module_cls` class attribute.")
-
-        # initialize module with dimensionality registry
-        self._module = self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
-
-        # set attributes
         self._dtype = dtype
         self._device_id = device_id
-
-        # move module to device
-        self._module.to(self._dtype).to(self._device_id)
-
-    @abc.abstractmethod
-    def compute_loss(
-        self,
-        step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> tuple[torch.Tensor, dict[str, Any]]: ...
-
-    @abc.abstractmethod
-    def infer(
-        self,
-        step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> PredictionData: ...
-
-    def _train_step_forward(
-        self,
-        step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> tuple[torch.Tensor, dict[str, Any]]:
-        step_data = self._match_observations(step_data)
-        return self.compute_loss(
-            step_data,
-            *args,
-            **kwargs,
-        )
-
-    def _match_observations(
-        self,
-        step_data: StepData,
-    ) -> StepData:
-        return step_data
-
-    def set_train_mode(self, mode: bool) -> None:
-        """"""  # noqa
-        if mode:
-            self.module.train()
-        else:
-            self.module.eval()
-
-    def train_step(
-        self,
-        step_data: StepData,
-        *args,
-        **kwargs,
-    ) -> dict[str, Any]:
-        """Single training step on a ready :class:`StepData` batch.
-
-        Callers pass a :class:`StepData` already assembled by the data loaders.
-
-        :param step_data: Ready-to-consume batch of torch tensors.
-        :type step_data: class: `StepData`
-        """
-        return self._train_step_forward(step_data, *args, **kwargs)
-
-    def predict(
-        self,
-        step_data: StepData,
-        *args,
-        no_grad: bool = True,
-        **kwargs,
-    ) -> PredictionData:
-        """Prediction on a ready :class:`StepData` batch.
-
-        Callers pass a :class:`StepData` already assembled by the data loaders.
-        """
-        # optionally stop gradients
-        if no_grad:
-            with torch.no_grad():
-                return self.infer(
-                    step_data,
-                    *args,
-                    **kwargs,
-                )
-        else:
-            return self.infer(
-                step_data,
-                *args,
-                **kwargs,
-            )
+        self._module = module.to(dtype=self._dtype, device=self._device_id)
 
     @property
-    def module(self) -> BaseModule | None:
-        return self._module
-
-    @property
-    def dm(self) -> DataManager | None:
-        return self._dm
-
-    @property
-    def dims_registry(self) -> DataDimensionalitiesRegistry | None:
-        return self._dims_registry
-
-    @property
-    def is_paired_setting(self) -> bool:
-        return self._dm.control_values_dict is not None or self._dm.matched_keys is not None
+    def dtype(self) -> torch.dtype:
+        return self._dtype
 
     @property
     def device_id(self) -> str:
         return self._device_id
 
     @property
-    def dtype(self) -> torch.dtype:
-        return self._dtype
+    def module(self) -> BaseModule:
+        return self._module
+
+    def set_train_mode(self, mode: bool) -> None:
+        """Set the underlying module to training or evaluation mode."""
+        if mode:
+            self.module.train()
+        else:
+            self.module.eval()
 
 
-class GenerativeFlow(BaseMethod):
-    _default_solver_cls: type[BaseSolver] | None = None
+class MatchingSpecs:
+    """Mixin to store the information for the matching.
+
+    The only information that is required is the `match_fn` callable,
+    used to match the step data on its predefined coupling fields.
+    """
+
+    def __init__(self, match_fn: TMatchFn):
+        self._match_fn: TMatchFn = match_fn
+
+    @property
+    def match_fn(self) -> TMatchFn:
+        return self._match_fn
+
+
+class MatchedProtocolSpecs(ProtocolSpecs, MatchingSpecs):
+    """Mixin to jointly store matching and protocol information."""
 
     def __init__(
         self,
-        dims_registry: DataDimensionalitiesRegistry,
-        dm: DataManager,
-        *args,
+        module: BaseModule,
+        match_fn: TMatchFn,
+        dtype: torch.dtype = torch.float32,
+        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
+    ) -> None:
+        ProtocolSpecs.__init__(self, module, dtype=dtype, device_id=device_id)
+        MatchingSpecs.__init__(self, match_fn)
+
+
+class FlowMethodSpecs(MatchedProtocolSpecs):
+    def __init__(
+        self,
+        module: BaseModule,
+        match_fn: TMatchFn,
+        dtype: torch.dtype = torch.float32,
+        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
         probability_path: BaseProbabilityPath | None = None,
-        match_fn: TMatchFn | None = None,
         noise_sampler: TNoiseSamplerFn | None = None,
         time_sampler: TTimeSamplerFn | None = None,
         generate_from_noise: bool = False,
-        **kwargs,
     ) -> None:
-        # call parent constructor
-        super().__init__(
-            dims_registry,
-            dm,
-            *args,
-            **kwargs,
-        )
+        super().__init__(module, match_fn, dtype=dtype, device_id=device_id)
 
-        if match_fn is not None:
-            # The streaming loaders leave every `*_coupling_lin` / `*_coupling_quad` field of a batch as
-            # None, so `_match_observations` returns early and the coupling would never run. Refusing is the
-            # honest answer until the loaders populate the coupling reps (see the TODO in `data._loader`) --
-            # accepting a `match_fn` that silently does nothing is how an OTFM run quietly becomes a plain
-            # flow-matching run.
-            raise NotImplementedError(
-                "`match_fn` (OT coupling) is not wired through the streaming data loaders yet: they emit no "
-                "coupling representations, so the matching would silently never run. The same holds for the "
-                "`source_rep` / `n_shared_dims` coupling schema, which only reaches a method through a "
-                "`match_fn`. Train without it for now."
-            )
-
-        # set attributes
         self._probability_path = probability_path
-        self._match_fn = match_fn
         self._noise_sampler = noise_sampler
         self._time_sampler = time_sampler
-
-        # Not forced on for an unpaired schema: whether a batch has a source to flow from is a property of
-        # the batch, and `prepare_latent_train` / `prepare_latent_inference` already sample noise whenever
-        # `source_state` is None. Deriving it from the schema instead made a real streamed source -- a
-        # `control_adata` pool given at call time, after this object was built -- be silently discarded in
-        # favour of noise. This flag now means only what it says: generate from noise *even when a source
-        # is available*.
         self._generate_from_noise = generate_from_noise
-
-    def _call_match_fn_safe(
-        self,
-        source_lin: torch.Tensor | None,
-        source_quad: torch.Tensor | None,
-        target_lin: torch.Tensor | None,
-        target_quad: torch.Tensor | None,
-    ):
-        # case 0: no source, do nothing
-        if source_lin is None and source_quad is None:
-            src_idxs = None
-            tgt_idxs = None
-            return src_idxs, tgt_idxs
-
-        # case 1: source, match groups
-        src_idxs, tgt_idxs = self._match_fn(
-            source_lin=source_lin,
-            target_lin=target_lin,
-            source_quad=source_quad,
-            target_quad=target_quad,
-        )
-        return src_idxs, tgt_idxs
-
-    def _match_observations(
-        self,
-        step_data: StepData,
-    ) -> StepData:
-        # Get matching indices
-        src_idxs, tgt_idxs = self._call_match_fn_safe(
-            step_data["source_coupling_lin"],
-            step_data["source_coupling_quad"],
-            step_data["target_coupling_lin"],
-            step_data["target_coupling_quad"],
-        )
-
-        # Case: no source distribution → return step_data unchanged
-        if src_idxs is None and tgt_idxs is None:
-            return step_data
-
-        # Apply the matching permutation to both sides. The target side includes
-        # ``target_response_data`` so target covariates stay row-aligned with ``target_state``.
-        return subscript_step_data(step_data, src_idxs=src_idxs, tgt_idxs=tgt_idxs)
-
-    @abc.abstractmethod
-    def infer(
-        self,
-        step_data: StepData,
-        *args,
-        solver_cls: type[BaseSolver] | None = None,
-        solver_kwargs: dict[str, Any] | None = None,
-        return_trajectory: bool = False,
-        n_steps: int = 100,
-        latent: torch.Tensor | None = None,
-        n_samples: int | None = None,
-        **kwargs,
-    ) -> PredictionData: ...
-
-    @property
-    def generate_from_noise(self) -> bool:
-        return self._generate_from_noise
 
     @property
     def probability_path(self) -> BaseProbabilityPath | None:
         return self._probability_path
-
-    @property
-    def match_fn(self) -> TMatchFn | None:
-        return self._match_fn
 
     @property
     def noise_sampler(self) -> TNoiseSamplerFn | None:
@@ -277,3 +152,198 @@ class GenerativeFlow(BaseMethod):
     @property
     def time_sampler(self) -> TTimeSamplerFn | None:
         return self._time_sampler
+
+    @property
+    def generate_from_noise(self) -> bool:
+        return self._generate_from_noise
+
+
+# -------------------- Base Protocol Classes (still abstract) --------------------
+class BaseTrainingProtocol(ProtocolSpecs, _AbstractTrainingProtocol):
+    """Base class for training‑only protocols.
+
+    Subclass this and implement `train_step`. The module, dtype, and device are
+    stored automatically.
+    """
+
+    pass
+
+
+class BaseInferenceProtocol(ProtocolSpecs, _AbstractInferenceProtocol):
+    """Base class for inference‑only protocols.
+
+    Subclass this and implement `predict`. The module, dtype, and device are
+    stored automatically.
+    """
+
+    pass
+
+
+class BaseMethod(ProtocolSpecs, _AbstractMethod):
+    """Base class for full protocols (training + inference).
+
+    Subclass this and implement both `train_step` and `predict`.
+    """
+
+    pass
+
+
+class BaseMatchingProtocol(MatchingSpecs, _AbstractMatchingProtocol):
+    """Base class for matching protocols.
+
+    Subclass this and implement `match`. The matching function is stored
+    automatically.
+    """
+
+    pass
+
+
+# -------------------- Matching protocol with callable --------------------
+class MatchingProtocol(BaseMatchingProtocol):
+    """Public matching protocol.
+
+    Returns ``step_data`` unchanged when no source coupling data is present
+    or when ``match_fn`` yields no indices; otherwise returns a subscripted
+    copy aligned on the matched indices.
+    """
+
+    def match(
+        self,
+        step_data: StepData,
+    ) -> StepData:
+        # ---- Parse coupling data ----
+        source_lin = step_data["source_coupling_lin"]
+        source_quad = step_data["source_coupling_quad"]
+        target_lin = step_data["target_coupling_lin"]
+        target_quad = step_data["target_coupling_quad"]
+
+        # ---- Early return when source is not provided ----
+        if source_lin is None and source_quad is None:
+            return step_data
+
+        # ---- Match indices with callable ----
+        src_idxs, tgt_idxs = self.match_fn(
+            source_lin=source_lin,
+            target_lin=target_lin,
+            source_quad=source_quad,
+            target_quad=target_quad,
+        )
+
+        # ---- No operation when indices are None ----
+        if src_idxs is None or tgt_idxs is None:
+            return step_data
+
+        return subscript_step_data(step_data, src_idxs=src_idxs, tgt_idxs=tgt_idxs)
+
+
+# -------------------- Wrapped protocols --------------------
+_P = TypeVar("_P", bound=ProtocolSpecs)
+
+
+class ProtocolMixin(Generic[_P]):
+    """Shared delegation logic for protocol wrappers."""
+
+    def __init__(self, protocol: _P) -> None:
+        self._protocol: _P = protocol
+
+    def set_train_mode(self, mode: bool) -> None:
+        self._protocol.set_train_mode(mode)
+
+    @property
+    def protocol(self) -> _P:
+        return self._protocol
+
+    @property
+    def dtype(self) -> torch.dtype:
+        return self._protocol.dtype
+
+    @property
+    def device_id(self) -> str:
+        return self._protocol.device_id
+
+    @property
+    def module(self) -> BaseModule:
+        return self._protocol.module
+
+
+# -------------------- Ready‑made Wrapper Classes --------------------
+class TrainingProtocolWrapper(ProtocolMixin[BaseTrainingProtocol], _AbstractTrainingProtocol):
+    """Concrete wrapper for a training protocol.
+
+    Delegates `train_step` to the wrapped protocol.
+    """
+
+    def __init__(self, protocol: BaseTrainingProtocol):
+        if not isinstance(protocol, BaseTrainingProtocol):
+            raise TypeError("Wrapped protocol must provide train_step.")
+        super().__init__(protocol)
+
+    def train_step(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
+        return self._protocol.train_step(step_data)
+
+
+class InferenceProtocolWrapper(ProtocolMixin[BaseInferenceProtocol], _AbstractInferenceProtocol):
+    """Concrete wrapper for an inference protocol.
+
+    Delegates `predict` to the wrapped protocol.
+    """
+
+    def __init__(self, protocol: BaseInferenceProtocol):
+        if not isinstance(protocol, BaseInferenceProtocol):
+            raise TypeError("Wrapped protocol must provide predict.")
+        super().__init__(protocol)
+
+    def predict(self, step_data: StepData) -> PredictionData:
+        return self._protocol.predict(step_data)
+
+
+class MethodWrapper(ProtocolMixin[BaseMethod], _AbstractMethod):
+    """Concrete wrapper for a full protocol (training + inference).
+
+    Delegates both `train_step` and `predict` to the wrapped protocol.
+    """
+
+    def __init__(self, protocol: BaseMethod):
+        if not isinstance(protocol, BaseMethod):
+            raise TypeError("Wrapped protocol must provide both train_step and predict.")
+        super().__init__(protocol)
+
+    def train_step(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
+        return self._protocol.train_step(step_data)
+
+    def predict(self, step_data: StepData) -> PredictionData:
+        return self._protocol.predict(step_data)
+
+
+class MatchedTrainingProtocol(TrainingProtocolWrapper):
+    """Class for matched training protocols.
+
+    Takes as input a training protocol (`protocol`) to wrap around and a matching callable (`match_fn`).
+    The matching callable is used to instantiate the `self.matcher` attribute,
+    a `MatchingProtocol`, defined in terms of the `match_fn`.
+
+    The `.train_step` method of the wrapped protocol is called on the matched
+    `step_data`; that is, the step data is first matched using `self.matcher.match(...)`, then the
+    resulting matched data is passed to `self.protocol.train_step`.
+    """
+
+    def __init__(self, protocol: BaseTrainingProtocol, match_fn: TMatchFn) -> None:
+        """Initializes the matched training protocol.
+
+        :param protocol: An instance of a `BaseTrainingProtocol` to wrap around;
+            the wrapped class needs to implement the `.train_step` method.
+        :param match_fn: The matching function, used to couple the batches.
+            It needs to satisfy the contract specified by `TMatchFn`.
+        """
+        super().__init__(protocol)
+        self._matcher = MatchingProtocol(match_fn)
+
+    def train_step(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
+        """Wraps around the `self.protocol.train_step`, calling it on matched data."""
+        matched = self._matcher.match(step_data)
+        return self._protocol.train_step(matched)
+
+    @property
+    def matcher(self) -> MatchingProtocol:
+        """The matcher used to pair the data."""
+        return self._matcher

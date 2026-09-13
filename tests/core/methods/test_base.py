@@ -5,11 +5,12 @@ import pytest
 import torch
 
 from sckitflow.core._types import PredictionData, StepData
-from sckitflow.core.methods._protocols import (
+from sckitflow.core.methods._base import (
     BaseInferenceProtocol,
     BaseMatchingProtocol,
     BaseMethod,
     BaseTrainingProtocol,
+    FlowMethodSpecs,
     InferenceProtocolWrapper,
     MatchedProtocolSpecs,
     MatchedTrainingProtocol,
@@ -226,6 +227,105 @@ def test_matched_protocol_specs_requires_module_and_match_fn(dummy_module):
         MatchedProtocolSpecs(dummy_module)  # no match_fn
 
 
+# -------------------- FlowMethodSpecs --------------------
+def test_flow_method_specs_initializes_all_attributes(dummy_module):
+    fn = lambda **_: (None, None)
+    ns = lambda *a, **k: torch.randn(1)
+    ts = lambda *a, **k: torch.rand(1)
+    path = object()  # stand-in for BaseProbabilityPath
+
+    specs = FlowMethodSpecs(
+        module=dummy_module,
+        match_fn=fn,
+        dtype=torch.float64,
+        device_id="cpu",
+        probability_path=path,
+        noise_sampler=ns,
+        time_sampler=ts,
+        generate_from_noise=True,
+    )
+
+    # Inherited from MatchedProtocolSpecs
+    assert specs.module is dummy_module
+    assert specs.dtype == torch.float64
+    assert specs.device_id == "cpu"
+    assert specs.match_fn is fn
+
+    # Flow-specific
+    assert specs.probability_path is path
+    assert specs.noise_sampler is ns
+    assert specs.time_sampler is ts
+    assert specs.generate_from_noise is True
+
+
+def test_flow_method_specs_defaults(dummy_module):
+    fn = lambda **_: (None, None)
+    specs = FlowMethodSpecs(dummy_module, match_fn=fn)
+
+    assert specs.probability_path is None
+    assert specs.noise_sampler is None
+    assert specs.time_sampler is None
+    assert specs.generate_from_noise is False
+
+
+def test_flow_method_specs_requires_module_and_match_fn(dummy_module):
+    with pytest.raises(TypeError):
+        FlowMethodSpecs(match_fn=lambda **_: (None, None))  # no module
+
+    with pytest.raises(TypeError):
+        FlowMethodSpecs(dummy_module)  # no match_fn
+
+
+def test_flow_method_specs_mro():
+    """FlowMethodSpecs should be a MatchedProtocolSpecs (and transitively both mixins)."""
+    assert issubclass(FlowMethodSpecs, MatchedProtocolSpecs)
+    assert issubclass(FlowMethodSpecs, ProtocolSpecs)
+    assert issubclass(FlowMethodSpecs, MatchingSpecs)
+
+
+def test_flow_method_specs_set_train_mode(dummy_module):
+    fn = lambda **_: (None, None)
+    specs = FlowMethodSpecs(dummy_module, match_fn=fn)
+
+    specs.set_train_mode(True)
+    assert specs.module.training is True
+    specs.set_train_mode(False)
+    assert specs.module.training is False
+
+
+def test_flow_method_specs_usable_as_mixin(dummy_module):
+    """FlowMethodSpecs should compose with abstract contracts."""
+    fn = lambda **_: (None, None)
+
+    class ConcreteFlowMethod(
+        FlowMethodSpecs,
+        _AbstractTrainingProtocol,
+        _AbstractInferenceProtocol,
+        _AbstractMatchingProtocol,
+    ):
+        def train_step(self, step_data):
+            return torch.tensor(0.0), {}
+
+        def predict(self, step_data):
+            return DummyPredictionData()
+
+        def match(self, step_data):
+            return step_data
+
+    proto = ConcreteFlowMethod(
+        module=dummy_module,
+        match_fn=fn,
+        device_id="cpu",
+        generate_from_noise=True,
+    )
+    assert proto.match_fn is fn
+    assert proto.generate_from_noise is True
+    assert proto.probability_path is None
+    assert isinstance(proto.predict(DummyStepData()), DummyPredictionData)
+    loss, _ = proto.train_step(DummyStepData())
+    assert loss.item() == 0.0
+
+
 # -------------------- Concrete Protocol Subclasses --------------------
 def test_training_protocol_subclass(dummy_module, step_data):
     proto = ConcreteTrainingProtocol(dummy_module, device_id="cpu")
@@ -352,7 +452,7 @@ def test_matching_protocol_calls_match_fn_with_all_fields(coupling_step_data):
 
     matcher = MatchingProtocol(match_fn=match_fn)
 
-    with patch("sckitflow.core.methods._protocols.subscript_step_data") as mock_sub:
+    with patch("sckitflow.core.methods._base.subscript_step_data") as mock_sub:
         mock_sub.return_value = {"matched": True}
         matcher.match(coupling_step_data)
 
@@ -367,7 +467,7 @@ def test_matching_protocol_subscripts_when_indices_present(coupling_step_data):
     tgt_idxs = torch.tensor([1, 0])
     matcher = MatchingProtocol(match_fn=lambda **_: (src_idxs, tgt_idxs))
 
-    with patch("sckitflow.core.methods._protocols.subscript_step_data") as mock_sub:
+    with patch("sckitflow.core.methods._base.subscript_step_data") as mock_sub:
         mock_sub.return_value = {"matched": True}
         result = matcher.match(coupling_step_data)
 
@@ -399,7 +499,7 @@ def test_matched_training_protocol_runs_match_then_train(dummy_module):
     )
 
     matched_data = {"matched": True}
-    with patch("sckitflow.core.methods._protocols.subscript_step_data") as mock_sub:
+    with patch("sckitflow.core.methods._base.subscript_step_data") as mock_sub:
         mock_sub.return_value = matched_data
         loss, _ = matched.train_step(step_data)
 

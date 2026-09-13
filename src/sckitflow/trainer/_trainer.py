@@ -5,7 +5,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from sckitflow.core._types import StepData
-from sckitflow.core.methods._base import BaseInferenceProtocol, BaseTrainingProtocol
+from sckitflow.core.methods._base import BaseInferenceProtocol, BaseTrainingProtocol, MatchedTrainingProtocol
 from sckitflow.core.methods._opt import OptimizationManager
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 
@@ -23,7 +23,7 @@ class Trainer:
 
     def __init__(
         self,
-        training_protocol: BaseTrainingProtocol,
+        training_protocol: BaseTrainingProtocol | MatchedTrainingProtocol,
         opt_manager: OptimizationManager,
         inference_protocol: BaseInferenceProtocol | None = None,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,

@@ -10,7 +10,11 @@ from anndata import AnnData
 from tests.data.shared import with_split
 
 from sckitflow import Model, ModelBuilder
-from sckitflow.core.methods._base import BaseInferenceProtocol, BaseTrainingProtocol
+from sckitflow.core.methods._base import (
+    BaseInferenceProtocol,
+    BaseTrainingProtocol,
+    MatchedTrainingProtocol,
+)
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.data._manager import DataManager
 
@@ -25,7 +29,6 @@ class DummyModule(BaseModule):
         self.n_features = n_features
 
     def _make_modules(self, *args, **kwargs):
-        # No submodules needed for these tests.
         pass
 
     @classmethod
@@ -80,6 +83,20 @@ class DummyInferenceProtocol(BaseInferenceProtocol):
 
 
 # -----------------------------------------------------------------------------
+# Dummy match function. Module-level so it satisfies `Model.save` picklability
+# (cloudpickle can serialize a top-level function).
+# -----------------------------------------------------------------------------
+def dummy_match_fn(source_lin=None, target_lin=None, source_quad=None, target_quad=None):
+    """No-op matcher: returns no indices so `MatchingProtocol.match` short-circuits."""
+    return None, None
+
+
+def other_match_fn(source_lin=None, target_lin=None, source_quad=None, target_quad=None):
+    """A distinct no-op matcher for override tests."""
+    return None, None
+
+
+# -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
 def _add_continuous_covariate(adata: AnnData, key: str = "X_repr", n_dim: int = 10) -> AnnData:
@@ -106,7 +123,6 @@ def _make_model(
     )
 
 
-# Training streams from `DataManager.get_dataloaders`, which splits as the schema declares.
 _DM_TRAIN_KWARGS = {
     "conditions": {"drug": ("drugA",)},
     "conditions_reps": {"drug": "drug"},
@@ -188,9 +204,10 @@ class TestModel:
     # ------------------------------------------------------------------
     # Protocol resolution
     #
-    # Note: `_model.py` does `from sckitflow.core.methods import AVAILABLE_*`,
-    # so the registry name is bound *inside* `sckitflow._model`. Patching must
-    # target that binding, not the definition site.
+    # `_model.py` binds the registries locally via
+    # `from sckitflow.core.methods import TRAINING_PROTOCOLS_REGISTRY,
+    #  INFERENCE_PROTOCOLS_REGISTRY`. Patching must target the local
+    # binding, not the definition site.
     # ------------------------------------------------------------------
     def test_training_protocol_id_resolves_to_registered_class(self, adata: AnnData, monkeypatch):
         monkeypatch.setattr(
@@ -421,6 +438,100 @@ class TestModel:
 
         loaded = Model.load(tmp_path, map_location="cpu")
         loaded.train(adata, n_train_steps=5, batch_size=4)
+
+        os.unlink(tmp_path)
+
+
+# -----------------------------------------------------------------------------
+# match_fn integration
+# -----------------------------------------------------------------------------
+class TestModelMatching:
+    """`match_fn` wraps the training protocol in `MatchedTrainingProtocol`."""
+
+    def test_construction_with_match_fn_wraps_training_protocol(self, adata):
+        model = _make_model(adata, match_fn=dummy_match_fn)
+        assert isinstance(model.training_protocol, MatchedTrainingProtocol)
+        assert model.training_protocol.matcher.match_fn is dummy_match_fn
+
+    def test_construction_without_match_fn_leaves_protocol_unwrapped(self, adata):
+        model = _make_model(adata)
+        assert not isinstance(model.training_protocol, MatchedTrainingProtocol)
+        assert isinstance(model.training_protocol, DummyTrainingProtocol)
+
+    def test_train_without_per_call_match_fn_keeps_construction_matcher(self, adata, mock_optim_manager):
+        """A `train()` call with no `match_fn` uses the instance's (already matched) protocol."""
+        adata = _with_split(adata)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS, match_fn=dummy_match_fn)
+        assert isinstance(model.training_protocol, MatchedTrainingProtocol)
+
+        with patch("sckitflow._model.Trainer") as mock_trainer_cls:
+            model.train(adata, n_train_steps=2)
+            training_arg = mock_trainer_cls.call_args[0][0]
+            # The instance's matched protocol is passed through unchanged.
+            assert training_arg is model.training_protocol
+            assert isinstance(training_arg, MatchedTrainingProtocol)
+            assert training_arg.matcher.match_fn is dummy_match_fn
+
+    def test_train_per_call_match_fn_wraps_unmatched_protocol(self, adata, mock_optim_manager):
+        """A `train(match_fn=...)` call wraps an unmatched instance protocol for that call only."""
+        adata = _with_split(adata)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS)
+        original = model.training_protocol
+        assert not isinstance(original, MatchedTrainingProtocol)
+
+        with patch("sckitflow._model.Trainer") as mock_trainer_cls:
+            model.train(adata, n_train_steps=2, match_fn=dummy_match_fn)
+            training_arg = mock_trainer_cls.call_args[0][0]
+            assert isinstance(training_arg, MatchedTrainingProtocol)
+            assert training_arg.matcher.match_fn is dummy_match_fn
+            # The instance's stored protocol is untouched.
+            assert model.training_protocol is original
+            assert not isinstance(model.training_protocol, MatchedTrainingProtocol)
+
+    def test_train_per_call_match_fn_overrides_construction_matcher(self, adata, mock_optim_manager):
+        """A per-call `match_fn` replaces the construction-time matcher for that call only."""
+        adata = _with_split(adata)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS, match_fn=dummy_match_fn)
+        original = model.training_protocol
+
+        with patch("sckitflow._model.Trainer") as mock_trainer_cls:
+            model.train(adata, n_train_steps=2, match_fn=other_match_fn)
+            training_arg = mock_trainer_cls.call_args[0][0]
+            assert isinstance(training_arg, MatchedTrainingProtocol)
+            assert training_arg.matcher.match_fn is other_match_fn
+            # The stored protocol still carries the construction-time matcher.
+            assert model.training_protocol is original
+            assert model.training_protocol.matcher.match_fn is dummy_match_fn
+
+    def test_train_per_call_protocol_without_match_fn_is_unwrapped(self, adata, mock_optim_manager):
+        """A per-call protocol override with no `match_fn` is used raw."""
+        adata = _with_split(adata)
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS, match_fn=dummy_match_fn)
+
+        with patch("sckitflow._model.Trainer") as mock_trainer_cls:
+            model.train(
+                adata,
+                n_train_steps=2,
+                training_protocol_cls=DummyTrainingProtocol,
+            )
+            training_arg = mock_trainer_cls.call_args[0][0]
+            # The per-call override bypasses construction-time matching.
+            assert not isinstance(training_arg, MatchedTrainingProtocol)
+            assert isinstance(training_arg, DummyTrainingProtocol)
+
+    def test_save_load_preserves_matching(self, adata):
+        """A model saved with `match_fn` reloads with the matcher intact."""
+        model = _make_model(adata, dm_kwargs=_DM_TRAIN_KWARGS, match_fn=dummy_match_fn)
+        assert isinstance(model.training_protocol, MatchedTrainingProtocol)
+
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+            tmp_path = tmp.name
+        model.save(tmp_path, allow_overwrite=True)
+
+        loaded = Model.load(tmp_path, map_location="cpu")
+        assert isinstance(loaded.training_protocol, MatchedTrainingProtocol)
+        # The matcher's callable survives pickling (dummy_match_fn is module-level).
+        assert loaded.training_protocol.matcher.match_fn is dummy_match_fn
 
         os.unlink(tmp_path)
 

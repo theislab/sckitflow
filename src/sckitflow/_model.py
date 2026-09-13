@@ -15,9 +15,9 @@ from anndata import AnnData
 from tqdm import tqdm
 
 from sckitflow._types import PredictionData
-from sckitflow.core._types import StepData
+from sckitflow.core._types import StepData, TMatchFn
 from sckitflow.core.methods import INFERENCE_PROTOCOLS_REGISTRY, TRAINING_PROTOCOLS_REGISTRY
-from sckitflow.core.methods._base import BaseInferenceProtocol, BaseTrainingProtocol
+from sckitflow.core.methods._base import BaseInferenceProtocol, BaseTrainingProtocol, MatchedTrainingProtocol
 from sckitflow.core.methods._opt import OptimConfig, OptimizationManager
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
@@ -115,6 +115,17 @@ def _build_protocol(
         )
 
 
+def _get_matched_protocol(
+    training_protocol: BaseTrainingProtocol | MatchedTrainingProtocol,
+    match_fn: TMatchFn | None = None,
+) -> BaseTrainingProtocol | MatchedTrainingProtocol:
+    if match_fn is None:
+        return training_protocol
+    if isinstance(training_protocol, MatchedTrainingProtocol):
+        training_protocol = training_protocol.protocol
+    return MatchedTrainingProtocol(training_protocol, match_fn)
+
+
 class ModelKwargs(TypedDict, total=False):
     """Keyword arguments to initialize the model.
 
@@ -151,6 +162,7 @@ class ModelKwargs(TypedDict, total=False):
         on the underlying neural module.
     :param inference_protocol_kwargs: Keyword arguments used to initialize the
         inference protocol.
+    :param match_fn: Callable used to construct groups for matching.
     """
 
     module: BaseModule | None
@@ -162,6 +174,7 @@ class ModelKwargs(TypedDict, total=False):
     inference_protocol_cls: type[BaseInferenceProtocol] | None
     inference_protocol_id: str | None
     inference_protocol_kwargs: dict[str, Any] | None
+    match_fn: TMatchFn | None
 
 
 class ModelBuilder:
@@ -255,7 +268,7 @@ class Model:
         )
 
         # ----- Initialize protocols ----
-        self._training_protocol: BaseTrainingProtocol = _build_protocol(
+        training_protocol = _build_protocol(
             self._module,
             "training",
             protocol_cls=model_kwargs.get("training_protocol_cls"),
@@ -263,6 +276,13 @@ class Model:
             protocol_kwargs=model_kwargs.get("training_protocol_kwargs"),
             allow_none=False,
         )
+
+        match_fn = model_kwargs.get("match_fn")
+        training_protocol: BaseTrainingProtocol | MatchedTrainingProtocol = _get_matched_protocol(
+            training_protocol, match_fn=match_fn
+        )
+
+        self._training_protocol = training_protocol
 
         self._inference_protocol: BaseInferenceProtocol = _build_protocol(
             self._module,
@@ -491,6 +511,7 @@ class Model:
         inference_protocol_cls: type[BaseInferenceProtocol] | None = None,
         inference_protocol_id: str | None = None,
         inference_protocol_kwargs: dict[str, Any] | None = None,
+        match_fn: TMatchFn | None = None,
         train_split: str = "train",
         control_adata: AnnData | None = None,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
@@ -569,6 +590,7 @@ class Model:
         )
         if training_protocol is None:
             training_protocol = self._training_protocol
+        training_protocol = _get_matched_protocol(training_protocol, match_fn=match_fn)
 
         # get inference protocol
         inference_protocol: BaseInferenceProtocol | None = _build_protocol(
@@ -846,7 +868,7 @@ class Model:
         return self._module
 
     @property
-    def training_protocol(self) -> BaseTrainingProtocol:
+    def training_protocol(self) -> BaseTrainingProtocol | MatchedTrainingProtocol:
         """Returns the underlying training protocol."""
         return self._training_protocol
 

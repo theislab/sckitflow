@@ -6,7 +6,7 @@ import tempfile
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal, Unpack, overload
+from typing import TYPE_CHECKING, Any, Literal, TypedDict, Unpack, overload
 
 import cloudpickle
 import numpy as np
@@ -115,7 +115,53 @@ def _build_protocol(
         )
 
 
-# class ModelKwargs(TypedDict, total=True)
+class ModelKwargs(TypedDict, total=False):
+    """Keyword arguments to initialize the model.
+
+    :param module: The neural module used to instantiate the model.
+        When provided, it takes precedence over `module_cls`.
+    :param module_cls: A reference to a neural module class, inheriting from
+        `BaseModule`; it will be initialized only when `module` is `None`,
+        using the `module_kwargs` as keyword arguments. It needs to be
+        specified, when `module` is `None`.
+    :param module_kwargs: Optional keyword arguments used to initialized the
+        neural module; only used when initializing the neural module from
+        `module_cls`.
+    :param training_protocol_cls: A reference to a `BaseTrainingProtocol` class,
+        that will be initialized using the underlying neural module.
+        When provided, it takes precedence over the `training_protocol_id`
+        argument. The training protocol will be initialized using the
+        `training_protocol_kwargs` argument.
+    :param training_protocol_id: String identifier to a training protocol
+        from the `AVAILABLE_TRAINING_PROTOCOLS` registry. It is used only
+        when `training_protocol_cls` is `None`. The training protocol
+        will be initialized using the `training_protocol_kwargs` argument,
+        on the underlying neural module.
+    :param training_protocol_kwargs: Keyword arguments used to initialize the
+        training protocol.
+    :param inference_protocol_cls: A reference to a `BaseInferenceProtocol` class,
+        that will be initialized using the underlying neural module.
+        When provided, it takes precedence over the `inference_protocol_id`
+        argument. The inference protocol will be initialized using the
+        `inference_protocol_kwargs` argument.
+    :param inference_protocol_id: String identifier to an inference protocol
+        from the `AVAILABLE_INFERENCE_PROTOCOLS` registry. It is used only
+        when `inference_protocol_cls` is `None`. The inference protocol
+        will be initialized using the `inference_protocol_kwargs` argument,
+        on the underlying neural module.
+    :param inference_protocol_kwargs: Keyword arguments used to initialize the
+        inference protocol.
+    """
+
+    module: BaseModule | None
+    module_cls: type[BaseModule] | None
+    module_kwargs: dict[str, Any] | None
+    training_protocol_cls: type[BaseTrainingProtocol] | None
+    training_protocol_id: str | None
+    training_protocol_kwargs: dict[str, Any] | None
+    inference_protocol_cls: type[BaseInferenceProtocol] | None
+    inference_protocol_id: str | None
+    inference_protocol_kwargs: dict[str, Any] | None
 
 
 class ModelBuilder:
@@ -175,83 +221,14 @@ class ModelBuilder:
         """The data dimensionalities derived from the registration data."""
         return self._data_dims
 
-    def build(
-        self,
-        module: BaseModule | None = None,
-        module_cls: type[BaseModule] | None = None,
-        module_kwargs: dict[str, Any] | None = None,
-        training_protocol_cls: type[BaseTrainingProtocol] | None = None,
-        training_protocol_id: str | None = None,
-        training_protocol_kwargs: dict[str, Any] | None = None,
-        inference_protocol_cls: type[BaseInferenceProtocol] | None = None,
-        inference_protocol_id: str | None = None,
-        inference_protocol_kwargs: dict[str, Any] | None = None,
-    ) -> Model:
-        """Attach a training, an inference protocol and a module to the Model.
-
-        :param module: The neural module used to instantiate the model.
-            When provided, it takes precedence over `module_cls`.
-        :param module_cls: A reference to a neural module class, inheriting from
-            `BaseModule`; it will be initialized only when `module` is `None`,
-            using the `module_kwargs` as keyword arguments. It needs to be
-            specified, when `module` is `None`.
-        :param module_kwargs: Optional keyword arguments used to initialized the
-            neural module; only used when initializing the neural module from
-            `module_cls`.
-        :param training_protocol_cls: A reference to a `BaseTrainingProtocol` class,
-            that will be initialized using the underlying neural module.
-            When provided, it takes precedence over the `training_protocol_id`
-            argument. The training protocol will be initialized using the
-            `training_protocol_kwargs` argument.
-        :param training_protocol_id: String identifier to a training protocol
-            from the `AVAILABLE_TRAINING_PROTOCOLS` registry. It is used only
-            when `training_protocol_cls` is `None`. The training protocol
-            will be initialized using the `training_protocol_kwargs` argument,
-            on the underlying neural module.
-        :param training_protocol_kwargs: Keyword arguments used to initialize the
-            training protocol.
-        :param inference_protocol_cls: A reference to a `BaseInferenceProtocol` class,
-            that will be initialized using the underlying neural module.
-            When provided, it takes precedence over the `inference_protocol_id`
-            argument. The inference protocol will be initialized using the
-            `inference_protocol_kwargs` argument.
-        :param inference_protocol_id: String identifier to an inference protocol
-            from the `AVAILABLE_INFERENCE_PROTOCOLS` registry. It is used only
-            when `inference_protocol_cls` is `None`. The inference protocol
-            will be initialized using the `inference_protocol_kwargs` argument,
-            on the underlying neural module.
-        :param inference_protocol_kwargs: Keyword arguments used to initialize the
-            inference protocol.
-        """
-        return Model(
-            self._dm,
-            self._data_dims,
-            module=module,
-            module_cls=module_cls,
-            module_kwargs=module_kwargs,
-            training_protocol_cls=training_protocol_cls,
-            training_protocol_id=training_protocol_id,
-            training_protocol_kwargs=training_protocol_kwargs,
-            inference_protocol_cls=inference_protocol_cls,
-            inference_protocol_id=inference_protocol_id,
-            inference_protocol_kwargs=inference_protocol_kwargs,
-        )
+    def build(self, **model_kwargs: Unpack[ModelKwargs]) -> Model:
+        """Attach a training, an inference protocol and a module to the Model."""
+        return Model(self._dm, self._data_dims, **model_kwargs)
 
 
 class Model:
     def __init__(
-        self,
-        dm: DataManager,
-        data_dims: DataDimensionalitiesRegistry,
-        module: BaseModule | None = None,
-        module_cls: type[BaseModule] | None = None,
-        module_kwargs: dict[str, Any] | None = None,
-        training_protocol_cls: type[BaseTrainingProtocol] | None = None,
-        training_protocol_id: str | None = None,
-        training_protocol_kwargs: dict[str, Any] | None = None,
-        inference_protocol_cls: type[BaseInferenceProtocol] | None = None,
-        inference_protocol_id: str | None = None,
-        inference_protocol_kwargs: dict[str, Any] | None = None,
+        self, dm: DataManager, data_dims: DataDimensionalitiesRegistry, **model_kwargs: Unpack[ModelKwargs]
     ) -> None:
         """Initialize a model from a fitted data manager and its dimensionalities.
 
@@ -264,21 +241,6 @@ class Model:
             data (see :meth:`DataManager.get_data_dimensionalities`).
         :type data_dims: class: `DataDimensionalitiesRegistry`
 
-        :param method: A pre-built method instance. When provided,
-            ``method_cls`` / ``method_id`` and any extra ``args`` / ``kwargs``
-            are ignored. Defaults to `None`.
-        :type method: class: `BaseMethod | None`
-
-        :param method_cls: The method class to instantiate. Mutually exclusive
-            with ``method_id``. Defaults to `None`.
-        :type method_cls: class: `type[BaseMethod] | None`
-
-        :param method_id: Identifier of a registered method to instantiate.
-            Mutually exclusive with ``method_cls``. Defaults to `None`.
-        :type method_id: class: `str | None`
-
-        :param args: Extra positional arguments forwarded to the method.
-        :param kwargs: Extra keyword arguments forwarded to the method.
         """
         # ----- Store data manager and dimensionalities -----
         self._dm = dm
@@ -286,28 +248,28 @@ class Model:
 
         # ---- Initialize module ----
         self._module: BaseModule = _build_module(
-            module=module,
-            module_cls=module_cls,
+            module=model_kwargs.get("module"),
+            module_cls=model_kwargs.get("module_cls"),
             data_dims=self._dims_registry,
-            module_kwargs=module_kwargs,
+            module_kwargs=model_kwargs.get("module_kwargs"),
         )
 
         # ----- Initialize protocols ----
         self._training_protocol: BaseTrainingProtocol = _build_protocol(
             self._module,
             "training",
-            protocol_cls=training_protocol_cls,
-            protocol_id=training_protocol_id,
-            protocol_kwargs=training_protocol_kwargs,
+            protocol_cls=model_kwargs.get("training_protocol_cls"),
+            protocol_id=model_kwargs.get("training_protocol_id"),
+            protocol_kwargs=model_kwargs.get("training_protocol_kwargs"),
             allow_none=False,
         )
 
         self._inference_protocol: BaseInferenceProtocol = _build_protocol(
             self._module,
             "inference",
-            protocol_cls=inference_protocol_cls,
-            protocol_id=inference_protocol_id,
-            protocol_kwargs=inference_protocol_kwargs,
+            protocol_cls=model_kwargs.get("inference_protocol_cls"),
+            protocol_id=model_kwargs.get("inference_protocol_id"),
+            protocol_kwargs=model_kwargs.get("inference_protocol_kwargs"),
             allow_none=False,
         )
 

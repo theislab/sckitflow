@@ -11,16 +11,17 @@ from sckitflow.core.methods._protocols import (
     BaseMethod,
     BaseTrainingProtocol,
     InferenceProtocolWrapper,
+    MatchedProtocolSpecs,
     MatchedTrainingProtocol,
     MatchingProtocol,
+    MatchingSpecs,
     MethodWrapper,
+    ProtocolSpecs,
     TrainingProtocolWrapper,
     _AbstractInferenceProtocol,
     _AbstractMatchingProtocol,
     _AbstractMethod,
     _AbstractTrainingProtocol,
-    _BaseMatchingProtocol,
-    _BaseProtocol,
 )
 
 
@@ -116,27 +117,113 @@ def test_base_matching_protocol_is_abstract():
         BaseMatchingProtocol(match_fn=lambda **_: (None, None))
 
 
-# -------------------- _BaseProtocol Storage --------------------
-def test_base_protocol_initialization_and_properties(dummy_module):
-    proto = _BaseProtocol(dummy_module, dtype=torch.float64, device_id="cpu")
+# -------------------- ProtocolSpecs --------------------
+def test_protocol_specs_initialization_and_properties(dummy_module):
+    proto = ProtocolSpecs(dummy_module, dtype=torch.float64, device_id="cpu")
     assert proto.dtype == torch.float64
     assert proto.device_id == "cpu"
     assert proto.module is dummy_module
     assert next(proto.module.parameters()).dtype == torch.float64
 
 
-def test_base_protocol_set_train_mode(dummy_module):
-    proto = _BaseProtocol(dummy_module)
+def test_protocol_specs_set_train_mode(dummy_module):
+    proto = ProtocolSpecs(dummy_module)
     proto.set_train_mode(True)
     assert proto.module.training is True
     proto.set_train_mode(False)
     assert proto.module.training is False
 
 
-def test_base_matching_protocol_stores_match_fn():
+# -------------------- MatchingSpecs --------------------
+def test_matching_specs_stores_match_fn():
     fn = lambda **_: (None, None)
-    proto = _BaseMatchingProtocol(fn)
+    specs = MatchingSpecs(fn)
+    assert specs.match_fn is fn
+
+
+def test_matching_specs_match_fn_is_read_only():
+    specs = MatchingSpecs(lambda **_: (None, None))
+    with pytest.raises(AttributeError):
+        specs.match_fn = lambda **_: (None, None)
+
+
+# -------------------- MatchedProtocolSpecs --------------------
+def test_matched_protocol_specs_initializes_both_bases(dummy_module):
+    """MatchedProtocolSpecs should initialize storage and matching state."""
+    fn = lambda **_: (None, None)
+    specs = MatchedProtocolSpecs(
+        module=dummy_module,
+        match_fn=fn,
+        dtype=torch.float64,
+        device_id="cpu",
+    )
+
+    # Storage side
+    assert specs.module is dummy_module
+    assert specs.dtype == torch.float64
+    assert specs.device_id == "cpu"
+    assert next(specs.module.parameters()).dtype == torch.float64
+
+    # Matching side
+    assert specs.match_fn is fn
+
+
+def test_matched_protocol_specs_defaults(dummy_module):
+    """Defaults should match ProtocolSpecs defaults and carry the matcher."""
+    fn = lambda **_: (None, None)
+    specs = MatchedProtocolSpecs(dummy_module, match_fn=fn)
+
+    assert specs.dtype == torch.float32
+    # device_id default depends on availability; just ensure it is a string
+    assert isinstance(specs.device_id, str)
+
+
+def test_matched_protocol_specs_set_train_mode(dummy_module):
+    """set_train_mode from ProtocolSpecs should work through MatchedProtocolSpecs."""
+    fn = lambda **_: (None, None)
+    specs = MatchedProtocolSpecs(dummy_module, match_fn=fn)
+
+    specs.set_train_mode(True)
+    assert specs.module.training is True
+    specs.set_train_mode(False)
+    assert specs.module.training is False
+
+
+def test_matched_protocol_specs_mro():
+    """MatchedProtocolSpecs should be a ProtocolSpecs and a MatchingSpecs."""
+    assert issubclass(MatchedProtocolSpecs, ProtocolSpecs)
+    assert issubclass(MatchedProtocolSpecs, MatchingSpecs)
+
+
+def test_matched_protocol_specs_usable_as_both_mixins(dummy_module):
+    """A subclass combining MatchedProtocolSpecs with contracts should work."""
+    fn = lambda **_: (None, None)
+
+    class ConcreteMatchedTrainingProtocol(
+        MatchedProtocolSpecs,
+        _AbstractTrainingProtocol,
+        _AbstractMatchingProtocol,
+    ):
+        def train_step(self, step_data):
+            return torch.tensor(0.0), {}
+
+        def match(self, step_data):
+            return step_data
+
+    proto = ConcreteMatchedTrainingProtocol(module=dummy_module, match_fn=fn, device_id="cpu")
+    assert proto.dtype == torch.float32
+    assert proto.device_id == "cpu"
     assert proto.match_fn is fn
+    assert proto.match(DummyStepData()) is not None
+
+
+def test_matched_protocol_specs_requires_module_and_match_fn(dummy_module):
+    """Both required arguments must be supplied."""
+    with pytest.raises(TypeError):
+        MatchedProtocolSpecs(match_fn=lambda **_: (None, None))  # no module
+
+    with pytest.raises(TypeError):
+        MatchedProtocolSpecs(dummy_module)  # no match_fn
 
 
 # -------------------- Concrete Protocol Subclasses --------------------

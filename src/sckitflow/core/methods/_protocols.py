@@ -8,6 +8,9 @@ from sckitflow.core._types import PredictionData, StepData, TMatchFn
 from sckitflow.core.nn._modules import BaseModule
 
 __all__ = [
+    "ProtocolSpecs",
+    "MatchingSpecs",
+    "MatchedProtocolSpecs",
     "BaseTrainingProtocol",
     "BaseInferenceProtocol",
     "BaseMethod",
@@ -50,7 +53,7 @@ class _AbstractMethod(_AbstractTrainingProtocol, _AbstractInferenceProtocol):
 
 
 # -------------------- Storage Base --------------------
-class _BaseProtocol:
+class ProtocolSpecs:
     """Mixin providing storage for module, dtype, and device.
 
     This class does **not** inherit from any abstract protocol; it only holds
@@ -88,7 +91,7 @@ class _BaseProtocol:
             self.module.eval()
 
 
-class _BaseMatchingProtocol:
+class MatchingSpecs:
     """Mixin to store the information for the matching.
 
     The only information that is required is the `match_fn` callable,
@@ -103,8 +106,20 @@ class _BaseMatchingProtocol:
         return self._match_fn
 
 
+class MatchedProtocolSpecs(ProtocolSpecs, MatchingSpecs):
+    def __init__(
+        self,
+        module: BaseModule,
+        match_fn: TMatchFn,
+        dtype: torch.dtype = torch.float32,
+        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
+    ) -> None:
+        ProtocolSpecs.__init__(self, module, dtype=dtype, device_id=device_id)
+        MatchingSpecs.__init__(self, match_fn)
+
+
 # -------------------- Base Protocol Classes (still abstract) --------------------
-class BaseTrainingProtocol(_BaseProtocol, _AbstractTrainingProtocol):
+class BaseTrainingProtocol(ProtocolSpecs, _AbstractTrainingProtocol):
     """Base class for training‑only protocols.
 
     Subclass this and implement `train_step`. The module, dtype, and device are
@@ -114,7 +129,7 @@ class BaseTrainingProtocol(_BaseProtocol, _AbstractTrainingProtocol):
     pass
 
 
-class BaseInferenceProtocol(_BaseProtocol, _AbstractInferenceProtocol):
+class BaseInferenceProtocol(ProtocolSpecs, _AbstractInferenceProtocol):
     """Base class for inference‑only protocols.
 
     Subclass this and implement `predict`. The module, dtype, and device are
@@ -124,7 +139,7 @@ class BaseInferenceProtocol(_BaseProtocol, _AbstractInferenceProtocol):
     pass
 
 
-class BaseMethod(_BaseProtocol, _AbstractMethod):
+class BaseMethod(ProtocolSpecs, _AbstractMethod):
     """Base class for full protocols (training + inference).
 
     Subclass this and implement both `train_step` and `predict`.
@@ -133,7 +148,7 @@ class BaseMethod(_BaseProtocol, _AbstractMethod):
     pass
 
 
-class BaseMatchingProtocol(_BaseMatchingProtocol, _AbstractMatchingProtocol):
+class BaseMatchingProtocol(MatchingSpecs, _AbstractMatchingProtocol):
     """Base class for matching protocols.
 
     Subclass this and implement `match`. The matching function is stored
@@ -182,7 +197,7 @@ class MatchingProtocol(BaseMatchingProtocol):
 
 
 # -------------------- Wrapped protocols --------------------
-_P = TypeVar("_P", bound=_BaseProtocol)
+_P = TypeVar("_P", bound=ProtocolSpecs)
 
 
 class ProtocolMixin(Generic[_P]):

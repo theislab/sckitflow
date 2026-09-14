@@ -229,62 +229,40 @@ class _FlowSpecsHolder(_SpecsHolder[FlowSpecs]):
         return self._specs.generate_from_noise
 
 
-# -------------------- Abstract contracts (no storage) --------------------
-class _AbstractTrainingProtocol(abc.ABC):
-    """Pure abstract contract for training protocols."""
-
-    @abc.abstractmethod
-    def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]: ...
-
-
-class _AbstractInferenceProtocol(abc.ABC):
-    """Pure abstract contract for inference protocols."""
-
-    @abc.abstractmethod
-    def predict(self, step_data: StepData) -> PredictionData: ...
-
-
-class _AbstractMatchingProtocol(abc.ABC):
-    """Pure abstract contract for matching protocols."""
-
-    @abc.abstractmethod
-    def match(self, step_data: StepData) -> StepData: ...
-
-
 # -------------------- Base protocol classes --------------------
-class BaseTrainingProtocol(_SpecsHolder[ProtocolSpecs], _AbstractTrainingProtocol):
+class BaseTrainingProtocol(_SpecsHolder[ProtocolSpecs], abc.ABC):
     """Base training protocol: shared storage + `compute_loss` contract.
 
     Constructed with a `ProtocolSpecs` instance, which can be shared with an
     inference protocol so the module, dtype, and device stay in sync.
     """
 
-    def __init__(self, specs: ProtocolSpecs) -> None:
-        super().__init__(specs)
+    @abc.abstractmethod
+    def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]: ...
 
 
-class BaseFlowTrainingProtocol(_FlowSpecsHolder, _AbstractTrainingProtocol):
+class BaseFlowTrainingProtocol(_FlowSpecsHolder, abc.ABC):
     """Base flow training protocol: shared `FlowSpecs` + `compute_loss` contract."""
 
-    def __init__(self, specs: FlowSpecs) -> None:
-        super().__init__(specs)
+    @abc.abstractmethod
+    def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]: ...
 
 
-class BaseInferenceProtocol(_SpecsHolder[ProtocolSpecs], _AbstractInferenceProtocol):
+class BaseInferenceProtocol(_SpecsHolder[ProtocolSpecs], abc.ABC):
     """Base inference protocol: shared storage + `predict` contract."""
 
-    def __init__(self, specs: ProtocolSpecs) -> None:
-        super().__init__(specs)
+    @abc.abstractmethod
+    def predict(self, step_data: StepData) -> PredictionData: ...
 
 
-class BaseFlowInferenceProtocol(_FlowSpecsHolder, _AbstractInferenceProtocol):
+class BaseFlowInferenceProtocol(_FlowSpecsHolder, abc.ABC):
     """Base flow inference protocol: shared `FlowSpecs` + `predict` contract."""
 
-    def __init__(self, specs: FlowSpecs) -> None:
-        super().__init__(specs)
+    @abc.abstractmethod
+    def predict(self, step_data: StepData) -> PredictionData: ...
 
 
-class BaseMatchingProtocol(_AbstractMatchingProtocol):
+class BaseMatchingProtocol(abc.ABC):
     """Base class for matching protocols.
 
     Stores the `match_fn` callable used to match source and target populations.
@@ -297,6 +275,9 @@ class BaseMatchingProtocol(_AbstractMatchingProtocol):
             and target populations from a batch of data.
         """
         self._match_fn = match_fn
+
+    @abc.abstractmethod
+    def match(self, step_data: StepData) -> StepData: ...
 
     @property
     def match_fn(self) -> TMatchFn:
@@ -375,7 +356,7 @@ class ProtocolMixin(Generic[_P]):
         return self._protocol.module
 
 
-class TrainingProtocolWrapper(ProtocolMixin[SupportsTraining], _AbstractTrainingProtocol):
+class TrainingProtocolWrapper(ProtocolMixin[SupportsTraining]):
     """Concrete wrapper for a training protocol.
 
     Accepts anything satisfying `SupportsTraining` (base, flow, already
@@ -393,7 +374,7 @@ class TrainingProtocolWrapper(ProtocolMixin[SupportsTraining], _AbstractTraining
         return self._protocol.compute_loss(step_data)
 
 
-class InferenceProtocolWrapper(ProtocolMixin[SupportsInference], _AbstractInferenceProtocol):
+class InferenceProtocolWrapper(ProtocolMixin[SupportsInference]):
     """Concrete wrapper for an inference protocol.
 
     Accepts anything satisfying `SupportsInference` and delegates `predict`.

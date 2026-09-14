@@ -20,9 +20,6 @@ from sckitflow.core.methods._base import (
     SupportsProtocol,
     SupportsTraining,
     TrainingProtocolWrapper,
-    _AbstractInferenceProtocol,
-    _AbstractMatchingProtocol,
-    _AbstractTrainingProtocol,
 )
 
 
@@ -119,19 +116,6 @@ def coupling_step_data():
 # -----------------------------------------------------------------------------
 # Abstract contracts
 # -----------------------------------------------------------------------------
-@pytest.mark.parametrize(
-    "cls",
-    [
-        _AbstractTrainingProtocol,
-        _AbstractInferenceProtocol,
-        _AbstractMatchingProtocol,
-    ],
-)
-def test_abstract_contracts_cannot_be_instantiated(cls):
-    with pytest.raises(TypeError):
-        cls()
-
-
 @pytest.mark.parametrize(
     "cls",
     [BaseTrainingProtocol, BaseInferenceProtocol],
@@ -280,7 +264,7 @@ def test_inference_protocol_does_not_satisfy_supports_training(dummy_module):
 def test_training_protocol_subclass(dummy_module):
     specs = ProtocolSpecs(dummy_module, device_id="cpu")
     proto = ConcreteTrainingProtocol(specs)
-    assert isinstance(proto, _AbstractTrainingProtocol)
+    assert isinstance(proto, BaseTrainingProtocol)
     assert proto.dtype == torch.float32
     assert proto.device_id == "cpu"
     loss, meta = proto.compute_loss(DummyStepData())
@@ -291,14 +275,14 @@ def test_training_protocol_subclass(dummy_module):
 def test_inference_protocol_subclass(dummy_module):
     specs = ProtocolSpecs(dummy_module, device_id="cpu")
     proto = ConcreteInferenceProtocol(specs)
-    assert isinstance(proto, _AbstractInferenceProtocol)
+    assert isinstance(proto, BaseInferenceProtocol)
     assert isinstance(proto.predict(DummyStepData()), DummyPredictionData)
 
 
 def test_flow_training_protocol_subclass(dummy_module, flow_kwargs):
     specs = FlowSpecs(dummy_module, device_id="cpu", **flow_kwargs)
     proto = ConcreteFlowTrainingProtocol(specs)
-    assert isinstance(proto, _AbstractTrainingProtocol)
+    assert isinstance(proto, BaseFlowTrainingProtocol)
     assert isinstance(specs, FlowSpecs)
     loss, _ = proto.compute_loss(DummyStepData())
     assert loss.item() == 0.0
@@ -307,7 +291,7 @@ def test_flow_training_protocol_subclass(dummy_module, flow_kwargs):
 def test_flow_inference_protocol_subclass(dummy_module, flow_kwargs):
     specs = FlowSpecs(dummy_module, device_id="cpu", **flow_kwargs)
     proto = ConcreteFlowInferenceProtocol(specs)
-    assert isinstance(proto, _AbstractInferenceProtocol)
+    assert isinstance(proto, BaseFlowInferenceProtocol)
     assert isinstance(specs, FlowSpecs)
     assert isinstance(proto.predict(DummyStepData()), DummyPredictionData)
 

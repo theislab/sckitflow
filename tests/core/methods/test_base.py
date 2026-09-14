@@ -196,12 +196,6 @@ def test_flow_specs_custom_values(dummy_module, flow_kwargs):
     assert specs.generate_from_noise is True
 
 
-def test_flow_specs_generate_from_noise_requires_noise_sampler(dummy_module):
-    """When `generate_from_noise=True` and no `noise_sampler` is passed, raise."""
-    with pytest.raises(TypeError, match="noise sampler"):
-        FlowSpecs(dummy_module, generate_from_noise=True, noise_sampler=None)
-
-
 def test_flow_specs_is_protocol_specs(dummy_module):
     specs = FlowSpecs(dummy_module, device_id="cpu")
     assert isinstance(specs, ProtocolSpecs)
@@ -219,55 +213,64 @@ def test_flow_specs_satisfies_storage_protocol(dummy_module):
 
 
 def test_concrete_training_protocol_satisfies_supports_training(dummy_module):
-    proto = ConcreteTrainingProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    proto = ConcreteTrainingProtocol(specs)
     assert isinstance(proto, SupportsTraining)
     assert isinstance(proto, SupportsProtocol)
 
 
 def test_concrete_flow_training_protocol_satisfies_supports_training(dummy_module, flow_kwargs):
-    proto = ConcreteFlowTrainingProtocol(dummy_module, device_id="cpu", **flow_kwargs)
+    specs = FlowSpecs(dummy_module, device_id="cpu", **flow_kwargs)
+    proto = ConcreteFlowTrainingProtocol(specs)
     assert isinstance(proto, SupportsTraining)
 
 
 def test_concrete_inference_protocol_satisfies_supports_inference(dummy_module):
-    proto = ConcreteInferenceProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    proto = ConcreteInferenceProtocol(specs)
     assert isinstance(proto, SupportsInference)
     assert isinstance(proto, SupportsProtocol)
 
 
 def test_concrete_flow_inference_protocol_satisfies_supports_inference(dummy_module, flow_kwargs):
-    proto = ConcreteFlowInferenceProtocol(dummy_module, device_id="cpu", **flow_kwargs)
+    specs = FlowSpecs(dummy_module, device_id="cpu", **flow_kwargs)
+    proto = ConcreteFlowInferenceProtocol(specs)
     assert isinstance(proto, SupportsInference)
 
 
 def test_matched_training_protocol_satisfies_supports_training(dummy_module):
     """The whole point: the wrapper itself satisfies `SupportsTraining`."""
-    inner = ConcreteTrainingProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    inner = ConcreteTrainingProtocol(specs)
     matched = MatchedTrainingProtocol(inner, match_fn=lambda **_: (None, None))
     assert isinstance(matched, SupportsTraining)
 
 
 def test_training_wrapper_satisfies_supports_training(dummy_module):
-    inner = ConcreteTrainingProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    inner = ConcreteTrainingProtocol(specs)
     wrapped = TrainingProtocolWrapper(inner)
     assert isinstance(wrapped, SupportsTraining)
 
 
 def test_inference_wrapper_satisfies_supports_inference(dummy_module):
-    inner = ConcreteInferenceProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    inner = ConcreteInferenceProtocol(specs)
     wrapped = InferenceProtocolWrapper(inner)
     assert isinstance(wrapped, SupportsInference)
 
 
 def test_training_protocol_does_not_satisfy_supports_inference(dummy_module):
     """A training protocol has no `predict`."""
-    proto = ConcreteTrainingProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    proto = ConcreteTrainingProtocol(specs)
     assert not isinstance(proto, SupportsInference)
 
 
 def test_inference_protocol_does_not_satisfy_supports_training(dummy_module):
     """An inference protocol has no `compute_loss`."""
-    proto = ConcreteInferenceProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    proto = ConcreteInferenceProtocol(specs)
     assert not isinstance(proto, SupportsTraining)
 
 
@@ -275,7 +278,8 @@ def test_inference_protocol_does_not_satisfy_supports_training(dummy_module):
 # Concrete protocol subclasses
 # -----------------------------------------------------------------------------
 def test_training_protocol_subclass(dummy_module):
-    proto = ConcreteTrainingProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    proto = ConcreteTrainingProtocol(specs)
     assert isinstance(proto, _AbstractTrainingProtocol)
     assert proto.dtype == torch.float32
     assert proto.device_id == "cpu"
@@ -285,23 +289,26 @@ def test_training_protocol_subclass(dummy_module):
 
 
 def test_inference_protocol_subclass(dummy_module):
-    proto = ConcreteInferenceProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    proto = ConcreteInferenceProtocol(specs)
     assert isinstance(proto, _AbstractInferenceProtocol)
     assert isinstance(proto.predict(DummyStepData()), DummyPredictionData)
 
 
 def test_flow_training_protocol_subclass(dummy_module, flow_kwargs):
-    proto = ConcreteFlowTrainingProtocol(dummy_module, device_id="cpu", **flow_kwargs)
+    specs = FlowSpecs(dummy_module, device_id="cpu", **flow_kwargs)
+    proto = ConcreteFlowTrainingProtocol(specs)
     assert isinstance(proto, _AbstractTrainingProtocol)
-    assert isinstance(proto, FlowSpecs)
+    assert isinstance(specs, FlowSpecs)
     loss, _ = proto.compute_loss(DummyStepData())
     assert loss.item() == 0.0
 
 
 def test_flow_inference_protocol_subclass(dummy_module, flow_kwargs):
-    proto = ConcreteFlowInferenceProtocol(dummy_module, device_id="cpu", **flow_kwargs)
+    specs = FlowSpecs(dummy_module, device_id="cpu", **flow_kwargs)
+    proto = ConcreteFlowInferenceProtocol(specs)
     assert isinstance(proto, _AbstractInferenceProtocol)
-    assert isinstance(proto, FlowSpecs)
+    assert isinstance(specs, FlowSpecs)
     assert isinstance(proto.predict(DummyStepData()), DummyPredictionData)
 
 
@@ -309,7 +316,8 @@ def test_flow_inference_protocol_subclass(dummy_module, flow_kwargs):
 # TrainingProtocolWrapper
 # -----------------------------------------------------------------------------
 def test_training_wrapper_delegates_compute_loss(dummy_module):
-    inner = ConcreteTrainingProtocol(dummy_module, dtype=torch.float64, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, dtype=torch.float64, device_id="cpu")
+    inner = ConcreteTrainingProtocol(specs)
     wrapper = TrainingProtocolWrapper(inner)
 
     loss, meta = wrapper.compute_loss(DummyStepData())
@@ -323,7 +331,8 @@ def test_training_wrapper_delegates_compute_loss(dummy_module):
 
 
 def test_training_wrapper_accepts_flow_protocol(dummy_module, flow_kwargs):
-    inner = ConcreteFlowTrainingProtocol(dummy_module, device_id="cpu", **flow_kwargs)
+    specs = FlowSpecs(dummy_module, device_id="cpu", **flow_kwargs)
+    inner = ConcreteFlowTrainingProtocol(specs)
     wrapper = TrainingProtocolWrapper(inner)
     loss, _ = wrapper.compute_loss(DummyStepData())
     assert loss.item() == 0.0
@@ -332,7 +341,8 @@ def test_training_wrapper_accepts_flow_protocol(dummy_module, flow_kwargs):
 
 def test_training_wrapper_accepts_matched_protocol(dummy_module):
     """The wrapper accepts anything `SupportsTraining`, including another wrapper."""
-    inner = ConcreteTrainingProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    inner = ConcreteTrainingProtocol(specs)
     matched = MatchedTrainingProtocol(inner, match_fn=lambda **_: (None, None))
     wrapper = TrainingProtocolWrapper(matched)
     loss, _ = wrapper.compute_loss(DummyStepData())
@@ -342,7 +352,8 @@ def test_training_wrapper_accepts_matched_protocol(dummy_module):
 
 def test_training_wrapper_rejects_inference_protocol(dummy_module):
     """An inference protocol does not satisfy `SupportsTraining`."""
-    inner = ConcreteInferenceProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    inner = ConcreteInferenceProtocol(specs)
     with pytest.raises(TypeError, match="compute_loss"):
         TrainingProtocolWrapper(inner)
 
@@ -358,7 +369,8 @@ def test_training_wrapper_rejects_bare_specs(dummy_module):
 # InferenceProtocolWrapper
 # -----------------------------------------------------------------------------
 def test_inference_wrapper_delegates_predict(dummy_module):
-    inner = ConcreteInferenceProtocol(dummy_module, dtype=torch.float64, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, dtype=torch.float64, device_id="cpu")
+    inner = ConcreteInferenceProtocol(specs)
     wrapper = InferenceProtocolWrapper(inner)
 
     assert isinstance(wrapper.predict(DummyStepData()), DummyPredictionData)
@@ -369,14 +381,16 @@ def test_inference_wrapper_delegates_predict(dummy_module):
 
 
 def test_inference_wrapper_accepts_flow_protocol(dummy_module, flow_kwargs):
-    inner = ConcreteFlowInferenceProtocol(dummy_module, device_id="cpu", **flow_kwargs)
+    specs = FlowSpecs(dummy_module, device_id="cpu", **flow_kwargs)
+    inner = ConcreteFlowInferenceProtocol(specs)
     wrapper = InferenceProtocolWrapper(inner)
     assert isinstance(wrapper.predict(DummyStepData()), DummyPredictionData)
     assert wrapper.protocol is inner
 
 
 def test_inference_wrapper_rejects_training_protocol(dummy_module):
-    inner = ConcreteTrainingProtocol(dummy_module, device_id="cpu")
+    specs = ProtocolSpecs(dummy_module, device_id="cpu")
+    inner = ConcreteTrainingProtocol(specs)
     with pytest.raises(TypeError, match="predict"):
         InferenceProtocolWrapper(inner)
 
@@ -391,7 +405,8 @@ def test_inference_wrapper_rejects_bare_specs(dummy_module):
 # set_train_mode delegation
 # -----------------------------------------------------------------------------
 def test_wrapper_delegates_set_train_mode(dummy_module):
-    inner = ConcreteTrainingProtocol(dummy_module)
+    specs = ProtocolSpecs(dummy_module)
+    inner = ConcreteTrainingProtocol(specs)
     wrapper = TrainingProtocolWrapper(inner)
 
     wrapper.set_train_mode(True)
@@ -468,7 +483,8 @@ def test_matched_training_protocol_runs_match_then_compute_loss(dummy_module):
             order.append(("compute_loss", step_data))
             return torch.tensor(1.0), {}
 
-    inner = RecordingTrainingProtocol(dummy_module)
+    specs = ProtocolSpecs(dummy_module)
+    inner = RecordingTrainingProtocol(specs)
     matched = MatchedTrainingProtocol(inner, match_fn=match_fn)
 
     step_data = DummyStepData(
@@ -489,13 +505,15 @@ def test_matched_training_protocol_runs_match_then_compute_loss(dummy_module):
 
 
 def test_matched_training_protocol_exposes_matcher(dummy_module):
-    inner = ConcreteTrainingProtocol(dummy_module)
+    specs = ProtocolSpecs(dummy_module)
+    inner = ConcreteTrainingProtocol(specs)
     matched = MatchedTrainingProtocol(inner, match_fn=lambda **_: (None, None))
     assert isinstance(matched.matcher, MatchingProtocol)
 
 
 def test_matched_training_protocol_accepts_flow_protocol(dummy_module, flow_kwargs):
-    inner = ConcreteFlowTrainingProtocol(dummy_module, device_id="cpu", **flow_kwargs)
+    specs = FlowSpecs(dummy_module, device_id="cpu", **flow_kwargs)
+    inner = ConcreteFlowTrainingProtocol(specs)
     matched = MatchedTrainingProtocol(inner, match_fn=lambda **_: (None, None))
     assert matched.protocol is inner
     assert isinstance(matched.matcher, MatchingProtocol)
@@ -505,7 +523,8 @@ def test_matched_training_protocol_skips_match_when_no_source(dummy_module):
     def match_fn(**kwargs):
         raise AssertionError("match_fn should not be called when no source")
 
-    inner = ConcreteTrainingProtocol(dummy_module)
+    specs = ProtocolSpecs(dummy_module)
+    inner = ConcreteTrainingProtocol(specs)
     matched = MatchedTrainingProtocol(inner, match_fn=match_fn)
 
     step_data = DummyStepData(

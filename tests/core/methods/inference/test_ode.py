@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from sckitflow.core._types import PredictionData
+from sckitflow.core.methods._base import FlowSpecs
 from sckitflow.core.methods.inference._ode import ODEInference
 
 # Adjust the module path above to wherever ODEInference lives.
@@ -21,6 +22,9 @@ class DummyModule(torch.nn.Module):
 
     def forward(self, t, x, **kwargs):
         return self.linear(x)
+
+    def get_vf_fn(self, *args, **kwargs):
+        return self.forward
 
 
 def dummy_probability_path():
@@ -54,7 +58,7 @@ def step_data():
 def make_inference(dummy_module):
     """Build an ODEInference with sensible defaults; override any kwarg."""
 
-    def _make(**overrides):
+    def _make(ode_kwargs: dict | None = None, **overrides):
         kwargs = {
             "module": dummy_module,
             "probability_path": dummy_probability_path(),
@@ -62,7 +66,9 @@ def make_inference(dummy_module):
             "device_id": "cpu",
         }
         kwargs.update(overrides)
-        return ODEInference(**kwargs)
+        specs = FlowSpecs(**kwargs)
+        ode_kwargs = {} if ode_kwargs is None else ode_kwargs
+        return ODEInference(specs, **ode_kwargs)
 
     return _make
 
@@ -70,10 +76,12 @@ def make_inference(dummy_module):
 # -------------------- Construction and properties --------------------
 def test_init_stores_flow_specs_and_extras(make_inference, dummy_module):
     inference = make_inference(
-        solver_kwargs={"rtol": 1e-5},
-        return_trajectory=True,
-        n_steps=42,
-        n_samples=7,
+        ode_kwargs={
+            "solver_kwargs": {"rtol": 1e-5},
+            "return_trajectory": True,
+            "n_steps": 42,
+            "n_samples": 7,
+        }
     )
 
     # FlowSpecs inherited
@@ -106,9 +114,11 @@ def test_init_forwards_flow_specs_to_parent(make_inference):
 # -------------------- Guards --------------------
 def test_predict_raises_when_generating_from_noise_without_n_samples(make_inference, step_data):
     inference = make_inference(
+        ode_kwargs={
+            "n_samples": None,
+        },
         noise_sampler=dummy_noise_sampler,
         generate_from_noise=True,
-        n_samples=None,
     )
     with pytest.raises(ValueError, match="number of samples"):
         inference.predict(step_data)
@@ -117,7 +127,7 @@ def test_predict_raises_when_generating_from_noise_without_n_samples(make_infere
 # -------------------- Latent preparation --------------------
 def test_predict_uses_user_supplied_latent(make_inference, step_data):
     supplied = torch.randn(5, 4)
-    inference = make_inference(latent=supplied, n_samples=3)
+    inference = make_inference(ode_kwargs={"latent": supplied, "n_samples": 3})
 
     with (
         patch(f"{MODULE}.prepare_latent_inference") as mock_prep,
@@ -145,9 +155,11 @@ def test_predict_uses_user_supplied_latent(make_inference, step_data):
 
 def test_predict_prepares_latent_from_step_data(make_inference, step_data):
     inference = make_inference(
-        noise_sampler=dummy_noise_sampler,
+        ode_kwargs={
+            "n_samples": 4,
+        },
         generate_from_noise=True,
-        n_samples=4,
+        noise_sampler=dummy_noise_sampler,
     )
     fake_latent = torch.randn(4, 2, 4)
 
@@ -173,7 +185,7 @@ def test_predict_prepares_latent_from_step_data(make_inference, step_data):
 
 # -------------------- Solver configuration --------------------
 def test_solver_uses_default_method_when_not_specified(make_inference, step_data):
-    inference = make_inference(latent=torch.randn(2, 4))
+    inference = make_inference(ode_kwargs={"latent": torch.randn(2, 4)})
 
     with (
         patch(f"{MODULE}.prepare_latent_inference"),
@@ -193,8 +205,7 @@ def test_solver_uses_default_method_when_not_specified(make_inference, step_data
 
 def test_solver_uses_supplied_method(make_inference, step_data):
     inference = make_inference(
-        latent=torch.randn(2, 4),
-        solver_kwargs={"method": "rk4", "rtol": 1e-6},
+        ode_kwargs={"latent": torch.randn(2, 4), "solver_kwargs": {"method": "rk4", "rtol": 1e-6}}
     )
 
     with (
@@ -220,7 +231,7 @@ def test_solver_uses_supplied_method(make_inference, step_data):
 
 def test_solver_does_not_mutate_user_solver_kwargs(make_inference, step_data):
     user_kwargs = {"method": "rk4", "rtol": 1e-6}
-    inference = make_inference(latent=torch.randn(2, 4), solver_kwargs=user_kwargs)
+    inference = make_inference(ode_kwargs={"latent": torch.randn(2, 4), "solver_kwargs": user_kwargs})
 
     with (
         patch(f"{MODULE}.prepare_latent_inference"),
@@ -240,7 +251,7 @@ def test_solver_does_not_mutate_user_solver_kwargs(make_inference, step_data):
 
 def test_time_grid_uses_n_steps_and_latent_properties(make_inference, step_data):
     latent = torch.randn(2, 4)
-    inference = make_inference(latent=latent, n_steps=7)
+    inference = make_inference(ode_kwargs={"latent": latent, "n_steps": 7})
 
     with (
         patch(f"{MODULE}.prepare_latent_inference"),
@@ -263,7 +274,7 @@ def test_time_grid_uses_n_steps_and_latent_properties(make_inference, step_data)
 
 # -------------------- Trajectory forwarding --------------------
 def test_return_trajectory_is_forwarded_to_solve_and_aggregate(make_inference, step_data):
-    inference = make_inference(latent=torch.randn(2, 4), return_trajectory=True)
+    inference = make_inference(ode_kwargs={"latent": torch.randn(2, 4), "return_trajectory": True})
 
     with (
         patch(f"{MODULE}.prepare_latent_inference"),
@@ -283,7 +294,7 @@ def test_return_trajectory_is_forwarded_to_solve_and_aggregate(make_inference, s
 
 # -------------------- Integration (no external mocks beyond the solver) --------------------
 def test_predict_returns_prediction_data_with_expected_fields(make_inference, step_data):
-    inference = make_inference(latent=torch.randn(2, 4))
+    inference = make_inference(ode_kwargs={"latent": torch.randn(2, 4)})
 
     with (
         patch(f"{MODULE}.prepare_latent_inference"),
@@ -308,7 +319,7 @@ def test_predict_returns_prediction_data_with_expected_fields(make_inference, st
 
 
 def test_predict_passes_condition_dict_and_source_to_solver(make_inference, step_data):
-    inference = make_inference(latent=torch.randn(2, 4))
+    inference = make_inference(ode_kwargs={"latent": torch.randn(2, 4)})
     cond = {"cond": torch.randn(2, 3)}
     source = torch.randn(2, 4)
 

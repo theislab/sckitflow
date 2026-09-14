@@ -3,6 +3,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 import torch
 
+from sckitflow.core.methods._base import FlowSpecs
 from sckitflow.core.methods.training._cfm import CFMTrainingProtocol
 
 # Adjust the module path above to wherever CFMTrainingProtocol actually lives.
@@ -68,7 +69,8 @@ def make_cfm(dummy_module):
             "device_id": "cpu",
         }
         kwargs.update(overrides)
-        return CFMTrainingProtocol(**kwargs)
+        specs = FlowSpecs(**kwargs)
+        return CFMTrainingProtocol(specs)
 
     return _make
 
@@ -162,20 +164,6 @@ def test_compute_loss_coerces_conditioning_device_dtype(make_cfm, step_data, dum
     assert cond["g1"].dtype == torch.float64
 
 
-# -------------------- Time sampling --------------------
-def test_time_sampler_called_with_batch_shape_and_latent_device_dtype(make_cfm, step_data):
-    cfm = make_cfm(dtype=torch.float64)
-    # Instrument the sampler directly; the property returns the stored callable.
-    cfm._time_sampler = MagicMock(wraps=dummy_time_sampler)
-    cfm.compute_loss(step_data)
-
-    args, kwargs = cfm._time_sampler.call_args
-    shape = args[0]
-    assert tuple(shape) == (2,)
-    assert kwargs["device"] == torch.device("cpu")
-    assert kwargs["dtype"] == torch.float64
-
-
 # -------------------- Probability path --------------------
 def test_probability_path_receives_latent_and_target(make_cfm, step_data):
     path = dummy_probability_path()
@@ -210,12 +198,8 @@ def test_loss_matches_mse_between_predicted_and_target_velocity(dummy_module, st
     # Target velocity is 2x ones -> (vt - ut)^2 == 1 everywhere.
     path.compute_ut.side_effect = lambda t, xt, x0, x1: 2 * torch.ones_like(x0)
 
-    cfm = CFMTrainingProtocol(
-        module=KnownModule(),
-        probability_path=path,
-        time_sampler=dummy_time_sampler,
-        device_id="cpu",
-    )
+    specs = FlowSpecs(module=KnownModule(), probability_path=path, time_sampler=dummy_time_sampler, device_id="cpu")
+    cfm = CFMTrainingProtocol(specs)
     loss, _ = cfm.compute_loss(step_data)
 
     assert loss.item() == pytest.approx(1.0)

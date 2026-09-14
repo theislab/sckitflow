@@ -1,5 +1,5 @@
 import abc
-from typing import Any, Generic, TypeVar
+from typing import Any, Generic, Protocol, TypeVar, runtime_checkable
 
 import torch
 
@@ -9,14 +9,21 @@ from sckitflow.core.nn._modules import BaseModule
 from sckitflow.core.probability_paths._probability_paths import BaseProbabilityPath, LinearDiracProbabilityPath
 
 __all__ = [
+    # Structural contracts
+    "SupportsProtocol",
+    "SupportsTraining",
+    "SupportsInference",
+    # Storage
     "ProtocolSpecs",
     "FlowSpecs",
+    # Base protocols
     "BaseTrainingProtocol",
     "BaseFlowTrainingProtocol",
     "BaseInferenceProtocol",
     "BaseFlowInferenceProtocol",
     "BaseMatchingProtocol",
     "MatchingProtocol",
+    # Wrappers
     "ProtocolMixin",
     "TrainingProtocolWrapper",
     "InferenceProtocolWrapper",
@@ -24,13 +31,57 @@ __all__ = [
 ]
 
 
-# -------------------- Initialization behaviors --------------------
+# -------------------- Structural contracts --------------------
+# These are `Protocol` shapes, not base classes. Any object with the right
+# attributes satisfies them — no shared inheritance required. They exist so
+# wrappers and downstream code can say "anything trainable" without a union
+# over concrete protocol classes.
+@runtime_checkable
+class SupportsProtocol(Protocol):
+    """Anything that exposes the protocol's storage surface.
+
+    Satisfied structurally by `ProtocolSpecs` and `FlowSpecs`, and by every
+    wrapper built on top of them (via delegation).
+    """
+
+    @property
+    def module(self) -> BaseModule: ...
+    @property
+    def dtype(self) -> torch.dtype: ...
+    @property
+    def device_id(self) -> str: ...
+    def set_train_mode(self, mode: bool) -> None: ...
+
+
+@runtime_checkable
+class SupportsTraining(SupportsProtocol, Protocol):
+    """Storage plus `compute_loss`.
+
+    Satisfied by `BaseTrainingProtocol`, `BaseFlowTrainingProtocol`,
+    `MatchedTrainingProtocol`, and any user class that provides these members —
+    the wrapper layer does not care which concrete base it inherits from.
+    """
+
+    def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]: ...
+
+
+@runtime_checkable
+class SupportsInference(SupportsProtocol, Protocol):
+    """Storage plus `predict`.
+
+    Satisfied by `BaseInferenceProtocol`, `BaseFlowInferenceProtocol`, and any
+    user class that provides these members.
+    """
+
+    def predict(self, step_data: StepData) -> PredictionData: ...
+
+
+# -------------------- Storage mixins --------------------
 class ProtocolSpecs:
     """Store for the protocol specifications.
 
-    This class simply holds the necessary information required to
-    define a protocol. It is used to instantiate both training and inference
-    protocols.
+    Holds the neural module and the associated dtype/device configuration.
+    Used as a base for both training and inference protocols.
     """
 
     def __init__(
@@ -41,11 +92,12 @@ class ProtocolSpecs:
     ) -> None:
         """Initializes the protocol specifications with the given settings.
 
-        :param module: An initialized neural module the protocol builds upon. It should be
-            an initialized instance of a class inheriting from `BaseModule`.
+        :param module: An initialized neural module the protocol builds upon.
+            It should be an initialized instance of a class inheriting from
+            `BaseModule`.
         :param dtype: A `torch.dtype` object used to store the module weights.
-        :param device_id: A string identifier of the device location for the module
-            weights and input data.
+        :param device_id: A string identifier of the device location for the
+            module weights and input data.
         """
         self._dtype = dtype
         self._device_id = device_id
@@ -54,8 +106,8 @@ class ProtocolSpecs:
     def set_train_mode(self, mode: bool) -> None:
         """Sets the underlying module in training or inference mode.
 
-        :param mode: When `True`, the neural module will be set to `train`.
-            When `False`, its forward pass will be performed in evaluation mode.
+        :param mode: When `True`, the neural module is set to `train`. When
+            `False`, its forward pass is performed in evaluation mode.
         """
         if mode:
             self.module.train()
@@ -78,13 +130,8 @@ class ProtocolSpecs:
 class FlowSpecs(ProtocolSpecs):
     """Store for the flow specifications.
 
-    This class simply holds the necessary information required to
-    define a flow model. It is used to instantiate both training and inference
-    flow protocols.
-
-    This class bases `ProtocolSpecs`; as additional arguments, it expects a
-    probability path, a time sampler, a noise sampler and a boolean flag indicating
-    whether the generation starts from noise.
+    Extends `ProtocolSpecs` with a probability path, a time sampler, a noise
+    sampler, and a flag indicating whether generation starts from noise.
     """
 
     def __init__(
@@ -99,24 +146,18 @@ class FlowSpecs(ProtocolSpecs):
     ) -> None:
         """Initializes the flow specifications.
 
-        :param module: An initialized neural module the protocol builds upon. It should be
-            an initialized instance of a class inheriting from `BaseModule`.
-        :param probability_path: (Optional) An instance of `BaseProbabilityPath` used to define the
-            tractable conditional probability path for the flow model. When `None`, the constructor
-            will automatically initialize a `LinearDiracProbability`.
-        :param time_sampler: (Optional) a callable to sample random time indices for the flow model.
-            When `None`, it will be automatically initialized to a uniform distribution over [0, 1].
-        :param noise_sampler: (Optional) a callable o sample random noise states as source for the flow model.
-            It is only used when `generate_from_noise` is `True`, or when the data does not contain source states.
-            When `None`, it will automatically set initialized to an isotropic Gaussian distribution.
-        :param generate_from_noise: Boolean flag indicating whether the model interpolates from a tractable
-            noise distribution, rather than from a control distribution. Defaults to `False`, in which case
-            a source distribution is expected. When `True`, the interpolation will happen from noise, even
-            when source states are present; the information on the source states will be injected as an
-            extra conditioning in the neural module.
+        :param module: An initialized neural module the protocol builds upon.
+        :param probability_path: Optional `BaseProbabilityPath`. Defaults to a
+            `LinearDiracProbabilityPath`.
+        :param time_sampler: Optional callable sampling times in [0, 1].
+            Defaults to `torch.rand`.
+        :param noise_sampler: Optional callable sampling source noise.
+            Defaults to `torch.randn`.
+        :param generate_from_noise: When `True`, interpolation starts from the
+            noise distribution even if source states are present (source
+            information is passed as extra conditioning instead).
         :param dtype: A `torch.dtype` object used to store the module weights.
-        :param device_id: A string identifier of the device location for the module
-            weights and input data.
+        :param device_id: A string identifier of the device location.
         """
         if generate_from_noise and noise_sampler is None:
             raise TypeError("When generating from noise you need to pass a noise sampler.")
@@ -145,58 +186,49 @@ class FlowSpecs(ProtocolSpecs):
         return self._generate_from_noise
 
 
-# -------------------- Abstract Contracts (no storage) --------------------
+# -------------------- Abstract contracts (no storage) --------------------
 class _AbstractTrainingProtocol(abc.ABC):
-    """Pure abstract contract for training protocols.
-
-    A training protocol is required to define the `compute_loss` method.
-    """
+    """Pure abstract contract for training protocols."""
 
     @abc.abstractmethod
     def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]: ...
 
 
 class _AbstractInferenceProtocol(abc.ABC):
-    """Pure abstract contract for inference protocols.
-
-    An inference protocol is required to define the `predict` method.
-    """
+    """Pure abstract contract for inference protocols."""
 
     @abc.abstractmethod
     def predict(self, step_data: StepData) -> PredictionData: ...
 
 
 class _AbstractMatchingProtocol(abc.ABC):
-    """Pure abstract contract for matching protocols.
-
-    A matching protocol is required to define the `predict` method.
-    """
+    """Pure abstract contract for matching protocols."""
 
     @abc.abstractmethod
     def match(self, step_data: StepData) -> StepData: ...
 
 
-# -------------------- Base Protocol Classes (still abstract) --------------------
+# -------------------- Base protocol classes --------------------
 class BaseTrainingProtocol(ProtocolSpecs, _AbstractTrainingProtocol):
-    """Base training protocol, inheriting from both `ProtocolSpecs` and `_AbstractTrainingProtocol`"""
+    """Base training protocol: storage + `compute_loss` contract."""
 
     ...
 
 
 class BaseFlowTrainingProtocol(FlowSpecs, _AbstractTrainingProtocol):
-    """Base flow training protocol, inheriting from both `FlowSpecs` and `_AbstractTrainingProtocol`"""
+    """Base flow training protocol: flow storage + `compute_loss` contract."""
 
     ...
 
 
 class BaseInferenceProtocol(ProtocolSpecs, _AbstractInferenceProtocol):
-    """Base inference protocol, inheriting from both `ProtocolSpecs` and `_AbstractInferenceProtocol`"""
+    """Base inference protocol: storage + `predict` contract."""
 
     ...
 
 
 class BaseFlowInferenceProtocol(FlowSpecs, _AbstractInferenceProtocol):
-    """Base flow inference protocol, inheriting from both `FlowSpecs` and `_AbstractInferenceProtocol`"""
+    """Base flow inference protocol: flow storage + `predict` contract."""
 
     ...
 
@@ -204,15 +236,14 @@ class BaseFlowInferenceProtocol(FlowSpecs, _AbstractInferenceProtocol):
 class BaseMatchingProtocol(_AbstractMatchingProtocol):
     """Base class for matching protocols.
 
-    Matching protocols are defined in terms of the `match_fn` callable, used to match source
-    and target populations.
+    Stores the `match_fn` callable used to match source and target populations.
     """
 
-    def __init__(self, match_fn: TMatchFn):
-        """Initializes the matching protocol with the input `match_fn`.
+    def __init__(self, match_fn: TMatchFn) -> None:
+        """Initializes the matching protocol.
 
-        :param match_fn: A callable, satisfying the contract specified by `TMatchFn`,
-            used to match source and target populations from a batch of data.
+        :param match_fn: A callable satisfying `TMatchFn`, used to match source
+            and target populations from a batch of data.
         """
         self._match_fn = match_fn
 
@@ -221,7 +252,6 @@ class BaseMatchingProtocol(_AbstractMatchingProtocol):
         return self._match_fn
 
 
-# -------------------- Matching protocol with callable --------------------
 class MatchingProtocol(BaseMatchingProtocol):
     """Public matching protocol.
 
@@ -230,30 +260,21 @@ class MatchingProtocol(BaseMatchingProtocol):
     copy aligned on the matched indices.
     """
 
-    def match(
-        self,
-        step_data: StepData,
-    ) -> StepData:
+    def match(self, step_data: StepData) -> StepData:
         """Matches the input state data using the underlying `match_fn`.
 
-        When neither `source_coupling_lin` nor `source_coupling_quad`
-        are present, it will return the step data unchanged. This will also
-        be the case when the `match_fn` returns either `src_idxs` or `tgt_idxs`
-        as `None` - no operation will be performed on the data
-
-        :param step_data: The input state data to match.
+        Returns `step_data` unchanged when neither `source_coupling_lin` nor
+        `source_coupling_quad` are present, or when `match_fn` returns either
+        `src_idxs` or `tgt_idxs` as `None`.
         """
-        # ---- Parse coupling data ----
         source_lin = step_data["source_coupling_lin"]
         source_quad = step_data["source_coupling_quad"]
         target_lin = step_data["target_coupling_lin"]
         target_quad = step_data["target_coupling_quad"]
 
-        # ---- Early return when source is not provided ----
         if source_lin is None and source_quad is None:
             return step_data
 
-        # ---- Match indices with callable ----
         src_idxs, tgt_idxs = self.match_fn(
             source_lin=source_lin,
             target_lin=target_lin,
@@ -261,19 +282,24 @@ class MatchingProtocol(BaseMatchingProtocol):
             target_quad=target_quad,
         )
 
-        # ---- No operation when indices are None ----
         if src_idxs is None or tgt_idxs is None:
             return step_data
 
         return subscript_step_data(step_data, src_idxs=src_idxs, tgt_idxs=tgt_idxs)
 
 
-# -------------------- Wrapped protocols --------------------
-_P = TypeVar("_P", bound=ProtocolSpecs)
+# -------------------- Wrappers --------------------
+_P = TypeVar("_P", bound=SupportsProtocol)
 
 
 class ProtocolMixin(Generic[_P]):
-    """Shared delegation logic for protocol wrappers."""
+    """Shared delegation logic for protocol wrappers.
+
+    Delegates the storage surface (`module`, `dtype`, `device_id`,
+    `set_train_mode`) to the wrapped protocol. The bound is the structural
+    `SupportsProtocol`, so wrappers do not require a shared base class with
+    what they wrap.
+    """
 
     def __init__(self, protocol: _P) -> None:
         self._protocol: _P = protocol
@@ -298,78 +324,58 @@ class ProtocolMixin(Generic[_P]):
         return self._protocol.module
 
 
-# -------------------- Ready‑made Wrapper Classes --------------------
-class TrainingProtocolWrapper(
-    ProtocolMixin[BaseTrainingProtocol | BaseFlowTrainingProtocol], _AbstractTrainingProtocol
-):
+class TrainingProtocolWrapper(ProtocolMixin[SupportsTraining], _AbstractTrainingProtocol):
     """Concrete wrapper for a training protocol.
 
-    Delegates `compute_loss` to the wrapped protocol.
+    Accepts anything satisfying `SupportsTraining` (base, flow, already
+    wrapped, or user-defined) and delegates `compute_loss` to it.
     """
 
-    def __init__(self, protocol: BaseTrainingProtocol | BaseFlowTrainingProtocol):
-        """Initializes the wrapped training protocol from an underlying one.
-
-        :param protocol: The base protocol to wrap around. It needs to be an instance of
-            `BaseTrainingProtocol` or `BaseFlowTrainingProtocol`.
-        """
-        if not isinstance(protocol, BaseTrainingProtocol | BaseFlowTrainingProtocol):
+    def __init__(self, protocol: SupportsTraining) -> None:
+        # `isinstance` on a runtime_checkable protocol verifies attribute presence,
+        # not signature. Bad signatures surface at the first `compute_loss` call.
+        if not isinstance(protocol, SupportsTraining):
             raise TypeError("Wrapped protocol must provide compute_loss.")
         super().__init__(protocol)
 
     def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
-        """Wraps around the `.compute_loss` call from underlying protocol."""
         return self._protocol.compute_loss(step_data)
 
 
-class InferenceProtocolWrapper(
-    ProtocolMixin[BaseInferenceProtocol | BaseFlowInferenceProtocol], _AbstractInferenceProtocol
-):
+class InferenceProtocolWrapper(ProtocolMixin[SupportsInference], _AbstractInferenceProtocol):
     """Concrete wrapper for an inference protocol.
 
-    Delegates `predict` to the wrapped protocol.
+    Accepts anything satisfying `SupportsInference` and delegates `predict`.
     """
 
-    def __init__(self, protocol: BaseInferenceProtocol | BaseFlowInferenceProtocol):
-        """Initializes the wrapped training protocol from an underlying one.
-
-        :param protocol: The base protocol to wrap around. It needs to be an instance of
-            `BaseInferenceProtocol` or `BaseFlowInferenceProtocol`.
-        """
-        if not isinstance(protocol, BaseInferenceProtocol | BaseFlowInferenceProtocol):
+    def __init__(self, protocol: SupportsInference) -> None:
+        if not isinstance(protocol, SupportsInference):
             raise TypeError("Wrapped protocol must provide predict.")
         super().__init__(protocol)
 
     def predict(self, step_data: StepData) -> PredictionData:
-        """Wraps around the `.compute_loss` call from underlying protocol."""
         return self._protocol.predict(step_data)
 
 
 class MatchedTrainingProtocol(TrainingProtocolWrapper):
-    """Class for matched training protocols.
+    """Matched training protocol: wraps a training protocol + a `match_fn`.
 
-    Takes as input a training protocol (`protocol`) to wrap around and a matching callable (`match_fn`).
-    The matching callable is used to instantiate the `self.matcher` attribute,
-    a `MatchingProtocol`, defined in terms of the `match_fn`.
-
-    The `.compute_loss` method of the wrapped protocol is called on the matched
-    `step_data`; that is, the step data is first matched using `self.matcher.match(...)`, then the
-    resulting matched data is passed to `self.protocol.compute_loss`.
+    The wrapped protocol's `compute_loss` is called on `step_data` after it has
+    been matched by an internal `MatchingProtocol`. Accepts any
+    `SupportsTraining` — including another `MatchedTrainingProtocol`, though
+    in practice callers shouldn't nest them.
     """
 
-    def __init__(self, protocol: BaseTrainingProtocol | BaseFlowTrainingProtocol, match_fn: TMatchFn) -> None:
+    def __init__(self, protocol: SupportsTraining, match_fn: TMatchFn) -> None:
         """Initializes the matched training protocol.
 
-        :param protocol: An instance of a `BaseTrainingProtocol` to wrap around;
-            the wrapped class needs to implement the `.compute_loss` method.
-        :param match_fn: The matching function, used to couple the batches.
-            It needs to satisfy the contract specified by `TMatchFn`.
+        :param protocol: The training protocol to wrap around.
+        :param match_fn: The matching function satisfying `TMatchFn`.
         """
         super().__init__(protocol)
         self._matcher = MatchingProtocol(match_fn)
 
     def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
-        """Wraps around the `self.protocol.compute_loss`, calling it on matched data."""
         matched = self._matcher.match(step_data)
         return self._protocol.compute_loss(matched)
 

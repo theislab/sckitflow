@@ -14,6 +14,9 @@ from sckitflow.core.methods._base import (
     BaseInferenceProtocol,
     BaseTrainingProtocol,
     MatchedTrainingProtocol,
+    SupportsInference,
+    SupportsProtocol,
+    SupportsTraining,
 )
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.data._manager import DataManager
@@ -83,8 +86,8 @@ class DummyInferenceProtocol(BaseInferenceProtocol):
 
 
 # -----------------------------------------------------------------------------
-# Dummy match function. Module-level so it satisfies `Model.save` picklability
-# (cloudpickle can serialize a top-level function).
+# Dummy match functions. Module-level so they satisfy `Model.save` picklability
+# (cloudpickle can serialize top-level functions).
 # -----------------------------------------------------------------------------
 def dummy_match_fn(source_lin=None, target_lin=None, source_quad=None, target_quad=None):
     """No-op matcher: returns no indices so `MatchingProtocol.match` short-circuits."""
@@ -200,6 +203,27 @@ class TestModel:
         builder = ModelBuilder.from_adata(adata)
         with pytest.raises(ValueError, match="At least one of"):
             builder.build(module_cls=DummyModule)
+
+    # ------------------------------------------------------------------
+    # Structural contracts on the constructed protocols
+    # ------------------------------------------------------------------
+    def test_default_protocols_satisfy_structural_contracts(self, adata: AnnData):
+        """Unmatched construction still yields `SupportsTraining` / `SupportsInference`."""
+        model = _make_model(adata)
+        assert isinstance(model.training_protocol, SupportsTraining)
+        assert isinstance(model.training_protocol, SupportsProtocol)
+        assert isinstance(model.inference_protocol, SupportsInference)
+        assert isinstance(model.inference_protocol, SupportsProtocol)
+
+    def test_training_protocol_does_not_satisfy_inference_contract(self, adata: AnnData):
+        """A training-only protocol has no `predict`, so it does not satisfy `SupportsInference`."""
+        model = _make_model(adata)
+        assert not isinstance(model.training_protocol, SupportsInference)
+
+    def test_inference_protocol_does_not_satisfy_training_contract(self, adata: AnnData):
+        """An inference-only protocol has no `compute_loss`, so it does not satisfy `SupportsTraining`."""
+        model = _make_model(adata)
+        assert not isinstance(model.inference_protocol, SupportsTraining)
 
     # ------------------------------------------------------------------
     # Protocol resolution
@@ -365,6 +389,10 @@ class TestModel:
         model = _make_model(adata)
         assert isinstance(model.dm, DataManager)
         assert model.is_paired_setting is False
+        # Structural — not nominal — the properties are typed `Supports*`.
+        assert isinstance(model.training_protocol, SupportsTraining)
+        assert isinstance(model.inference_protocol, SupportsInference)
+        # Concrete classes still satisfy the structural contracts too.
         assert isinstance(model.training_protocol, BaseTrainingProtocol)
         assert isinstance(model.inference_protocol, BaseInferenceProtocol)
         assert model.trainer is None
@@ -457,6 +485,12 @@ class TestModelMatching:
         model = _make_model(adata)
         assert not isinstance(model.training_protocol, MatchedTrainingProtocol)
         assert isinstance(model.training_protocol, DummyTrainingProtocol)
+
+    def test_matched_protocol_satisfies_structural_contract(self, adata):
+        """The wrapper satisfies `SupportsTraining` even though it does not subclass `BaseTrainingProtocol`."""
+        model = _make_model(adata, match_fn=dummy_match_fn)
+        assert isinstance(model.training_protocol, SupportsTraining)
+        assert not isinstance(model.training_protocol, BaseTrainingProtocol)
 
     def test_train_without_per_call_match_fn_keeps_construction_matcher(self, adata, mock_optim_manager):
         """A `train()` call with no `match_fn` uses the instance's (already matched) protocol."""

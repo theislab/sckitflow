@@ -6,7 +6,14 @@ import pandas as pd
 import pytest
 import torch
 
-from sckitflow.core.methods._base import BaseInferenceProtocol, BaseTrainingProtocol
+from sckitflow.core.methods._base import (
+    BaseInferenceProtocol,
+    BaseTrainingProtocol,
+    MatchedTrainingProtocol,
+    SupportsInference,
+    SupportsProtocol,
+    SupportsTraining,
+)
 from sckitflow.core.methods._opt import OptimizationManager
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.trainer._callbacks import ComputationalCallback, LoggingCallback
@@ -55,6 +62,13 @@ class DummyInferenceProtocol(BaseInferenceProtocol):
 
     def predict(self, step_data, *args, **kwargs):
         return DummyPredictionData(np.random.randn(10, 5), traj=None, raw_samples=None)
+
+
+# Module-level so `cloudpickle` can serialize it (not needed for these tests, but
+# harmless and consistent with how `match_fn` would be used in production).
+def dummy_match_fn(source_lin=None, target_lin=None, source_quad=None, target_quad=None):
+    """No-op matcher: returns no indices so `MatchingProtocol.match` short-circuits."""
+    return None, None
 
 
 # -----------------------------------------------------------------------------
@@ -369,3 +383,62 @@ class TestTrainer:
         assert trainer.opt_manager is opt_manager
         assert trainer.train_logs_raw == []
         assert trainer.val_logs_raw == {}
+
+
+class TestTrainerStructuralContracts:
+    """`Trainer` accepts anything satisfying the structural protocol shapes."""
+
+    def test_trainer_accepts_matched_training_protocol(self, module, opt_manager):
+        """The structural refactor: a `MatchedTrainingProtocol` is a valid training protocol.
+
+        `MatchedTrainingProtocol` is *not* a subclass of `BaseTrainingProtocol` — they
+        are siblings under `_AbstractTrainingProtocol` — so this only works because the
+        `Trainer` parameter is typed `SupportsTraining`.
+        """
+        inner = DummyTrainingProtocol(module)
+        matched = MatchedTrainingProtocol(inner, match_fn=dummy_match_fn)
+        # Precondition: not a nominal subclass.
+        assert not isinstance(matched, BaseTrainingProtocol)
+        # The check `SupportsTraining` is what makes it acceptable.
+        assert isinstance(matched, SupportsTraining)
+
+        trainer = Trainer(matched, opt_manager)
+        assert trainer.training_protocol is matched
+
+    def test_training_protocol_property_satisfies_structural_contract(self, training_protocol, opt_manager):
+        trainer = Trainer(training_protocol, opt_manager)
+        assert isinstance(trainer.training_protocol, SupportsTraining)
+        assert isinstance(trainer.training_protocol, SupportsProtocol)
+
+    def test_inference_protocol_property_satisfies_structural_contract(
+        self, training_protocol, inference_protocol, opt_manager
+    ):
+        trainer = Trainer(training_protocol, opt_manager, inference_protocol=inference_protocol)
+        assert isinstance(trainer.inference_protocol, SupportsInference)
+        assert isinstance(trainer.inference_protocol, SupportsProtocol)
+
+    def test_training_protocol_does_not_satisfy_inference_contract(self, training_protocol, opt_manager):
+        """A training protocol has no `predict`, so it is not usable as an inference protocol."""
+        trainer = Trainer(training_protocol, opt_manager)
+        assert not isinstance(trainer.training_protocol, SupportsInference)
+
+    def test_inference_protocol_does_not_satisfy_training_contract(
+        self, training_protocol, inference_protocol, opt_manager
+    ):
+        """An inference protocol has no `compute_loss`, so it is not usable as a training protocol."""
+        trainer = Trainer(training_protocol, opt_manager, inference_protocol=inference_protocol)
+        assert not isinstance(trainer.inference_protocol, SupportsTraining)
+
+    @patch("sckitflow.trainer._trainer.tqdm")
+    def test_matched_protocol_train_loop(self, mock_tqdm, module, opt_manager):
+        """The training loop runs end-to-end with a matched training protocol."""
+        mock_tqdm.side_effect = lambda steps: steps
+
+        inner = DummyTrainingProtocol(module)
+        matched = MatchedTrainingProtocol(inner, match_fn=dummy_match_fn)
+        trainer = Trainer(matched, opt_manager)
+
+        trainer.train(DummyTrainLoader(3))
+
+        assert trainer.current_step == 3
+        assert len(trainer.train_logs_raw) == 3

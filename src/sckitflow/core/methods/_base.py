@@ -32,16 +32,12 @@ __all__ = [
 
 
 # -------------------- Structural contracts --------------------
-# These are `Protocol` shapes, not base classes. Any object with the right
-# attributes satisfies them — no shared inheritance required. They exist so
-# wrappers and downstream code can say "anything trainable" without a union
-# over concrete protocol classes.
 @runtime_checkable
 class SupportsProtocol(Protocol):
     """Anything that exposes the protocol's storage surface.
 
-    Satisfied structurally by `ProtocolSpecs` and `FlowSpecs`, and by every
-    wrapper built on top of them (via delegation).
+    Satisfied structurally by `ProtocolSpecs`, `FlowSpecs`, every `_SpecsHolder`
+    subclass, and every wrapper built on top of them.
     """
 
     @property
@@ -55,23 +51,14 @@ class SupportsProtocol(Protocol):
 
 @runtime_checkable
 class SupportsTraining(SupportsProtocol, Protocol):
-    """Storage plus `compute_loss`.
-
-    Satisfied by `BaseTrainingProtocol`, `BaseFlowTrainingProtocol`,
-    `MatchedTrainingProtocol`, and any user class that provides these members —
-    the wrapper layer does not care which concrete base it inherits from.
-    """
+    """Storage plus `compute_loss`."""
 
     def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]: ...
 
 
 @runtime_checkable
 class SupportsInference(SupportsProtocol, Protocol):
-    """Storage plus `predict`.
-
-    Satisfied by `BaseInferenceProtocol`, `BaseFlowInferenceProtocol`, and any
-    user class that provides these members.
-    """
+    """Storage plus `predict`."""
 
     def predict(self, step_data: StepData) -> PredictionData: ...
 
@@ -81,14 +68,15 @@ class ProtocolSpecs:
     """Store for the protocol specifications.
 
     Holds the neural module and the associated dtype/device configuration.
-    Used as a base for both training and inference protocols.
+    A single instance can be shared by any number of protocols, so the module,
+    dtype, and device stay in sync across them.
     """
 
     def __init__(
         self,
         module: BaseModule,
-        dtype: torch.dtype = torch.float32,
-        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
+        dtype: torch.dtype | None = None,
+        device_id: str | None = None,
     ) -> None:
         """Initializes the protocol specifications with the given settings.
 
@@ -99,7 +87,9 @@ class ProtocolSpecs:
         :param device_id: A string identifier of the device location for the
             module weights and input data.
         """
-        self._dtype = dtype
+        self._dtype = torch.float32 if dtype is None else dtype
+        if device_id is None:
+            device_id = "cuda" if torch.cuda.is_available() else "cpu"
         self._device_id = device_id
         self._module = module.to(device=self._device_id, dtype=self._dtype)
 
@@ -131,7 +121,9 @@ class FlowSpecs(ProtocolSpecs):
     """Store for the flow specifications.
 
     Extends `ProtocolSpecs` with a probability path, a time sampler, a noise
-    sampler, and a flag indicating whether generation starts from noise.
+    sampler, and a flag indicating whether generation starts from noise. A
+    single instance can be shared by a flow training protocol and a flow
+    inference protocol, so both see the same path and samplers.
     """
 
     def __init__(
@@ -141,8 +133,8 @@ class FlowSpecs(ProtocolSpecs):
         time_sampler: TTimeSamplerFn | None = None,
         noise_sampler: TNoiseSamplerFn | None = None,
         generate_from_noise: bool = False,
-        dtype: torch.dtype = torch.float32,
-        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
+        dtype: torch.dtype | None = None,
+        device_id: str | None = None,
     ) -> None:
         """Initializes the flow specifications.
 
@@ -159,9 +151,6 @@ class FlowSpecs(ProtocolSpecs):
         :param dtype: A `torch.dtype` object used to store the module weights.
         :param device_id: A string identifier of the device location.
         """
-        if generate_from_noise and noise_sampler is None:
-            raise TypeError("When generating from noise you need to pass a noise sampler.")
-
         super().__init__(module, dtype=dtype, device_id=device_id)
 
         self._probability_path = LinearDiracProbabilityPath() if probability_path is None else probability_path
@@ -184,6 +173,60 @@ class FlowSpecs(ProtocolSpecs):
     @property
     def generate_from_noise(self) -> bool:
         return self._generate_from_noise
+
+
+# -------------------- Specs holders --------------------
+# The protocols below do not *inherit* from `ProtocolSpecs` / `FlowSpecs`;
+# they hold an instance and delegate to it. This lets a training and an
+# inference protocol share a single specs instance, so the module, dtype,
+# device, and flow configuration are guaranteed identical.
+_S = TypeVar("_S", bound=ProtocolSpecs)
+
+
+class _SpecsHolder(Generic[_S]):
+    """Delegates the storage surface to a shared `ProtocolSpecs` instance."""
+
+    def __init__(self, specs: _S) -> None:
+        self._specs: _S = specs
+
+    @property
+    def specs(self) -> _S:
+        return self._specs
+
+    @property
+    def module(self) -> BaseModule:
+        return self._specs.module
+
+    @property
+    def dtype(self) -> torch.dtype:
+        return self._specs.dtype
+
+    @property
+    def device_id(self) -> str:
+        return self._specs.device_id
+
+    def set_train_mode(self, mode: bool) -> None:
+        self._specs.set_train_mode(mode)
+
+
+class _FlowSpecsHolder(_SpecsHolder[FlowSpecs]):
+    """Adds flow-specific delegation on top of the storage surface."""
+
+    @property
+    def probability_path(self) -> BaseProbabilityPath:
+        return self._specs.probability_path
+
+    @property
+    def time_sampler(self) -> TTimeSamplerFn:
+        return self._specs.time_sampler
+
+    @property
+    def noise_sampler(self) -> TNoiseSamplerFn | None:
+        return self._specs.noise_sampler
+
+    @property
+    def generate_from_noise(self) -> bool:
+        return self._specs.generate_from_noise
 
 
 # -------------------- Abstract contracts (no storage) --------------------
@@ -209,28 +252,36 @@ class _AbstractMatchingProtocol(abc.ABC):
 
 
 # -------------------- Base protocol classes --------------------
-class BaseTrainingProtocol(ProtocolSpecs, _AbstractTrainingProtocol):
-    """Base training protocol: storage + `compute_loss` contract."""
+class BaseTrainingProtocol(_SpecsHolder[ProtocolSpecs], _AbstractTrainingProtocol):
+    """Base training protocol: shared storage + `compute_loss` contract.
 
-    ...
+    Constructed with a `ProtocolSpecs` instance, which can be shared with an
+    inference protocol so the module, dtype, and device stay in sync.
+    """
 
-
-class BaseFlowTrainingProtocol(FlowSpecs, _AbstractTrainingProtocol):
-    """Base flow training protocol: flow storage + `compute_loss` contract."""
-
-    ...
-
-
-class BaseInferenceProtocol(ProtocolSpecs, _AbstractInferenceProtocol):
-    """Base inference protocol: storage + `predict` contract."""
-
-    ...
+    def __init__(self, specs: ProtocolSpecs) -> None:
+        super().__init__(specs)
 
 
-class BaseFlowInferenceProtocol(FlowSpecs, _AbstractInferenceProtocol):
-    """Base flow inference protocol: flow storage + `predict` contract."""
+class BaseFlowTrainingProtocol(_FlowSpecsHolder, _AbstractTrainingProtocol):
+    """Base flow training protocol: shared `FlowSpecs` + `compute_loss` contract."""
 
-    ...
+    def __init__(self, specs: FlowSpecs) -> None:
+        super().__init__(specs)
+
+
+class BaseInferenceProtocol(_SpecsHolder[ProtocolSpecs], _AbstractInferenceProtocol):
+    """Base inference protocol: shared storage + `predict` contract."""
+
+    def __init__(self, specs: ProtocolSpecs) -> None:
+        super().__init__(specs)
+
+
+class BaseFlowInferenceProtocol(_FlowSpecsHolder, _AbstractInferenceProtocol):
+    """Base flow inference protocol: shared `FlowSpecs` + `predict` contract."""
+
+    def __init__(self, specs: FlowSpecs) -> None:
+        super().__init__(specs)
 
 
 class BaseMatchingProtocol(_AbstractMatchingProtocol):
@@ -361,9 +412,7 @@ class MatchedTrainingProtocol(TrainingProtocolWrapper):
     """Matched training protocol: wraps a training protocol + a `match_fn`.
 
     The wrapped protocol's `compute_loss` is called on `step_data` after it has
-    been matched by an internal `MatchingProtocol`. Accepts any
-    `SupportsTraining` — including another `MatchedTrainingProtocol`, though
-    in practice callers shouldn't nest them.
+    been matched by an internal `MatchingProtocol`.
     """
 
     def __init__(self, protocol: SupportsTraining, match_fn: TMatchFn) -> None:

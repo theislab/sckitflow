@@ -10,67 +10,59 @@ from sckitflow.core._data_utils import (
 from sckitflow.core._types import (
     PredictionData,
     StepData,
-    TNoiseSamplerFn,
-    TTimeSamplerFn,
 )
-from sckitflow.core.methods._base import BaseFlowInferenceProtocol
+from sckitflow.core.methods._base import BaseFlowInferenceProtocol, FlowSpecs
 from sckitflow.core.methods.inference._utils import aggregate_predictions
-from sckitflow.core.nn._vf import BaseVelocityField
-from sckitflow.core.probability_paths._probability_paths import BaseProbabilityPath
 from sckitflow.core.solvers import ODESolver
 
 __all__ = ["ODEInference"]
 
 
 class ODEInference(BaseFlowInferenceProtocol):
-    """Class for handling ODE integrations from an underlying module.
+    """ODE inference from an underlying velocity-field module.
 
-    This class can be used for standard ODE inference with CNFs.
+    The module is expected to implement ``.get_vf_fn`` to compile a
+    ``vf_fn(t, xt)`` function compatible with ``torchdiffeq``.
+
+    Constructed with a shared :class:`FlowSpecs` instance:
+
+    .. code-block:: python
+
+        specs = FlowSpecs(module, probability_path=..., time_sampler=...)
+        inference = ODEInference(specs, n_steps=50)
+
+    The same ``specs`` instance can be handed to a flow training protocol
+    (e.g. :class:`~sckitflow.core.methods.training.CFMTrainingProtocol`) so
+    both see the same probability path, time sampler, noise sampler, module,
+    dtype, and device.
     """
 
     def __init__(
         self,
-        module: BaseVelocityField,
-        probability_path: BaseProbabilityPath,
-        time_sampler: TTimeSamplerFn,
-        noise_sampler: TNoiseSamplerFn | None = None,
-        generate_from_noise: bool = False,
-        dtype: torch.dtype = torch.float32,
-        device_id: str = "cuda" if torch.cuda.is_available() else "cpu",
+        specs: FlowSpecs,
         solver_kwargs: dict[str, Any] | None = None,
         return_trajectory: bool = False,
         n_steps: int = 100,
         latent: torch.Tensor | None = None,
         n_samples: int | None = None,
     ) -> None:
-        """Initializes the inference class.
+        """Initializes the ODE inference protocol.
 
-        The underlying module should inherit from `BaseVelocityField`; the
-        module is expected to implement the `.get_vf_fn` method, to compile the
-        velocity field function with the signature `vf_fn(t, xt)` -- this
-        requirement is needed for compatibility with `torchdiffeq`.
-
-        Shares the same arguments as `BaseFlowInferenceProtocol`, with some
-        additional attributes
-
-        :param solver_kwargs: The keyword arguments used to instantiate ODE solvers.
-        :param return_trajectory: Boolean flag indicating wether to return the whole
-            trajectory of the simulation, or only the endpoint.
-        :param n_steps: The number of discretization steps used to simulate the dynamics.
-        :param latent: The optional latent state used to initialize the dynamics from.
-        :param n_samples: The number of samples used to run the simulation; it will only be
-            used when `generate_from_noise` is `True`.
+        :param specs: The shared :class:`FlowSpecs` instance holding the module,
+            probability path, time sampler, noise sampler, and generation flag.
+        :param solver_kwargs: Keyword arguments forwarded to the ODE solver.
+            ``method`` defaults to ``"euler"`` when not provided.
+        :param return_trajectory: When ``True``, the whole trajectory is returned
+            instead of only the endpoint.
+        :param n_steps: Number of discretization steps for the solver.
+        :param latent: Optional initial latent state; when provided, sampling
+            from the noise distribution is skipped. Must already be on the
+            configured device and dtype.
+        :param n_samples: Number of samples per batch element used to initialize
+            the dynamics. Required when ``specs.generate_from_noise`` is ``True``.
         """
-        # ---- 0. Initialize parent class ----
-        super().__init__(
-            module,
-            probability_path,
-            time_sampler,
-            noise_sampler=noise_sampler,
-            generate_from_noise=generate_from_noise,
-            dtype=dtype,
-            device_id=device_id,
-        )
+        # ---- 0. Initialize parent class with the shared specs ----
+        super().__init__(specs)
 
         # ---- 1. Assign extra attributes ----
         self._solver_kwargs = solver_kwargs
@@ -80,6 +72,13 @@ class ODEInference(BaseFlowInferenceProtocol):
         self._n_samples = n_samples
 
     def predict(self, step_data: StepData) -> PredictionData:
+        """Integrates the ODE and returns the aggregated prediction.
+
+        The dynamics are read through the shared specs: ``self.probability_path``,
+        ``self.time_sampler``, ``self.noise_sampler``, ``self.generate_from_noise``,
+        ``self.module``, ``self.device_id``, and ``self.dtype`` all delegate to
+        the underlying :class:`FlowSpecs`.
+        """
         # ---- 0. Guard, when generating from noise we need n_samples ----
         if self.generate_from_noise and self.n_samples is None:
             raise ValueError("When generating from noise, you need to provide the number of samples with `n_samples`")

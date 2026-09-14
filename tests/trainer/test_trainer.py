@@ -1,5 +1,5 @@
 # tests/trainer/test_trainer.py
-from unittest.mock import MagicMock, Mock, patch
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
@@ -10,6 +10,7 @@ from sckitflow.core.methods._base import (
     BaseInferenceProtocol,
     BaseTrainingProtocol,
     MatchedTrainingProtocol,
+    ProtocolSpecs,
     SupportsInference,
     SupportsProtocol,
     SupportsTraining,
@@ -47,8 +48,27 @@ class DummyPredictionData:
         self.raw_samples = raw_samples
 
 
+class DummyStepData(dict):
+    """Minimal `StepData` stand-in.
+
+    Always carries the four coupling keys (defaulting to `None`), matching the
+    contract `MatchingProtocol.match` relies on. Any extra key can be passed as
+    a keyword argument.
+    """
+
+    def __init__(self, **kwargs):
+        super().__init__(
+            source_coupling_lin=None,
+            source_coupling_quad=None,
+            target_coupling_lin=None,
+            target_coupling_quad=None,
+        )
+        self.update(kwargs)
+
+
 # -----------------------------------------------------------------------------
-# Dummy protocols
+# Dummy protocols. Both are constructed with a shared `ProtocolSpecs`, matching
+# the holder-based design introduced with the `FlowSpecs` refactor.
 # -----------------------------------------------------------------------------
 class DummyTrainingProtocol(BaseTrainingProtocol):
     """Concrete training protocol: a constant loss and metric dict."""
@@ -86,13 +106,18 @@ class DummyOptManager(OptimizationManager):
 # Dummy loaders
 # -----------------------------------------------------------------------------
 class DummyTrainLoader:
-    """Finite, re-iterable loader yielding `n` `Mock` StepData batches."""
+    """Finite, re-iterable loader yielding `n` `DummyStepData` batches.
+
+    Uses `DummyStepData` (a dict-like) rather than a bare `Mock` so that
+    protocols which subscript `step_data` — e.g. `MatchedTrainingProtocol`
+    routing through `MatchingProtocol.match` — work end-to-end.
+    """
 
     def __init__(self, n=2):
         self._n = n
 
     def __iter__(self):
-        return iter([Mock() for _ in range(self._n)])
+        return iter([DummyStepData() for _ in range(self._n)])
 
 
 class DummyValLoader:
@@ -139,7 +164,7 @@ class RecordingComputationalCallback(ComputationalCallback):
 
 
 # -----------------------------------------------------------------------------
-# Helpers
+# Fixtures
 # -----------------------------------------------------------------------------
 @pytest.fixture
 def module():
@@ -147,13 +172,24 @@ def module():
 
 
 @pytest.fixture
-def training_protocol(module):
-    return DummyTrainingProtocol(module)
+def specs(module):
+    """Shared `ProtocolSpecs` for the dummy protocols.
+
+    The base protocols no longer inherit from `ProtocolSpecs`; they hold one
+    instance and delegate the storage surface to it. Both fixtures below reuse
+    the same instance, mirroring how `Model` wires them up.
+    """
+    return ProtocolSpecs(module, device_id="cpu")
 
 
 @pytest.fixture
-def inference_protocol(module):
-    return DummyInferenceProtocol(module)
+def training_protocol(specs):
+    return DummyTrainingProtocol(specs)
+
+
+@pytest.fixture
+def inference_protocol(specs):
+    return DummyInferenceProtocol(specs)
 
 
 @pytest.fixture
@@ -384,18 +420,38 @@ class TestTrainer:
         assert trainer.train_logs_raw == []
         assert trainer.val_logs_raw == {}
 
+    # ---- Storage delegation ----------------------------------------------
+    def test_training_protocol_delegates_storage_to_specs(self, training_protocol, module):
+        """The training protocol exposes the shared specs' storage surface."""
+        assert training_protocol.specs.module is module
+        assert training_protocol.module is module
+        assert training_protocol.device_id == "cpu"
+        assert training_protocol.dtype == torch.float32
+
+    def test_inference_protocol_delegates_storage_to_specs(self, inference_protocol, module):
+        """The inference protocol exposes the shared specs' storage surface."""
+        assert inference_protocol.specs.module is module
+        assert inference_protocol.module is module
+        assert inference_protocol.device_id == "cpu"
+        assert inference_protocol.dtype == torch.float32
+
+    def test_train_and_inference_protocols_share_specs(self, training_protocol, inference_protocol):
+        """The training and inference protocols are wired to the same specs instance."""
+        assert training_protocol.specs is inference_protocol.specs
+        assert training_protocol.module is inference_protocol.module
+
 
 class TestTrainerStructuralContracts:
     """`Trainer` accepts anything satisfying the structural protocol shapes."""
 
-    def test_trainer_accepts_matched_training_protocol(self, module, opt_manager):
+    def test_trainer_accepts_matched_training_protocol(self, specs, opt_manager):
         """The structural refactor: a `MatchedTrainingProtocol` is a valid training protocol.
 
         `MatchedTrainingProtocol` is *not* a subclass of `BaseTrainingProtocol` — they
         are siblings under `_AbstractTrainingProtocol` — so this only works because the
         `Trainer` parameter is typed `SupportsTraining`.
         """
-        inner = DummyTrainingProtocol(module)
+        inner = DummyTrainingProtocol(specs)
         matched = MatchedTrainingProtocol(inner, match_fn=dummy_match_fn)
         # Precondition: not a nominal subclass.
         assert not isinstance(matched, BaseTrainingProtocol)
@@ -404,6 +460,16 @@ class TestTrainerStructuralContracts:
 
         trainer = Trainer(matched, opt_manager)
         assert trainer.training_protocol is matched
+
+    def test_matched_protocol_forwards_storage_to_specs(self, specs, opt_manager):
+        """The matched wrapper exposes the shared specs' storage surface."""
+        inner = DummyTrainingProtocol(specs)
+        matched = MatchedTrainingProtocol(inner, match_fn=dummy_match_fn)
+        trainer = Trainer(matched, opt_manager)
+
+        assert trainer.training_protocol.module is specs.module
+        assert trainer.training_protocol.device_id == "cpu"
+        assert trainer.training_protocol.dtype == torch.float32
 
     def test_training_protocol_property_satisfies_structural_contract(self, training_protocol, opt_manager):
         trainer = Trainer(training_protocol, opt_manager)
@@ -430,11 +496,11 @@ class TestTrainerStructuralContracts:
         assert not isinstance(trainer.inference_protocol, SupportsTraining)
 
     @patch("sckitflow.trainer._trainer.tqdm")
-    def test_matched_protocol_train_loop(self, mock_tqdm, module, opt_manager):
+    def test_matched_protocol_train_loop(self, mock_tqdm, specs, opt_manager):
         """The training loop runs end-to-end with a matched training protocol."""
         mock_tqdm.side_effect = lambda steps: steps
 
-        inner = DummyTrainingProtocol(module)
+        inner = DummyTrainingProtocol(specs)
         matched = MatchedTrainingProtocol(inner, match_fn=dummy_match_fn)
         trainer = Trainer(matched, opt_manager)
 

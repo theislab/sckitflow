@@ -13,7 +13,20 @@ __all__ = ["CFMTrainingProtocol"]
 
 
 class CFMTrainingProtocol(BaseFlowTrainingProtocol):
-    """Training protocol for Conditional Flow Matching."""
+    """Conditional Flow Matching training protocol.
+
+    Constructed with a shared :class:`FlowSpecs` instance:
+
+    .. code-block:: python
+
+        specs = FlowSpecs(module, probability_path=..., time_sampler=...)
+        protocol = CFMTrainingProtocol(specs)
+
+    The same ``specs`` instance can be handed to a flow inference protocol
+    (e.g. :class:`~sckitflow.core.methods.inference.ODEInference`) so both see
+    the same probability path, time sampler, noise sampler, module, dtype, and
+    device.
+    """
 
     def compute_loss(self, step_data: StepData) -> tuple[torch.Tensor, dict[str, Any]]:
         # ---- Get source and target states from step data ----

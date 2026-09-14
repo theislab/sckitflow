@@ -13,7 +13,9 @@ from sckitflow import Model, ModelBuilder
 from sckitflow.core.methods._base import (
     BaseInferenceProtocol,
     BaseTrainingProtocol,
+    FlowSpecs,
     MatchedTrainingProtocol,
+    ProtocolSpecs,
     SupportsInference,
     SupportsProtocol,
     SupportsTraining,
@@ -30,6 +32,7 @@ class DummyModule(BaseModule):
     def __init__(self, n_features: int = 10):
         super().__init__()
         self.n_features = n_features
+        self.linear = torch.nn.Linear(2, 2)
 
     def _make_modules(self, *args, **kwargs):
         pass
@@ -86,8 +89,22 @@ class DummyInferenceProtocol(BaseInferenceProtocol):
 
 
 # -----------------------------------------------------------------------------
-# Dummy match functions. Module-level so they satisfy `Model.save` picklability
-# (cloudpickle can serialize top-level functions).
+# Module-level samplers. `FlowSpecs` accepts them; being module-level makes
+# them picklable for `Model.save`.
+# -----------------------------------------------------------------------------
+def dummy_time_sampler(shape, device=None, dtype=None):
+    """Valid `TTimeSamplerFn`; returns uniform values in [0, 1)."""
+    return torch.rand(shape, device=device, dtype=dtype)
+
+
+def dummy_noise_sampler(shape, device=None, dtype=None):
+    """Valid `TNoiseSamplerFn`; returns standard-normal samples."""
+    return torch.randn(shape, device=device, dtype=dtype)
+
+
+# -----------------------------------------------------------------------------
+# Module-level match functions. Module-level so they satisfy `Model.save`
+# picklability (cloudpickle can serialize top-level functions).
 # -----------------------------------------------------------------------------
 def dummy_match_fn(source_lin=None, target_lin=None, source_quad=None, target_quad=None):
     """No-op matcher: returns no indices so `MatchingProtocol.match` short-circuits."""
@@ -471,6 +488,212 @@ class TestModel:
 
 
 # -----------------------------------------------------------------------------
+# Shared specs — the point of the `FlowSpecs` refactor
+# -----------------------------------------------------------------------------
+class TestModelSpecs:
+    """`Model.__init__` builds one specs instance and shares it with both protocols."""
+
+    # ---- Default (non-flow) --------------------------------------------
+    def test_default_specs_is_plain_protocol_specs(self, adata: AnnData):
+        """Without `is_flow`, the model builds a plain `ProtocolSpecs`."""
+        model = _make_model(adata)
+        assert type(model.specs) is ProtocolSpecs
+        assert not isinstance(model.specs, FlowSpecs)
+
+    def test_default_specs_shared_by_both_protocols(self, adata: AnnData):
+        """Both protocols hold the same specs instance by default."""
+        model = _make_model(adata)
+        assert model.training_protocol.specs is model.inference_protocol.specs
+        assert model.training_protocol.specs is model.specs
+
+    def test_default_specs_module_matches_model_module(self, adata: AnnData):
+        model = _make_model(adata)
+        assert model.specs.module is model.module
+        assert model.training_protocol.module is model.module
+        assert model.inference_protocol.module is model.module
+
+    # ---- `is_flow=True` -------------------------------------------------
+    def test_is_flow_builds_flow_specs(self, adata: AnnData):
+        """`is_flow=True` builds a `FlowSpecs`."""
+        model = _make_model(
+            adata,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            is_flow=True,
+        )
+        assert isinstance(model.specs, FlowSpecs)
+        assert isinstance(model.specs, ProtocolSpecs)
+
+    def test_is_flow_specs_shared_by_both_protocols(self, adata: AnnData):
+        """The same `FlowSpecs` instance is handed to both protocols."""
+        model = _make_model(
+            adata,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            is_flow=True,
+        )
+        assert model.training_protocol.specs is model.inference_protocol.specs
+        assert model.training_protocol.specs is model.specs
+
+    def test_is_flow_specs_defaults(self, adata: AnnData):
+        """Without `flow_kwargs`, the `FlowSpecs` uses its default path and samplers."""
+        model = _make_model(
+            adata,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            is_flow=True,
+        )
+        specs = model.specs
+        assert isinstance(specs, FlowSpecs)
+        assert specs.probability_path is not None
+        assert specs.time_sampler is torch.rand
+        assert specs.noise_sampler is torch.randn
+        assert specs.generate_from_noise is False
+
+    # ---- `flow_kwargs` forwarding --------------------------------------
+    def test_flow_kwargs_reach_the_shared_specs(self, adata: AnnData):
+        """Values in `flow_kwargs` are forwarded to the `FlowSpecs` constructor."""
+        model = _make_model(
+            adata,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            is_flow=True,
+            flow_kwargs={
+                "time_sampler": dummy_time_sampler,
+                "noise_sampler": dummy_noise_sampler,
+                "generate_from_noise": True,
+            },
+        )
+        specs = model.specs
+        assert isinstance(specs, FlowSpecs)
+        assert specs.time_sampler is dummy_time_sampler
+        assert specs.noise_sampler is dummy_noise_sampler
+        assert specs.generate_from_noise is True
+
+    def test_flow_kwargs_both_protocols_see_same_path_object(self, adata: AnnData):
+        """The shared `FlowSpecs` gives both protocols identical flow objects."""
+        model = _make_model(
+            adata,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            is_flow=True,
+            flow_kwargs={"time_sampler": dummy_time_sampler},
+        )
+        assert model.training_protocol.specs is model.inference_protocol.specs
+        assert model.training_protocol.specs.probability_path is model.inference_protocol.specs.probability_path
+        assert model.training_protocol.specs.time_sampler is model.inference_protocol.specs.time_sampler
+
+    # ---- `dtype` / `device_id` top-level -------------------------------
+    def test_top_level_dtype_reaches_specs(self, adata: AnnData):
+        """Top-level `dtype` is used for the shared specs' module."""
+        model = _make_model(
+            adata,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            dtype=torch.float64,
+        )
+        assert model.specs.dtype == torch.float64
+        assert next(model.specs.module.parameters()).dtype == torch.float64
+
+    def test_top_level_device_id_reaches_specs(self, adata: AnnData):
+        """Top-level `device_id` is used for the shared specs' device."""
+        model = _make_model(
+            adata,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            device_id="cpu",
+        )
+        assert model.specs.device_id == "cpu"
+        assert model.training_protocol.device_id == "cpu"
+        assert model.inference_protocol.device_id == "cpu"
+
+    def test_top_level_dtype_with_flow_specs(self, adata: AnnData):
+        """`dtype` and `device_id` also apply when `is_flow=True`."""
+        model = _make_model(
+            adata,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            is_flow=True,
+            dtype=torch.float64,
+            device_id="cpu",
+        )
+        assert isinstance(model.specs, FlowSpecs)
+        assert model.specs.dtype == torch.float64
+        assert model.specs.device_id == "cpu"
+
+    # ---- Conflict guard ------------------------------------------------
+    def test_flow_kwargs_rejects_dtype_key(self, adata: AnnData):
+        """Passing `dtype` inside `flow_kwargs` raises a clear error."""
+        with pytest.raises(ValueError, match="dtype"):
+            _make_model(
+                adata,
+                module_cls=DummyModule,
+                training_protocol_cls=DummyTrainingProtocol,
+                inference_protocol_cls=DummyInferenceProtocol,
+                is_flow=True,
+                flow_kwargs={"dtype": torch.float64},
+            )
+
+    def test_flow_kwargs_rejects_device_id_key(self, adata: AnnData):
+        """Passing `device_id` inside `flow_kwargs` raises a clear error."""
+        with pytest.raises(ValueError, match="device_id"):
+            _make_model(
+                adata,
+                module_cls=DummyModule,
+                training_protocol_cls=DummyTrainingProtocol,
+                inference_protocol_cls=DummyInferenceProtocol,
+                is_flow=True,
+                flow_kwargs={"device_id": "cpu"},
+            )
+
+    def test_flow_kwargs_conflict_ignored_when_not_flow(self, adata: AnnData):
+        """`flow_kwargs` is ignored entirely when `is_flow=False`."""
+        model = _make_model(
+            adata,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            is_flow=False,
+            flow_kwargs={"dtype": torch.float64},
+        )
+        assert type(model.specs) is ProtocolSpecs
+
+    # ---- Save / load preserves shared specs ----------------------------
+    def test_save_load_preserves_shared_flow_specs(self, adata):
+        """A flow-specs model reloads with the same shared instance on both protocols."""
+        model = _make_model(
+            adata,
+            dm_kwargs=_DM_TRAIN_KWARGS,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            is_flow=True,
+            flow_kwargs={"time_sampler": dummy_time_sampler},
+        )
+        assert isinstance(model.specs, FlowSpecs)
+
+        with tempfile.NamedTemporaryFile(suffix=".tar.gz", delete=False) as tmp:
+            tmp_path = tmp.name
+        model.save(tmp_path, allow_overwrite=True)
+
+        loaded = Model.load(tmp_path, map_location="cpu")
+        assert isinstance(loaded.specs, FlowSpecs)
+        assert loaded.training_protocol.specs is loaded.inference_protocol.specs
+        assert loaded.training_protocol.specs is loaded.specs
+        assert loaded.specs.time_sampler is dummy_time_sampler
+
+        os.unlink(tmp_path)
+
+
+# -----------------------------------------------------------------------------
 # match_fn integration
 # -----------------------------------------------------------------------------
 class TestModelMatching:
@@ -491,6 +714,20 @@ class TestModelMatching:
         model = _make_model(adata, match_fn=dummy_match_fn)
         assert isinstance(model.training_protocol, SupportsTraining)
         assert not isinstance(model.training_protocol, BaseTrainingProtocol)
+
+    def test_matched_protocol_forwards_storage_to_wrapped(self, adata):
+        """The wrapper's storage surface delegates to the wrapped protocol's specs."""
+        model = _make_model(
+            adata,
+            module_cls=DummyModule,
+            training_protocol_cls=DummyTrainingProtocol,
+            inference_protocol_cls=DummyInferenceProtocol,
+            match_fn=dummy_match_fn,
+            device_id="cpu",
+        )
+        assert model.training_protocol.module is model.module
+        assert model.training_protocol.device_id == "cpu"
+        assert model.training_protocol.dtype == torch.float32
 
     def test_train_without_per_call_match_fn_keeps_construction_matcher(self, adata, mock_optim_manager):
         """A `train()` call with no `match_fn` uses the instance's (already matched) protocol."""
@@ -582,11 +819,13 @@ class TestModelConditionSpace:
         }
 
     def test_from_adata_with_condition_space(self, adata: AnnData):
+        """Building with a condition_state_key exposes it on the model."""
         adata = _add_continuous_covariate(adata)
         model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
         assert model.condition_state_key == "X_repr"
 
     def test_train_with_condition_space(self, adata: AnnData, mock_optim_manager):
+        """Training with the condition-space view correctly compiles the data."""
         adata = _add_continuous_covariate(adata)
         adata = _with_split(adata)
         model = _make_model(
@@ -605,6 +844,7 @@ class TestModelConditionSpace:
             mock_trainer.train.assert_called_once()
 
     def test_predict_with_condition_space(self, adata: AnnData):
+        """Predict with condition space yields predictions with correct shape."""
         adata = _add_continuous_covariate(adata)
         model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
         pred_adata = model.predict(adata)
@@ -614,6 +854,7 @@ class TestModelConditionSpace:
         assert pred_adata.n_vars == adata.obsm["X_repr"].shape[1]
 
     def test_save_load_with_condition_space(self, adata: AnnData):
+        """Save and load a model configured with the condition-space view."""
         adata = _add_continuous_covariate(adata)
         model = _make_model(adata, dm_kwargs=self._condition_space_dm_kwargs())
         pred1 = model.predict(adata)
@@ -668,6 +909,7 @@ class TestModelPredictCombinations:
         has_source,
         view_on_condition_space,
     ):
+        """Test prediction with all schema feature combinations."""
         if view_on_condition_space and not has_cont_cond:
             pytest.skip("view_on_condition_space requires a continuous condition covariate")
         if not (has_cat_cond or has_groups or has_source):
@@ -857,6 +1099,7 @@ class TestModelPredictControlValues:
         return dm_kwargs
 
     def test_predict_control_values_override(self, adata):
+        """Passing control_values_dict to predict overrides the instance's control_values_dict."""
         adata = self._setup_paired_data(adata)
         model = _make_model(adata, dm_kwargs=self._base_dm_kwargs({"drug": "control"}))
         pred_adata = model.predict(adata, control_values_dict={"drug": "control"})
@@ -864,6 +1107,7 @@ class TestModelPredictControlValues:
         assert all(pred_adata.obs["drugA"] == "treatment")
 
     def test_predict_control_values_none_uses_instance(self, adata):
+        """When control_values_dict=None, the instance's control_values_dict is used."""
         adata = self._setup_paired_data(adata)
         model = _make_model(adata, dm_kwargs=self._base_dm_kwargs({"drug": "control"}))
         pred_adata = model.predict(adata, control_values_dict=None)
@@ -871,6 +1115,7 @@ class TestModelPredictControlValues:
         assert all(pred_adata.obs["drugA"] == "treatment")
 
     def test_predict_control_values_without_instance(self, adata):
+        """When instance has no control_values_dict, a custom dict works."""
         adata = self._setup_paired_data(adata)
         model = _make_model(adata, dm_kwargs=self._base_dm_kwargs())
         pred_adata = model.predict(adata, control_values_dict={"drug": "control"})
@@ -878,6 +1123,7 @@ class TestModelPredictControlValues:
         assert all(pred_adata.obs["drugA"] == "treatment")
 
     def test_predict_control_values_honored_on_condition_view(self, adata):
+        """With a condition_state_key set, control_values_dict is honored."""
         adata = self._setup_paired_data(adata, has_continuous=True)
         dm_kwargs = self._base_dm_kwargs({"drug": "control"})
         dm_kwargs["condition_state_key"] = "X_repr"
@@ -888,7 +1134,9 @@ class TestModelPredictControlValues:
         assert all(pred_adata.obs["drugA"] == "treatment")
 
     def test_predict_control_values_invalid_control_predicts_all(self, adata):
+        """A control value absent from the data marks nothing as control -> every group is predicted."""
         adata = self._setup_paired_data(adata)
         model = _make_model(adata, dm_kwargs=self._base_dm_kwargs())
         pred_adata = model.predict(adata, control_values_dict={"drug": "nonexistent"})
+        # nothing is treated as control, so both drug values are predicted (no pairing)
         assert set(pred_adata.obs["drugA"].unique()) == {"control", "treatment"}

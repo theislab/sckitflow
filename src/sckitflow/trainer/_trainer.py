@@ -5,7 +5,7 @@ import pandas as pd
 from tqdm import tqdm
 
 from sckitflow.core._types import StepData
-from sckitflow.core.methods._base import BaseMethod
+from sckitflow.core.methods._base import SupportsInference, SupportsTraining
 from sckitflow.core.methods._opt import OptimizationManager
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 
@@ -13,21 +13,29 @@ __all__ = ["Trainer"]
 
 
 class Trainer:
-    """Trainer for the supported methods.
+    """Trainer driving a training protocol and, optionally, an inference protocol.
 
-    :param method: Method class
-    :param opt_manager: Optimization manager
-    :param callbacks: Either a TrainingCallbacks instance, a list of BaseCallback,
-        or None. If a list is given, it will be wrapped in a TrainingCallbacks.
+    :param training_protocol: Anything satisfying `SupportsTraining` (a
+        `BaseTrainingProtocol`, a `BaseFlowTrainingProtocol`, a
+        `MatchedTrainingProtocol` wrapper, or a user-defined class with the
+        same surface). `compute_loss` is called once per streamed batch.
+    :param opt_manager: Optimization manager stepping the module.
+    :param inference_protocol: Anything satisfying `SupportsInference`. Used
+        during validation only; when `None`, validation is skipped entirely.
+    :param callbacks: Either a `TrainingCallbacks` instance, a sequence of
+        `BaseCallback`, or `None`. If a sequence is given, it is wrapped in a
+        `TrainingCallbacks`.
     """
 
     def __init__(
         self,
-        method: BaseMethod,
+        training_protocol: SupportsTraining,
         opt_manager: OptimizationManager,
+        inference_protocol: SupportsInference | None = None,
         callbacks: TrainingCallbacks | Sequence[BaseCallback] | None = None,
     ) -> None:
-        self._method = method
+        self._training_protocol = training_protocol
+        self._inference_protocol = inference_protocol
         self._opt_manager = opt_manager
 
         # Normalize callbacks to a TrainingCallbacks instance
@@ -68,10 +76,17 @@ class Trainer:
     ) -> None:
         """Run validation over one loader (one finite pass) and store predictions.
 
-        ``loader`` is any iterable yielding ready ``StepData`` batches. The two kwarg dicts go to
-        different places and are kept apart: ``predict_kwargs`` to the method's inference (e.g. CFM's
-        ``n_samples``), ``cb_kwargs`` to the callbacks.
+        ``loader`` is any iterable yielding ready ``StepData`` batches. The two
+        kwarg dicts go to different places and are kept apart: ``predict_kwargs``
+        to the inference protocol's ``predict`` (e.g. CFM's ``n_samples``),
+        ``cb_kwargs`` to the callbacks.
+
+        When no inference protocol is configured, this is a no-op.
         """
+        # early return when no inference protocol is provided
+        if self._inference_protocol is None:
+            return None
+
         predict_kwargs = {} if predict_kwargs is None else predict_kwargs
         cb_kwargs = {} if cb_kwargs is None else cb_kwargs
         predictions_dict = {}
@@ -79,10 +94,10 @@ class Trainer:
             # The loader yields ready `StepData`; the ground-truth target is its
             # `target_state` tensor (the metric callbacks accept tensors directly).
             target_array = step_data["target_state"]
-            preds = self._method.predict(step_data, **predict_kwargs)
-            # Extract the actual data from PredictionData object
-            if hasattr(preds, "samples"):
-                preds_array = preds.samples
+            preds = self._inference_protocol.predict(step_data, **predict_kwargs)
+            # Extract the actual data from the prediction object
+            if hasattr(preds, "X"):
+                preds_array = preds.X
             else:
                 preds_array = preds
             predictions_dict[str(node_id)] = {"predictions": preds_array, "targets": target_array}
@@ -97,8 +112,8 @@ class Trainer:
     def _get_logs_df(self, logs: list[dict[str, Any]] | None) -> pd.DataFrame:
         """Return logs as a pandas DataFrame indexed by training step.
 
-        `step` becomes the index rather than a column, so the remaining columns are
-        all metrics and plot against the step count directly.
+        `step` becomes the index rather than a column, so the remaining columns
+        are all metrics and plot against the step count directly.
         """
         if logs is None:
             return pd.DataFrame()
@@ -118,28 +133,48 @@ class Trainer:
         val_loaders: dict[str, Iterable[StepData]] | None = None,
         valid_freq: int = 1_000,
         pbar_freq: int = 100,
-        train_step_kwargs: dict[str, Any] | None = None,
+        compute_loss_kwargs: dict[str, Any] | None = None,
         val_predict_kwargs: dict[str, Any] | None = None,
         cb_kwargs: dict[str, Any] | None = None,
     ) -> None:
-        """Trains the model by iterating ``train_loader`` -- its length is the number of steps.
+        """Trains by iterating ``train_loader`` -- its length is the number of steps.
 
-        The caller sizes ``train_loader`` (e.g. ``Loader.set_n_iters(n_train_steps)``); the trainer just
-        does one gradient step per streamed ``StepData`` and validates every ``valid_freq`` steps.
+        The caller sizes ``train_loader`` (e.g. ``Loader.set_n_iters(n_train_steps)``);
+        the trainer just does one gradient step per streamed ``StepData`` and
+        validates every ``valid_freq`` steps.
 
-        :param train_loader: Anything yielding ready ``StepData``; its length is the step count.
-        :param val_loaders: One ``{val_id: loader}`` per validation set, or ``None`` to skip validation.
+        :param train_loader: Anything yielding ready ``StepData``; its length is
+            the step count.
+        :type train_loader: class: `Iterable[StepData]`
+
+        :param val_loaders: One ``{val_id: loader}`` per validation set, or
+            ``None`` to skip validation. Defaults to `None`.
+        :type val_loaders: class: `dict[str, Iterable[StepData]] | None`
+
         :param valid_freq: Run validation every this many training steps.
-        :param pbar_freq: Refresh the progress-bar description every this many steps.
-        :param train_step_kwargs: Forwarded to :meth:`BaseMethod.train_step` (method-specific).
-        :param val_predict_kwargs: Forwarded to :meth:`BaseMethod.predict` during validation -- e.g. CFM's
-            ``n_samples``, which is required when the method generates from noise.
-        :param cb_kwargs: Forwarded to every callback hook.
+            Defaults to ``1_000``.
+        :type valid_freq: class: `int`
+
+        :param pbar_freq: Refresh the progress-bar description every this many
+            steps. Defaults to ``100``.
+        :type pbar_freq: class: `int`
+
+        :param compute_loss_kwargs: Forwarded to the training protocol's
+            ``compute_loss``. Method-specific. Defaults to `None`.
+        :type compute_loss_kwargs: class: `dict[str, Any] | None`
+
+        :param val_predict_kwargs: Forwarded to the inference protocol's
+            ``predict`` during validation -- e.g. CFM's ``n_samples``, required
+            when the model generates from noise. Defaults to `None`.
+        :type val_predict_kwargs: class: `dict[str, Any] | None`
+
+        :param cb_kwargs: Forwarded to every callback hook. Defaults to `None`.
+        :type cb_kwargs: class: `dict[str, Any] | None`
         """
         do_validation = val_loaders is not None
 
-        # Each dict goes to exactly one destination -- method train step, method inference, callbacks.
-        train_step_kwargs = {} if train_step_kwargs is None else train_step_kwargs
+        # Each dict goes to exactly one destination -- training step, inference, callbacks.
+        compute_loss_kwargs = {} if compute_loss_kwargs is None else compute_loss_kwargs
         val_predict_kwargs = {} if val_predict_kwargs is None else val_predict_kwargs
         cb_kwargs = {} if cb_kwargs is None else cb_kwargs
 
@@ -150,7 +185,7 @@ class Trainer:
         pbar = tqdm(train_loader)
         for step_data in pbar:
             self._current_step += 1
-            opt_data, step_dict = self._method.train_step(step_data, **train_step_kwargs)
+            opt_data, step_dict = self._training_protocol.compute_loss(step_data, **compute_loss_kwargs)
             step_dict.update({"step": self._current_step})
             self._opt_manager.step(opt_data)
             self._append_train_log(step_dict)
@@ -189,6 +224,16 @@ class Trainer:
             # `.get` so an unknown id yields an empty frame instead of a KeyError.
             return self._get_logs_df(self._val_logs.get(val_id))
         return {vid: self._get_logs_df(logs) for vid, logs in self._val_logs.items()}
+
+    @property
+    def training_protocol(self) -> SupportsTraining:
+        """The training protocol: anything satisfying `SupportsTraining`."""
+        return self._training_protocol
+
+    @property
+    def inference_protocol(self) -> SupportsInference | None:
+        """The inference protocol, or `None` when validation is disabled."""
+        return self._inference_protocol
 
     @property
     def train_logs_raw(self) -> list[dict[str, Any]]:

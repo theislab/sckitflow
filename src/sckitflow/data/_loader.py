@@ -48,11 +48,6 @@ if TYPE_CHECKING:
     from sckitflow.core._types import StepData
     from sckitflow.data.schemas import ConditionDataSchema, GroupsDataSchema
 
-    # Exactly what `_as_tensor` tests for. `np.ndarray` and `torch.Tensor` both
-    # satisfy it, so naming them as extra arms would be redundant. The previous
-    # `| Any` arm collapsed the whole union back to `Any`.
-    # (A raw DLPack `PyCapsule` is also accepted at runtime but cannot be typed --
-    # it is an opaque C object with no `__dlpack__` of its own.)
     ArrayLike = SupportsDLPack
 
 # The kwargs contract for these loaders is :class:`~sckitflow.data._manager.LoaderKwargs` -- declared
@@ -96,7 +91,7 @@ def _as_tensor(array: ArrayLike) -> torch.Tensor:
         return array
     if isinstance(array, np.ndarray):
         return torch.as_tensor(array)
-    if not (hasattr(array, "__dlpack__") or type(array).__name__ == "PyCapsule"):
+    if not isinstance(array, SupportsDLPack):
         raise TypeError(
             f"cannot convert a streamed {type(array).__name__} to a torch tensor without copying: expected "
             "a numpy/torch array, or an array exposing the DLPack protocol (`__dlpack__`, e.g. cupy on a "

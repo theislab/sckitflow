@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Iterator
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpy as np
 import pandas as pd
@@ -32,6 +32,14 @@ from scfit.data import Stream
 
 from sckitflow.data._utils import with_derived_obs
 
+
+@runtime_checkable
+class SupportsDLPack(Protocol):
+    """Any array that can hand over its buffer without a copy."""
+
+    def __dlpack__(self, *, stream: int | None = None) -> Any: ...
+
+
 if TYPE_CHECKING:
     import torch
 
@@ -40,12 +48,18 @@ if TYPE_CHECKING:
     from sckitflow.core._types import StepData
     from sckitflow.data.schemas import ConditionDataSchema, GroupsDataSchema
 
-    ArrayLike = np.ndarray | torch.Tensor | Any
+    # Exactly what `_as_tensor` tests for. `np.ndarray` and `torch.Tensor` both
+    # satisfy it, so naming them as extra arms would be redundant. The previous
+    # `| Any` arm collapsed the whole union back to `Any`.
+    # (A raw DLPack `PyCapsule` is also accepted at runtime but cannot be typed --
+    # it is an opaque C object with no `__dlpack__` of its own.)
+    ArrayLike = SupportsDLPack
 
 # The kwargs contract for these loaders is :class:`~sckitflow.data._manager.LoaderKwargs` -- declared
 # there, next to its only consumer (``DataManager.get_dataloaders``), so typing a call site does not
 # drag in the scfit/annbatch stack this module imports.
 __all__ = ["Loader", "EvalLoader"]
+
 
 # Every StepData key, so the emitted dict is complete and consumers can index without guarding.
 _STEP_DATA_KEYS = (

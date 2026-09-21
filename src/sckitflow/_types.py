@@ -2,6 +2,8 @@ import abc
 from collections.abc import Collection
 from typing import Any, Literal
 
+import numpy as np
+import torch
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 BackendId = Literal["torch", "jax"]
@@ -27,9 +29,12 @@ TargetCovariatesEncodingId = Literal["label", "one-hot", "functional"]
 
 TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
 
-GENOTDataMatchFn = Any  # TODO
-
-TensorLike = Any  # TODO
+# What the coupling and matching functions pass around: torch tensors from the
+# loaders, numpy arrays back out of POT. Not the array-API `SupportsArrayApi`
+# protocol -- `torch.Tensor` does not satisfy it (no `__array_namespace__`, no
+# `to_device`), and the coupling code calls `.detach().cpu().numpy()`, which the
+# standard does not define.
+TensorLike = np.ndarray | torch.Tensor
 
 
 class PredictionData:

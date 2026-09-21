@@ -148,7 +148,7 @@ def prepare_latent_train(
     noise_sampler: SamplerFn,
     generate_from_noise: bool = False,
 ) -> torch.Tensor:
-    """Called from compute_loss - always returns single noise per batch element.
+    """Called from compute_loss - always returns single noise per batch element."""
     if source is None or generate_from_noise:
         return noise_sampler(tuple(target.shape), device=target.device, dtype=target.dtype)
     return source

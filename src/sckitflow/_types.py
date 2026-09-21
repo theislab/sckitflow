@@ -29,11 +29,6 @@ TargetCovariatesEncodingId = Literal["label", "one-hot", "functional"]
 
 TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
 
-# What the coupling and matching functions pass around: torch tensors from the
-# loaders, numpy arrays back out of POT. Not the array-API `SupportsArrayApi`
-# protocol -- `torch.Tensor` does not satisfy it (no `__array_namespace__`, no
-# `to_device`), and the coupling code calls `.detach().cpu().numpy()`, which the
-# standard does not define.
 TensorLike = np.ndarray | torch.Tensor
 
 

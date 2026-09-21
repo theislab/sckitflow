@@ -48,8 +48,6 @@ if TYPE_CHECKING:
     from sckitflow.core._types import StepData
     from sckitflow.data.schemas import ConditionDataSchema, GroupsDataSchema
 
-    ArrayLike = SupportsDLPack
-
 # The kwargs contract for these loaders is :class:`~sckitflow.data._manager.LoaderKwargs` -- declared
 # there, next to its only consumer (``DataManager.get_dataloaders``), so typing a call site does not
 # drag in the scfit/annbatch stack this module imports.
@@ -83,7 +81,7 @@ def _state_loc(sample_rep: str | None) -> str:
     return "X" if sample_rep is None else f"obsm/{sample_rep}"
 
 
-def _as_tensor(array: ArrayLike) -> torch.Tensor:
+def _as_tensor(array: SupportsDLPack) -> torch.Tensor:
     """Any streamed array -> ``torch.Tensor`` sharing its buffer, on the device it already lives."""
     import torch
 

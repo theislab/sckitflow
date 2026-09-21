@@ -4,7 +4,7 @@ from typing import Any
 import torch
 
 from sckitflow.core._data_utils import subscript_step_data
-from sckitflow.core._types import MatchFn, NoiseSamplerFn, PredictionData, StepData, TimeSamplerFn
+from sckitflow.core._types import MatchFn, PredictionData, SamplerFn, StepData
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.core.probability_paths import BaseProbabilityPath
 from sckitflow.core.solvers import BaseSolver
@@ -162,8 +162,8 @@ class GenerativeFlow(BaseMethod):
         *args,
         probability_path: BaseProbabilityPath | None = None,
         match_fn: MatchFn | None = None,
-        noise_sampler: NoiseSamplerFn | None = None,
-        time_sampler: TimeSamplerFn | None = None,
+        noise_sampler: SamplerFn | None = None,
+        time_sampler: SamplerFn | None = None,
         generate_from_noise: bool = False,
         **kwargs,
     ) -> None:
@@ -271,9 +271,9 @@ class GenerativeFlow(BaseMethod):
         return self._match_fn
 
     @property
-    def noise_sampler(self) -> NoiseSamplerFn | None:
+    def noise_sampler(self) -> SamplerFn | None:
         return self._noise_sampler
 
     @property
-    def time_sampler(self) -> TimeSamplerFn | None:
+    def time_sampler(self) -> SamplerFn | None:
         return self._time_sampler

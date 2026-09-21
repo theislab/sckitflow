@@ -4,11 +4,11 @@ from typing import Any
 import torch
 
 from sckitflow.core._data_utils import subscript_step_data
-from sckitflow.core._types import PredictionData, StepData, TMatchFn, TNoiseSamplerFn, TTimeSamplerFn
+from sckitflow.core._types import MatchFn, NoiseSamplerFn, PredictionData, StepData, TimeSamplerFn
 from sckitflow.core.nn._modules import BaseModule
 from sckitflow.core.probability_paths import BaseProbabilityPath
 from sckitflow.core.solvers import BaseSolver
-from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
+from sckitflow.data._dims import DataDimensions
 from sckitflow.data._manager import DataManager
 
 __all__ = ["BaseMethod", "GenerativeFlow"]
@@ -19,7 +19,7 @@ class BaseMethod(abc.ABC):
 
     def __init__(
         self,
-        dims_registry: DataDimensionalitiesRegistry,
+        data_dims: DataDimensions,
         dm: DataManager,
         *args,
         dtype: torch.dtype = torch.float32,
@@ -27,7 +27,7 @@ class BaseMethod(abc.ABC):
         **kwargs,
     ) -> None:
         # initialize attributes
-        self._dims_registry = dims_registry
+        self._data_dims = data_dims
         self._dm = dm
 
         # check module is passed
@@ -35,7 +35,7 @@ class BaseMethod(abc.ABC):
             raise NotImplementedError(f"{self.__class__.__name__} must define a `_module_cls` class attribute.")
 
         # initialize module with dimensionality registry
-        self._module = self._module_cls.init_from_dims_registry(self._dims_registry, *args, **kwargs)
+        self._module = self._module_cls.init_from_data_dims(self._data_dims, *args, **kwargs)
 
         # set attributes
         self._dtype = dtype
@@ -136,8 +136,8 @@ class BaseMethod(abc.ABC):
         return self._dm
 
     @property
-    def dims_registry(self) -> DataDimensionalitiesRegistry | None:
-        return self._dims_registry
+    def data_dims(self) -> DataDimensions | None:
+        return self._data_dims
 
     @property
     def is_paired_setting(self) -> bool:
@@ -157,19 +157,19 @@ class GenerativeFlow(BaseMethod):
 
     def __init__(
         self,
-        dims_registry: DataDimensionalitiesRegistry,
+        data_dims: DataDimensions,
         dm: DataManager,
         *args,
         probability_path: BaseProbabilityPath | None = None,
-        match_fn: TMatchFn | None = None,
-        noise_sampler: TNoiseSamplerFn | None = None,
-        time_sampler: TTimeSamplerFn | None = None,
+        match_fn: MatchFn | None = None,
+        noise_sampler: NoiseSamplerFn | None = None,
+        time_sampler: TimeSamplerFn | None = None,
         generate_from_noise: bool = False,
         **kwargs,
     ) -> None:
         # call parent constructor
         super().__init__(
-            dims_registry,
+            data_dims,
             dm,
             *args,
             **kwargs,
@@ -267,13 +267,13 @@ class GenerativeFlow(BaseMethod):
         return self._probability_path
 
     @property
-    def match_fn(self) -> TMatchFn | None:
+    def match_fn(self) -> MatchFn | None:
         return self._match_fn
 
     @property
-    def noise_sampler(self) -> TNoiseSamplerFn | None:
+    def noise_sampler(self) -> NoiseSamplerFn | None:
         return self._noise_sampler
 
     @property
-    def time_sampler(self) -> TTimeSamplerFn | None:
+    def time_sampler(self) -> TimeSamplerFn | None:
         return self._time_sampler

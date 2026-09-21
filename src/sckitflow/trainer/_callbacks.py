@@ -76,7 +76,7 @@ class MetricsCallback(ComputationalCallback):
             transforms: Optional transform(s) applied to both predictions and targets.
             pred_transforms: Optional transform(s) applied only to predictions.
             target_transforms: Optional transform(s) applied only to targets.
-            device: Device for tensor operations (PyTorch only).
+            device: torch.types.Device for tensor operations (PyTorch only).
         """
         self._metrics = metrics
         self._backend = backend

@@ -1,16 +1,17 @@
 from abc import ABC, abstractmethod
 from typing import Any, Generic
 
+import torch
 from torch import Tensor, nn
 
-from sckitflow.core._types import SolverConfig, TDevice, TSolverDynamics
+from sckitflow.core._types import SolverConfig, SolverDynamics
 from sckitflow.core._utils import get_torch_device
 
 
-class BaseSolver(Generic[TSolverDynamics], ABC, nn.Module):
+class BaseSolver(Generic[SolverDynamics], ABC, nn.Module):
     """Abstract Base Class for Solvers"""
 
-    def __init__(self, dynamics: TSolverDynamics, *, method: str | None, device_id: TDevice = "cpu") -> None:
+    def __init__(self, dynamics: SolverDynamics, *, method: str | None, device_id: torch.types.Device = "cpu") -> None:
         super().__init__()
         self._dynamics = dynamics
         self._device = get_torch_device(device_id)
@@ -42,12 +43,12 @@ class BaseSolver(Generic[TSolverDynamics], ABC, nn.Module):
         )
 
     @property
-    def dynamics(self) -> TSolverDynamics:
+    def dynamics(self) -> SolverDynamics:
         """Get the dynamics associated with the solver."""
         return self._dynamics
 
     @property
-    def device_id(self) -> TDevice:
+    def device_id(self) -> torch.types.Device:
         """Get the device identifier for the solver."""
         return self._device
 

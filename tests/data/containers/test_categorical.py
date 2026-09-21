@@ -153,7 +153,7 @@ class TestStoredRepresentationShape:
     def test_values_of_a_realm_must_share_a_width(self):
         """Nothing upstream checks this: a leaf holds one value, so `np.stack` never sees the mismatch.
 
-        `DataDimensionalitiesRegistry` reads a realm's width off whichever value comes first, so a
+        `DataDimensions` reads a realm's width off whichever value comes first, so a
         disagreement silently builds the model for one width and feeds it another.
         """
         cat = CategoricalData.from_pandas(

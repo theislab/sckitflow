@@ -3,7 +3,7 @@ import warnings
 import numpy as np
 import torch
 
-from sckitflow.core._types import ShapeLike, TDevice
+from sckitflow.core._types import ShapeLike
 
 __all__ = [
     "broadcast_to_target_shape",
@@ -104,11 +104,22 @@ def make_concatenation_possible(
     return broadcast_to_target_shape(input_tensor, dims_to_match + dims_to_retain)
 
 
-def get_torch_device(dev: TDevice) -> torch.device:
+def get_torch_device(dev: torch.types.Device) -> torch.device:
     """Validate the PyTorch device passed as input and return the corresponding torch.device object.
 
-    If the requested device is not found, falls back to CPU with a warning.
+    Accepts every form :data:`torch.types.Device` allows and always returns a
+    `torch.device`: a device, a string, a bare ordinal on the current
+    accelerator, or `None` for torch's default device. If the requested device
+    is not available, falls back to CPU with a warning.
     """
+    if dev is None:
+        return torch.get_default_device()
+    if isinstance(dev, int) and not isinstance(dev, bool):
+        # torch reads a bare int as an ordinal on the current accelerator
+        dev = torch.device(dev)
+    if isinstance(dev, torch.device):
+        # normalize to its string form so every input takes the same checks below
+        dev = str(dev)
     if isinstance(dev, str):
         if dev.startswith("cuda"):
             if not torch.cuda.is_available():
@@ -131,17 +142,16 @@ def get_torch_device(dev: TDevice) -> torch.device:
             except RuntimeError:
                 warnings.warn(f"Invalid device string '{dev}'. Falling back to CPU.", UserWarning, stacklevel=2)
                 return torch.device("cpu")
-        elif dev == "mps":
+        elif dev.startswith("mps"):
             if not torch.backends.mps.is_available():
                 warnings.warn(
                     "MPS device requested but MPS is not available. Falling back to CPU.", UserWarning, stacklevel=2
                 )
                 return torch.device("cpu")
             return torch.device("mps")
-        elif dev == "cpu":
+        elif dev.startswith("cpu"):
             return torch.device("cpu")
         else:
             warnings.warn(f"Unknown device platform '{dev}'. Falling back to CPU.", UserWarning, stacklevel=2)
             return torch.device("cpu")
-    else:
-        return dev
+    raise TypeError(f"expected a torch.device, str, int or None, got {type(dev).__name__}.")

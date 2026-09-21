@@ -1,6 +1,6 @@
 from typing import Any
 
-from sckitflow.data import _dims_registry as dims_registry
+from sckitflow.data import _dims as dims
 from sckitflow.data import _group_encoders as group_encoders
 from sckitflow.data import _mixins as mixins
 from sckitflow.data import _utils as utils
@@ -10,7 +10,7 @@ from sckitflow.data.splitters import CombinationSplitter, Splitter
 
 __all__ = [
     "containers",
-    "dims_registry",
+    "dims",
     "group_encoders",
     "mixins",
     "utils",

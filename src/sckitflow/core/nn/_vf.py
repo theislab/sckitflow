@@ -13,14 +13,14 @@ from sckitflow._constants import (
     DEFAULT_VF_LATENT_TIME_DIM,
 )
 from sckitflow._types import ConditioningLayersId, LayersDict, NestedLayersDict, TimeFeaturesId
-from sckitflow.core._types import MappedTensor, TConditioningFn, TTimeFeaturesFn, TVfFn
+from sckitflow.core._types import ConditioningFn, MappedTensor, TimeFeaturesFn, VfFn
 from sckitflow.core._utils import make_concatenation_possible
 from sckitflow.core.nn._conditioning_layers import BaseConditioningLayer, get_conditioning_layer
 from sckitflow.core.nn._modules import BaseModule, FunctionalModule
 from sckitflow.core.nn._set_encoder import SetEncoder
 from sckitflow.core.nn._time_features import get_time_features_fn
 from sckitflow.core.nn._utils import init_module_from_dict
-from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
+from sckitflow.data._dims import DataDimensions
 
 __all__ = [
     "BaseVelocityField",
@@ -56,7 +56,7 @@ class BaseVelocityField(BaseModule):
         self,
         *args,
         **kwargs,
-    ) -> TVfFn:
+    ) -> VfFn:
         """Compiles the velocity field function to be fed to external solvers."""
 
 
@@ -77,7 +77,7 @@ class MLPVelocity(BaseVelocityField):
         encode_state: bool = True,
         encode_time: bool = True,
         time_features_id: TimeFeaturesId | None = None,
-        time_features_fn: TTimeFeaturesFn | None = None,
+        time_features_fn: TimeFeaturesFn | None = None,
         num_time_features: int | None = None,
         max_period: int | None = None,
         time_features_kwargs: dict[str, Any] | None = None,
@@ -87,7 +87,7 @@ class MLPVelocity(BaseVelocityField):
         time_encoder_mlp_kwargs: LayersDict | None = None,
         vf_decoder_mlp_kwargs: LayersDict | None = None,
         conditioning_id: ConditioningLayersId | None = None,
-        conditioning_fn: TConditioningFn | None = None,
+        conditioning_fn: ConditioningFn | None = None,
         conditioning_kwargs: dict[str, Any] | None = None,
         condition_encoder_input_layers: NestedLayersDict | None = None,
         condition_encoder_output_dim: int | None = None,
@@ -125,7 +125,7 @@ class MLPVelocity(BaseVelocityField):
             trailing singleton dimension and expand the trailing dimension to $2K$.The input function is wrapped,
             so that it only need to actually implement the expansion of the trailing dimension.
             When provided, takes precedence over string initialization. Defaults to `None`.
-        :type time_features_fn: class: `TTimeFeaturesFn | None`
+        :type time_features_fn: class: `TimeFeaturesFn | None`
 
         :param num_time_features: (Optional) Sets the number of resulting time features, hence it must be even.
             Raises a :class: `ValueError` otherwise. When not provided, it will be set to
@@ -178,7 +178,7 @@ class MLPVelocity(BaseVelocityField):
 
         :param conditioning_fn: (Optional) Callable using for the instantiation of custom conditioning layers.
             When provided, takes precedence over string initialization. Defaults to `None`.
-        :type conditioning_fn: class: `TConditioningFn`
+        :type conditioning_fn: class: `ConditioningFn`
 
         :param conditioning_kwargs: (Optional) Keyword arguments used to initialize the conditioning layer.
             Ignored when the using concatenation based conditioning. When setting :param: `conditioning_id`
@@ -537,7 +537,7 @@ class MLPVelocity(BaseVelocityField):
         self,
         condition_dict: MappedTensor | None = None,
         source: torch.Tensor | None = None,
-    ) -> TVfFn:
+    ) -> VfFn:
         """Compiles the velocity field function to be fed to external solvers."""
 
         def _vf_fn(t: torch.Tensor, x: torch.Tensor):
@@ -553,24 +553,24 @@ class MLPVelocity(BaseVelocityField):
         return self._condition_encoder_input_layers is not None
 
     @classmethod
-    def init_from_dims_registry(
+    def init_from_data_dims(
         cls,
-        dims_registry: DataDimensionalitiesRegistry,
+        data_dims: DataDimensions,
         condition_encoder_input_layers: NestedLayersDict | None = None,
         source_encoder_mlp_kwargs: LayersDict | None = None,
         **kwargs,
     ) -> "MLPVelocity":
         # get dimensionalities from registry
-        state_dim = dims_registry.state_dim
+        state_dim = data_dims.state_dim
 
         # get covariates not to pool from registry
         condition_encoder_covariates_not_pooled = []
 
         # create dictionary with all conditions dimensions
         all_dims_dict = {
-            **dims_registry.condition_reps_dims,
-            **dims_registry.condition_continuous_dims,
-            **dims_registry.groups_reps_dims,
+            **data_dims.condition_reps_dims,
+            **data_dims.condition_continuous_dims,
+            **data_dims.groups_reps_dims,
         }
 
         # register input dimensionalities for condition encoder
@@ -586,18 +586,18 @@ class MLPVelocity(BaseVelocityField):
                 input_layers["input_dim"] = cov_input_dim
 
                 # add continuous covariates to the covariates not to pool
-                if cov in dims_registry.condition_continuous_dims.keys():
+                if cov in data_dims.condition_continuous_dims.keys():
                     condition_encoder_covariates_not_pooled.append(cov)
 
         # register source state dimensionality when provided
         if source_encoder_mlp_kwargs is not None:
             # get source dimension
-            if dims_registry.source_lin_dim is not None and dims_registry.source_quad_dim is not None:
-                source_dim = dims_registry.source_lin_dim + dims_registry.source_quad_dim
-            elif dims_registry.source_lin_dim is not None:
-                source_dim = dims_registry.source_lin_dim
-            elif dims_registry.source_quad_dim is not None:
-                source_dim = dims_registry.source_quad_dim
+            if data_dims.source_lin_dim is not None and data_dims.source_quad_dim is not None:
+                source_dim = data_dims.source_lin_dim + data_dims.source_quad_dim
+            elif data_dims.source_lin_dim is not None:
+                source_dim = data_dims.source_lin_dim
+            elif data_dims.source_quad_dim is not None:
+                source_dim = data_dims.source_quad_dim
             else:
                 source_dim = None
             source_encoder_mlp_kwargs["input_dim"] = source_dim

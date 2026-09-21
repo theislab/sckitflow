@@ -3,7 +3,7 @@ from typing import Any
 import numpy as np
 import torch
 
-from sckitflow.core._types import StepData, TensorMixin, TNoiseSamplerFn
+from sckitflow.core._types import NoiseSamplerFn, StepData, TensorMixin
 from sckitflow.core._utils import to_torch_tensor
 from sckitflow.data import mixins
 from sckitflow.data.containers import CategoricalData, MixedTypeData
@@ -145,7 +145,7 @@ def expand_conditioning(
 def prepare_latent_train(
     source: torch.Tensor | None,
     target: torch.Tensor,
-    noise_sampler: TNoiseSamplerFn,
+    noise_sampler: NoiseSamplerFn,
     generate_from_noise: bool = False,
 ) -> torch.Tensor:
     """Called from compute_loss - always returns single noise per batch element."""
@@ -157,7 +157,7 @@ def prepare_latent_train(
 def prepare_latent_inference(
     source: torch.Tensor | None,
     target_reference: torch.Tensor,
-    noise_sampler: TNoiseSamplerFn,
+    noise_sampler: NoiseSamplerFn,
     n_samples: int | None = None,
     generate_from_noise: bool = False,
 ) -> torch.Tensor:

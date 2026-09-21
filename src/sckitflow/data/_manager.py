@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, Unpack
 
 import numpy as np
 import pandas as pd
+import torch
 from anndata import AnnData
 
 if TYPE_CHECKING:
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
     from sckitflow.data._loader import EvalLoader, Loader
 
 from sckitflow._types import TargetCovariatesEncodingId
-from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
+from sckitflow.data._dims import DataDimensions
 from sckitflow.data._group_encoders import GroupEncoder, GroupEncoderId
 from sckitflow.data._utils import with_derived_obs
 from sckitflow.data.containers._categorical import CategoricalData
@@ -353,8 +354,8 @@ class DataManager:
         self,
         data: DistributionData,
         feature_names: pd.Index,
-    ) -> DataDimensionalitiesRegistry:
-        return DataDimensionalitiesRegistry.init_from_distribution_data(data, feature_names)
+    ) -> DataDimensions:
+        return DataDimensions.init_from_distribution_data(data, feature_names)
 
     def get_distribution_data(
         self,
@@ -380,7 +381,7 @@ class DataManager:
     def get_data_dimensionalities(
         self,
         adata: AnnData,
-    ) -> DataDimensionalitiesRegistry:
+    ) -> DataDimensions:
         """Registers the data dimensionalities from the input data according to the current schema.
 
         :param adata: The annotated data object which to extract the dimensionalities from.
@@ -672,7 +673,7 @@ class DataManager:
         :param dtype: Torch dtype every emitted tensor is cast to; ``None`` leaves them as streamed.
         :type dtype: class: `torch.dtype | None`
 
-        :param device: Device every emitted tensor is moved to; ``None`` leaves them as streamed. Unlike
+        :param device: torch.types.Device every emitted tensor is moved to; ``None`` leaves them as streamed. Unlike
             training this moves rather than asserts -- the eval path reads rows directly, so its one copy per
             group is unavoidable.
         :type device: class: `str | None`

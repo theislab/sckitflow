@@ -20,7 +20,7 @@ from sckitflow.data._manager import DataManager
 class DummyModule(BaseModule):
     """Simple dummy module that mimics the interface but is picklable."""
 
-    def _make_modules(self, dims_registry, *args, **kwargs):
+    def _make_modules(self, data_dims, *args, **kwargs):
         # No real module, just a placeholder
         return None
 
@@ -71,8 +71,8 @@ class DummyPredictionData:
 class DummyMethod(BaseMethod):
     _module_cls = DummyModule
 
-    def __init__(self, dims_registry, dm, *args, **kwargs):
-        super().__init__(dims_registry, dm, *args, **kwargs)
+    def __init__(self, data_dims, dm, *args, **kwargs):
+        super().__init__(data_dims, dm, *args, **kwargs)
 
     def set_train_mode(self, mode: bool):
         self._train_mode = mode
@@ -83,7 +83,7 @@ class DummyMethod(BaseMethod):
         return torch.tensor(0.0), {"loss": 0.0}
 
     def infer(self, step_data, *args, **kwargs):
-        n_feat = len(self._dims_registry.feature_names)
+        n_feat = len(self._data_dims.feature_names)
         if step_data["target_state"] is not None:
             n_obs = step_data["target_state"].shape[0]
         else:
@@ -147,10 +147,10 @@ class TestModel:
     def test_builder_builds_dm_and_dims(self, adata: AnnData):
         model = _make_model(adata)
         assert isinstance(model.dm, DataManager)
-        assert model._dims_registry is not None
+        assert model._data_dims is not None
         assert model.is_paired_setting is False
-        assert model._dims_registry.feature_names is not None
-        assert len(model._dims_registry.feature_names) == adata.n_vars
+        assert model._data_dims.feature_names is not None
+        assert len(model._data_dims.feature_names) == adata.n_vars
 
     def test_builder_exposes_dm_and_dims(self, adata: AnnData):
         builder = ModelBuilder.from_adata(adata)
@@ -175,7 +175,7 @@ class TestModel:
         data_dims = dm.get_data_dimensionalities(adata)
         model = Model(dm, data_dims, method_cls=DummyMethod)
         assert model.dm is dm
-        assert model._dims_registry is data_dims
+        assert model._data_dims is data_dims
 
     def test_init_raises_without_method(self, adata: AnnData):
         with pytest.raises(ValueError, match="At least one of"):
@@ -361,15 +361,15 @@ class TestModel:
                 return self.linear(x)
 
             @classmethod
-            def init_from_dims_registry(cls, dims_registry, *args, **kwargs):
+            def init_from_data_dims(cls, data_dims, *args, **kwargs):
                 return cls()
 
         # Create a proper method class that uses RealDummyModule
         class RealDummyMethod(BaseMethod):
             _module_cls = RealDummyModule
 
-            def __init__(self, dims_registry, dm, *args, **kwargs):
-                super().__init__(dims_registry, dm, *args, **kwargs)
+            def __init__(self, data_dims, dm, *args, **kwargs):
+                super().__init__(data_dims, dm, *args, **kwargs)
 
             def set_train_mode(self, mode: bool):
                 if mode:
@@ -387,7 +387,7 @@ class TestModel:
 
             def infer(self, step_data, *args, **kwargs):
                 n_obs = step_data["target_state"].shape[0]
-                n_feat = len(self._dims_registry.feature_names)
+                n_feat = len(self._data_dims.feature_names)
                 samples = np.zeros((n_obs, n_feat))
                 from tests.test_model import DummyPredictionData
 
@@ -633,7 +633,7 @@ class TestModelPredictCombinations:
         if view_on_condition_space:
             expected_n_vars = adata.obsm[cont_key].shape[1]
         else:
-            expected_n_vars = len(model._dims_registry.feature_names)
+            expected_n_vars = len(model._data_dims.feature_names)
         assert pred_adata.n_vars == expected_n_vars
 
         # 3. Conditioning is now a dict of per-group encoding tensors (no ann_df containers).

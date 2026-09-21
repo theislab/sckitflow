@@ -1,23 +1,24 @@
 from typing import Any
 
+import torch
 from torch import Tensor
 from torchdiffeq import odeint
 
-from sckitflow.core._types import TDevice, TODEDynamics, TVfFn
+from sckitflow.core._types import ODEDynamics, VfFn
 from sckitflow.core.solvers._solver import BaseSolver
 
 
-class ODESolver(BaseSolver[TODEDynamics]):
+class ODESolver(BaseSolver[ODEDynamics]):
     r"""Class for solving deterministic ordinary differential equations (ODEs) with :func:`torchdiffeq.odeint`.
 
     :param dynamics: Velocity field providing the time-dependent dynamics. Must implement :meth:`BaseVelocityField.get_vf_fn`.
-    :type dynamics: class:`TODEDynamics`
+    :type dynamics: class:`ODEDynamics`
 
     :param method: (Optional) Integration scheme used by ``torchdiffeq``. Defaults to ``"euler"``. Other valid options depend on ``torchdiffeq``.
     :type method: class:`str`
 
     :param device_id: (Optional) Identifier for the target compute device.
-    :type device_id: class:`TDevice`
+    :type device_id: class:`torch.types.Device`
 
     :param vf_kwargs: (Optional) Keyword arguments passed to
             :meth:`BaseVelocityField.get_vf_fn`.
@@ -26,10 +27,10 @@ class ODESolver(BaseSolver[TODEDynamics]):
 
     def __init__(
         self,
-        dynamics: TODEDynamics,
+        dynamics: ODEDynamics,
         *,
         method: str = "euler",
-        device_id: TDevice = "cpu",
+        device_id: torch.types.Device = "cpu",
         vf_kwargs: dict[str, Any] | None = None,
     ) -> None:
         super().__init__(dynamics=dynamics, method=method, device_id=device_id)
@@ -90,6 +91,6 @@ class ODESolver(BaseSolver[TODEDynamics]):
             return trajectory[-1]
 
     @property
-    def vf(self) -> TVfFn:
+    def vf(self) -> VfFn:
         """Get the velocity field associated with the ODE solver."""
         return self._vf

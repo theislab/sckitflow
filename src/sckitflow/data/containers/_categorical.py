@@ -130,7 +130,7 @@ class CategoricalData(BaseData):
                 col_repr = np.vstack(reprs)
                 # Every value of a realm must encode to the same width. Nothing upstream checks this:
                 # `__post_init__` only checks that a realm *has* representations, and
-                # `DataDimensionalitiesRegistry` reads the realm's dimension off whichever value comes
+                # `DataDimensions` reads the realm's dimension off whichever value comes
                 # first (`next(iter(...))`). A leaf holds one value, so a disagreement would never reach
                 # `np.stack` below -- one leaf would emit `(1, 1, 5)` and the next `(1, 1, 3)` for the
                 # same realm, and the model would be built for one and fed the other.

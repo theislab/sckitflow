@@ -18,7 +18,7 @@ from sckitflow._types import PredictionData
 from sckitflow.core._types import StepData
 from sckitflow.core.methods._base import BaseMethod
 from sckitflow.core.methods._opt import OptimConfig, OptimizationManager
-from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
+from sckitflow.data._dims import DataDimensions
 from sckitflow.data._manager import DataManager, DataManagerKwargs
 from sckitflow.trainer._callbacks import BaseCallback, TrainingCallbacks
 from sckitflow.trainer._trainer import Trainer
@@ -48,7 +48,7 @@ class ModelBuilder:
     def __init__(
         self,
         dm: DataManager,
-        data_dims: DataDimensionalitiesRegistry,
+        data_dims: DataDimensions,
     ) -> None:
         """See :meth:`from_adata` for the usual entry point."""
         self._dm = dm
@@ -83,7 +83,7 @@ class ModelBuilder:
         return self._dm
 
     @property
-    def data_dims(self) -> DataDimensionalitiesRegistry:
+    def data_dims(self) -> DataDimensions:
         """The data dimensionalities derived from the registration data."""
         return self._data_dims
 
@@ -133,7 +133,7 @@ class Model:
     def __init__(
         self,
         dm: DataManager,
-        data_dims: DataDimensionalitiesRegistry,
+        data_dims: DataDimensions,
         *args,
         method: BaseMethod | None = None,
         method_cls: type[BaseMethod] | None = None,
@@ -149,7 +149,7 @@ class Model:
 
         :param data_dims: The data dimensionalities derived from the registration
             data (see :meth:`DataManager.get_data_dimensionalities`).
-        :type data_dims: class: `DataDimensionalitiesRegistry`
+        :type data_dims: class: `DataDimensions`
 
         :param method: A pre-built method instance. When provided,
             ``method_cls`` / ``method_id`` and any extra ``args`` / ``kwargs``
@@ -169,7 +169,7 @@ class Model:
         """
         # store data manager and dimensionalities
         self._dm = dm
-        self._dims_registry = data_dims
+        self._data_dims = data_dims
 
         # use the provided method instance when given
         if method is not None:
@@ -192,7 +192,7 @@ class Model:
 
             # initialize method
             self._method = method_cls(
-                self._dims_registry,
+                self._data_dims,
                 self._dm,
                 *args,
                 **kwargs,
@@ -258,8 +258,8 @@ class Model:
     def _predict_empty(self, return_raw: bool) -> AnnData | tuple[AnnData, None]:
         """Returns empty anndata for prediction."""
         empty_adata = AnnData(
-            X=np.empty((0, len(self._dims_registry.feature_names))),
-            var=pd.DataFrame(index=self._dims_registry.feature_names),
+            X=np.empty((0, len(self._data_dims.feature_names))),
+            var=pd.DataFrame(index=self._data_dims.feature_names),
         )
         return empty_adata if not return_raw else (empty_adata, None)
 
@@ -371,7 +371,7 @@ class Model:
         obsm_final = {k: np.concatenate(v, axis=0) for k, v in all_obsm.items()}
 
         pred_adata = AnnData(
-            X=X_np, obs=obs_final, var=pd.DataFrame(index=self._dims_registry.feature_names), obsm=obsm_final
+            X=X_np, obs=obs_final, var=pd.DataFrame(index=self._data_dims.feature_names), obsm=obsm_final
         )
 
         # ---- Return output ----
@@ -701,7 +701,7 @@ class Model:
         if adata is not None:
             builder = ModelBuilder.from_adata(adata, **register_kwargs)
             model._dm = builder.dm
-            model._dims_registry = builder.data_dims
+            model._data_dims = builder.data_dims
 
         # Move to desired device if requested
         if map_location is not None:

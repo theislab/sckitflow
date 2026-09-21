@@ -2,6 +2,8 @@ import abc
 from collections.abc import Collection
 from typing import Any, Literal
 
+import numpy as np
+import torch
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 BackendId = Literal["torch", "jax"]
@@ -27,9 +29,7 @@ TargetCovariatesEncodingId = Literal["label", "one-hot", "functional"]
 
 TargetCovariatesEncoderCls = FunctionTransformer | LabelEncoder | OneHotEncoder
 
-GENOTDataMatchFn = Any  # TODO
-
-TensorLike = Any  # TODO
+TensorLike = np.ndarray | torch.Tensor
 
 
 class PredictionData:

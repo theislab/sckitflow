@@ -8,7 +8,7 @@ import torch
 from sckitflow._constants import DEFAULT_NUM_TIME_FEATURES, DEFAULT_TIME_FEATURES_MAX_PERIOD, PI
 from sckitflow._types import TimeFeaturesId
 from sckitflow._utils import verify_fn_signature
-from sckitflow.core._types import TTimeFeaturesFn
+from sckitflow.core._types import TimeFeaturesFn
 from sckitflow.core._utils import ensure_2d_tensor_with_singleton_trailing_dim
 
 __all__ = [
@@ -92,14 +92,14 @@ def torch_cfm_time_features(
 
 
 def make_custom_time_features(
-    time_features_fn: TTimeFeaturesFn, num_time_features: int, time_features_kwargs: dict[str, Any]
+    time_features_fn: TimeFeaturesFn, num_time_features: int, time_features_kwargs: dict[str, Any]
 ) -> Callable[[torch.Tensor], torch.Tensor]:
     """Compiles the input function with the chosen arguments and return its wrapped version.
 
     :param time_features_fn: (Optional) Function defining the custom time featurizer which should accept tensor with
             trailing singleton dimension and expand the trailing dimension to $2K$.The input function is wrapped,
             so that it only need to actually implement the expansion of the trailing dimension. Defaults to `None`.
-    :type time_features_fn: class: `TTimeFeaturesFn | None`
+    :type time_features_fn: class: `TimeFeaturesFn | None`
 
     :param num_time_features: (Optional) Sets the value of $2K$, the number of resulting time features, hence it must be even.
         Raises a :class: `ValueError` otherwise. When not provided, it will be set to
@@ -113,7 +113,7 @@ def make_custom_time_features(
     if num_time_features <= 0:
         msg = "The number of time features should be positive."
         raise ValueError(msg)
-    verify_fn_signature(time_features_fn, TTimeFeaturesFn, kwargs_dict=time_features_kwargs)
+    verify_fn_signature(time_features_fn, TimeFeaturesFn, kwargs_dict=time_features_kwargs)
 
     def _time_features_fn(t: torch.Tensor):
         t = ensure_2d_tensor_with_singleton_trailing_dim(t)
@@ -132,7 +132,7 @@ def make_custom_time_features(
 def get_time_features_fn(
     num_time_features: int | None = None,
     time_features_id: TimeFeaturesId | None = None,
-    time_features_fn: TTimeFeaturesFn | None = None,
+    time_features_fn: TimeFeaturesFn | None = None,
     max_period: int | None = None,
     time_features_kwargs: dict[str, Any] | None = None,
 ) -> Callable[[torch.Tensor], torch.Tensor]:
@@ -165,7 +165,7 @@ def get_time_features_fn(
     :param time_features_fn: (Optional) Function defining the custom time featurizer which should accept tensor with
             trailing singleton dimension and expand the trailing dimension to $2K$.The input function is wrapped,
             so that it only need to actually implement the expansion of the trailing dimension. Defaults to `None`.
-    :type time_features_fn: class: `TTimeFeaturesFn | None`
+    :type time_features_fn: class: `TimeFeaturesFn | None`
 
     :param max_period: Sets the value of $M$, used for the linear scaling of the time features.
         Only used when :param: `time_features_id` is set to `"torch-cfm"`, ignored otherwise.

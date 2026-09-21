@@ -6,7 +6,7 @@ import torch
 from sckitflow._constants import DEFAULT_CONDITIONING_LAYER
 from sckitflow._types import ConditioningLayersId
 from sckitflow._utils import verify_fn_kwargs_dictionary
-from sckitflow.core._types import TConditioningFn
+from sckitflow.core._types import ConditioningFn
 from sckitflow.core._utils import make_concatenation_possible
 from sckitflow.core.nn._modules import BaseModule, Resnet1d
 
@@ -291,7 +291,7 @@ class Resnet1dConditioning(BaseConditioningLayer):
 
 
 def make_custom_conditioning_layer(
-    conditioning_fn: TConditioningFn,
+    conditioning_fn: ConditioningFn,
     conditioning_kwargs: dict[str, Any] | None = None,
 ) -> BaseConditioningLayer:
     """"""  # noqa
@@ -303,7 +303,7 @@ def get_conditioning_layer(
     latent_time_dim: int,
     latent_condition_dim: int | None = None,
     conditioning_id: ConditioningLayersId | None = None,
-    conditioning_fn: TConditioningFn | None = None,
+    conditioning_fn: ConditioningFn | None = None,
     conditioning_kwargs: dict[str, Any] | None = None,
 ) -> BaseConditioningLayer:
     """"""  # noqa

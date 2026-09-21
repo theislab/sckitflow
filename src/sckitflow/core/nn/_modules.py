@@ -6,7 +6,7 @@ from typing import Any
 import torch
 
 from sckitflow._constants import DEFAULT_NUM_RESNET_LAYERS
-from sckitflow.data._dims_registry import DataDimensionalitiesRegistry
+from sckitflow.data._dims import DataDimensions
 
 __all__ = [
     "BaseModule",
@@ -45,9 +45,9 @@ class BaseModule(abc.ABC, torch.nn.Module):
         """
 
     @classmethod
-    def init_from_dims_registry(
+    def init_from_data_dims(
         cls,
-        dims_registry: DataDimensionalitiesRegistry,
+        data_dims: DataDimensions,
         *args,
         **kwargs,
     ) -> "BaseModule":

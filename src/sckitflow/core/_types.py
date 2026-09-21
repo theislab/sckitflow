@@ -24,13 +24,13 @@ ShapeLike = Sequence[int] | torch.Size
 
 TensorLike = torch.Tensor | np.ndarray
 
-TVfFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
+VfFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
-TTimeFeaturesFn = Callable[[torch.Tensor, int], torch.Tensor]
+TimeFeaturesFn = Callable[[torch.Tensor, int], torch.Tensor]
 
-TMeanFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
-TDriftFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
-TSigmaFn = Callable[[torch.Tensor], torch.Tensor]
+MeanFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+DriftFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
+SigmaFn = Callable[[torch.Tensor], torch.Tensor]
 ScaleMethod = Literal["mean", "max", "median"] | float
 LinCouplingMethod = Literal["exact", "sinkhorn", "partial", "unbalanced"] | None
 QuadCouplingMethod = Literal["entropic_gromov_wasserstein", "entropic_fused_gromov_wasserstein"] | None
@@ -39,7 +39,7 @@ CostFN = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 MatchFnOut = tuple[TensorLike, TensorLike] | tuple[TensorLike, TensorLike, TensorLike]
 
 
-class TMatchFn(Protocol):
+class MatchFn(Protocol):
     def __call__(
         self,
         source_lin: TensorLike,
@@ -48,23 +48,26 @@ class TMatchFn(Protocol):
     ) -> MatchFnOut: ...
 
 
-class TSamplerFn(Protocol):
+class SamplerFn(Protocol):
+    """Samples a tensor of `shape`, on the given device and dtype.
+
+    `torch.rand` and `torch.randn` satisfy this, which is why they are the
+    defaults for the time and noise samplers. ``device`` and ``dtype`` are named
+    rather than swept into ``**kwargs`` so a caller that forgets to place the
+    sample where the batch already is fails to type-check instead of silently
+    allocating on the wrong device.
+    """
+
     def __call__(
         self,
-        *size: int,
-        **kwargs: Any,
-    ) -> TensorLike | tuple[TensorLike, TensorLike]: ...
+        shape: tuple[int, ...],
+        *,
+        device: torch.types.Device = None,
+        dtype: torch.dtype | None = None,
+    ) -> torch.Tensor: ...
 
 
-class TTimeSamplerFn(TSamplerFn):
-    pass
-
-
-class TNoiseSamplerFn(TSamplerFn):
-    pass
-
-
-class TConditioningFn(Protocol):
+class ConditioningFn(Protocol):
     def __call__(
         self,
         encoded_t: torch.Tensor,
@@ -73,17 +76,16 @@ class TConditioningFn(Protocol):
     ) -> torch.Tensor: ...
 
 
-TDevice = str | torch.device
-TNoiseType = Literal["scalar", "diagonal", "general", "additive"]
-TSDEType = Literal["ito", "stratonovich"]
+NoiseType = Literal["scalar", "diagonal", "general", "additive"]
+SDEType = Literal["ito", "stratonovich"]
 
 
-TODEDynamics = TypeVar("TODEDynamics", bound="BaseVelocityField")
-TTimeStateDiffusion = Callable[[Tensor, Tensor], Tensor]
-TTimeDiffusion = Callable[[Tensor], Tensor]
-TDiffusion = TTimeDiffusion | TTimeStateDiffusion
-TSDEDynamics = tuple[TODEDynamics, TDiffusion]
-TSolverDynamics = TypeVar("TSolverDynamics", TODEDynamics, TSDEDynamics)
+ODEDynamics = TypeVar("ODEDynamics", bound="BaseVelocityField")
+TimeStateDiffusion = Callable[[Tensor, Tensor], Tensor]
+TimeDiffusion = Callable[[Tensor], Tensor]
+Diffusion = TimeDiffusion | TimeStateDiffusion
+SDEDynamics = tuple[ODEDynamics, Diffusion]
+SolverDynamics = TypeVar("SolverDynamics", ODEDynamics, SDEDynamics)
 
 
 class SolverConfig(NamedTuple):

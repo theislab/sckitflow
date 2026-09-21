@@ -9,11 +9,11 @@ from sckitflow.data.containers._categorical import CategoricalData
 from sckitflow.data.containers._coupling import CouplingData
 from sckitflow.data.containers._distribution import DistributionData
 
-__all__ = ["DataDimensionalitiesRegistry"]
+__all__ = ["DataDimensions"]
 
 
 @dataclass(frozen=True)
-class DataDimensionalitiesRegistry:
+class DataDimensions:
     state_dim: int
     feature_names: pd.Index
     condition_reps_dims: dict[str, int] | None
@@ -70,9 +70,7 @@ class DataDimensionalitiesRegistry:
         return {**repr_dims, **encoded_covs_dims}
 
     @classmethod
-    def init_from_distribution_data(
-        cls, data: DistributionData, feature_names: pd.Index
-    ) -> "DataDimensionalitiesRegistry":
+    def init_from_distribution_data(cls, data: DistributionData, feature_names: pd.Index) -> "DataDimensions":
         state_dim = data.state_data.X.shape[-1]
 
         # Helper closures to handle None-checks cleanly

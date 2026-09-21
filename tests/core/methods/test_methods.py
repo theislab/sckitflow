@@ -56,7 +56,7 @@ class DummyGenerativeFlow(GenerativeFlow):
 # Fixtures
 # -----------------------------------------------------------------------------
 @pytest.fixture
-def mock_dims_registry():
+def mock_data_dims():
     reg = Mock()
     reg.feature_names = ["g1", "g2"]
     reg.n_features = 2
@@ -74,9 +74,9 @@ def mock_data_manager():
 
 
 @pytest.fixture
-def torch_method(mock_dims_registry, mock_data_manager):
+def torch_method(mock_data_dims, mock_data_manager):
     method = DummyMethod(
-        dims_registry=mock_dims_registry,
+        data_dims=mock_data_dims,
         dm=mock_data_manager,
         dtype=torch.float32,
         device_id="cpu",
@@ -85,9 +85,9 @@ def torch_method(mock_dims_registry, mock_data_manager):
 
 
 @pytest.fixture
-def torch_gen_flow(mock_dims_registry, mock_data_manager):
+def torch_gen_flow(mock_data_dims, mock_data_manager):
     flow = DummyGenerativeFlow(
-        dims_registry=mock_dims_registry,
+        data_dims=mock_data_dims,
         dm=mock_data_manager,
         dtype=torch.float32,
         device_id="cpu",
@@ -113,31 +113,31 @@ class TestBaseMethod:
     def test_abstract_class_cannot_be_instantiated(self):
         """BaseMethod should raise TypeError if abstract methods not implemented."""
         with pytest.raises(TypeError):
-            BaseMethod(dims_registry=Mock(), dm=Mock())
+            BaseMethod(data_dims=Mock(), dm=Mock())
 
-    def test_concrete_method_instantiation(self, mock_dims_registry, mock_data_manager):
+    def test_concrete_method_instantiation(self, mock_data_dims, mock_data_manager):
         """Concrete subclass should be instantiable and set attributes correctly."""
-        method = DummyMethod(mock_dims_registry, mock_data_manager)
-        assert method._dims_registry is mock_dims_registry
+        method = DummyMethod(mock_data_dims, mock_data_manager)
+        assert method._data_dims is mock_data_dims
         assert method._dm is mock_data_manager
         assert method.is_paired_setting is False  # derived from the data manager
-        assert method._module is not None  # from _module_cls.init_from_dims_registry
+        assert method._module is not None  # from _module_cls.init_from_data_dims
 
-    def test_is_paired_setting_derived_from_dm(self, mock_dims_registry, mock_paired_data_manager):
+    def test_is_paired_setting_derived_from_dm(self, mock_data_dims, mock_paired_data_manager):
         """is_paired_setting is derived from the data manager's control/matched config."""
-        method = DummyMethod(mock_dims_registry, mock_paired_data_manager)
+        method = DummyMethod(mock_data_dims, mock_paired_data_manager)
         assert method.is_paired_setting is True
 
-    def test_matched_keys_alone_is_a_paired_setting(self, mock_dims_registry, mock_data_manager):
+    def test_matched_keys_alone_is_a_paired_setting(self, mock_data_dims, mock_data_manager):
         """Fixed pairs supply a source without any control values, so the setting is paired."""
         mock_data_manager.matched_keys = {("HeLa", "aspirin"): ("HeLa", "ibuprofen")}
-        assert DummyMethod(mock_dims_registry, mock_data_manager).is_paired_setting is True
+        assert DummyMethod(mock_data_dims, mock_data_manager).is_paired_setting is True
 
-    def test_properties_return_correct_values(self, mock_dims_registry, mock_paired_data_manager):
-        method = DummyMethod(mock_dims_registry, mock_paired_data_manager)
+    def test_properties_return_correct_values(self, mock_data_dims, mock_paired_data_manager):
+        method = DummyMethod(mock_data_dims, mock_paired_data_manager)
         assert method.module is not None
         assert method.dm is mock_paired_data_manager
-        assert method.dims_registry is mock_dims_registry
+        assert method.data_dims is mock_data_dims
         assert method.is_paired_setting is True
 
     def test_set_train_mode(self, torch_method):
@@ -156,10 +156,10 @@ class TestBaseMethod:
 class TestGenerativeFlow:
     """Tests for GenerativeFlow matching and training logic."""
 
-    def test_a_match_fn_is_refused_while_the_loaders_emit_no_coupling(self, mock_dims_registry, mock_data_manager):
+    def test_a_match_fn_is_refused_while_the_loaders_emit_no_coupling(self, mock_data_dims, mock_data_manager):
         """Accepting it would mean the requested OT coupling silently never runs (batches carry no coupling)."""
         with pytest.raises(NotImplementedError, match="not wired through the streaming data loaders"):
-            DummyGenerativeFlow(mock_dims_registry, mock_data_manager, match_fn=Mock())
+            DummyGenerativeFlow(mock_data_dims, mock_data_manager, match_fn=Mock())
 
     def test_call_match_fn_safe_no_source(self, torch_gen_flow):
         src_lin = src_quad = None
@@ -252,36 +252,36 @@ class TestGenerativeFlow:
         assert result is pred_data
         torch_gen_flow.infer.assert_called_once_with(step_data)
 
-    def test_init_defaults(self, mock_dims_registry, mock_data_manager):
+    def test_init_defaults(self, mock_data_dims, mock_data_manager):
         """Default attributes should be None when not provided."""
-        flow = DummyGenerativeFlow(mock_dims_registry, mock_data_manager)
+        flow = DummyGenerativeFlow(mock_data_dims, mock_data_manager)
         assert flow._probability_path is None
         assert flow._match_fn is None
         assert flow._noise_sampler is None
         assert flow._time_sampler is None
         assert flow.generate_from_noise is False  # noise is chosen per batch, when a batch has no source
 
-    def test_an_unpaired_schema_does_not_force_noise_generation(self, mock_dims_registry, mock_data_manager):
+    def test_an_unpaired_schema_does_not_force_noise_generation(self, mock_data_dims, mock_data_manager):
         """The flag means "noise even when a source exists"; a schema cannot know whether a batch has one.
 
         Forcing it here used to make a control pool passed at call time -- after this object is built --
         be streamed and then discarded. Batches without a source still get noise, via `prepare_latent_*`.
         """
-        flow = DummyGenerativeFlow(mock_dims_registry, mock_data_manager, generate_from_noise=False)
+        flow = DummyGenerativeFlow(mock_data_dims, mock_data_manager, generate_from_noise=False)
         assert flow.generate_from_noise is False
         assert flow.is_paired_setting is False  # unpaired schema, but the decision is no longer made here
 
-    def test_generate_from_noise_respected_when_paired(self, mock_dims_registry, mock_paired_data_manager):
+    def test_generate_from_noise_respected_when_paired(self, mock_data_dims, mock_paired_data_manager):
         """When paired, generate_from_noise can be set to False."""
-        flow = DummyGenerativeFlow(mock_dims_registry, mock_paired_data_manager, generate_from_noise=False)
+        flow = DummyGenerativeFlow(mock_data_dims, mock_paired_data_manager, generate_from_noise=False)
         assert flow.generate_from_noise is False
 
-    def test_properties_return_assigned_values(self, mock_dims_registry, mock_paired_data_manager):
+    def test_properties_return_assigned_values(self, mock_data_dims, mock_paired_data_manager):
         prob_path = Mock()
         noise_sampler = Mock()
         time_sampler = Mock()
         flow = DummyGenerativeFlow(
-            mock_dims_registry,
+            mock_data_dims,
             mock_paired_data_manager,
             probability_path=prob_path,
             noise_sampler=noise_sampler,

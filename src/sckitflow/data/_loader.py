@@ -21,7 +21,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Iterator
 from functools import cached_property
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 import numpy as np
 import pandas as pd
@@ -32,6 +32,14 @@ from scfit.data import Stream
 
 from sckitflow.data._utils import with_derived_obs
 
+
+@runtime_checkable
+class SupportsDLPack(Protocol):
+    """Any array that can hand over its buffer without a copy."""
+
+    def __dlpack__(self, *, stream: int | None = None) -> Any: ...
+
+
 if TYPE_CHECKING:
     import torch
 
@@ -40,12 +48,11 @@ if TYPE_CHECKING:
     from sckitflow.core._types import StepData
     from sckitflow.data.schemas import ConditionDataSchema, GroupsDataSchema
 
-    ArrayLike = np.ndarray | torch.Tensor | Any
-
 # The kwargs contract for these loaders is :class:`~sckitflow.data._manager.LoaderKwargs` -- declared
 # there, next to its only consumer (``DataManager.get_dataloaders``), so typing a call site does not
 # drag in the scfit/annbatch stack this module imports.
 __all__ = ["Loader", "EvalLoader"]
+
 
 # Every StepData key, so the emitted dict is complete and consumers can index without guarding.
 _STEP_DATA_KEYS = (
@@ -74,7 +81,7 @@ def _state_loc(sample_rep: str | None) -> str:
     return "X" if sample_rep is None else f"obsm/{sample_rep}"
 
 
-def _as_tensor(array: ArrayLike) -> torch.Tensor:
+def _as_tensor(array: SupportsDLPack) -> torch.Tensor:
     """Any streamed array -> ``torch.Tensor`` sharing its buffer, on the device it already lives."""
     import torch
 
@@ -82,7 +89,7 @@ def _as_tensor(array: ArrayLike) -> torch.Tensor:
         return array
     if isinstance(array, np.ndarray):
         return torch.as_tensor(array)
-    if not (hasattr(array, "__dlpack__") or type(array).__name__ == "PyCapsule"):
+    if not isinstance(array, SupportsDLPack):
         raise TypeError(
             f"cannot convert a streamed {type(array).__name__} to a torch tensor without copying: expected "
             "a numpy/torch array, or an array exposing the DLPack protocol (`__dlpack__`, e.g. cupy on a "

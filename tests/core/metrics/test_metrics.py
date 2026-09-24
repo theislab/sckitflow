@@ -41,7 +41,6 @@ def test_energy_distance_vs_sklearn():
     n_features = 50
     # Set seed for reproducibility
     torch.manual_seed(42)
-    np.random.seed(42)
 
     metric = EnergyDistance()
     pred = torch.randn(n_samples, n_features)
@@ -63,7 +62,6 @@ def test_maximum_mean_discrepancy_vs_sklearn():
 
     # Set seed for reproducibility
     torch.manual_seed(42)
-    np.random.seed(42)
 
     metric = MaximumMeanDiscrepancy(gammas=[1.0])
     pred = torch.randn(n_samples, n_features)

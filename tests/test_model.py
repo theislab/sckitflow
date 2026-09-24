@@ -48,7 +48,8 @@ class DummyModule(BaseModule):
 # -----------------------------------------------------------------------------
 def _add_continuous_covariate(adata: AnnData, key: str = "X_repr", n_dim: int = 10) -> AnnData:
     """Add a random continuous covariate to adata.obsm."""
-    adata.obsm[key] = np.random.randn(adata.n_obs, n_dim)
+    rng = np.random.default_rng(0)
+    adata.obsm[key] = rng.standard_normal((adata.n_obs, n_dim))
     return adata
 
 
@@ -262,13 +263,14 @@ class TestModel:
 
     def test_predict_without_target_state(self, adata: AnnData):
         """predict(require_target_state=False, max_per_group=1) works with no target state -- metadata only."""
+        rng = np.random.default_rng(0)
         dm_kwargs = {**_DM_TRAIN_KWARGS, "conditions_covariates": ["X_repr"]}
         model = _make_model(adata, dm_kwargs=dm_kwargs)
 
         # no target state (.X unused); obs + uns encodings + the continuous conditioning rep are enough
         meta = AnnData(obs=adata.obs[["source_split", "drugA"]].copy())
         meta.uns = dict(adata.uns)
-        meta.obsm["X_repr"] = np.random.randn(meta.n_obs, 8).astype(np.float32)
+        meta.obsm["X_repr"] = rng.standard_normal((meta.n_obs, 8)).astype(np.float32)
 
         pred_adata = model.predict(meta, require_target_state=False, max_per_group=1)
 
@@ -514,6 +516,7 @@ class TestModelPredictCombinations:
         view_on_condition_space,
     ):
         """Test prediction with all schema feature combinations."""
+        rng = np.random.default_rng(0)
         # Skip invalid: view_on_condition_space requires has_cont_cond
         if view_on_condition_space and not has_cont_cond:
             pytest.skip("view_on_condition_space requires a continuous condition covariate")
@@ -551,10 +554,10 @@ class TestModelPredictCombinations:
             control_val = "control"
             unique_vals = adata.obs[cat_col].unique()
             rep_dim = 4
-            adata.uns[realm_col] = {val: np.random.randn(rep_dim) for val in unique_vals}
+            adata.uns[realm_col] = {val: rng.standard_normal(rep_dim) for val in unique_vals}
             if has_source:
                 if control_val not in adata.uns[realm_col]:
-                    adata.uns[realm_col][control_val] = np.random.randn(rep_dim)
+                    adata.uns[realm_col][control_val] = rng.standard_normal(rep_dim)
                 control_values_dict = {realm_col: control_val}
             conditions[realm_col] = (cat_col,)
             conditions_reps[realm_col] = realm_col
@@ -571,7 +574,7 @@ class TestModelPredictCombinations:
             groups = (group_col,)
             groups_reps[group_col] = group_col
             unique_groups = adata.obs[group_col].unique()
-            adata.uns[group_col] = {val: np.random.randn(2) for val in unique_groups}
+            adata.uns[group_col] = {val: rng.standard_normal(2) for val in unique_groups}
 
         # For paired setting without a categorical condition, create a dummy column
         if has_source and not has_cat_cond:
@@ -584,7 +587,7 @@ class TestModelPredictCombinations:
             adata.obs[dummy_col] = adata.obs[dummy_col].astype("category")
             conditions[dummy_col] = (dummy_col,)
             conditions_reps[dummy_col] = dummy_col
-            adata.uns[dummy_col] = {"control": np.random.randn(2), "treatment": np.random.randn(2)}
+            adata.uns[dummy_col] = {"control": rng.standard_normal(2), "treatment": rng.standard_normal(2)}
             control_values_dict = {dummy_col: "control"}
 
         # Build the model with the requested schema
@@ -650,15 +653,16 @@ class TestModelPredictCombinations:
 
     def test_continuous_covariates_flow_to_step_data_and_obsm(self, adata):
         """Continuous condition covariates ride per-cell into the StepData dict and out to obsm."""
+        rng = np.random.default_rng(0)
         adata = adata.copy()
         cond_key = "paired_condition"
-        adata.obsm[cond_key] = np.random.randn(adata.n_obs, 3).astype(np.float32)
+        adata.obsm[cond_key] = rng.standard_normal((adata.n_obs, 3)).astype(np.float32)
 
         cat_cond_col = "drugA"
         group_col = "source_split"
         adata.obs = adata.obs[[cat_cond_col, group_col]].copy()
-        adata.uns[cat_cond_col] = {val: np.random.randn(2) for val in adata.obs[cat_cond_col].unique()}
-        adata.uns[group_col] = {val: np.random.randn(2) for val in adata.obs[group_col].unique()}
+        adata.uns[cat_cond_col] = {val: rng.standard_normal(2) for val in adata.obs[cat_cond_col].unique()}
+        adata.uns[group_col] = {val: rng.standard_normal(2) for val in adata.obs[group_col].unique()}
 
         dm_kwargs = {
             "conditions": {cat_cond_col: (cat_cond_col,)},
@@ -699,6 +703,7 @@ class TestModelPredictControlValues:
 
     def _setup_paired_data(self, adata, has_continuous=False):
         """Create a paired dataset with drug condition and source_split groups."""
+        rng = np.random.default_rng(0)
         adata = adata.copy()
         adata.obs = adata.obs[["drugA", "source_split"]].copy()
         adata.obs["drugA"] = adata.obs["drugA"].astype(str)
@@ -706,11 +711,11 @@ class TestModelPredictControlValues:
         control_vals = ["control"] * (n_obs // 2)
         treatment_vals = ["treatment"] * (n_obs - n_obs // 2)
         adata.obs["drugA"] = control_vals + treatment_vals
-        adata.uns["drug"] = {"control": np.random.randn(4), "treatment": np.random.randn(4)}
+        adata.uns["drug"] = {"control": rng.standard_normal(4), "treatment": rng.standard_normal(4)}
         unique_groups = adata.obs["source_split"].unique()
-        adata.uns["source_split"] = {g: np.random.randn(2) for g in unique_groups}
+        adata.uns["source_split"] = {g: rng.standard_normal(2) for g in unique_groups}
         if has_continuous:
-            adata.obsm["X_repr"] = np.random.randn(n_obs, 5)
+            adata.obsm["X_repr"] = rng.standard_normal((n_obs, 5))
         return adata
 
     def _base_dm_kwargs(self, control_values_dict=None):

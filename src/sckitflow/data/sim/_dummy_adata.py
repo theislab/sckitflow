@@ -89,12 +89,11 @@ uns_keys_to_nunique_prefix_and_dim = {
 def _init_obs(
     n_obs: int,
     obs_columns_to_nunique_and_prefix: dict[str, tuple[int, str]],
+    rng: np.random.Generator,
     obs_columns_to_fixed_val: dict[str, str] = None,
 ) -> pd.DataFrame:
     """"""  # noqa
-    data_dict = {
-        k: map_int_to_str(np.random.choice(v[0], n_obs), v[1]) for k, v in obs_columns_to_nunique_and_prefix.items()
-    }
+    data_dict = {k: map_int_to_str(rng.choice(v[0], n_obs), v[1]) for k, v in obs_columns_to_nunique_and_prefix.items()}
     obs_df = pd.DataFrame(data_dict)
     if obs_columns_to_fixed_val is None:
         obs_columns_to_fixed_val = {}
@@ -103,27 +102,31 @@ def _init_obs(
     return obs_df
 
 
-def _init_obsm(n_obs: int, obsm_keys_to_dim: dict[str, int], zeros: bool = False) -> MappedArray:
+def _init_obsm(
+    n_obs: int, obsm_keys_to_dim: dict[str, int], rng: np.random.Generator, zeros: bool = False
+) -> MappedArray:
     """"""  # noqa
-    init_fn = lambda n, v: np.zeros((n, v)) if zeros else np.random.rand(n, v)
+    init_fn = lambda n, v: np.zeros((n, v)) if zeros else rng.random((n, v))
     return {k: init_fn(n_obs, v) for k, v in obsm_keys_to_dim.items()}
 
 
 def _init_uns(
     uns_keys_to_nunique_prefix_and_dim: dict[str, Any],
     is_control_val: str,
+    rng: np.random.Generator,
 ) -> dict[str, Any]:
     """"""  # noqa
 
     uns_dict = {}
     for k, v in uns_keys_to_nunique_prefix_and_dim.items():
-        uns = {uval.item(): np.random.randn(1, v[2]) for uval in map_int_to_str(np.arange(v[0]), v[1])}
+        uns = {uval.item(): rng.standard_normal((1, v[2])) for uval in map_int_to_str(np.arange(v[0]), v[1])}
         uns[is_control_val] = np.zeros((1, v[2]))
         uns_dict[k] = uns
     return uns_dict
 
 
 def _get_perturbed_adata(
+    rng: np.random.Generator,
     n_obs: int = n_obs_pert,
     n_genes: int = n_genes,
     obsm_keys_to_dim: dict[str, int] = obsm_keys_to_dim,
@@ -134,16 +137,16 @@ def _get_perturbed_adata(
     """"""  # noqa
 
     # initializing X
-    X = np.random.randn(n_obs, n_genes)
+    X = rng.standard_normal((n_obs, n_genes))
 
     # initializing obs
-    obs = _init_obs(n_obs, obs_columns_to_nunique_and_prefix)
+    obs = _init_obs(n_obs, obs_columns_to_nunique_and_prefix, rng)
 
     # initializing obsm
-    obsm = _init_obsm(n_obs, obsm_keys_to_dim, zeros=True)
+    obsm = _init_obsm(n_obs, obsm_keys_to_dim, rng, zeros=True)
 
     # initializing uns
-    uns = _init_uns(uns_keys_to_nunique_prefix_and_dim, is_control_val)
+    uns = _init_uns(uns_keys_to_nunique_prefix_and_dim, is_control_val, rng)
 
     return AnnData(
         X=X,
@@ -154,6 +157,7 @@ def _get_perturbed_adata(
 
 
 def _get_control_adata(
+    rng: np.random.Generator,
     n_obs: int = n_obs_ctrl,
     n_genes: int = n_genes,
     obsm_keys_to_dim: dict[str, int] = obsm_keys_to_dim,
@@ -165,16 +169,16 @@ def _get_control_adata(
     """"""  # noqa
 
     # initializing X
-    X = np.random.randn(n_obs, n_genes)
+    X = rng.standard_normal((n_obs, n_genes))
 
     # initializing obs
-    obs = _init_obs(n_obs, obs_columns_to_nunique_and_prefix, obs_columns_to_fixed_val)
+    obs = _init_obs(n_obs, obs_columns_to_nunique_and_prefix, rng, obs_columns_to_fixed_val)
 
     # initializing obsm
-    obsm = _init_obsm(n_obs, obsm_keys_to_dim, zeros=True)
+    obsm = _init_obsm(n_obs, obsm_keys_to_dim, rng, zeros=True)
 
     # initializing uns
-    uns = _init_uns(uns_keys_to_nunique_prefix_and_dim, is_control_val)
+    uns = _init_uns(uns_keys_to_nunique_prefix_and_dim, is_control_val, rng)
 
     return AnnData(
         X=X,
@@ -193,11 +197,14 @@ def get_dummy_adata(
     uns_keys_to_nunique_prefix_and_dim: dict[str, Any] = uns_keys_to_nunique_prefix_and_dim,
     obs_columns_to_fixed_val: dict[str, str] = obs_columns_to_fixed_val,
     control_key: str = control_key,
+    rng: int | np.random.Generator | None = 0,
 ) -> AnnData:
     """"""  # noqa
+    rng = np.random.default_rng(rng)
 
     # perturbation adata
     pert_adata = _get_perturbed_adata(
+        rng,
         n_obs=n_obs_pert,
         n_genes=n_genes,
         obsm_keys_to_dim=obsm_keys_to_dim,
@@ -209,6 +216,7 @@ def get_dummy_adata(
 
     # control adata
     ctrl_adata = _get_control_adata(
+        rng,
         n_obs=n_obs_ctrl,
         n_genes=n_genes,
         obsm_keys_to_dim=obsm_keys_to_dim,

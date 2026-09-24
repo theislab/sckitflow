@@ -8,9 +8,9 @@ class TestPreprocessingPipeline:
 
     def test_zscore_then_pca(self):
         """Test Z-score followed by PCA."""
-        np.random.seed(42)
-        X_train = np.random.randn(100, 50) * np.arange(1, 51)  # Different scales
-        X_test = np.random.randn(20, 50) * np.arange(1, 51)
+        rng = np.random.default_rng(42)
+        X_train = rng.standard_normal((100, 50)) * np.arange(1, 51)  # Different scales
+        X_test = rng.standard_normal((20, 50)) * np.arange(1, 51)
 
         # Step 1: Z-score
         zscore = ZScoreTransform()
@@ -34,8 +34,8 @@ class TestPreprocessingPipeline:
 
     def test_fit_transform_returns_tuple(self):
         """Test that PCA fit_transform returns data and params."""
-        np.random.seed(42)
-        X = np.random.randn(50, 20)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((50, 20))
 
         pca = PCATransform(n_components=5)
         X_transformed = pca.fit_transform(X)

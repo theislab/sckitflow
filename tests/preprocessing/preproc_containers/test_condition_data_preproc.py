@@ -93,9 +93,10 @@ class TestConditionPreprocessing:
 
     def test_extract_data_raises_if_no_continuous_covariates(self):
         # create a distribution without any continuous covariates
+        rng = np.random.default_rng(0)
         df = pd.DataFrame({"group": [0, 1]})
         cat = CategoricalData.from_pandas(ann_df=df)
-        state = StateData(X=np.random.randn(2, 2))
+        state = StateData(X=rng.standard_normal((2, 2)))
         distr = DistributionData(
             state_data=state,
             condition_data=MixedTypeData(categorical_covariates=cat, continuous_covariates=None),
@@ -105,10 +106,11 @@ class TestConditionPreprocessing:
             pre._extract_data(distr)
 
     def test_write_data(self):
+        rng = np.random.default_rng(0)
         cov_key = "X_cond"
         distr = make_distribution_with_continuous_cov(n_obs=5, cov_key=cov_key)
         pre = ConditionPreprocessing(cov_key=cov_key)
-        new_X = np.random.randn(5, 1)
+        new_X = rng.standard_normal((5, 1))
         new_distr = pre._write_data(new_X, distr)
 
         # The returned DistributionData must be a different object

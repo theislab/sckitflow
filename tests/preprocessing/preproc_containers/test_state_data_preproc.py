@@ -71,9 +71,10 @@ class TestStatePreprocessing:
         np.testing.assert_array_equal(extracted, distr.state_data.X)
 
     def test_write_data(self):
+        rng = np.random.default_rng(0)
         distr = make_distribution(n=5)
         pre = StatePreprocessing()
-        new_X = np.random.randn(5, 1)
+        new_X = rng.standard_normal((5, 1))
         new_distr = pre._write_data(new_X, distr)
         assert new_distr is not distr  # should return new object
         np.testing.assert_array_equal(new_distr.state_data.X, new_X)

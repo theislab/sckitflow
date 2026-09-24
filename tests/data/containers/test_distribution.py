@@ -261,10 +261,11 @@ class TestDistributionData:
 
     def test_view_on_condition_space_pops_key_and_preserves_other_keys(self, adata: AnnData) -> None:
         """Ensure only the specified key is popped, other keys remain."""
+        rng = np.random.default_rng(0)
         # Add a second key if it doesn't exist (use a random array)
         obsm_dict = dict(adata.obsm)
         if "X_umap" not in obsm_dict:
-            obsm_dict["X_umap"] = np.random.randn(adata.n_obs, 2)
+            obsm_dict["X_umap"] = rng.standard_normal((adata.n_obs, 2))
         continuous_covs = BatchMixin(
             {
                 "X_repr": obsm_dict["X_repr"],
@@ -287,8 +288,9 @@ class TestDistributionData:
 
     def test_view_on_condition_space_coupling_initialization(self, adata: AnnData) -> None:
         """Check that coupling data are correctly initialized from extracted state."""
+        rng = np.random.default_rng(0)
         # Add a random feature if needed
-        feature = np.random.randn(adata.n_obs, 5)
+        feature = rng.standard_normal((adata.n_obs, 5))
         continuous_covs = BatchMixin({"feature": feature})
         condition_data = MixedTypeData(continuous_covariates=continuous_covs)
         dist = DistributionData(state_data=StateData(adata.X), condition_data=condition_data)

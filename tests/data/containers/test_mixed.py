@@ -117,36 +117,40 @@ class TestMixedTypeData:
 
     def test_absorb_state_data_no_continuous(self, adata: AnnData) -> None:
         """TypeError if continuous_covariates is None."""
+        rng = np.random.default_rng(0)
         cat_data = _make_categorical_from_obs(adata.obs)
         mixed = MixedTypeData(categorical_covariates=cat_data)
 
-        state = StateData(np.random.randn(adata.n_obs, 5))
+        state = StateData(rng.standard_normal((adata.n_obs, 5)))
         with pytest.raises(TypeError, match="Cannot absorb state data: no continuous covariates present"):
             mixed.absorb_state_data("new_key", state)
 
     def test_absorb_state_data_key_exists_no_override(self, adata: AnnData) -> None:
         """ValueError when key already exists and allow_override=False."""
+        rng = np.random.default_rng(0)
         continuous_data = BatchMixin({"existing": adata.obsm["X_repr"]})
         mixed = MixedTypeData(continuous_covariates=continuous_data)
-        state = StateData(np.random.randn(adata.n_obs, 10))
+        state = StateData(rng.standard_normal((adata.n_obs, 10)))
 
         with pytest.raises(ValueError, match="Key existing already present in the data"):
             mixed.absorb_state_data("existing", state, allow_override=False)
 
     def test_absorb_state_data_length_mismatch(self, adata: AnnData) -> None:
         """ValueError when state_data length != len(self)."""
+        rng = np.random.default_rng(0)
         continuous_data = BatchMixin({"existing": adata.obsm["X_repr"]})
         mixed = MixedTypeData(continuous_covariates=continuous_data)
-        state = StateData(np.random.randn(adata.n_obs - 5, 10))  # wrong length
+        state = StateData(rng.standard_normal((adata.n_obs - 5, 10)))  # wrong length
 
         with pytest.raises(ValueError, match="Number of observations in state_data .* does not match"):
             mixed.absorb_state_data("new_key", state)
 
     def test_absorb_state_data_success(self, adata: AnnData) -> None:
         """Successful absorption of state data."""
+        rng = np.random.default_rng(0)
         continuous_data = BatchMixin({"original": adata.obsm["X_repr"]})
         mixed = MixedTypeData(continuous_covariates=continuous_data)
-        new_state = StateData(np.random.randn(adata.n_obs, 8))
+        new_state = StateData(rng.standard_normal((adata.n_obs, 8)))
 
         new_mixed = mixed.absorb_state_data("new_key", new_state, allow_override=False)
 
@@ -158,9 +162,10 @@ class TestMixedTypeData:
 
     def test_absorb_state_data_allow_override(self, adata: AnnData) -> None:
         """Override existing key when allow_override=True."""
+        rng = np.random.default_rng(0)
         continuous_data = BatchMixin({"original": adata.obsm["X_repr"]})
         mixed = MixedTypeData(continuous_covariates=continuous_data)
-        new_state = StateData(np.random.randn(adata.n_obs, 8))
+        new_state = StateData(rng.standard_normal((adata.n_obs, 8)))
 
         new_mixed = mixed.absorb_state_data("original", new_state, allow_override=True)
 

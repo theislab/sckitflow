@@ -95,14 +95,15 @@ class DummyConditionPreprocessing(ConditionPreprocessing):
 @pytest.fixture
 def sample_distribution():
     """Create a simple DistributionData with state and condition data."""
+    rng = np.random.default_rng(0)
     from sckitflow.data._mixins import BatchMixin
     from sckitflow.data.containers._mixed_type import MixedTypeData
     from sckitflow.data.containers._state import StateData
 
-    X_state = np.random.randn(10, 5)
+    X_state = rng.standard_normal((10, 5))
     state_data = StateData(X_state)
     # Add a continuous condition covariate
-    X_cont = np.random.randn(10, 3)
+    X_cont = rng.standard_normal((10, 3))
     cont_mapping = {"cov1": X_cont}
     continuous_covariates = BatchMixin(cont_mapping)
     condition_data = MixedTypeData(continuous_covariates=continuous_covariates)

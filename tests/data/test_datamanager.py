@@ -119,10 +119,11 @@ class TestRequireTargetState:
 
 class TestConditionSpaceView:
     def test_get_distribution_data_with_condition_space(self, adata_small: AnnData):
+        rng = np.random.default_rng(0)
         manager = _make_manager_with_continuous(condition_state_key="X_repr")
         # ensure X_repr exists in obsm
         if "X_repr" not in adata_small.obsm:
-            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+            adata_small.obsm["X_repr"] = rng.standard_normal((adata_small.n_obs, 10))
 
         distr = manager.get_distribution_data(adata_small)
         # state_data becomes the continuous covariate
@@ -150,9 +151,10 @@ class TestConditionSpaceView:
             manager.get_distribution_data(adata_small)
 
     def test_get_data_dimensionalities_with_condition_space(self, adata_small: AnnData):
+        rng = np.random.default_rng(0)
         manager = _make_manager_with_continuous(condition_state_key="X_repr")
         if "X_repr" not in adata_small.obsm:
-            adata_small.obsm["X_repr"] = np.random.randn(adata_small.n_obs, 10)
+            adata_small.obsm["X_repr"] = rng.standard_normal((adata_small.n_obs, 10))
 
         dims = manager.get_data_dimensionalities(adata_small)
         # state dimension comes from continuous covariate

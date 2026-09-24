@@ -63,7 +63,8 @@ class DummyPreprocessing(BasePreprocessing):
 # -----------------------------------------------------------------------------
 @pytest.fixture
 def sample_data():
-    X = np.random.randn(10, 5)
+    rng = np.random.default_rng(0)
+    X = rng.standard_normal((10, 5))
     state = StateData(X)
     return DistributionData(state_data=state)
 

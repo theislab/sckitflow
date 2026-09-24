@@ -6,7 +6,8 @@ from sckitflow.data.containers import StateData
 
 class TestStateData:
     def test_init_and_len(self) -> None:
-        X = np.random.randn(10, 3)
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((10, 3))
 
         state = StateData(X)
 
@@ -15,7 +16,8 @@ class TestStateData:
         assert len(state) == 10
 
     def test_len_one_dimensional(self) -> None:
-        X = np.random.randn(5)
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal(5)
 
         state = StateData(X)
 
@@ -23,7 +25,8 @@ class TestStateData:
 
     @pytest.mark.parametrize("idxs", [slice(0, 5), np.array([0, 2, 4])])
     def test_getitem(self, idxs) -> None:
-        X = np.random.randn(10, 3)
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((10, 3))
 
         state = StateData(X)
         subset = state[idxs]
@@ -33,7 +36,8 @@ class TestStateData:
         assert len(subset) == X[idxs].shape[0]
 
     def test_getitem_preserves_spatial_dims(self) -> None:
-        X = np.random.randn(10, 4, 2)
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((10, 4, 2))
 
         state = StateData(X)
         subset = state[:3]
@@ -41,7 +45,8 @@ class TestStateData:
         assert subset.X.shape == (3, 4, 2)
 
     def test_repr_contains_shape_information(self) -> None:
-        X = np.random.randn(7, 5)
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal((7, 5))
 
         state = StateData(X)
         rep = repr(state)
@@ -51,7 +56,8 @@ class TestStateData:
         assert "spatial_dims=(5,)" in rep
 
     def test_repr_no_spatial_dims_for_vector(self) -> None:
-        X = np.random.randn(6)
+        rng = np.random.default_rng(0)
+        X = rng.standard_normal(6)
 
         state = StateData(X)
         rep = repr(state)

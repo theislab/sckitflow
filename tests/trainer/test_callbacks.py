@@ -181,12 +181,13 @@ class TestMetricsCallback:
         np.testing.assert_array_equal(result, data)
 
     def test_on_valid_step_torch_backend(self):
+        rng = np.random.default_rng(0)
         cb = MetricsCallback(metrics={"mse": MockMetric()}, backend="torch", device="cpu")
 
         trainer = Mock()
         predictions_dict = {
-            "pert1": {"predictions": np.random.randn(10, 5), "targets": np.random.randn(10, 5)},
-            "pert2": {"predictions": np.random.randn(10, 5), "targets": np.random.randn(10, 5)},
+            "pert1": {"predictions": rng.standard_normal((10, 5)), "targets": rng.standard_normal((10, 5))},
+            "pert2": {"predictions": rng.standard_normal((10, 5)), "targets": rng.standard_normal((10, 5))},
         }
 
         result = cb.on_valid_step(trainer, step=0, val_id="test", predictions_dict=predictions_dict)

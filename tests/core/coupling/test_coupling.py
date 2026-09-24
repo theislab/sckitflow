@@ -35,13 +35,11 @@ def test_independent_coupling_returns_indices(small_tensors):
     assert (tgt_idx >= 0).all() and (tgt_idx < len(target)).all()
 
 
-def test_independent_coupling_reproducibility(monkeypatch, small_tensors):
-    """Ensure deterministic behavior if random seed is fixed."""
+def test_independent_coupling_reproducibility(small_tensors):
+    """Ensure deterministic behavior if the generator is seeded."""
     source, target = small_tensors
-    np.random.seed(42)
-    idx1 = independent_coupling(source, target)
-    np.random.seed(42)
-    idx2 = independent_coupling(source, target)
+    idx1 = independent_coupling(source, target, rng=np.random.default_rng(42))
+    idx2 = independent_coupling(source, target, rng=np.random.default_rng(42))
     assert all(np.allclose(a, b) for a, b in zip(idx1, idx2, strict=False))
 
 

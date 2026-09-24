@@ -10,8 +10,8 @@ class TestPCATransform:
 
     def test_fit_transform_basic(self):
         """Test basic fit and transform."""
-        np.random.seed(42)
-        X = np.random.randn(100, 50)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((100, 50))
 
         pca = PCATransform(n_components=10)
         X_transformed = pca.fit_transform(X)
@@ -22,8 +22,8 @@ class TestPCATransform:
 
     def test_fitted_parameters(self):
         """Test that parameters are correctly stored."""
-        np.random.seed(42)
-        X = np.random.randn(50, 20)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((50, 20))
 
         pca = PCATransform(n_components=5)
         pca.fit(X)
@@ -38,9 +38,9 @@ class TestPCATransform:
 
     def test_transform_with_new_data(self):
         """Test transform on new data."""
-        np.random.seed(42)
-        X_train = np.random.randn(100, 30)
-        X_test = np.random.randn(20, 30)
+        rng = np.random.default_rng(42)
+        X_train = rng.standard_normal((100, 30))
+        X_test = rng.standard_normal((20, 30))
 
         pca = PCATransform(n_components=10)
         pca.fit(X_train)
@@ -50,8 +50,8 @@ class TestPCATransform:
 
     def test_inverse_transform(self):
         """Test inverse transform (lossy reconstruction)."""
-        np.random.seed(42)
-        X = np.random.randn(50, 20)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((50, 20))
 
         pca = PCATransform(n_components=10)
         X_transformed = pca.fit_transform(X)
@@ -67,8 +67,8 @@ class TestPCATransform:
 
     def test_full_components_lossless(self):
         """Test that keeping all components gives lossless reconstruction."""
-        np.random.seed(42)
-        X = np.random.randn(50, 20)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((50, 20))
 
         pca = PCATransform(n_components=20)  # Keep all
         X_transformed = pca.fit_transform(X)
@@ -79,8 +79,8 @@ class TestPCATransform:
 
     def test_explained_variance_ratio(self):
         """Test explained variance ratio."""
-        np.random.seed(42)
-        X = np.random.randn(100, 30)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((100, 30))
 
         pca = PCATransform(n_components=10)
         pca.fit(X)
@@ -97,16 +97,18 @@ class TestPCATransform:
 
     def test_not_fitted_error(self):
         """Test error when transform called before fit."""
+        rng = np.random.default_rng(0)
         pca = PCATransform(n_components=5)
-        X = np.random.randn(10, 20)
+        X = rng.standard_normal((10, 20))
 
         with pytest.raises(RuntimeError, match="not been fitted"):
             pca.transform(X)
 
     def test_wrong_features_error(self):
         """Test error when n_features doesn't match."""
-        X_train = np.random.randn(50, 30)
-        X_test = np.random.randn(20, 40)
+        rng = np.random.default_rng(0)
+        X_train = rng.standard_normal((50, 30))
+        X_test = rng.standard_normal((20, 40))
 
         pca = PCATransform(n_components=10)
         pca.fit(X_train)
@@ -116,8 +118,8 @@ class TestPCATransform:
 
     def test_manual_vs_ppca_transform(self):
         """Test manual PCA computation matches PCATransform output."""
-        np.random.seed(42)
-        X = np.random.randn(100, 50)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((100, 50))
 
         # Manual PCA
         X_mean = np.array(np.mean(X, axis=0))
@@ -133,9 +135,9 @@ class TestPCATransform:
 
     # def test_multiple_states(self):
     #     """Test fitting multiple times creates independent states."""
-    #     np.random.seed(42)
-    #     X1 = np.random.randn(50, 20)
-    #     X2 = np.random.randn(50, 20) + 10  # Different distribution
+    #     rng = np.random.default_rng(42)
+    #     X1 = rng.standard_normal((50, 20))
+    #     X2 = rng.standard_normal((50, 20)) + 10  # Different distribution
 
     #     pca = PCATransform(n_components=5)
 
@@ -151,7 +153,7 @@ class TestPCATransform:
     #     assert not np.allclose(mean1, mean2)
 
     #     # Can use either params
-    #     X_test = np.random.randn(10, 20)
+    #     X_test = rng.standard_normal((10, 20))
     #     X_transformed1 = pca.transform(X_test, params=params1)
     #     X_transformed2 = pca.transform(X_test, params=params2)
 
@@ -163,8 +165,8 @@ class TestPCATransform:
 class TestParameterAccess:
     def test_pca_parameter_access(self):
         """Test accessing PCA parameters."""
-        np.random.seed(42)
-        X = np.random.randn(50, 20)
+        rng = np.random.default_rng(42)
+        X = rng.standard_normal((50, 20))
 
         pca = PCATransform(n_components=5)
         pca.fit(X)

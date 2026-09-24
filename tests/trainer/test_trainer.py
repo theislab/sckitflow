@@ -43,7 +43,8 @@ class DummyMethod(BaseMethod):
         return 0.5, {"loss": 0.5, "accuracy": 0.8}
 
     def infer(self, node, *args, **kwargs):
-        return np.random.randn(10, 5)
+        rng = np.random.default_rng(0)
+        return rng.standard_normal((10, 5))
 
     def train_step(self, step_data, *args, **kwargs):
         # The loader yields ready `StepData`; these tests use plain `Mock`/`MagicMock`

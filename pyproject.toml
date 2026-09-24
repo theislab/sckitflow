@@ -156,6 +156,7 @@ lint.select = [
   "E",      # Error detected by Pycodestyle
   "F",      # Errors detected by Pyflakes
   "I",      # isort
+  "NPY002", # legacy global np.random.* -- pass a numpy Generator instead (NEP 19, SPEC 7)
   "RUF100", # Report unused noqa directives
   "TID",    # flake8-tidy-imports
   "UP",     # pyupgrade

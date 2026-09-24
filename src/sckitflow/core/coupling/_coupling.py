@@ -94,7 +94,9 @@ def _scale_distance_matrix(
     return distance_matrix / denom
 
 
-def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray, NumpyArray]:
+def _select_indices(
+    coupling_matrix: NumpyArray, size: int, rng: int | np.random.Generator | None = None
+) -> tuple[NumpyArray, NumpyArray]:
     """Samples matching indices from a coupling matrix.
 
     Draws index pairs from the provided coupling matrix according to the
@@ -107,6 +109,12 @@ def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray,
 
     :param size: Number of index pairs to sample from the coupling matrix.
     :type size: int
+
+    :param rng: Seed or generator for drawing the matched indices, normalized with
+        :func:`numpy.random.default_rng` (SPEC 7). ``None`` uses fresh OS entropy. When
+        calling once per batch, pass one shared `Generator`: an int restarts the same
+        stream on every call.
+    :type rng: class:`int` or class:`numpy.random.Generator`, optional
 
     Returns
     -------
@@ -125,7 +133,7 @@ def _select_indices(coupling_matrix: NumpyArray, size: int) -> tuple[NumpyArray,
     coupling_probs = coupling_matrix.flatten()
     coupling_probs = coupling_probs / coupling_probs.sum()
     # sampling indices
-    choices = np.random.choice(
+    choices = np.random.default_rng(rng).choice(
         coupling_matrix.shape[0] * coupling_matrix.shape[1],
         p=coupling_probs,
         size=size,
@@ -140,6 +148,7 @@ def independent_coupling(
     target_lin: TensorLike,
     source_quad: TensorLike | None = None,
     target_quad: TensorLike | None = None,
+    rng: int | np.random.Generator | None = None,
 ) -> tuple[NumpyArray, NumpyArray]:
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
 
@@ -148,6 +157,12 @@ def independent_coupling(
 
     :param target: A tensor of values containing the data coming from the target distribution.
     :type target: class:`TensorLike`
+
+    :param rng: Seed or generator for drawing the permutations, normalized with
+        :func:`numpy.random.default_rng` (SPEC 7). ``None`` uses fresh OS entropy. When
+        calling once per batch, pass one shared `Generator`: an int restarts the same
+        stream on every call.
+    :type rng: class:`int` or class:`numpy.random.Generator`, optional
 
     Returns
     -------
@@ -161,8 +176,9 @@ def independent_coupling(
         available samples in the source and target tensors.
     """
     # randomy permuting the tensors
-    src_random_perm_idx = np.random.choice(source_lin.shape[0], size=source_lin.shape[0], replace=False)
-    tgt_random_perm_idx = np.random.choice(target_lin.shape[0], size=source_lin.shape[0], replace=False)
+    rng = np.random.default_rng(rng)
+    src_random_perm_idx = rng.choice(source_lin.shape[0], size=source_lin.shape[0], replace=False)
+    tgt_random_perm_idx = rng.choice(target_lin.shape[0], size=source_lin.shape[0], replace=False)
 
     min_shape = min(src_random_perm_idx.shape[0], tgt_random_perm_idx.shape[0])
 
@@ -181,6 +197,7 @@ def ot_linear_coupling(
     method: LinCouplingMethod = ...,
     reg: float = ...,
     reg_m: float = ...,
+    rng: int | np.random.Generator | None = ...,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray]: ...
 
@@ -197,6 +214,7 @@ def ot_linear_coupling(
     method: LinCouplingMethod = ...,
     reg: float = ...,
     reg_m: float = ...,
+    rng: int | np.random.Generator | None = ...,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray, NumpyArray]: ...
 
@@ -212,6 +230,7 @@ def ot_linear_coupling(
     method: LinCouplingMethod = None,
     reg: float = 5e-1,
     reg_m: float = 1.0,
+    rng: int | np.random.Generator | None = None,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray] | tuple[NumpyArray, NumpyArray, NumpyArray]:
     """Matches the :param:`source` and :param:`target` groups and returns the respective indices
@@ -243,6 +262,12 @@ def ot_linear_coupling(
 
     :param return_matrix: If ``True``, also return the optimal transport coupling matrix.
     :type return_matrix: bool
+
+    :param rng: Seed or generator for drawing the matched indices, normalized with
+        :func:`numpy.random.default_rng` (SPEC 7). ``None`` uses fresh OS entropy. When
+        calling once per batch, pass one shared `Generator`: an int restarts the same
+        stream on every call.
+    :type rng: class:`int` or class:`numpy.random.Generator`, optional
 
     :param kwargs: Additional keyword arguments forwarded to the selected optimal transport solver.
     :type kwargs: dict
@@ -301,7 +326,7 @@ def ot_linear_coupling(
 
     # computing coupling matrix
     coupling_matrix = ot_fn(src_weights, tgt_weights, distance_matrix.detach().cpu().numpy())
-    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source_lin.shape[0])
+    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix, size=source_lin.shape[0], rng=rng)
     if return_matrix:
         return source_idxs, target_idxs, coupling_matrix
     return source_idxs, target_idxs
@@ -317,6 +342,7 @@ def ot_quadratic_coupling(
     cost_fn: CostFN | None = ...,
     scale_cost: ScaleMethod = ...,
     method: QuadCouplingMethod = ...,
+    rng: int | np.random.Generator | None = ...,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray]: ...
 
@@ -331,6 +357,7 @@ def ot_quadratic_coupling(
     cost_fn: CostFN | None = ...,
     scale_cost: ScaleMethod = ...,
     method: QuadCouplingMethod = ...,
+    rng: int | np.random.Generator | None = ...,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray, NumpyArray]: ...
 
@@ -344,6 +371,7 @@ def ot_quadratic_coupling(
     cost_fn: CostFN | None = None,
     scale_cost: ScaleMethod = 1.0,
     method: QuadCouplingMethod = None,
+    rng: int | np.random.Generator | None = None,
     **kwargs,
 ) -> tuple[NumpyArray, NumpyArray] | tuple[NumpyArray, NumpyArray, NumpyArray]:
     """Matches source and target groups using an optimal transport-based quadratic coupling (Gromov-Wasserstein or fused Gromov-Wasserstein) and returns the respective indices.
@@ -380,6 +408,12 @@ def ot_quadratic_coupling(
         ``"entropic_gromov_wasserstein"`` and
         ``"entropic_fused_gromov_wasserstein"``.
     :type method: class:`QuadCouplingMethod`, optional
+
+    :param rng: Seed or generator for drawing the matched indices, normalized with
+        :func:`numpy.random.default_rng` (SPEC 7). ``None`` uses fresh OS entropy. When
+        calling once per batch, pass one shared `Generator`: an int restarts the same
+        stream on every call.
+    :type rng: class:`int` or class:`numpy.random.Generator`, optional
 
     :param kwargs: Additional keyword arguments forwarded to the solver.
     :type kwargs: dict
@@ -445,7 +479,9 @@ def ot_quadratic_coupling(
     else:
         msg = f"{method=} is not found, please specify a custom `method` in `ot_fn`"
         raise ValueError(msg)
-    source_idxs, target_idxs = _select_indices(coupling_matrix=coupling_matrix.numpy(), size=source_quad.shape[0])
+    source_idxs, target_idxs = _select_indices(
+        coupling_matrix=coupling_matrix.numpy(), size=source_quad.shape[0], rng=rng
+    )
     if return_matrix:
         return source_idxs, target_idxs, coupling_matrix.numpy()
     return source_idxs, target_idxs

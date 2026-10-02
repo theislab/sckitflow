@@ -1,21 +1,3 @@
-import sckitflow.trainer._callbacks as callbacks
-from sckitflow.trainer._callbacks import (
-    BaseCallback,
-    ComputationalCallback,
-    LoggingCallback,
-    MetricsCallback,
-    TrainingCallbacks,
-    WandBLogger,
-)
-from sckitflow.trainer._trainer import Trainer
+from sckitflow.trainer._plan import TrainingPlan
 
-__all__ = [
-    "callbacks",
-    "BaseCallback",
-    "ComputationalCallback",
-    "LoggingCallback",
-    "TrainingCallbacks",
-    "MetricsCallback",
-    "WandBLogger",
-    "Trainer",
-]
+__all__ = ["TrainingPlan"]

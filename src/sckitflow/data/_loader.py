@@ -28,7 +28,7 @@ import pandas as pd
 from anndata import AnnData
 from scfit.data import EvalLoader as ScfitEvalLoader
 from scfit.data import Loader as ScfitLoader
-from scfit.data import Stream
+from scfit.data import SamplerParams, Stream
 
 from sckitflow.data._utils import with_derived_obs
 
@@ -160,7 +160,7 @@ class _StepDataBridge:
         self._cond_schema = condition_schema
         self._groups_schema = groups_schema
         self._dtype = dtype
-        # Compared by device *type* ("cuda" vs "cuda:0"), matching ``Model.to_device``.
+        # Compared by device *type* ("cuda" vs "cuda:0"), matching the module's own device.
         self._device = device
         self._device_type = device.split(":")[0] if device is not None else None
         self._assert_device = assert_device
@@ -496,11 +496,11 @@ class Loader(_StepDataBridge):
             device=device,
         )
         self._rows_per_batch = batch_size
-        sampler_kwargs = {
-            "batch_size": batch_size,
-            "chunk_size": chunk_size,
-            "preload_nchunks": preload_nchunks if preload_nchunks is not None else batch_size // chunk_size,
-        }
+        sampler = SamplerParams(
+            batch_size=batch_size,
+            chunk_size=chunk_size,
+            preload_nchunks=preload_nchunks if preload_nchunks is not None else batch_size // chunk_size,
+        )
         primary_reps = (self._state_loc, *self._cond_cont_locs, *self._resp_cont_locs)
         # With a split column the leaf is ``(split, *group_cols)``, so a weight of 0 excludes the *observations*
         # of another split rather than the whole group -- see `DataManager.get_dataloaders`. The split is
@@ -513,7 +513,6 @@ class Loader(_StepDataBridge):
             group_by=[*prefix_cols, *self._group_cols, *self._pair_cols],
             reps=primary_reps,
             weights=primary_weights,
-            **sampler_kwargs,
         )
         # `self._adata`, not the argument: an unconditional schema streams a shallow copy carrying the
         # implicit all-observations group column (see `with_derived_obs`).
@@ -522,9 +521,7 @@ class Loader(_StepDataBridge):
 
         # Control link -- `in_memory` materializes just the selected control observations, a small pool re-drawn
         # every batch. The control stream never groups on the split: controls are shared across splits.
-        control_source, control_stream = self._control_link(
-            control_adata, control_weights, in_memory=True, **sampler_kwargs
-        )
+        control_source, control_stream = self._control_link(control_adata, control_weights, in_memory=True)
         if control_stream is not None:
             links[_CONTROL] = control_stream
             if control_source is not None:
@@ -533,7 +530,7 @@ class Loader(_StepDataBridge):
         # Make the scfit loader finite (one epoch by default) so a plain pass terminates and is
         # re-iterable; the caller (e.g. the trainer) sets the training length via `set_n_iters`.
         self._loader = ScfitLoader(
-            sources, primary=primary, links=links, seed=seed, to=to, preload_to_gpu=preload_to_gpu
+            sources, primary=primary, links=links, seed=seed, to=to, preload_to_gpu=preload_to_gpu, sampler=sampler
         )
         self._loader.set_n_iters(n_iters if n_iters is not None else self._loader.n_batches)
 

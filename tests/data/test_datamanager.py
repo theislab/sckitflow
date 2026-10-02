@@ -4,13 +4,13 @@ import pytest
 from anndata import AnnData
 from tests.data.shared import with_split
 
-from sckitflow.data._manager import DataManager
+from sckitflow.data._manager import DataManager, DataManagerConfig
 from sckitflow.data.containers._categorical import CategoricalData
 from sckitflow.data.containers._coupling import CouplingData
 from sckitflow.data.containers._distribution import DistributionData
 from sckitflow.data.containers._mixed_type import MixedTypeData
 from sckitflow.data.containers._state import StateData
-from sckitflow.data.splitters import CombinationSplitter
+from sckitflow.data.splitters import CombinationSplitterConfig
 
 
 def _make_manager(**overrides) -> DataManager:
@@ -22,7 +22,10 @@ def _make_manager(**overrides) -> DataManager:
         "groups_reps": {"cell_line": "cell_line"},
     }
     defaults.update(overrides)
-    return DataManager(**defaults)
+    splitter = defaults.pop("splitter", None)
+    if (pairs := defaults.pop("matched_keys", None)) is not None:
+        defaults["matched_pairs"] = tuple(pairs.items())
+    return DataManager(DataManagerConfig(**defaults), splitter=splitter)
 
 
 def _make_manager_with_continuous(**overrides) -> DataManager:
@@ -216,22 +219,21 @@ class TestSplitOwnership:
         with pytest.raises(ValueError, match="not both"):
             _make_manager(
                 split_by="split",
-                splitter=CombinationSplitter(
-                    group_keys=["cell_line", "drug"], always_train_keys=["cell_line"], rng=np.random.default_rng(0)
-                ),
+                splitter=CombinationSplitterConfig(
+                    group_keys=["cell_line", "drug"], always_train_keys=["cell_line"]
+                ).build(rng=np.random.default_rng(0)),
             )
 
     def test_a_splitter_derives_the_split_without_touching_the_caller(self, adata_small: AnnData):
         """The schema owns the split, so no preprocessing step has to have written the column first."""
         dm = _make_manager(
             control_values_dict={"drug": "control"},
-            splitter=CombinationSplitter(
-                rng=np.random.default_rng(0),
+            splitter=CombinationSplitterConfig(
                 group_keys=["cell_line", "drug"],
                 always_train_keys=["cell_line"],
                 control_key="drug",
                 test_fraction=0.5,
-            ),
+            ).build(rng=np.random.default_rng(0)),
         )
         loaders = dm.get_dataloaders(adata_small, batch_size=8)
 
@@ -271,13 +273,12 @@ class TestStreamingLeavesTheCallersDataAlone:
         return {
             "splitter": _make_manager(
                 control_values_dict={"drug": "control"},
-                splitter=CombinationSplitter(
-                    rng=np.random.default_rng(0),
+                splitter=CombinationSplitterConfig(
                     group_keys=["cell_line", "drug"],
                     always_train_keys=["cell_line"],
                     control_key="drug",
                     test_fraction=0.5,
-                ),
+                ).build(rng=np.random.default_rng(0)),
             ),
             "matched_keys": _make_manager(matched_keys={("HeLa", "aspirin"): ("HeLa", "ibuprofen")}),
             "unconditional": DataManager(),  # no group columns -> the implicit all-cells group

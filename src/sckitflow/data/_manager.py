@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import torch
 from anndata import AnnData
+from scfit.registry import Component, component
 
 if TYPE_CHECKING:
     import torch
@@ -15,7 +16,7 @@ if TYPE_CHECKING:
 
 from sckitflow._types import TargetCovariatesEncodingId
 from sckitflow.data._dims import DataDimensions
-from sckitflow.data._group_encoders import GroupEncoder, GroupEncoderId
+from sckitflow.data._group_encoders import GroupEncoderConfig, GroupEncoderId
 from sckitflow.data._utils import with_derived_obs
 from sckitflow.data.containers._categorical import CategoricalData
 from sckitflow.data.containers._coupling import CouplingData
@@ -31,7 +32,7 @@ from sckitflow.data.schemas import (
 )
 from sckitflow.data.splitters import Splitter
 
-__all__ = ["DataManagerKwargs", "LoaderKwargs", "DataManager"]
+__all__ = ["DataManagerConfig", "LoaderKwargs", "DataManager"]
 
 # The split column a `Splitter` writes by default -- only used to catch an adata that carries a split the
 # schema never declared (see `DataManager._resolve_split`).
@@ -104,86 +105,6 @@ class LoaderKwargs(TypedDict, total=False):
     ``sckitflow[gpu]``: cupy, Linux/CUDA only)."""
 
 
-class DataManagerKwargs(TypedDict, total=False):
-    """Keyword arguments accepted by :class:`DataManager`."""
-
-    sample_rep: str | None
-    """String identifier for the state representation. When provided, it should appear as key in
-    `.obsm` attribute of annotated data objects. Otherwise, the representation will fall back to
-    `.X`. Defaults to `None`."""
-
-    conditions: dict[str, Collection[str]] | None
-    """Mapping from each condition level to the corresponding columns, used to initialize the
-    conditioning data schema. Defaults to `None`."""
-
-    conditions_reps: dict[str, str] | None
-    """Mapping from each condition level to the corresponding representation, used to initialize the
-    conditioning data schema. Defaults to `None`."""
-
-    conditions_covariates: Collection[str] | None
-    """Collection of continuous condition covariates, used to initialize the conditioning data
-    schema. Defaults to `None`."""
-
-    control_values_dict: dict[str, str] | None
-    """Dictionary mapping each condition level to the corresponding value used to indicate control
-    observations. Defaults to `None`. Pass `{}` at call time (`get_eval_loader`, `Model.predict`) to predict
-    unpaired, ignoring the registered controls."""
-
-    matched_keys: dict[tuple, tuple] | None
-    """Fixed matching: `{source group key: target group key}` over `group_cols` values, naming the pairs
-    outright instead of deriving them from `control_values_dict` (whose source is always the control condition
-    sharing a target's group columns). Takes precedence over `control_values_dict`. A group may appear in at
-    most one pair -- it carries a single pair id -- so chains (`a -> b`, `b -> c`) and two sources for one
-    target are rejected. Defaults to `None`."""
-
-    splitter: Splitter | None
-    """A :class:`~sckitflow.data.splitters.Splitter` that derives the train/test labels itself, so building
-    loaders never depends on a preprocessing step having written the column. It is applied to a shallow copy
-    (see `data._utils.with_derived_obs`), so the caller's AnnData is left alone. Mutually exclusive with
-    `split_by`. Defaults to `None`."""
-
-    split_by: str | None
-    """An existing `.obs` column holding the split labels, for data that was split elsewhere. Its presence is
-    checked when loaders are built. Mutually exclusive with `splitter`. Defaults to `None`, in which case
-    there is no split and every non-control group trains."""
-
-    condition_state_key: str | None
-    """The key for the continuous condition covariates to be viewed as state when
-    `view_on_condition_space` is `True`. This argument is ignored otherwise. Defaults to `None`."""
-
-    target_categorical_covs_dict: Mapping[str, TargetCovariatesEncodingId] | None
-    """Mapping indicating the encoding used to transform categorical target covariates, used to
-    initialize the target data schema. Defaults to `None`."""
-
-    target_continuous_covs: Collection[str] | None
-    """Collection of string identifiers for the continuous target covariates, used to initialize the
-    target data schema. Defaults to `None`."""
-
-    groups: Collection[str] | None
-    """Collection of string identifiers for grouping columns, used to initialize the grouping data
-    schema. Defaults to `None`."""
-
-    groups_reps: dict[str, str] | None
-    """Mapping for pre-computed representations of grouping covariates, used to initialize the target
-    data schema. Defaults to `None`."""
-
-    groups_encoding: dict[str, GroupEncoder | GroupEncoderId] | None
-    """Mapping from each group column to a :class:`~sckitflow.data._group_encoders.GroupEncoder`
-    (e.g. ``OneHot()``, ``Label()``, ``Affine(scale=2.0)``), used to initialize the grouping data
-    schema. Encoders are serializable dataclasses that build their fitted transformer on demand. The
-    string ids ``"label"`` / ``"one-hot"`` are accepted as shorthand for the parameter-free encoders.
-    Defaults to `None`."""
-
-    n_shared_dims: int | None
-    """The number of shared dimensions to be considered when matching distributions over
-    incomparable spaces, used to initialize the coupling data schema. Defaults to `None`."""
-
-    source_rep: str | None
-    """String identifier for the state representation of source states, used when matching
-    distributions over incomparable spaces. Used to initialize the coupling data schema.
-    Defaults to `None`."""
-
-
 class DataManager:
     """The schema: everything sckitflow needs to know about an ``AnnData`` before it can read one.
 
@@ -209,20 +130,28 @@ class DataManager:
     (:func:`~sckitflow.data._utils.with_derived_obs`), so nothing is duplicated and the caller's AnnData
     gains no columns it did not ask for -- which also keeps a *view* from being silently materialized.
 
-    See :class:`DataManagerKwargs` for the individual options.
+    Built from a :class:`DataManagerConfig`; see it for the individual options.
     """
 
-    def __init__(self, **kwargs: Unpack[DataManagerKwargs]) -> None:
-        """Initializes the object. See :class:`DataManagerKwargs` for parameter descriptions."""
-        self._control_values_dict = kwargs.get("control_values_dict")
-        self._matched_keys = kwargs.get("matched_keys")
-        self._condition_state_key = kwargs.get("condition_state_key")
+    def __init__(self, config: DataManagerConfig | None = None, *, splitter: Splitter[Any] | None = None) -> None:
+        """Initializes the object.
+
+        :param config: The schema; ``None`` declares nothing beyond ``.X`` as the state.
+        :param splitter: Derives the train/test labels itself, so building loaders never depends on a
+            preprocessing step having written the column. It is applied to a shallow copy (see
+            `data._utils.with_derived_obs`), so the caller's AnnData is left alone. Mutually exclusive
+            with ``config.split_by``.
+        """
+        self.config = config = DataManagerConfig() if config is None else config
+        self._control_values_dict = config.control_values_dict
+        self._matched_keys = dict(config.matched_pairs) if config.matched_pairs else None
+        self._condition_state_key = config.condition_state_key
 
         # One owner for the split: either sckitflow derives it (`splitter`) or the data already carries it
         # (`split_by`). Accepting both would mean two answers to "which observations are held out", decided by
         # whichever the loader consulted -- exactly the ambiguity this schema exists to remove.
-        self._splitter: Splitter | None = kwargs.get("splitter")
-        self._split_by: str | None = kwargs.get("split_by")
+        self._splitter = splitter
+        self._split_by = config.split_by
         if self._splitter is not None and self._split_by is not None:
             raise ValueError(
                 f"pass either `splitter` (sckitflow derives the split) or `split_by` (an existing .obs "
@@ -231,25 +160,25 @@ class DataManager:
                 "`split_by` is redundant with it."
             )
 
-        self._state_data_schema = StateDataSchema(sample_rep=kwargs.get("sample_rep"))
+        self._state_data_schema = StateDataSchema(sample_rep=config.sample_rep)
         self._condition_data_schema = ConditionDataSchema(
-            conditions=kwargs.get("conditions"),
-            conditions_reps=kwargs.get("conditions_reps"),
-            conditions_covariates=kwargs.get("conditions_covariates"),
+            conditions=config.conditions,
+            conditions_reps=config.conditions_reps,
+            conditions_covariates=config.conditions_covariates,
         )
         self._coupling_data_schema = CouplingDataSchema(
-            source_rep=kwargs.get("source_rep"),
-            target_rep=kwargs.get("sample_rep"),
-            n_shared_dims=kwargs.get("n_shared_dims"),
+            source_rep=config.source_rep,
+            target_rep=config.sample_rep,
+            n_shared_dims=config.n_shared_dims,
         )
         self._target_data_schema = ResponseDataSchema(
-            categorical_covs_dict=kwargs.get("target_categorical_covs_dict"),
-            continuous_covs=kwargs.get("target_continuous_covs"),
+            categorical_covs_dict=config.target_categorical_covs_dict,
+            continuous_covs=config.target_continuous_covs,
         )
         self._groups_data_schema = GroupsDataSchema(
-            groups=kwargs.get("groups"),
-            groups_reps=kwargs.get("groups_reps"),
-            groups_encoding=kwargs.get("groups_encoding"),
+            groups=config.groups,
+            groups_reps=config.groups_reps,
+            groups_encoding=config.groups_encoding,
         )
 
     @property
@@ -720,6 +649,11 @@ class DataManager:
         return self._control_values_dict
 
     @property
+    def splitter(self) -> Splitter[Any] | None:
+        """The splitter given at construction, if any."""
+        return self._splitter
+
+    @property
     def matched_keys(self) -> dict[tuple, tuple] | None:
         """Exposes the homonymous attribute set at initialization."""
         return self._matched_keys
@@ -753,3 +687,84 @@ class DataManager:
     def condition_state_key(self) -> str | None:
         """Returns the key used to define the condition covariates to be viewed as state."""
         return self._condition_state_key
+
+
+@component("data_manager", builds=DataManager)
+class DataManagerConfig(Component):
+    """The schema :class:`DataManager` is built from; portable, so it travels inside a run's spec.
+
+    The splitter is not a field: it has its own seed, so it is built beside this config and passed to
+    :meth:`build`.
+    """
+
+    sample_rep: str | None = None
+    """String identifier for the state representation. When provided, it should appear as key in
+    `.obsm` attribute of annotated data objects. Otherwise, the representation will fall back to
+    `.X`."""
+
+    conditions: dict[str, tuple[str, ...]] | None = None
+    """Mapping from each condition level to the corresponding columns, used to initialize the
+    conditioning data schema."""
+
+    conditions_reps: dict[str, str] | None = None
+    """Mapping from each condition level to the corresponding representation, used to initialize the
+    conditioning data schema."""
+
+    conditions_covariates: tuple[str, ...] | None = None
+    """Collection of continuous condition covariates, used to initialize the conditioning data
+    schema."""
+
+    control_values_dict: dict[str, str] | None = None
+    """Dictionary mapping each condition level to the corresponding value used to indicate control
+    observations. Pass `{}` at call time (`get_eval_loader`, `predict_adata`) to predict
+    unpaired, ignoring the registered controls."""
+
+    matched_pairs: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] | None = None
+    """Fixed matching: `[(source group key, target group key), ...]` over `group_cols` values, naming the pairs
+    outright instead of deriving them from `control_values_dict` (whose source is always the control condition
+    sharing a target's group columns). Takes precedence over `control_values_dict`. A group may appear in at
+    most one pair -- it carries a single pair id -- so chains (`a -> b`, `b -> c`) and two sources for one
+    target are rejected. Pairs rather than a mapping, because JSON cannot key on tuples."""
+
+    split_by: str | None = None
+    """An existing `.obs` column holding the split labels, for data that was split elsewhere. Its presence is
+    checked when loaders are built. Mutually exclusive with a `splitter`. ``None`` with no splitter means
+    there is no split and every non-control group trains."""
+
+    condition_state_key: str | None = None
+    """The key for the continuous condition covariates to be viewed as state when
+    `view_on_condition_space` is `True`. This argument is ignored otherwise."""
+
+    target_categorical_covs_dict: dict[str, TargetCovariatesEncodingId] | None = None
+    """Mapping indicating the encoding used to transform categorical target covariates, used to
+    initialize the target data schema."""
+
+    target_continuous_covs: tuple[str, ...] | None = None
+    """Collection of string identifiers for the continuous target covariates, used to initialize the
+    target data schema."""
+
+    groups: tuple[str, ...] | None = None
+    """Collection of string identifiers for grouping columns, used to initialize the grouping data
+    schema."""
+
+    groups_reps: dict[str, str] | None = None
+    """Mapping for pre-computed representations of grouping covariates, used to initialize the target
+    data schema."""
+
+    groups_encoding: dict[str, GroupEncoderConfig | GroupEncoderId] | None = None
+    """Mapping from each group column to a :class:`~sckitflow.data._group_encoders.GroupEncoderConfig`
+    (e.g. ``OneHotEncoderConfig()``, ``LabelEncoderConfig()``, ``AffineTransformerConfig(scale=2.0)``), used to initialize the grouping data
+    schema. Encoders are frozen configs that build their fitted transformer on demand. The
+    string ids ``"label"`` / ``"one-hot"`` are accepted as shorthand for the parameter-free encoders."""
+
+    n_shared_dims: int | None = None
+    """The number of shared dimensions to be considered when matching distributions over
+    incomparable spaces, used to initialize the coupling data schema."""
+
+    source_rep: str | None = None
+    """String identifier for the state representation of source states, used when matching
+    distributions over incomparable spaces. Used to initialize the coupling data schema."""
+
+    def build(self, *, splitter: Splitter[Any] | None = None) -> DataManager:
+        """The data manager, applying ``splitter`` to the data it streams."""
+        return DataManager(self, splitter=splitter)

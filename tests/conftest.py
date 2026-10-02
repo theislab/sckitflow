@@ -1,4 +1,4 @@
-from collections.abc import Collection, Sequence
+from collections.abc import Collection
 
 import numpy as np
 import pandas as pd
@@ -6,13 +6,6 @@ import pytest
 from anndata import AnnData
 
 from sckitflow.data.sim._dummy_adata import get_dummy_adata
-
-from .utils import get_dummy_network
-
-input_dim = 10
-output_dim = 10
-hidden_dims = (20, 20)
-batch_size = 32
 
 
 # Every consumer asserts on shapes and wiring relative to `adata.n_obs`, never on an
@@ -99,11 +92,6 @@ def src_coupling_dims() -> int:
 @pytest.fixture(scope="session")
 def tgt_coupling_dims() -> int:
     return 20
-
-
-@pytest.fixture(scope="session")
-def uns_keys() -> Sequence[str]:
-    return ("drug", "ko", "source_split")
 
 
 @pytest.fixture(scope="session")
@@ -263,75 +251,3 @@ def sample_df():
         }
     )
     return adata
-
-
-@pytest.fixture
-def dummy_method(input_di=input_dim, output_dim=output_dim, hidden_dims=hidden_dims):
-    return get_dummy_network(input_dim, output_dim, hidden_dims)
-
-
-@pytest.fixture
-def dummy_callbacks():
-    class DummyCallbacks:
-        def __init__(self):
-            self.called_with = []
-
-        def run_on_valid_step(self, validation_dict, condition):
-            self.called_with.append((validation_dict, condition))
-            return {"val_loss": 0.456}
-
-    return DummyCallbacks()
-
-
-@pytest.fixture
-def dummy_trainloader_torch():
-    class DummyTrainLoaderTorch:
-        def __init__(self):
-            self.sample_calls = 0
-
-        def sample(self, _):
-            from torch import rand
-
-            self.sample_calls += 1
-            return {"source": rand((batch_size, output_dim)), "target": rand((batch_size, output_dim))}
-
-    return DummyTrainLoaderTorch()
-
-
-@pytest.fixture
-def dummy_trainloader_jax():
-    class DummyTrainLoaderJax:
-        def __init__(self):
-            self.sample_calls = 0
-
-        def sample(self, prng):
-            from jax import random
-
-            _, prngcompute_loss_source, prngcompute_loss_target = random.split(prng, 3)
-            self.sample_calls += 1
-            return {
-                "source": random.normal(prngcompute_loss_source, (batch_size, output_dim)),
-                "target": random.normal(prngcompute_loss_target, (batch_size, output_dim)),
-            }
-
-    return DummyTrainLoaderJax()
-
-
-@pytest.fixture
-def dummy_valloader_torch():
-    class DummyValLoaderTorch:
-        def __init__(self):
-            self.sample_calls = 0
-
-        def sample(self, _):
-            from torch import rand
-
-            self.sample_calls += 1
-            return {
-                "condA": {
-                    "source": rand((batch_size, output_dim)),
-                    "target": rand((batch_size, output_dim)),
-                }
-            }
-
-    return DummyValLoaderTorch()

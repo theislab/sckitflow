@@ -16,11 +16,10 @@ from sckitflow._types import ConditioningLayersId, LayersDict, NestedLayersDict,
 from sckitflow.core._types import ConditioningFn, MappedTensor, TimeFeaturesFn, VfFn
 from sckitflow.core._utils import make_concatenation_possible
 from sckitflow.core.nn._conditioning_layers import BaseConditioningLayer, get_conditioning_layer
-from sckitflow.core.nn._modules import BaseModule, FunctionalModule
+from sckitflow.core.nn._modules import FunctionalModule
 from sckitflow.core.nn._set_encoder import SetEncoder
 from sckitflow.core.nn._time_features import get_time_features_fn
 from sckitflow.core.nn._utils import init_module_from_dict
-from sckitflow.data._dims import DataDimensions
 
 __all__ = [
     "BaseVelocityField",
@@ -28,7 +27,7 @@ __all__ = [
 ]
 
 
-class BaseVelocityField(BaseModule):
+class BaseVelocityField(torch.nn.Module):
     """Base class for neural velocity fields."""
 
     @abc.abstractmethod
@@ -266,7 +265,20 @@ class MLPVelocity(BaseVelocityField):
             DEFAULT_SOURCE_ENCODER_OUTPUT_DIM if source_encoder_output_dim is None else source_encoder_output_dim
         )
 
-        self._vf = self._make_modules()
+        modules = {
+            "time_features": self._make_time_features(),
+            "time_encoder": self._make_time_encoder(),
+            "state_encoder": self._make_state_encoder(),
+            "conditioning_layer": self._make_conditioning_layer(),
+        }
+        if self.is_conditional:
+            modules["condition_encoder"] = self._make_condition_encoder()
+        if self.use_source_encoder:
+            modules["source_encoder"] = self._make_source_encoder()
+        modules["vf_decoder"] = self._make_vf_decoder(
+            modules["conditioning_layer"].output_dim,
+        )
+        self._vf = torch.nn.ModuleDict(modules)
 
     @property
     def _use_time_features(
@@ -384,7 +396,7 @@ class MLPVelocity(BaseVelocityField):
 
     def _make_time_encoder(
         self,
-    ) -> BaseModule | torch.nn.Identity:
+    ) -> torch.nn.Module | torch.nn.Identity:
         """Initializes the optional time encoder.
 
         When :param: `encode_time` is set to `True` it will initialize a :class: `MLP` with the configurations
@@ -400,7 +412,7 @@ class MLPVelocity(BaseVelocityField):
 
     def _make_state_encoder(
         self,
-    ) -> BaseModule | torch.nn.Identity:
+    ) -> torch.nn.Module | torch.nn.Identity:
         """Initializes the optional state encoder.
 
         When :param: `encode_state` is set to `True` it will initialize a :class: `MLP` with the configurations
@@ -429,7 +441,7 @@ class MLPVelocity(BaseVelocityField):
 
     def _make_condition_encoder(
         self,
-    ) -> BaseModule:
+    ) -> torch.nn.Module:
         """Initializes the condition encoder when the required settings are specified."""
         if not self.is_conditional:
             msg = (
@@ -451,7 +463,7 @@ class MLPVelocity(BaseVelocityField):
     def _make_vf_decoder(
         self,
         decoder_input_dim: int,
-    ) -> BaseModule:
+    ) -> torch.nn.Module:
         """Initializes the velocity field decoder.
 
         It will initialize a :class: `MLP` with the configurations specified in :param: `vf_decoder_mlp_kwargs`.
@@ -464,7 +476,7 @@ class MLPVelocity(BaseVelocityField):
 
     def _make_source_encoder(
         self,
-    ) -> BaseModule:
+    ) -> torch.nn.Module:
         """Initializes the source state encoder when the required settings are passed."""
         if not self.use_source_encoder:
             msg = (
@@ -478,28 +490,6 @@ class MLPVelocity(BaseVelocityField):
             input_dim=self._source_encoder_input_dim,
             output_dim=self._source_encoder_output_dim,
         )
-
-    def _make_modules(
-        self,
-    ) -> torch.nn.Module:
-        """Initializes the neural components of the velocity field.
-
-        This is done by calling the `self._make_*` methods defined above.
-        """
-        modules = {
-            "time_features": self._make_time_features(),
-            "time_encoder": self._make_time_encoder(),
-            "state_encoder": self._make_state_encoder(),
-            "conditioning_layer": self._make_conditioning_layer(),
-        }
-        if self.is_conditional:
-            modules["condition_encoder"] = self._make_condition_encoder()
-        if self.use_source_encoder:
-            modules["source_encoder"] = self._make_source_encoder()
-        modules["vf_decoder"] = self._make_vf_decoder(
-            modules["conditioning_layer"].output_dim,
-        )
-        return torch.nn.ModuleDict(modules)
 
     def forward(
         self,
@@ -551,68 +541,3 @@ class MLPVelocity(BaseVelocityField):
     ) -> bool:
         """Whether a condition encoder is associated to velocity field."""
         return self._condition_encoder_input_layers is not None
-
-    @classmethod
-    def init_from_data_dims(
-        cls,
-        data_dims: DataDimensions,
-        condition_encoder_input_layers: NestedLayersDict | None = None,
-        source_encoder_mlp_kwargs: LayersDict | None = None,
-        **kwargs,
-    ) -> "MLPVelocity":
-        # get dimensionalities from registry
-        state_dim = data_dims.state_dim
-
-        # get covariates not to pool from registry
-        condition_encoder_covariates_not_pooled = []
-
-        # create dictionary with all conditions dimensions
-        all_dims_dict = {
-            **data_dims.condition_reps_dims,
-            **data_dims.condition_continuous_dims,
-            **data_dims.groups_reps_dims,
-        }
-
-        # register input dimensionalities for condition encoder
-        if condition_encoder_input_layers is not None:
-            for cov, input_layers in condition_encoder_input_layers.items():
-                # check that covariate appears in the data
-                if cov not in all_dims_dict.keys():
-                    msg = f"Covariate {cov} not found in the data."
-                    raise KeyError(msg)
-
-                # update dimensionality
-                cov_input_dim = all_dims_dict[cov]
-                input_layers["input_dim"] = cov_input_dim
-
-                # add continuous covariates to the covariates not to pool
-                if cov in data_dims.condition_continuous_dims.keys():
-                    condition_encoder_covariates_not_pooled.append(cov)
-
-        # register source state dimensionality when provided
-        if source_encoder_mlp_kwargs is not None:
-            # get source dimension
-            if data_dims.source_lin_dim is not None and data_dims.source_quad_dim is not None:
-                source_dim = data_dims.source_lin_dim + data_dims.source_quad_dim
-            elif data_dims.source_lin_dim is not None:
-                source_dim = data_dims.source_lin_dim
-            elif data_dims.source_quad_dim is not None:
-                source_dim = data_dims.source_quad_dim
-            else:
-                source_dim = None
-            source_encoder_mlp_kwargs["input_dim"] = source_dim
-
-        # promote arguments passed from kwargs
-        condition_encoder_input_layers = kwargs.pop("condition_encoder_input_layers", condition_encoder_input_layers)
-        source_encoder_mlp_kwargs = kwargs.pop("source_encoder_mlp_kwargs", source_encoder_mlp_kwargs)
-        condition_encoder_covariates_not_pooled = kwargs.pop(
-            "condition_encoder_covariates_not_pooled", condition_encoder_covariates_not_pooled
-        )
-
-        return cls(
-            state_dim,
-            condition_encoder_input_layers=condition_encoder_input_layers,
-            source_encoder_mlp_kwargs=source_encoder_mlp_kwargs,
-            condition_encoder_covariates_not_pooled=condition_encoder_covariates_not_pooled,
-            **kwargs,
-        )

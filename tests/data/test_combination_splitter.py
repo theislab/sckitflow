@@ -10,7 +10,7 @@ import pandas as pd
 import pytest
 from anndata import AnnData
 
-from sckitflow.data.splitters import CombinationSplitter
+from sckitflow.data.splitters import CombinationSplitter, CombinationSplitterConfig
 
 CELLS_PER_COMBO = 3
 
@@ -27,17 +27,16 @@ def _make_adata() -> AnnData:
     return ad
 
 
-def _splitter(**overrides) -> CombinationSplitter:
+def _splitter(rng: int = 0, **overrides) -> CombinationSplitter:
     kwargs = {
         "group_keys": ["cell_line", "drug"],
         "always_train_keys": ["cell_line"],
         "control_key": "drug",
         "control_value": "control",
         "test_fraction": 0.2,
-        "rng": np.random.default_rng(0),
     }
     kwargs.update(overrides)
-    return CombinationSplitter(**kwargs)
+    return CombinationSplitterConfig(**kwargs).build(rng=np.random.default_rng(rng))
 
 
 def _labelled(adata: AnnData, splitter: CombinationSplitter) -> pd.DataFrame:
@@ -124,10 +123,10 @@ class TestCombinationSplitter:
     def test_always_train_keys_must_be_subset(self):
         """The message names the offending key and both parameters, not just that something is wrong."""
         with pytest.raises(ValueError, match=r"always_train_keys entries not found in group_keys: \['drug'\]"):
-            CombinationSplitter(group_keys=["cell_line"], always_train_keys=["drug"], rng=np.random.default_rng(0))
+            CombinationSplitterConfig(group_keys=["cell_line"], always_train_keys=["drug"])
 
     def test_missing_column_raises(self):
         with pytest.raises(KeyError, match="nonexistent"):
-            CombinationSplitter(
-                group_keys=["cell_line", "nonexistent"], always_train_keys=["cell_line"], rng=np.random.default_rng(0)
+            CombinationSplitterConfig(group_keys=["cell_line", "nonexistent"], always_train_keys=["cell_line"]).build(
+                rng=np.random.default_rng(0)
             ).assign(_make_adata())

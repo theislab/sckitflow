@@ -13,7 +13,7 @@ from anndata import AnnData
 from scipy import sparse
 
 from sckitflow.data._loader import Loader
-from sckitflow.data._manager import DataManager
+from sckitflow.data._manager import DataManager, DataManagerConfig
 
 LINES = ["s0", "s1"]
 DRUGS = ["control", "d0", "d1"]
@@ -48,7 +48,7 @@ def _dm(**overrides) -> DataManager:
         "target_continuous_covs": ["ytgt"],
     }
     base.update(overrides)
-    return DataManager(**base)
+    return DataManager(DataManagerConfig(**base))
 
 
 def _loader(ad, dm, **overrides) -> Loader:

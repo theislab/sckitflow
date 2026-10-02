@@ -8,7 +8,7 @@ from sckitflow._types import ConditioningLayersId
 from sckitflow._utils import verify_fn_kwargs_dictionary
 from sckitflow.core._types import ConditioningFn
 from sckitflow.core._utils import make_concatenation_possible
-from sckitflow.core.nn._modules import BaseModule, Resnet1d
+from sckitflow.core.nn._modules import Resnet1d
 
 __all__ = [
     "BaseConditioningLayer",
@@ -19,7 +19,7 @@ __all__ = [
 ]
 
 
-class BaseConditioningLayer(BaseModule):
+class BaseConditioningLayer(torch.nn.Module):
     """Base class for conditioning layers."""
 
     def __init__(
@@ -134,13 +134,7 @@ class ConcatConditioning(BaseConditioningLayer):
             latent_condition_dim,
         )
 
-        self._identity = self._make_modules()
-
-    def _make_modules(
-        self,
-    ) -> torch.nn.Module:
-        """Initializes the module."""
-        return torch.nn.Identity()
+        self._identity = torch.nn.Identity()
 
     @property
     def output_dim(
@@ -221,14 +215,8 @@ class Resnet1dConditioning(BaseConditioningLayer):
         )
         self._resnet_kwargs = {} if resnet_kwargs is None else resnet_kwargs
 
-        self._resnet = self._make_modules()
-
-    def _make_modules(
-        self,
-    ) -> torch.nn.Module:
-        """Initializes the module."""
         verify_fn_kwargs_dictionary(Resnet1d.__init__, self._resnet_kwargs)
-        return Resnet1d(
+        self._resnet = Resnet1d(
             self._latent_state_dim,
             self.embedding_dim,
             **self._resnet_kwargs,

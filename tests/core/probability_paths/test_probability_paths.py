@@ -35,24 +35,12 @@ class TestProbabilityPaths:
     ) -> None:
         set_backend("torch")
 
-        # non deterministic probability paths
         if not probability_path_cls.is_deterministic:
-            # initialize with negative sigma
             with pytest.raises(ValueError, match=r"Argument sigma should be a positive float"):
-                probability_path = probability_path_cls(-1.0, prng=torch.random.default_generator)
-                return None
-
-            # initialize with prng
-            probability_path = probability_path_cls(1.0, prng=torch.random.default_generator)
-            assert not probability_path.is_deterministic
+                probability_path_cls(-1.0)
+            assert not probability_path_cls(1.0).is_deterministic
         else:
-            # initialize with prng (should only raise a warning)
-            probability_path = probability_path_cls(prng=torch.random.default_generator)
-            assert probability_path.is_deterministic
-
-            # initialize without prng
-            probability_path = probability_path_cls(prng=None)
-            assert probability_path.is_deterministic
+            assert probability_path_cls().is_deterministic
 
     @pytest.mark.parametrize(
         "probability_path_cls",
@@ -72,9 +60,7 @@ class TestProbabilityPaths:
         set_backend("torch")
 
         # initialize probability path and retrieving method to test
-        probability_path = probability_path_cls(
-            1.0, prng=None if probability_path_cls.is_deterministic else torch.random.default_generator
-        )
+        probability_path = probability_path_cls(1.0)
         verify_method_output(
             probability_path,
             method,
@@ -84,3 +70,12 @@ class TestProbabilityPaths:
             height,
             width,
         )
+
+
+@pytest.mark.parametrize("probability_path_cls", [LinearGaussianProbabilityPath, SchrodingerBridgeProbabilityPath])
+def test_noise_comes_only_from_the_generator(probability_path_cls: type[BaseProbabilityPath]) -> None:
+    path, t, x0, x1 = probability_path_cls(1.0), torch.full((4, 1), 0.5), torch.zeros(4, 3), torch.ones(4, 3)
+    same = [path.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0)) for _ in range(2)]
+    torch.manual_seed(1)  # the global RNG must not matter
+    other = path.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(1))
+    assert torch.equal(same[0], same[1]) and not torch.equal(same[0], other)

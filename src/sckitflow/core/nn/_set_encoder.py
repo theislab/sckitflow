@@ -6,13 +6,13 @@ import torch
 from sckitflow._types import LayersDict, NestedLayersDict
 from sckitflow._utils import check_sequence_query_against_reference
 from sckitflow.core._types import MappedTensor
-from sckitflow.core.nn._modules import BaseModule, FunctionalModule
+from sckitflow.core.nn._modules import FunctionalModule
 from sckitflow.core.nn._utils import init_module_from_dict
 
 __all__ = ["SetEncoder"]
 
 
-class SetEncoder(BaseModule):
+class SetEncoder(torch.nn.Module):
     """Encoder for set of conditioning covariates."""
 
     def __init__(
@@ -70,7 +70,20 @@ class SetEncoder(BaseModule):
         self._output_layers_kwargs = {} if output_layers_kwargs is None else output_layers_kwargs
         self._pooling_proj_dim = pooling_proj_dim if pooling_proj_dim else self._min_pooled_dims
 
-        self._condition_encoder = self._make_modules()
+        input_layers_dict = self._make_input_layers()
+        input_layers = torch.nn.ModuleDict(input_layers_dict)
+
+        # make projection layers
+        proj_layers_dict = self._make_proj_layers()
+        proj_layers = torch.nn.ModuleDict(proj_layers_dict)
+
+        layers = {
+            "input_layers": input_layers,
+            "proj_layers": proj_layers,
+            "pooling_layer": self._make_pooling_layer(),
+            "output_layer": self._make_output_layer(),
+        }
+        self._condition_encoder = torch.nn.ModuleDict(layers)
 
     @property
     def _min_pooled_dims(self) -> int | None:
@@ -130,26 +143,6 @@ class SetEncoder(BaseModule):
         return init_module_from_dict(
             self._output_layers_kwargs, input_dim=self.decoder_input_dim, output_dim=self._output_dim
         )
-
-    def _make_modules(
-        self,
-    ) -> torch.nn.Module:
-        """Initializes the module."""
-        # make input layers
-        input_layers_dict = self._make_input_layers()
-        input_layers = torch.nn.ModuleDict(input_layers_dict)
-
-        # make projection layers
-        proj_layers_dict = self._make_proj_layers()
-        proj_layers = torch.nn.ModuleDict(proj_layers_dict)
-
-        layers = {
-            "input_layers": input_layers,
-            "proj_layers": proj_layers,
-            "pooling_layer": self._make_pooling_layer(),
-            "output_layer": self._make_output_layer(),
-        }
-        return torch.nn.ModuleDict(layers)
 
     def forward(
         self,

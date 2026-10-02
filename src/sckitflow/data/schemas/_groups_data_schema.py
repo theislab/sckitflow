@@ -5,7 +5,7 @@ from anndata import AnnData
 
 from sckitflow._types import TargetCovariatesEncoderCls
 from sckitflow._utils import check_sequence_query_against_reference
-from sckitflow.data._group_encoders import GroupEncoder, GroupEncoderContext, GroupEncoderId, as_group_encoder
+from sckitflow.data._group_encoders import GroupEncoderConfig, GroupEncoderContext, GroupEncoderId, as_group_encoder
 from sckitflow.data._mixins import MappedArray
 from sckitflow.data.containers._categorical import CategoricalData
 from sckitflow.data.schemas._base_schema import StrictDataSchema
@@ -20,7 +20,7 @@ class GroupsDataSchema(StrictDataSchema):
         self,
         groups: Collection[str] | None = None,
         groups_reps: dict[str, str] | None = None,
-        groups_encoding: dict[str, GroupEncoder | GroupEncoderId] | None = None,
+        groups_encoding: dict[str, GroupEncoderConfig | GroupEncoderId] | None = None,
     ) -> None:
         """Initializes the data schema.
 
@@ -35,17 +35,17 @@ class GroupsDataSchema(StrictDataSchema):
         :type groups_reps: class: `dict[str, str] | None`
 
         :param groups_encoding: Dictionary mapping each group column to a
-            :class:`~sckitflow.data._group_encoders.GroupEncoder` (e.g. ``OneHot()``, ``Label()``,
-            ``Affine(scale=2.0)``). Encoders are frozen dataclasses that build their fitted
+            :class:`~sckitflow.data._group_encoders.GroupEncoderConfig` (e.g. ``OneHotEncoderConfig()``, ``LabelEncoderConfig()``,
+            ``AffineTransformerConfig(scale=2.0)``). Encoders are frozen configs that build their fitted
             transformer on demand, so they carry no callables and stay serializable. The string ids
             ``"label"`` / ``"one-hot"`` are also accepted as shorthand for the parameter-free encoders and
             are coerced to components here; pass an instance for anything parameterized. Defaults to `None`.
-        :type groups_encoding: class: `dict[str, GroupEncoder | GroupEncoderId] | None`
+        :type groups_encoding: class: `dict[str, GroupEncoderConfig | GroupEncoderId] | None`
         """
         self._groups = [] if groups is None else groups
         self._groups_reps = {} if groups_reps is None else groups_reps
         # Strings are accepted at this boundary only -- everything downstream holds components.
-        self._groups_encoders: dict[str, GroupEncoder] = (
+        self._groups_encoders: dict[str, GroupEncoderConfig] = (
             {} if groups_encoding is None else {col: as_group_encoder(enc) for col, enc in groups_encoding.items()}
         )
         super().__init__()
@@ -143,7 +143,7 @@ class GroupsDataSchema(StrictDataSchema):
         return self._groups_reps
 
     @property
-    def groups_encoders(self) -> dict[str, GroupEncoder]:
+    def groups_encoders(self) -> dict[str, GroupEncoderConfig]:
         """Exposes the `groups_encoding` encoders set at initialization."""
         return self._groups_encoders
 

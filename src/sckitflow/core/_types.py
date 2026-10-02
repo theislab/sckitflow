@@ -16,7 +16,6 @@ try:
 except (ImportError, TypeError):
     NumpyArray = np.ndarray
 
-from sckitflow._types import PredictionData
 from sckitflow.data import mixins
 from sckitflow.data.containers import BaseData
 
@@ -49,7 +48,7 @@ class MatchFn(Protocol):
 
 
 class SamplerFn(Protocol):
-    """Samples a tensor of `shape`, on the given device and dtype.
+    """Samples a tensor of `shape` from `generator`, on the given device and dtype.
 
     `torch.rand` and `torch.randn` do not match it themselves (their overloaded
     signatures differ), so the defaults wrap them. ``device`` and ``dtype`` are named
@@ -62,6 +61,7 @@ class SamplerFn(Protocol):
         self,
         shape: tuple[int, ...],
         *,
+        generator: torch.Generator,
         device: torch.types.Device = None,
         dtype: torch.dtype | None = None,
     ) -> torch.Tensor: ...
@@ -143,7 +143,7 @@ def new_step_data(**fields: Any) -> StepData:
 
 
 @dataclass(frozen=True)
-class PredictionData(PredictionData):
+class PredictionData:
     """Stores prediction data for Flow Models
 
     * X (B, D)
@@ -154,52 +154,6 @@ class PredictionData(PredictionData):
     X: torch.Tensor
     raw_samples: torch.Tensor | None = None
     traj: torch.Tensor | None = None
-
-    @classmethod
-    def concatenate(cls, preds: Collection["PredictionData"]) -> "PredictionData":
-        # ----  Early return if empty collection ----
-        if len(preds) == 0:
-            raise ValueError("Cannot concatenate empty collection")
-
-        # ---- Sanity check as they should all contain the same fields ----
-        for idx, p in enumerate(preds):
-            # ---- Get reference values from first element ----
-            if idx == 0:
-                ref_has_raw_samples = p.has_raw_samples
-                ref_has_traj = p.has_traj
-
-            # ---- Check that the raw samples match ---
-            if p.has_raw_samples != ref_has_raw_samples:
-                raise ValueError("All elements should have the same type of `raw_samples` attribute.")
-
-            if p.has_traj != ref_has_traj:
-                raise ValueError("All elements should have the same type of `traj`attribute.")
-
-        # ---- Concatenate X, always on first dimension ----
-        X = torch.cat([p.X for p in preds], dim=0)
-
-        # --- Concatenate samples when provided ----
-        raw_samples = [p.raw_samples for p in preds if p.raw_samples is not None]
-        if raw_samples:
-            raw_samples = torch.cat(raw_samples, dim=1)  # assuming [N, B, D] -> concat on B
-        else:
-            raw_samples = None
-
-        # --- Concatenate trajectory when provided ----
-        trajs = [p.traj for p in preds if p.traj is not None]
-        if trajs:
-            traj = torch.cat(trajs, dim=2)  # assuming [T, N, B, D] -> concat on B
-        else:
-            traj = None
-        return cls(X=X, raw_samples=raw_samples, traj=traj)
-
-    @property
-    def has_raw_samples(self) -> bool:
-        return self.raw_samples is not None
-
-    @property
-    def has_traj(self) -> bool:
-        return self.traj is not None
 
 
 @dataclass(frozen=True)
@@ -214,3 +168,43 @@ class TensorMixin(mixins.BatchMixin[str, torch.Tensor]):
     """"""  # noqa
 
     _REQUIRED_VALUE_TYPE: ClassVar[type[Any]] = torch.Tensor
+
+
+def concatenate_predictions(preds: Collection[PredictionData]) -> PredictionData:
+    """Merges per-group predictions into one, concatenating on the batch axis.
+
+    A function rather than a classmethod: there is only one `PredictionData`, so
+    the call site had to dispatch by hand -- ``type(preds[0]).concatenate(preds)``
+    -- for a polymorphism that never existed.
+
+    :param preds: One `PredictionData` per predicted group.
+    :raises ValueError: If `preds` is empty, or its elements disagree on which
+        optional fields they carry.
+    """
+    # ----  Early return if empty collection ----
+    if len(preds) == 0:
+        raise ValueError("Cannot concatenate empty collection")
+
+    # ---- They must agree on which optional fields they carry ----
+    for field in ("raw_samples", "traj"):
+        present = {getattr(p, field) is not None for p in preds}
+        if len(present) > 1:
+            raise ValueError(f"all elements must agree on whether `{field}` is present.")
+
+    # ---- Concatenate X, always on first dimension ----
+    X = torch.cat([p.X for p in preds], dim=0)
+
+    # --- Concatenate samples when provided ----
+    raw_samples = [p.raw_samples for p in preds if p.raw_samples is not None]
+    if raw_samples:
+        raw_samples = torch.cat(raw_samples, dim=1)  # assuming [N, B, D] -> concat on B
+    else:
+        raw_samples = None
+
+    # --- Concatenate trajectory when provided ----
+    trajs = [p.traj for p in preds if p.traj is not None]
+    if trajs:
+        traj = torch.cat(trajs, dim=2)  # assuming [T, N, B, D] -> concat on B
+    else:
+        traj = None
+    return PredictionData(X=X, raw_samples=raw_samples, traj=traj)

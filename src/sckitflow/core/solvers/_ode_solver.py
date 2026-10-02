@@ -79,10 +79,8 @@ class ODESolver(BaseSolver[ODEDynamics]):
             self._vf,
             config.source_on_device,
             config.time_on_device,
-            rtol=rtol,
-            atol=atol,
-            method=self._method,
-            **config.remaining_kwargs,
+            # `solver_kwargs` may set the tolerances too; theirs win
+            **{"rtol": rtol, "atol": atol, "method": self._method, **config.remaining_kwargs},
         )
 
         if return_trajectory:

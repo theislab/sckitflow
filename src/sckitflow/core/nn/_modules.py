@@ -1,4 +1,3 @@
-import abc
 from collections import OrderedDict
 from collections.abc import Callable, Sequence
 from typing import Any
@@ -6,55 +5,15 @@ from typing import Any
 import torch
 
 from sckitflow._constants import DEFAULT_NUM_RESNET_LAYERS
-from sckitflow.data._dims import DataDimensions
 
 __all__ = [
-    "BaseModule",
     "FunctionalModule",
     "MLP",
     "Resnet1d",
 ]
 
 
-class BaseModule(abc.ABC, torch.nn.Module):
-    """Base class for Neural Networks."""
-
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__()
-
-    @abc.abstractmethod
-    def _make_modules(
-        self,
-    ) -> torch.nn.Module:
-        """Initializes the module."""
-
-    @abc.abstractmethod
-    def forward(
-        self,
-        x: torch.Tensor,
-        *args,
-        **kwargs,
-    ) -> torch.Tensor:
-        """Performs a forward computation pass on the module.
-
-        :param x: The input tensor to the Neural Network.
-        :type x: class: `torch.Tensor`
-
-        :return: The output of the forward computation pass.
-        :rtype: class: `torch.nn.Module`
-        """
-
-    @classmethod
-    def init_from_data_dims(
-        cls,
-        data_dims: DataDimensions,
-        *args,
-        **kwargs,
-    ) -> "BaseModule":
-        return cls(*args, **kwargs)
-
-
-class FunctionalModule(BaseModule):
+class FunctionalModule(torch.nn.Module):
     """Class for wrapping :class: `torch.nn.Modules` around callables."""
 
     def __init__(self, fn: Callable[[torch.Tensor], torch.Tensor]) -> None:
@@ -62,11 +21,7 @@ class FunctionalModule(BaseModule):
         super().__init__()
         self.fn = fn
 
-        self._identity = self._make_modules()
-
-    def _make_modules(self):
-        """TODO."""
-        return torch.nn.Identity()
+        self._identity = torch.nn.Identity()
 
     def forward(self, x, *args, **kwargs):
         """TODO."""
@@ -74,7 +29,7 @@ class FunctionalModule(BaseModule):
         return self._identity(out)
 
 
-class MLP(BaseModule):
+class MLP(torch.nn.Module):
     """Class for Multi-Layered Perceptrons with optional batch normalization, layer normalizations and dropout."""
 
     def __init__(
@@ -201,7 +156,35 @@ class MLP(BaseModule):
         self._bias = bias
 
         # initializing mlp
-        self._mlp = self._make_modules()
+        layers = []
+        input_dim = self._input_dim
+        layer_id = 0
+        for output_dim in self._hidden_dims:
+            layers.append(
+                (
+                    f"layer_{layer_id}",
+                    self._make_layer(
+                        input_dim,
+                        output_dim,
+                        self._activation_cls,
+                        self._activation_cls_kwargs,
+                    ),
+                )
+            )
+            input_dim = output_dim
+            layer_id += 1
+        layers.append(
+            (
+                f"layer_{layer_id}",
+                self._make_layer(
+                    input_dim,
+                    self._output_dim,
+                    self._final_activation_cls,
+                    self._final_activation_cls_kwargs,
+                ),
+            )
+        )
+        self._mlp = torch.nn.Sequential(OrderedDict(layers))
 
     def _make_layer(
         self,
@@ -268,44 +251,6 @@ class MLP(BaseModule):
             )
         return torch.nn.Sequential(OrderedDict(layer))
 
-    def _make_modules(
-        self,
-    ) -> torch.nn.Module:
-        """Initializes the MLP.
-
-        :return: A :class: `torch.nn.Sequential` module for the whole MLP.
-        :rtype: class: `torch.nn.Module`
-        """
-        layers = []
-        input_dim = self._input_dim
-        layer_id = 0
-        for output_dim in self._hidden_dims:
-            layers.append(
-                (
-                    f"layer_{layer_id}",
-                    self._make_layer(
-                        input_dim,
-                        output_dim,
-                        self._activation_cls,
-                        self._activation_cls_kwargs,
-                    ),
-                )
-            )
-            input_dim = output_dim
-            layer_id += 1
-        layers.append(
-            (
-                f"layer_{layer_id}",
-                self._make_layer(
-                    input_dim,
-                    self._output_dim,
-                    self._final_activation_cls,
-                    self._final_activation_cls_kwargs,
-                ),
-            )
-        )
-        return torch.nn.Sequential(OrderedDict(layers))
-
     def forward(
         self,
         x: torch.Tensor,
@@ -327,7 +272,7 @@ class MLP(BaseModule):
         return y.reshape(*original_shape, -1)
 
 
-class Resnet1d(BaseModule):
+class Resnet1d(torch.nn.Module):
     r"""Class for residual connections on 1-dimensional inputs.
 
     The residual network formulation takes the following inputs:
@@ -476,7 +421,16 @@ class Resnet1d(BaseModule):
         self._bias = bias
 
         # initializing resnet
-        self._resnet = self._make_modules()
+        self._resnet = torch.nn.Sequential(
+            OrderedDict(
+                [
+                    (f"layer_{layer_id}", self._make_resnet_layer(self._input_dim, self._output_dim))
+                    if layer_id == 0
+                    else (f"layer_{layer_id}", self._make_resnet_layer(self._output_dim, self._output_dim))
+                    for layer_id in range(self._num_resnet_layers)
+                ]
+            )
+        )
 
     def _make_block(
         self,
@@ -571,21 +525,6 @@ class Resnet1d(BaseModule):
                     torch.nn.Linear(input_dim, output_dim) if input_dim != output_dim else torch.nn.Identity(),
                 ),
             ]
-        )
-
-    def _make_modules(
-        self,
-    ) -> torch.nn.Module:
-        """Initializes the stack of Residual Layers."""
-        return torch.nn.Sequential(
-            OrderedDict(
-                [
-                    (f"layer_{layer_id}", self._make_resnet_layer(self._input_dim, self._output_dim))
-                    if layer_id == 0
-                    else (f"layer_{layer_id}", self._make_resnet_layer(self._output_dim, self._output_dim))
-                    for layer_id in range(self._num_resnet_layers)
-                ]
-            )
         )
 
     def forward(

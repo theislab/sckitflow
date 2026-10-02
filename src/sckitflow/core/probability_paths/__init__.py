@@ -1,3 +1,10 @@
+from sckitflow.core.probability_paths._config import (
+    LinearDiracProbabilityPathConfig,
+    LinearGaussianProbabilityPathConfig,
+    ProbabilityPathConfig,
+    SchrodingerBridgeProbabilityPathConfig,
+    VariancePreservingDiracProbabilityPathConfig,
+)
 from sckitflow.core.probability_paths._probability_paths import (
     BaseProbabilityPath,
     LinearDiracProbabilityPath,
@@ -12,4 +19,9 @@ __all__ = [
     "LinearGaussianProbabilityPath",
     "SchrodingerBridgeProbabilityPath",
     "VariancePreservingDiracProbabilityPath",
+    "ProbabilityPathConfig",
+    "LinearDiracProbabilityPathConfig",
+    "LinearGaussianProbabilityPathConfig",
+    "SchrodingerBridgeProbabilityPathConfig",
+    "VariancePreservingDiracProbabilityPathConfig",
 ]

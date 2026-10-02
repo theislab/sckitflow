@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+from typing import Any
+
+import numpy as np
 import pandas as pd
 from anndata import AnnData
+from scfit.registry import Component
 
 from sckitflow.data._utils import with_derived_obs
 
-__all__ = ["Splitter"]
+__all__ = ["Splitter", "SplitterConfig"]
 
 
-class Splitter:
+class Splitter[C: SplitterConfig]:
     """Base class for splitters that annotate observations with a split label.
 
     A splitter is deliberately decoupled from :class:`~sckitflow.data.DataManager`: its only
@@ -18,18 +22,24 @@ class Splitter:
     where) separate from data configuration (how observations are read and batched).
 
     Subclasses override :meth:`assign` to return a per-observation label series; :meth:`split`
-    writes it into ``adata.obs``.
+    writes it into ``adata.obs``. A splitter is its config plus the ``rng`` it draws from, so it can be
+    rebuilt exactly, e.g. from a checkpoint.
     """
 
-    def __init__(self, *, split_key: str = "split") -> None:
+    def __init__(self, config: C, *, rng: np.random.Generator) -> None:
         """Initializes the splitter.
 
-        :param split_key: Name of the ``adata.obs`` column the split label is written to. This
-            is the value later passed to :class:`~sckitflow.data.DataManager` as ``split_by``.
-            Defaults to ``"split"``.
-        :type split_key: class: `str`
+        :param config: The splitting policy.
+        :param rng: The generator the split is drawn from. Copy it before drawing, so the split never changes.
         """
-        self._split_key = split_key
+        self.config = config
+        self._rng = rng
+        self._split_key = config.split_key
+
+    @property
+    def rng(self) -> np.random.Generator:
+        """The generator the split is drawn from, as given."""
+        return self._rng
 
     @property
     def split_key(self) -> str:
@@ -80,3 +90,15 @@ class Splitter:
     def __call__(self, adata: AnnData, *, copy: bool = False) -> AnnData:
         """Alias for :meth:`split`."""
         return self.split(adata, copy=copy)
+
+
+class SplitterConfig(Component):
+    """Family base for the splitter configs. ``build`` takes the run's split ``rng``."""
+
+    split_key: str = "split"
+    """``adata.obs`` column the split label is written to; what :class:`~sckitflow.data.DataManager`
+    then reads as ``split_by``."""
+
+    def build(self, *, rng: np.random.Generator) -> Splitter[Any]:
+        """The splitter, drawing its hold-out choice from ``rng``."""
+        raise NotImplementedError

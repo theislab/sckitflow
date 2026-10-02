@@ -1,12 +1,9 @@
 import abc
-import logging
 
 import torch
 
 from sckitflow._constants import PI
 from sckitflow.core._utils import broadcast_to_target_shape
-
-logger = logging.getLogger(__name__)
 
 __all__ = [
     "BaseProbabilityPath",
@@ -21,10 +18,8 @@ __all__ = [
 class BaseProbabilityPath(abc.ABC):
     r"""Base Class for Conditional Probability Paths :math: `p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)`.
 
-    :param _require_prng: Whether a Pseudo-Random Numbers Generator is required for the probability path.
-        Pseudo-Random Numbers Generators are required for reproducibility of non-deterministic probability paths and should be instances of
-        :class: `torch.Generator`, when provided. For non-deterministic probability paths a warning is displayed and it is set to the
-        output of :constant: `torch.random.default_generator`.
+    :param _require_prng: Whether the path samples noise, drawn from the ``generator`` passed to
+        :meth:`compute_xt`. ``False`` for deterministic paths.
     :type _require_prng: class: `bool`
     """
 
@@ -46,7 +41,6 @@ class BaseProbabilityPath(abc.ABC):
     def __init__(
         self,
         sigma: float,
-        prng: torch.Generator | None = None,
     ) -> None:
         r"""Initializes the probability path.
 
@@ -55,31 +49,13 @@ class BaseProbabilityPath(abc.ABC):
             :math: `\sigma_t` of the conditional probability path will be scaled.
             For non-deterministic probability paths, this has to be a positive scalar. A :class: `ValueError` is thrown otherwise.
         :type sigma: class: `float`
-
-        :param prng: Pseudo-Random Numbers Generator used to generate random numbers. Only needed for
-            non deterministic probability paths. Defaults to `None`, in which case it is set to the
-            output of :constant: `torch.random.default_generator`.
-        :type prng: class: `torch.Generator | None`
         """
-        # sanity check when we require the prng
-        if self._require_prng and (not isinstance(prng, torch.Generator)):
-            msg = (
-                f"The probability path  {self.__class__.__name__} requires a PRNG. Please provide an instance of `torch.Generator`"
-                r"for reproducible results. Setting it to \`torch.random.default_generator\` by default."
-            )
-            logger.warning(msg)
-            prng = torch.random.default_generator
-        elif (not self._require_prng) and (prng is not None):
-            msg = f"PRNG provided to {self.__class__.__name__}, which is deterministic. Setting it to `None`."
-            logger.warning(msg)
-            prng = None
         # sanity check for positive values
         if not sigma > 0 and not self.is_deterministic:
             msg = f"Argument sigma should be a positive float for non deterministic probability paths. Found {sigma=}"
             raise ValueError(msg)
 
         # setting the attributes
-        self._prng = prng
         self._sigma = sigma
 
     def _verify_shapes(
@@ -160,6 +136,8 @@ class BaseProbabilityPath(abc.ABC):
         t: torch.Tensor,
         x0: torch.Tensor,
         x1: torch.Tensor,
+        *,
+        generator: torch.Generator,
     ) -> torch.Tensor:
         r"""Samples from the conditional probability path :math: `p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)`.
 
@@ -180,6 +158,9 @@ class BaseProbabilityPath(abc.ABC):
 
         :param x1: The target state.
         :type x1: class: `torch.Tensor`
+
+        :param generator: Draws the noise of non-deterministic paths, on ``x0``'s device.
+        :type generator: class: `torch.Generator`
         """
         # handling shapes
         t = broadcast_to_target_shape(t, x0.shape)
@@ -190,7 +171,7 @@ class BaseProbabilityPath(abc.ABC):
         # sampling noise
         if self._require_prng:
             sigma_t = self.compute_sigma_t(t)
-            noise = torch.randn(*x0.shape, generator=self._prng, device=x0.device)
+            noise = torch.randn(x0.shape, generator=generator, device=x0.device, dtype=x0.dtype)
             return mu_t + sigma_t * noise
         # returning mean for deterministic paths
         return mu_t
@@ -214,7 +195,6 @@ class LinearProbabilityPath(BaseProbabilityPath, abc.ABC):
     def __init__(
         self,
         sigma: float,
-        prng: torch.Generator | None = None,
     ) -> None:
         r"""Initializes the probability path.
 
@@ -222,11 +202,8 @@ class LinearProbabilityPath(BaseProbabilityPath, abc.ABC):
             This will determine the factor :math: `\sigma` by which the time-dependent standard deviation
             :math: `\sigma_t` of the conditional probability path will be scaled.
         :type sigma: class: `float`
-
-        :param prng: Pseudo-Random Numbers Generator used to generate random numbers, defaults to `None`.
-        :type prng: class: `None`
         """
-        super().__init__(sigma=sigma, prng=prng)
+        super().__init__(sigma=sigma)
 
     def compute_mu_t(
         self,
@@ -280,7 +257,6 @@ class LinearGaussianProbabilityPath(LinearProbabilityPath):
     def __init__(
         self,
         sigma: float,
-        prng: torch.Generator | None = None,
     ) -> None:
         r"""Initializes the probability path.
 
@@ -288,11 +264,8 @@ class LinearGaussianProbabilityPath(LinearProbabilityPath):
             This will determine the factor :math: `\sigma` by which the time-dependent standard deviation
             :math: `\sigma_t` of the conditional probability path will be scaled.
         :type sigma: class: `float`
-
-        :param prng: Pseudo-Random Numbers Generator used to generate random numbers.
-        :type prng: class: `None`
         """
-        super().__init__(sigma=sigma, prng=prng)
+        super().__init__(sigma=sigma)
 
     def compute_sigma_t(
         self,
@@ -363,20 +336,17 @@ class SchrodingerBridgeProbabilityPath(LinearProbabilityPath):
 
     _require_prng: bool = True
 
-    def __init__(self, sigma: float, prng: torch.Generator | None = None, eps: float = 1e-35) -> None:
+    def __init__(self, sigma: float, eps: float = 1e-35) -> None:
         r"""Initializes the gaussian probability path probability paths.
 
         :param sigma: The noise value for the flow. This will determine the factor :math: `\sigma` for standard deviation :math: `\sigma_t = \sigma\sqrt{t(1-t)}` of the conditional probability path.
         :type sigma: class: `float`
 
-        :param prng: Pseudo-Random Numbers Generator used to generate random numbers.
-        :type prng: class: `None`
-
         :param eps: Small constant to be added to the denominator of the conditional velocity field for numerical stability, defaults to :math: `10^{-35}`.
         :type eps: class: `float`
         """
         self._eps = eps
-        super().__init__(sigma=sigma, prng=prng)
+        super().__init__(sigma=sigma)
 
     def compute_sigma_t(
         self,
@@ -449,9 +419,8 @@ class LinearDiracProbabilityPath(LinearProbabilityPath):
     def __init__(
         self,
         sigma: float = 0.0,
-        prng: torch.Generator | None = None,
     ) -> None:
-        super().__init__(sigma=sigma, prng=prng)
+        super().__init__(sigma=sigma)
 
     def compute_sigma_t(
         self,
@@ -522,9 +491,8 @@ class VariancePreservingDiracProbabilityPath(BaseProbabilityPath):
     def __init__(
         self,
         sigma: float = 0.0,
-        prng: torch.Generator | None = None,
     ) -> None:
-        super().__init__(sigma=sigma, prng=prng)
+        super().__init__(sigma=sigma)
 
     def compute_mu_t(
         self,

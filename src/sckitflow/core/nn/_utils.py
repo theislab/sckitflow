@@ -1,5 +1,7 @@
+import torch
+
 from sckitflow._types import LayersDict
-from sckitflow.core.nn._modules import MLP, BaseModule
+from sckitflow.core.nn._modules import MLP
 
 __all__ = ["init_module_from_dict"]
 
@@ -8,7 +10,7 @@ def init_module_from_dict(
     layers_dict: LayersDict,
     input_dim: int | None = None,
     output_dim: int | None = None,
-) -> BaseModule:
+) -> torch.nn.Module:
     """Initilizes a base module from the specified settings.
 
     The type is specified by the `"layer_type"` key and falls back to

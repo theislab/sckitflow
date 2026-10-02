@@ -1,8 +1,3 @@
-from sckitflow.core.methods.training._cfm import CFMTrainingProtocol
+from sckitflow.core.methods.training._cfm import CFMTraining
 
-AVAILABLE_PROTOCOLS = {"cfm": CFMTrainingProtocol}
-
-__all__ = [
-    "CFMTrainingProtocol",
-    "AVAILABLE_PROTOCOLS",
-]
+__all__ = ["CFMTraining"]

@@ -258,13 +258,16 @@ class SetEncoder(torch.nn.Module):
 
             # update dictionaries
             if covariate_id in self._covariates_not_pooled:
-                if z_cov.shape[-2] != 1:
-                    msg = (
-                        f"Covariate {covariate_id!r} is not pooled, so it must hold one entry per observation; found "
-                        f"{z_cov.shape[-2]}. Pool it, or split its columns into one condition level each."
-                    )
-                    raise ValueError(msg)
-                encoded_covariates_not_pooled[covariate_id] = z_cov.squeeze(-2)
+                # categorical covariates carry a set axis `[B, n, D]`; continuous ones are `[B, D]` already
+                if z_cov.ndim == 3:
+                    if z_cov.shape[-2] != 1:
+                        msg = (
+                            f"Covariate {covariate_id!r} is not pooled, so it must hold one entry per observation; "
+                            f"found {z_cov.shape[-2]}. Pool it, or split its columns into one condition level each."
+                        )
+                        raise ValueError(msg)
+                    z_cov = z_cov.squeeze(-2)
+                encoded_covariates_not_pooled[covariate_id] = z_cov
 
             else:
                 # get shared projection layer

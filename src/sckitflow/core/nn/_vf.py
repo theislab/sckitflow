@@ -90,7 +90,7 @@ class MLPVelocity(BaseVelocityField):
         conditioning_kwargs: dict[str, Any] | None = None,
         condition_encoder_input_layers: NestedLayersDict | None = None,
         condition_encoder_output_dim: int | None = None,
-        condition_encoder_pooling_mode: Literal["mean", "sum"] = "mean",
+        condition_encoder_pooling_mode: Literal["mean", "sum", "attention-token", "attention-seed"] = "mean",
         condition_encoder_pooling_kwargs: dict[str, Any] | None = None,
         condition_encoder_pooling_proj_dim: int | None = None,
         condition_encoder_pooling_proj_bias: bool = True,
@@ -194,9 +194,10 @@ class MLPVelocity(BaseVelocityField):
 
         :param condition_encoder_pooling_mode: Identifier for the pooling strategy of conditioning covariates.
             Defaults to `"mean"`.
-        :type condition_encoder_pooling_mode: class: `Literal["mean", "sum"]`
+        :type condition_encoder_pooling_mode: class: `Literal["mean", "sum", "attention-token", "attention-seed"]`
 
-        :param condition_encoder_pooling_kwargs: Optional keyword arguments for pooling layer.
+        :param condition_encoder_pooling_kwargs: Optional keyword arguments for pooling layer, see
+            :class:`~sckitflow.core.nn.TokenAttentionPooling` and :class:`~sckitflow.core.nn.SeedAttentionPooling`.
             Ignored when pooling is `"mean"` or `"sum"`, defaults to `None`.
         :type condition_encoder_pooling_kwargs: class: `dict[str, Any]`
 

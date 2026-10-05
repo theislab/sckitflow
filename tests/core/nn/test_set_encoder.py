@@ -162,12 +162,41 @@ class TestSetEncoder:
         with pytest.raises(KeyError, match="Input encoder not found for covariate condition1"):
             encoder(condition_dict)
 
-    @pytest.mark.parametrize("pooling_mode", ["attention-token", "attention-seed"])
-    def test_attention_pooling_not_implemented(self, pooling_mode: str) -> None:
-        """Test that attention-based pooling modes raise NotImplementedError."""
-        with pytest.raises(NotImplementedError):
-            SetEncoder(
-                input_layers=input_layers_single_condition,
-                output_dim=output_dim,
-                pooling_mode=pooling_mode,
-            )
+
+@pytest.mark.parametrize(
+    ("pooling_mode", "pooling_kwargs", "pooled_dim"),
+    [
+        ("attention-token", {"num_heads": 2, "qkv_dim": 8}, pooling_proj_dim),
+        ("attention-seed", {"num_heads": 2, "v_dim": 8, "seed_dim": 4}, 8),
+    ],
+)
+def test_attention_pooling(pooling_mode: str, pooling_kwargs: dict, pooled_dim: int) -> None:
+    """Attention pooling sizes the decoder, encodes the set order-free, and trains its query."""
+    encoder = SetEncoder(
+        input_layers=input_layers_double_condition,
+        output_dim=output_dim,
+        pooling_mode=pooling_mode,
+        pooling_kwargs=pooling_kwargs,
+        pooling_proj_dim=pooling_proj_dim,
+        covariates_not_pooled=["condition1"],
+    )
+    assert encoder.decoder_input_dim == pooled_dim + condition1_output_dim
+
+    x = torch.randn(batch_size, n_combs, condition0_input_dim)
+    other = torch.randn(batch_size, 1, condition1_input_dim)
+    encoded = encoder({"condition0": x, "condition1": other})
+    assert encoded.shape == (batch_size, output_dim)
+    torch.testing.assert_close(encoder({"condition0": x.flip(-2), "condition1": other}), encoded)
+
+    encoded.sum().backward()
+    assert encoder._condition_encoder["pooling_layer"].query.grad is not None
+
+
+def test_attention_pooling_rejects_uneven_heads() -> None:
+    with pytest.raises(ValueError, match="divisible"):
+        SetEncoder(
+            input_layers=input_layers_single_condition,
+            output_dim=output_dim,
+            pooling_mode="attention-token",
+            pooling_kwargs={"num_heads": 3, "qkv_dim": 8},
+        )

@@ -1,0 +1,77 @@
+# CellFlow: OT-matched conditional flow matching from control to perturbed cells.
+# Load with `RunConfig.from_spec(yaml.safe_load(...))`, then `datamodule, plan = spec.build(adata)`.
+type: run
+version: 1
+
+data:
+  type: data_module.flow
+  version: 1
+  batch_size: 1024
+  n_train_steps: 50000
+  manager:
+    type: data_manager
+    version: 1
+    sample_rep: X_pca
+    conditions:
+      drug: [drug1, drug2]          # a combination is a set of drugs
+    conditions_reps:
+      drug: drug                    # adata.uns["drug"][name] -> embedding
+    control_values_dict:
+      drug: control
+    groups: [cell_line]             # controls are drawn from the same cell line
+    groups_reps:
+      cell_line: cell_line          # adata.uns["cell_line"][name] -> embedding
+
+splitter:
+  type: splitter.combination
+  version: 1
+  group_keys: [cell_line, drug1, drug2]
+  always_train_keys: [cell_line]
+  control_key: drug1
+  test_fraction: 0.2
+
+module:
+  type: velocity_field.mlp
+  version: 1
+  time_features_id: ott-jax
+  num_time_features: 128
+  time_encoder_output_dim: 256
+  state_encoder_output_dim: 256
+  state_encoder_mlp_kwargs: {hidden_dims: [1024]}
+  conditioning_id: concat
+  vf_decoder_mlp_kwargs: {hidden_dims: [1024, 1024]}
+  condition_encoder_output_dim: 256
+  condition_encoder_pooling_mode: attention-token
+  condition_encoder_pooling_kwargs: {num_heads: 8, qkv_dim: 64}
+  condition_encoder_covariates_not_pooled: [cell_line]   # context, joined after the drugs are pooled
+  condition_encoder_input_layers:   # input_dim comes from the embeddings
+    drug: {output_dim: 256, hidden_dims: [512]}
+    cell_line: {output_dim: 256, hidden_dims: [512]}
+
+training:
+  type: training_method.ot_matched
+  version: 1
+  solver: sinkhorn
+  reg: 0.5
+  method:
+    type: training_method.cfm
+    version: 1
+    probability_path:               # CellFlow's default: constant noise 0
+      type: probability_path.linear_dirac
+      version: 1
+
+inference:
+  type: inference_method.ode
+  version: 1
+  n_steps: 50
+  solver_kwargs: {method: euler}
+
+optimizer:
+  type: optimizer.torch
+  version: 1
+  name: Adam
+  kwargs: {lr: 1.0e-4}
+
+loader_seed: 0
+splitter_seed: 0
+method_seed: 0

@@ -1,3 +1,4 @@
+from sckitflow.core.nn._config import MLPVelocityConfig, ModuleConfig
 from sckitflow.core.nn._modules import (
     MLP,
     FunctionalModule,
@@ -25,6 +26,8 @@ __all__ = [
     "torch_cfm_time_features",
     "BaseVelocityField",
     "MLPVelocity",
+    "ModuleConfig",
+    "MLPVelocityConfig",
     "SetEncoder",
     "TokenAttentionPooling",
     "SeedAttentionPooling",

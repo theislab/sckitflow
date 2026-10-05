@@ -5,14 +5,15 @@ parameters. ``specs.json`` holds ``RunConfig.to_spec()``, ``weights.pt`` a plain
 Nothing is pickled, so a saved run survives our own classes being renamed.
 
 The run's seeds live on the spec and nowhere else, one per consumer of randomness.
-The neural module is supplied on load:
+With a ``module`` config the spec is the whole model; without one the module is supplied on load:
 
 .. code-block:: python
 
-    spec = RunConfig(data=FlowDataModuleConfig(...), training=CFMTrainingConfig(), loader_seed=0)
-    save_run("run", spec, module)
+    spec = RunConfig(data=FlowDataModuleConfig(...), training=CFMTrainingConfig(), module=MLPVelocityConfig())
+    datamodule, plan = spec.build(adata)
+    save_run("run", spec, plan.module)
 
-    dmod, plan = load_run("run", adata, module=MLPVelocity(...))
+    dmod, plan = load_run("run", adata)
 """
 
 from __future__ import annotations
@@ -26,8 +27,10 @@ import torch
 from scfit.registry import Component, component
 
 from sckitflow.core.methods._base import InferenceMethodConfig, TrainingMethodConfig
+from sckitflow.core.nn._config import ModuleConfig
 from sckitflow.data._config import FlowDataModuleConfig
 from sckitflow.data.splitters._base import SplitterConfig
+from sckitflow.trainer._optim import OptimizerConfig
 from sckitflow.trainer._plan import TrainingPlan
 
 if TYPE_CHECKING:
@@ -63,13 +66,33 @@ class RunConfig(Component):
     """Seeds the split, so retraining with another ``loader_seed`` keeps it."""
     method_seed: int = 0
     """Seeds every time, noise and coupling draw of training, validation and prediction."""
+    module: ModuleConfig | None = None
+    """Builds the module from the data's dims. ``None`` means the module is passed to :meth:`build`."""
+    optimizer: OptimizerConfig | None = None
+    """Builds the optimizer over the module. ``None`` means it is passed to :meth:`build`, or omitted to only predict."""
 
-    def build(self, adata: AnnData, module: torch.nn.Module, *, optimizer: torch.optim.Optimizer | None = None) -> Run:
-        """The data module over ``adata`` and a plan over ``module``."""
+    def build(
+        self,
+        adata: AnnData,
+        module: torch.nn.Module | None = None,
+        *,
+        optimizer: torch.optim.Optimizer | None = None,
+    ) -> Run:
+        """The data module over ``adata`` and a plan over ``module``, or over the module ``self.module`` builds.
+
+        :param module: Overrides ``self.module``; required when it is ``None``.
+        :param optimizer: Overrides ``self.optimizer``.
+        """
         splitter = (
             self.splitter.build(rng=np.random.default_rng(self.splitter_seed)) if self.splitter is not None else None
         )
         datamodule = self.data.build(adata, rng=np.random.default_rng(self.loader_seed), splitter=splitter)
+        if module is None:
+            if self.module is None:
+                raise ValueError("pass a `module`, or set `module` on the config.")
+            module = self.module.build(datamodule.data_dims)
+        if optimizer is None and self.optimizer is not None:
+            optimizer = self.optimizer.build(module.parameters())
         plan = TrainingPlan(
             self.training.build(module),
             optimizer,
@@ -101,7 +124,7 @@ def save_run(path: str | Path, spec: RunConfig, module: torch.nn.Module, *, allo
 def load_run(
     path: str | Path,
     adata: AnnData,
-    module: torch.nn.Module,
+    module: torch.nn.Module | None = None,
     *,
     optimizer: torch.optim.Optimizer | None = None,
     map_location: str | None = "cpu",
@@ -109,10 +132,12 @@ def load_run(
     """Rebuilds a run from ``path``: the data module, and a plan over ``module``.
 
     :param adata: The data to attach; the schema comes from the saved spec, not from this.
-    :param module: A freshly built module of the right shape; its weights are loaded from ``weights.pt``.
-    :param optimizer: Optional; omit for a run you only mean to predict with.
+    :param module: A freshly built module of the right shape; ``None`` builds it from the spec's ``module``.
+        Its weights are loaded from ``weights.pt``.
+    :param optimizer: Overrides the spec's ``optimizer``.
     """
     src = Path(path)
     spec = RunConfig.from_spec(json.loads((src / SPECS_NAME).read_text()))
-    module.load_state_dict(torch.load(src / WEIGHTS_NAME, map_location=map_location))
-    return spec.build(adata, module, optimizer=optimizer)
+    run = spec.build(adata, module, optimizer=optimizer)
+    run.plan.module.load_state_dict(torch.load(src / WEIGHTS_NAME, map_location=map_location, weights_only=True))
+    return run

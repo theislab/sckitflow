@@ -12,6 +12,7 @@ from sckitflow.core.methods._base import (
 )
 from sckitflow.core.methods.inference._ode import ODEInference, ODEInferenceConfig
 from sckitflow.core.methods.training._cfm import CFMTraining, CFMTrainingConfig
+from sckitflow.core.methods.training._matched import OTMatchedTrainingConfig
 
 __all__ = [
     "SupportsTraining",
@@ -28,4 +29,5 @@ __all__ = [
     "InferenceMethodConfig",
     "CFMTrainingConfig",
     "ODEInferenceConfig",
+    "OTMatchedTrainingConfig",
 ]

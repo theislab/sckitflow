@@ -82,7 +82,7 @@ class FakeDataModule:
 class MSESurrogate(SurrogatePotential):
     """Squared-error potential. Smallest subclass that exercises the hooks."""
 
-    def parse_prediction_data(self, pred_data):
+    def get_response(self, pred_data):
         return pred_data
 
     def compute_raw_potential(self, y, ystar):
@@ -97,7 +97,7 @@ class RecorderSurrogate(SurrogatePotential):
         self.received_y = None
         self.received_ystar = None
 
-    def parse_prediction_data(self, pred_data):
+    def get_response(self, pred_data):
         return pred_data
 
     def compute_raw_potential(self, y, ystar):
@@ -573,11 +573,11 @@ class TestForwardErrors:
             p(make_cond_dict(n=4))
 
     def test_y_with_wrong_last_dim_from_hook_raises(self):
-        # ``parse_prediction_data`` returns a tensor whose last dim does not
+        # ``get_response`` returns a tensor whose last dim does not
         # match ``ystar``. The explicit shape check in ``forward`` catches it
         # with a ValueError (not an IndexError) thanks to the added guard.
         class WrongY(SurrogatePotential):
-            def parse_prediction_data(self, pred_data):
+            def get_response(self, pred_data):
                 return torch.zeros(4, 10)
 
             def compute_raw_potential(self, y, ystar):

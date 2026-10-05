@@ -53,7 +53,8 @@ class SetEncoder(torch.nn.Module):
         :type pooling_proj_bias: class: `bool`
 
         :param covariates_not_pooled: Collection of string identifiers for the covariates not to pool,
-            defaults to `None`.
+            defaults to `None`. Each holds one entry per observation (a set of size 1), e.g. a cell line.
+            For ordered slots such as a first and a second drug, give each slot its own condition level.
         :type covariates_not_pooled: class: `Collection[str] | None`
 
         :param output_layers_kwargs: Dictionary containing the configurations for the output layer.
@@ -179,6 +180,15 @@ class SetEncoder(torch.nn.Module):
 
             # update dictionaries
             if covariate_id in self._covariates_not_pooled:
+                # categorical covariates carry a set axis `[B, n, D]`; continuous ones are `[B, D]` already
+                if z_cov.ndim == 3:
+                    if z_cov.shape[-2] != 1:
+                        msg = (
+                            f"Covariate {covariate_id!r} is not pooled, so it must hold one entry per observation; "
+                            f"found {z_cov.shape[-2]}. Pool it, or split its columns into one condition level each."
+                        )
+                        raise ValueError(msg)
+                    z_cov = z_cov.squeeze(-2)
                 encoded_covariates_not_pooled[covariate_id] = z_cov
 
             else:

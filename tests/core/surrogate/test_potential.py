@@ -451,13 +451,9 @@ class TestEdgeCases:
         out = potential(make_cond_dict(n=1))
         assert out.shape == (1,)
 
-    def test_single_response_dim_is_rejected_by_current_impl(self):
-        # ``torch.squeeze(torch.zeros(1))`` collapses to a 0-dim scalar, which
-        # ``__init__`` rejects. Supporting D=1 needs an ``unsqueeze(0)``
-        # fallback after the squeeze; until then, this test documents the
-        # current behaviour so a future change is noticed.
-        with pytest.raises(ValueError, match="Invalid shape for target response"):
-            make_potential(ystar_dim=1)
+    def test_single_response_dim(self):
+        potential, _, _ = make_potential(ystar_dim=1)
+        assert potential.ystar.shape == (1,)
 
     def test_single_leaf(self):
         potential, inferer, _ = make_potential(n=3, n_leaves=1)

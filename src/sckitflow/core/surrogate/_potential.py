@@ -1,5 +1,7 @@
 import abc
 from functools import cached_property
+from math import prod
+from typing import Any, Literal
 
 import torch
 from tqdm import tqdm
@@ -12,6 +14,260 @@ from sckitflow.data._dims import DataDimensions
 from sckitflow.data._loader import EvalLoader
 
 __all__ = ["SurrogatePotential"]
+
+
+def _is_mapping(container: Any) -> bool:
+    """Checks whether the input object is a mapping.
+
+    A mapping is anything that exposes the `.items()` method.
+    """
+    # First, we return True if the container is a dictionary.
+    if isinstance(container, dict):
+        return True
+    # Then, we retrieve the items attribute. If None, it means that
+    # the container is NOT a mapping. We use `getattr` with `None` as
+    # default.
+    items_attr = getattr(container, "items", None)
+    # We return False when no such attribute is found.
+    if not items_attr:
+        return False
+    # Finally, we check that the method is a callable.
+    return callable(items_attr)
+
+
+def _get_leaf_target_size(step_data: StepData) -> None | int:
+    """Infers the target size of step data leaf.
+
+    Infers the size of the target data. First, the condition data is
+    used to infer the size, when it is available. Otherwise, falls back
+    to the groups metadata (which is by design shared with the source).
+    This is required to align the target data with the condition tensor
+    -- their presence would cause a shape mismatch if not properly broadcasted.
+    Target states are ignored, as they can be absent at inference time.
+
+    :param step_data: The `StepData` which to infer the target leaf size from.
+    """
+    # We should only pull the ones for the continuous condition
+    # covariates that are not optimized over. This is enforced directly in
+    # `_align_cond_dict_with_step_data`, to delegate only the shape retrieval
+    # to this function.
+    target_condition_data = step_data.get("target_condition_data", None)
+    # When target condition data is available, we still need to check that it is
+    # not an empty dictionary. If this is the case, we retrieve the first element
+    # as a reference, and return its leading dimension as target size.
+    if target_condition_data is not None and len(target_condition_data):
+        ref = next(iter(target_condition_data.values()))
+        return ref.shape[0]
+    # If the target condition data is not available, proceed by inferring the
+    # size from the groups data.
+    target_groups_data = step_data.get("target_group_data", None)
+    if target_groups_data is not None and len(target_groups_data):
+        ref = next(iter(target_groups_data.values()))
+        return ref.shape[0]
+    # Otherwise, return None because no target data is available.
+    return None
+
+
+def _get_leaf_source_size(step_data: StepData) -> None | int:
+    """Infers the source size of step data leaf.
+
+    Infer the size of the source data. We use the source state to infer the
+    size, when available. Otherwise, simply return None -- because when
+    the source state is not present, the generation surely happens from noise
+    and we are not missing anything from the source side.
+
+    :param step_data: The `StepData` which to infer the source leaf size from.
+    """
+    # Get the source state to retrieve the shape.
+    source_state = step_data.get("source_state", None)
+    if source_state is not None:
+        return source_state.shape[0]
+    # When no source state is present, simply return `None`.
+    return None
+
+
+def _get_additional_condition_keys(
+    step_data: StepData,
+    cond_dict: dict[str, torch.Tensor],
+) -> list[str]:
+    """Gets a list of condition keys in the step data that are not in the condition dict.
+
+    :param step_data: The `StepData` to retrieve the target condition keys from.
+    :param cond_dict: The condition dictionary to retrieve the query condition keys from.
+    """
+    # First, we collect all the keys from the condition dictionary.
+    optimized_keys = sorted(cond_dict)
+    # Then, we retrieve the condition data from the `StepData`.
+    target_condition_data = step_data.get("target_condition_data", None)
+    # We return an empty list, when no condition covariate is present in the data.
+    if target_condition_data is None:
+        return []
+    # Otherwise, we iterate over all the condition keys in the `StepData`, and
+    # filter out the ones that are present in the condition dictionary.
+    return [key for key in sorted(target_condition_data) if key not in optimized_keys]
+
+
+def _align_cond_dict_with_step_data(
+    step_data: StepData,
+    cond_dict: dict[str, torch.Tensor],
+) -> dict[str, torch.Tensor]:
+    r"""Aligns the condition dictionary with the step data.
+
+    This operation is intended to align the condition tensors of shape $(N, D)$ with the
+    shapes of the data leaves. When neither size if found, the condition data is returned
+    unchanged. On the contrary, denoting by $B_0$ and $B_1$ the source and target size of a leaf,
+    the condition data will be expanded and viewed with shape $(B_0\cdot B_1, N, D)$.
+
+    :param step_data: The `StepData` to align the condition dictionary against.
+    :param cond_dict: The condition dictionary to align.
+    """
+    # Get source and target leaf sizes.
+    leaf_source_size: int | None = _get_leaf_source_size(step_data)
+    leaf_target_size: int | None = _get_leaf_target_size(step_data)
+    # Initialize store for all the dimensions to multiply.
+    all_dims = [leaf_source_size]
+    # We only consider the condition keys from the target condition data
+    # that are not present in the condition dictionary.
+    additional_keys = _get_additional_condition_keys(step_data, cond_dict)
+    # When additional keys are present, we append it to the dims to expand
+    if len(additional_keys):
+        all_dims.append(leaf_target_size)
+    # Compute total number of observations, when the size returns something.
+    to_multiply = [i for i in all_dims if i is not None]
+    # Fall back to no-operation when there is no leaf data found.
+    if not len(to_multiply):
+        return cond_dict
+    # Get the total number of elements
+    tot_size = prod(to_multiply)
+    return {k: v.unsqueeze(0).expand(tot_size, *v.shape) for k, v in cond_dict.items()}
+
+
+def _align_step_data_to_cond_dict(
+    step_data: StepData,
+    cond_dict: dict[str, torch.Tensor],
+) -> StepData:
+    """Aligns the step data to the condition dictionary.
+
+    :param step_data: The `StepData` to be aligned.
+    :param cond_dict: The condition dictionary to align against. It needs to be
+        already aligned with the step data, before calling this function.
+    """
+    # Get source and target leaf sizes.
+    leaf_source_size: int | None = _get_leaf_source_size(step_data)
+    leaf_target_size: int | None = _get_leaf_target_size(step_data)
+    # We set those to 1 when they are `None`, so that we can handle them cleanly
+    S = leaf_source_size if leaf_source_size is not None else 1
+    T = leaf_target_size if leaf_target_size is not None else 1
+    # We gate the multiplication with the target to occur ONLY when there are additional
+    # keys present. If this is not the case, we do not need to expand
+    # the target dimension.
+    additional_keys = _get_additional_condition_keys(step_data, cond_dict)
+    # When additional keys are present, we append it to the dims to expand
+    # We multiply the source and target sizes to get the total number of samples.
+    if len(additional_keys):
+        tot_size = S * T
+    else:
+        tot_size = S
+    # We check that the condition dictionary contains at least on item.
+    # The `StopIteration` error is guarded against from the above check,
+    # so that we can safely iterate over its values to retrieve our reference
+    # tensor.
+    if not len(cond_dict):
+        raise ValueError("Cannot compute the potential with an empty condition dictionary.")
+    ref = next(iter(cond_dict.values()))
+    # We also check that the condition array was already effectively expanded.
+    # When there is nothing to expand, the conditoin dictionary will still have 2 dimensions --
+    # in this case this function collapses to a no-operation and leaves the `StepData` unchanged.
+    if ref.ndim == 2:
+        return step_data
+    # We expect the aligned condition dictionary to have three dimensions. Hence, we raise an
+    # error if this is not the case. Something must have gone wrong, hence we write this guard.
+    elif ref.ndim != 3:
+        raise ValueError(
+            f"Condition data has the wrong number of dimensions -- found {ref.ndim} but expected 3."
+            "Please, align the condition dictionary with the step data first."
+        )
+    # Retrieving the number of optimization samples from the reference tensor.
+    # After the expansion of the condition dictionary, a new axis is added as leading dimension
+    # Hence, we need to retrieve the dimension at index 1 to get the number of samples.
+    N = ref.shape[1]
+
+    def _expand_data(x: torch.Tensor, mode: Literal["source", "target"]) -> torch.Tensor:
+        """Expands data to be aligned with the condition and the input number of observations.
+
+        The data is of shape (B, rest); to align it, we need to expand it to shape (B*M, N, *rest).
+
+
+        :param x: The tensor to expand.
+        :param mode: The mode to expand the data with. Can be either "source" or "target".
+        """
+        # We collect the original shape first, before doing any manipulation.
+        orig_shape = x.shape
+        # We collect the dimension based on the mode.
+        # When the mode is "source", we collect the number of target samples.
+        if mode == "source":
+            M = T
+        # When the mode is "target", we collect the number of source samples.
+        elif mode == "target":
+            M = S
+        else:
+            raise ValueError(f'Unsupported mode {mode} for alignment. Possible choices are  `"source"` and `"target"`.')
+        # We expand the first dimension and add the target size.
+        # Then we collapse the first two dimensions so that the dimensionality
+        # contract is respected.
+        x = x.unsqueeze(0).expand(M, *orig_shape).reshape(tot_size, *orig_shape[1:])
+        # Then we need to unsqueeze at dimension 1 and expand dims
+        return x.unsqueeze(1).expand(tot_size, N, *orig_shape[1:])
+
+    def _align_container(
+        data_container: torch.Tensor | dict[str, torch.Tensor] | None, mode: Literal["source", "target"]
+    ) -> torch.Tensor | dict[str, torch.Tensor] | None:
+        """Aligns a data container."""
+        # If data dictionary is not provided, return an empty dictionary.
+        if data_container is None:
+            return None
+        # When the container is a tensor, directly expand it.
+        elif isinstance(data_container, torch.Tensor):
+            return _expand_data(data_container, mode)
+        # When the container is a mapping, iterate over
+        # the items and expand each of them.
+        elif _is_mapping(data_container):
+            return {k: _expand_data(v, mode) for k, v in data_container.items()}
+        # Otherwise, return the data container unchanged (no-op).
+        return data_container
+
+    # Now, we can finally update the step data. First, we define a new
+    # empty dictionary, that we will repopulate with th aligned data.
+    new_step_data: StepData = {}
+    for key, value in step_data.items():
+        # First, we reassign the value when it is None.abc
+        if value is None:
+            new_step_data[key] = None
+        # The target condition data needs a specific handling, as we
+        # do not want to update or expand the condition covariates that are
+        # already present in the condition dictionary.
+        elif key == "target_condition_data":
+            new_cond_data = {}
+            for cond_key, cond_data in value.items():
+                # If the condition key is present in the condition dictionary,
+                # we do not perform any expansion -- it will be anyway overridden
+                # by the `_attach_continuous_conditions_to_step_data` call.
+                if cond_key in cond_dict:
+                    new_cond_data[cond_key] = cond_data
+                # All the other target condition covariates need alignment.
+                else:
+                    new_cond_data[cond_key] = _expand_data(cond_data, "target")
+            new_step_data[key] = new_cond_data
+        # Align all the source keys in the input StepData.
+        elif key.startswith("source_"):
+            new_step_data[key] = _align_container(value, "source")
+        # Align all the target keys in the input StepData.
+        elif key.startswith("target_"):
+            new_step_data[key] = _align_container(value, "target")
+        # Otherwise, simply store the original value in the updated data.
+        else:
+            new_step_data[key] = value
+    return new_step_data
 
 
 def _attach_continuous_conditions_to_step_data(
@@ -40,16 +296,16 @@ def _attach_continuous_conditions_to_step_data(
     for cond_key, new_cond_data in cond_dict.items():
         # We immediately raise an error if the condition key does not appear
         # as condition covariate in the input step data.
+        # This check is repetitive here, because the condition dictionary will have
+        # already passed the `_verify_continuous_conditions_dims` test -- hence,
+        # it is surely present as a modeled condition. We do it again for
+        # semantic reasons, as we want this function to be agnostic of the other
+        # check and on how the `StepData` is constructed from the data dimensionalities.
         if cond_key not in condition_covariates:
             raise ValueError(
                 f"The condition key {cond_key} does not appear as condition covariate "
                 f"in the input step data -- the available keys are {sorted(condition_covariates)}."
             )
-        # Check that the old and updated data have the same shape.
-        old_cond_data = condition_covariates[cond_key]
-        old_shape, new_shape = old_cond_data.shape, new_cond_data.shape
-        if old_shape != new_shape:
-            raise ValueError(f"Shape mismatch at condition key {cond_key} -- got {new_shape} but expected {old_shape}.")
 
         # Update condition data with new tensors.
         condition_covariates[cond_key] = new_cond_data
@@ -236,9 +492,13 @@ class SurrogatePotential(abc.ABC, torch.nn.Module):
         for i, (step_data, leaf) in enumerate(tqdm(self.predict_dl, total=len(self.predict_dl), desc="Predicting")):
             # Iterate over the generators for reproducibility.
             generator, _ = generators(self._seed, i, device=ref.device)
+            # Align condition dictionary with step data.
+            new_cond_dict = _align_cond_dict_with_step_data(step_data, cond_dict)
+            # Align step data with condition dictionary.
+            aligned_step_data = _align_step_data_to_cond_dict(step_data, new_cond_dict)
             # Update step data with the input condition dictionary,
             # predict with the inference module.
-            new_step_data = _attach_continuous_conditions_to_step_data(step_data, cond_dict)
+            new_step_data = _attach_continuous_conditions_to_step_data(aligned_step_data, new_cond_dict)
             pred_data: PredictionData = self.inferer.predict(new_step_data, generator=generator)
             y: torch.Tensor = self.get_response(pred_data)
             # Check that the response has the same dimension as the target

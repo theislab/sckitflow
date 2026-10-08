@@ -205,11 +205,6 @@ class TestAttachConditions:
         with pytest.raises(ValueError, match="does not appear as condition covariate"):
             _attach_continuous_conditions_to_step_data(step, {"cond_b": torch.zeros(4, 3)})
 
-    def test_raises_on_shape_mismatch(self):
-        step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
-        with pytest.raises(ValueError, match="Shape mismatch"):
-            _attach_continuous_conditions_to_step_data(step, {"cond_a": torch.zeros(4, 5)})
-
     def test_preserves_non_overlapping_keys(self):
         step = make_step_data(("cond_a", "cond_b"))
         new_cond = {"cond_a": torch.ones(4, 3)}

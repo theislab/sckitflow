@@ -4,7 +4,6 @@ from math import prod
 from typing import Any, Literal
 
 import torch
-from tqdm import tqdm
 
 from sckitflow._random import generators
 from sckitflow.core._types import PredictionData, StepData
@@ -392,7 +391,7 @@ class SurrogatePotential(abc.ABC, torch.nn.Module):
         :param seed: Integer to seed random number generation. Defaults to `0`.
         """
         # We squeeze the target tensor and expect it to be a flat tensor.
-        ystar = torch.squeeze(ystar)
+        ystar = torch.atleast_1d(torch.squeeze(ystar))
         if ystar.ndim != 1:
             raise ValueError(f"Invalid shape for target response, found {ystar.shape}")
         # For the mask, we do the same. Squeeze when available, otherwise
@@ -400,7 +399,7 @@ class SurrogatePotential(abc.ABC, torch.nn.Module):
         # one of the target response. Its shape needs to match the one of the target.
         if mask is not None and mask.dtype not in (torch.bool, torch.uint8):
             raise ValueError("mask must be a per-dimension boolean mask, not an index list.")
-        mask = torch.squeeze(mask) if mask is not None else torch.ones_like(ystar)
+        mask = torch.atleast_1d(torch.squeeze(mask)) if mask is not None else torch.ones_like(ystar)
         mask = mask.bool()
         if mask.shape != ystar.shape:
             raise ValueError(
@@ -489,7 +488,7 @@ class SurrogatePotential(abc.ABC, torch.nn.Module):
         # List to store all the computed potentials.
         potentials = []
         # Iterate over the prediction data loader.
-        for i, (step_data, leaf) in enumerate(tqdm(self.predict_dl, total=len(self.predict_dl), desc="Predicting")):
+        for i, (step_data, leaf) in enumerate(self.predict_dl):
             # Iterate over the generators for reproducibility.
             generator, _ = generators(self._seed, i, device=ref.device)
             # Align condition dictionary with step data.

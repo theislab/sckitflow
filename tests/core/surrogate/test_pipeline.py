@@ -34,7 +34,7 @@ CONT_COV_WIDE_DIM = 100
 class FakeInferer:
     """A minimal stand-in for a trained inference method.
 
-    The response is a differentiable function of the conditions — the mean of
+    The response is a differentiable function of the categorical_conditions — the mean of
     the first continuous covariate, broadcast to ``response_dim``. Its batch
     layout mirrors whatever it receives, so the same fake covers the
     unaligned ``(N, D)``, the aligned ``(B, N, D)``, and the multi-sample
@@ -111,9 +111,9 @@ def build_datamodule(
     adata,
     *,
     sample_rep=None,
-    conditions=None,
-    conditions_reps=None,
-    conditions_covariates=None,
+    categorical_conditions=None,
+    categorical_reps=None,
+    continuous_conditions=None,
     groups=None,
     groups_encoding=None,
     control_values_dict=None,
@@ -122,9 +122,9 @@ def build_datamodule(
 ) -> FlowDataModule:
     config = DataManagerConfig(
         sample_rep=sample_rep,
-        conditions=conditions,
-        conditions_reps=conditions_reps,
-        conditions_covariates=conditions_covariates,
+        categorical_conditions=categorical_conditions,
+        categorical_reps=categorical_reps,
+        continuous_conditions=continuous_conditions,
         groups=groups,
         groups_encoding=groups_encoding,
         control_values_dict=control_values_dict,
@@ -189,7 +189,7 @@ class TestMinimalConfig:
             adata,
             cond_dict_single,
             ystar,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict_single)
         assert out.shape == (4,)
@@ -201,7 +201,7 @@ class TestMinimalConfig:
             adata,
             cond_dict,
             ystar,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict)
         out.sum().backward()
@@ -213,7 +213,7 @@ class TestMinimalConfig:
             adata,
             cond_dict_pair,
             ystar,
-            conditions_covariates=(CONT_COV_1, CONT_COV_2),
+            continuous_conditions=(CONT_COV_1, CONT_COV_2),
         )
         out = potential(cond_dict_pair)
         assert out.shape == (4,)
@@ -223,7 +223,7 @@ class TestMinimalConfig:
             adata,
             cond_dict_wide,
             ystar,
-            conditions_covariates=(CONT_COV_WIDE,),
+            continuous_conditions=(CONT_COV_WIDE,),
         )
         out = potential(cond_dict_wide)
         assert out.shape == (4,)
@@ -242,7 +242,7 @@ class TestGenerateFromNoise:
             cond_dict_single,
             ystar,
             n_samples=n_samples,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict_single)
         assert out.shape == (4,)
@@ -255,7 +255,7 @@ class TestGenerateFromNoise:
             cond_dict,
             ystar,
             n_samples=n_samples,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict)
         out.sum().backward()
@@ -269,7 +269,7 @@ class TestGenerateFromNoise:
             ystar,
             n_samples=1,
             potential_seed=0,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         p4, _ = build_potential(
             adata,
@@ -277,7 +277,7 @@ class TestGenerateFromNoise:
             ystar,
             n_samples=4,
             potential_seed=0,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         assert p1(cond_dict).shape == p4(cond_dict).shape == (4,)
 
@@ -295,7 +295,7 @@ class TestWithGroups:
             ystar,
             groups=("target",),
             groups_encoding={"target": "label"},
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict_single)
         assert out.shape == (4,)
@@ -305,11 +305,11 @@ class TestWithGroups:
             adata,
             cond_dict_single,
             ystar,
-            conditions={"drug": ("drugA", "drugB")},
-            conditions_reps={"drug": "drug"},
+            categorical_conditions={"drug": ("drugA", "drugB")},
+            categorical_reps={"drug": "drug"},
             groups=("source_split",),
             groups_encoding={"source_split": "label"},
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict_single)
         assert out.shape == (4,)
@@ -322,7 +322,7 @@ class TestWithGroups:
             n_samples=4,
             groups=("target",),
             groups_encoding={"target": "label"},
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict_single)
         assert out.shape == (4,)
@@ -339,12 +339,12 @@ class TestWithControls:
             adata,
             cond_dict_single,
             ystar,
-            conditions={"drug": ("drugA", "drugB")},
-            conditions_reps={"drug": "drug"},
+            categorical_conditions={"drug": ("drugA", "drugB")},
+            categorical_reps={"drug": "drug"},
             groups=("source_split",),
             groups_encoding={"source_split": "label"},
             control_values_dict={"drug": "control"},
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict_single)
         assert out.shape == (4,)
@@ -355,12 +355,12 @@ class TestWithControls:
             cond_dict_single,
             ystar,
             n_samples=4,
-            conditions={"drug": ("drugA", "drugB")},
-            conditions_reps={"drug": "drug"},
+            categorical_conditions={"drug": ("drugA", "drugB")},
+            categorical_reps={"drug": "drug"},
             groups=("source_split",),
             groups_encoding={"source_split": "label"},
             control_values_dict={"drug": "control"},
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict_single)
         assert out.shape == (4,)
@@ -371,12 +371,12 @@ class TestWithControls:
             adata,
             cond_dict,
             ystar,
-            conditions={"drug": ("drugA", "drugB")},
-            conditions_reps={"drug": "drug"},
+            categorical_conditions={"drug": ("drugA", "drugB")},
+            categorical_reps={"drug": "drug"},
             groups=("source_split",),
             groups_encoding={"source_split": "label"},
             control_values_dict={"drug": "control"},
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict)
         out.sum().backward()
@@ -395,7 +395,7 @@ class TestWithoutTargetState:
             cond_dict_single,
             ystar,
             require_target_state=False,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict_single)
         assert out.shape == (4,)
@@ -407,7 +407,7 @@ class TestWithoutTargetState:
             cond_dict,
             ystar,
             require_target_state=False,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict)
         out.sum().backward()
@@ -420,7 +420,7 @@ class TestWithoutTargetState:
             ystar,
             n_samples=4,
             require_target_state=False,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         out = potential(cond_dict_single)
         assert out.shape == (4,)
@@ -439,7 +439,7 @@ class TestParameterSweeps:
             adata,
             cond_dict,
             ystar,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         assert potential(cond_dict).shape == (N,)
 
@@ -450,7 +450,7 @@ class TestParameterSweeps:
             cond_dict_single,
             ystar,
             batch_size=batch_size,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         assert potential(cond_dict_single).shape == (4,)
 
@@ -468,7 +468,7 @@ class TestDeterminism:
             ystar,
             potential_seed=7,
             n_samples=4,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         p2, _ = build_potential(
             adata,
@@ -476,7 +476,7 @@ class TestDeterminism:
             ystar,
             potential_seed=7,
             n_samples=4,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         assert torch.allclose(p1(cond_dict_single), p2(cond_dict_single))
 
@@ -487,7 +487,7 @@ class TestDeterminism:
             ystar,
             potential_seed=1,
             n_samples=4,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         p2, _ = build_potential(
             adata,
@@ -495,7 +495,7 @@ class TestDeterminism:
             ystar,
             potential_seed=2,
             n_samples=4,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         assert not torch.allclose(p1(cond_dict_single), p2(cond_dict_single))
 
@@ -504,7 +504,7 @@ class TestDeterminism:
             adata,
             cond_dict_single,
             ystar,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         potential(cond_dict_single)
         potential(cond_dict_single)
@@ -522,7 +522,7 @@ class TestErrorPaths:
             adata,
             cond_dict_single,
             ystar,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         with pytest.raises(ValueError, match="empty condition dictionary"):
             potential({})
@@ -532,7 +532,7 @@ class TestErrorPaths:
             adata,
             cond_dict_single,
             ystar,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         bad = {"nope": torch.zeros((4, 1))}
         with pytest.raises(ValueError, match="does not appear in the reference"):
@@ -543,7 +543,7 @@ class TestErrorPaths:
             adata,
             cond_dict_single,
             ystar,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         bad = {CONT_COV_1: torch.zeros((4, 99))}
         with pytest.raises(ValueError, match="Shape mismatch for condition key"):
@@ -554,7 +554,7 @@ class TestErrorPaths:
             adata,
             cond_dict_pair,
             ystar,
-            conditions_covariates=(CONT_COV_1, CONT_COV_2),
+            continuous_conditions=(CONT_COV_1, CONT_COV_2),
         )
         bad = {
             CONT_COV_1: torch.zeros((4, 1)),
@@ -568,13 +568,13 @@ class TestErrorPaths:
             adata,
             cond_dict_single,
             ystar,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         with pytest.raises(ValueError, match="two-dimensional"):
             potential({CONT_COV_1: torch.zeros(4)})
 
     def test_no_predict_data_set(self, adata, cond_dict_single, ystar):
-        dmod = build_datamodule(adata, conditions_covariates=(CONT_COV_1,))
+        dmod = build_datamodule(adata, continuous_conditions=(CONT_COV_1,))
         inferer = FakeInferer(ystar.numel())
         potential = MeanMSESurrogate(inferer, ystar, dmod)
         with pytest.raises(ValueError, match="no prediction data"):
@@ -593,7 +593,7 @@ class TestStateRepresentations:
             cond_dict_single,
             ystar,
             sample_rep=None,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         assert potential(cond_dict_single).shape == (4,)
 
@@ -604,7 +604,7 @@ class TestStateRepresentations:
             cond_dict_single,
             ystar_repr,
             sample_rep=repr_obsm_key,
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         assert potential(cond_dict_single).shape == (4,)
 
@@ -619,7 +619,7 @@ class TestYstarAndMask:
         mask = torch.zeros(n_genes, dtype=torch.bool)
         mask[:8] = True
         ystar = torch.zeros(n_genes)
-        dmod = build_datamodule(adata, conditions_covariates=(CONT_COV_1,))
+        dmod = build_datamodule(adata, continuous_conditions=(CONT_COV_1,))
         dmod.set_predict_data(adata)
         inferer = FakeInferer(n_genes)
         potential = MeanMSESurrogate(inferer, ystar, dmod, mask=mask)
@@ -631,7 +631,7 @@ class TestYstarAndMask:
             adata,
             cond_dict_single,
             torch.zeros(n_genes),
-            conditions_covariates=(CONT_COV_1,),
+            continuous_conditions=(CONT_COV_1,),
         )
         assert potential.ystar.device == potential.mask.device
         assert potential.mask.dtype == torch.bool

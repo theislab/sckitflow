@@ -17,18 +17,13 @@ from scfit.registry import Component, component
 
 from sckitflow.data._datamodule import FlowDataModule
 from sckitflow.data._manager import DataManagerConfig
-from sckitflow.data.splitters._base import Splitter
 
 __all__ = ["FlowDataModuleConfig"]
 
 
 @component("data_module.flow", builds=FlowDataModule)
 class FlowDataModuleConfig(Component):
-    """The schema and the streaming options a run reads its batches with.
-
-    The splitter is not a field: it has its own seed, so the run builds it
-    beside this config and passes it to :meth:`build`.
-    """
+    """The schema and the streaming options a run reads its batches with."""
 
     manager: DataManagerConfig = DataManagerConfig()
     """The schema: what each observation is, which flow into which, and which are held out."""
@@ -49,16 +44,15 @@ class FlowDataModuleConfig(Component):
             raise ValueError("loader_kwargs must not set `seed`; the schedule is drawn from `rng`.")
         return kwargs
 
-    def build(self, adata: AnnData, *, rng: np.random.Generator, splitter: Splitter | None = None) -> FlowDataModule:
+    def build(self, adata: AnnData, *, rng: np.random.Generator) -> FlowDataModule:
         """Builds the data manager and returns the data module over ``adata``.
 
         :param adata: The `AnnData` to derive dimensionalities from and stream.
         :param rng: The loaders' sampling schedule is seeded from it.
-        :param splitter: Applied to ``adata`` before streaming; exclusive with ``manager.split_by``.
         """
         return FlowDataModule.from_adata(
             adata,
-            self.manager.build(splitter=splitter),
+            self.manager.build(),
             train_split=self.train_split,
             n_train_steps=self.n_train_steps,
             batch_size=self.batch_size,

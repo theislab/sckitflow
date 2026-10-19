@@ -32,7 +32,6 @@ from sckitflow.data.schemas import (
     ResponseDataSchema,
     StateDataSchema,
 )
-from sckitflow.data.splitters import Splitter
 
 __all__ = ["DataManagerConfig", "LoaderKwargs", "DataManager"]
 
@@ -118,54 +117,40 @@ class DataManager:
     Its job is to answer, from configuration alone, three questions a batch cannot answer for itself --
     **what** each observation's state and covariates are (``sample_rep``, ``conditions``, ``groups``, the
     ``*_covs``), **which observations flow into which** (``control_values_dict``, or ``matched_keys`` for fixed
-    pairs), and **which observations are held out** (``splitter`` or ``split_by``). The loaders then read only what
+    pairs), and **which observations are held out** (the ``split_by`` column). The loaders then read only what
     the schema declared.
 
     Two boundaries follow from that, and both are enforced rather than documented-and-hoped:
 
     **One owner per question.** Anything the schema declares is declared once, here, not re-passed per call:
-    :meth:`get_dataloaders` takes no ``split_by``, and the split has exactly one source -- a ``splitter``
-    this class applies itself, or a ``split_by`` column it requires to be present. Passing both raises, a
-    declared column that is missing raises, and an *undeclared* ``"split"`` column raises rather than
+    :meth:`get_dataloaders` takes no ``split_by``, and the split has exactly one source -- a ``split_by``
+    column it requires to be present. The split itself is an experiment's decision, made before the data
+    reaches a run (e.g. by a :mod:`~sckitflow.data.splitters` splitter writing the column). A declared column
+    that is missing raises, and an *undeclared* ``"split"`` column raises rather than
     quietly training on held-out observations. Only inference-time overrides are per call
     (:meth:`get_eval_loader`'s ``control_values_dict`` / ``matched_keys``), because predicting over
     different controls than were registered is the point of them.
 
-    **Derived columns never touch the caller's object.** The split label and the ``matched_keys`` pair id
-    are sckitflow's own bookkeeping, but they have to live in ``.obs`` because that is where scfit reads
-    grouping from. They are written to a shallow copy that shares ``X`` / ``obsm`` / ``uns``
+    **Derived columns never touch the caller's object.** The ``matched_keys`` pair id is sckitflow's own
+    bookkeeping, but they have to live in ``.obs`` because that is where scfit reads
+    grouping from. It is written to a shallow copy that shares ``X`` / ``obsm`` / ``uns``
     (:func:`~sckitflow.data._utils.with_derived_obs`), so nothing is duplicated and the caller's AnnData
     gains no columns it did not ask for -- which also keeps a *view* from being silently materialized.
 
     Built from a :class:`DataManagerConfig`; see it for the individual options.
     """
 
-    def __init__(self, config: DataManagerConfig | None = None, *, splitter: Splitter[Any] | None = None) -> None:
+    def __init__(self, config: DataManagerConfig | None = None) -> None:
         """Initializes the object.
 
         :param config: The schema; ``None`` declares nothing beyond ``.X`` as the state.
-        :param splitter: Derives the train/test labels itself, so building loaders never depends on a
-            preprocessing step having written the column. It is applied to a shallow copy (see
-            `data._utils.with_derived_obs`), so the caller's AnnData is left alone. Mutually exclusive
-            with ``config.split_by``.
         """
         self.config = config = DataManagerConfig() if config is None else config
         self._control_values_dict = config.control_values_dict
         self._matched_keys = dict(config.matched_pairs) if config.matched_pairs else None
         self._condition_state_key = config.condition_state_key
 
-        # One owner for the split: either sckitflow derives it (`splitter`) or the data already carries it
-        # (`split_by`). Accepting both would mean two answers to "which observations are held out", decided by
-        # whichever the loader consulted -- exactly the ambiguity this schema exists to remove.
-        self._splitter = splitter
         self._split_by = config.split_by
-        if self._splitter is not None and self._split_by is not None:
-            raise ValueError(
-                f"pass either `splitter` (sckitflow derives the split) or `split_by` (an existing .obs "
-                f"column), not both; got splitter={type(self._splitter).__name__} and "
-                f"split_by={self._split_by!r}. The splitter writes {self._splitter.split_key!r}, so "
-                "`split_by` is redundant with it."
-            )
 
         self._state_data_schema = StateDataSchema(sample_rep=config.sample_rep)
         self._condition_data_schema = ConditionDataSchema(
@@ -492,33 +477,25 @@ class DataManager:
         )
 
     def _resolve_split(self, adatas: list[AnnData]) -> tuple[list[AnnData], str | None]:
-        """The adata to stream and the column to split it by, per the schema's one declared owner.
+        """The adata to stream and the column to split it by.
 
-        A ``splitter`` is applied here rather than expected to have been run: the split is part of the schema,
-        so building loaders cannot depend on whether some upstream preprocessing wrote the column. It lands on
-        a shallow copy, so the caller's AnnData never gains a column it did not ask for. A declared
-        ``split_by`` is only checked -- missing is an error, since silently training on everything is the one
-        outcome nobody wants.
+        A declared ``split_by`` is only checked -- missing is an error, since silently training on everything
+        is the one outcome nobody wants.
         """
-        if self._splitter is not None:
-            if len(adatas) > 1:
-                raise ValueError("a splitter splits one AnnData; write the split column into each first.")
-            return [self._splitter.split(adatas[0], copy=True)], self._splitter.split_key
         if self._split_by is not None:
             for i, adata in enumerate(adatas):
                 if self._split_by not in adata.obs.columns:
                     raise KeyError(
                         f"split_by={self._split_by!r} was declared on this DataManager but is not in the .obs of "
-                        f"AnnData {i} (columns: {list(adata.obs.columns)}). Run the splitter that produces it, or "
-                        "build the DataManager with `splitter=` so sckitflow derives it."
+                        f"AnnData {i} (columns: {list(adata.obs.columns)}). Run the splitter that produces it first."
                     )
             return adatas, self._split_by
         # Neither declared: one loader over everything. Guard the previous default (`split_by="split"`), so
         # data that carries a split cannot be trained on wholesale just because the schema forgot to say so.
         if any(_DEFAULT_SPLIT_KEY in adata.obs.columns for adata in adatas):
             raise ValueError(
-                f"adata.obs has a {_DEFAULT_SPLIT_KEY!r} column but this DataManager declares neither "
-                "`split_by` nor `splitter`, so every observation -- held-out ones included -- would train. "
+                f"adata.obs has a {_DEFAULT_SPLIT_KEY!r} column but this DataManager declares no "
+                "`split_by`, so every observation -- held-out ones included -- would train. "
                 f"Declare `split_by={_DEFAULT_SPLIT_KEY!r}` to use it, or drop the column to train on all."
             )
         return adatas, None
@@ -530,9 +507,8 @@ class DataManager:
     ) -> dict[str, Loader]:
         """Build one streaming data loader per split value, as declared by the schema.
 
-        Which observations are held out is the schema's business, not this call's: the ``splitter`` given to
-        :class:`DataManager` is applied here, or the declared ``split_by`` column is read (and required). With
-        neither, everything trains under a single ``"train"`` loader.
+        Which observations are held out is the schema's business, not this call's: the declared ``split_by``
+        column is read (and required). Without one, everything trains under a single ``"train"`` loader.
 
         Selection is by scfit weights over scfit's own leaf factorization -- no subset copying. The whole
         ``adata`` is streamed; each split's primary weights pick out that split's perturbed groups
@@ -703,11 +679,6 @@ class DataManager:
         return self._control_values_dict
 
     @property
-    def splitter(self) -> Splitter[Any] | None:
-        """The splitter given at construction, if any."""
-        return self._splitter
-
-    @property
     def matched_keys(self) -> dict[tuple, tuple] | None:
         """Exposes the homonymous attribute set at initialization."""
         return self._matched_keys
@@ -748,9 +719,6 @@ class DataManagerConfig(Component):
     """The schema :class:`DataManager` is built from; portable, so it travels inside a run's spec.
 
     What it expects of the ``AnnData``, and how controls are held, is described in ``docs/data_format.md``.
-
-    The splitter is not a field: it has its own seed, so it is built beside this config and passed to
-    :meth:`build`.
     """
 
     sample_rep: str | None = None
@@ -783,9 +751,9 @@ class DataManagerConfig(Component):
     target are rejected. Pairs rather than a mapping, because JSON cannot key on tuples."""
 
     split_by: str | None = None
-    """An existing `.obs` column holding the split labels, for data that was split elsewhere. Its presence is
-    checked when loaders are built. Mutually exclusive with a `splitter`. ``None`` with no splitter means
-    there is no split and every non-control group trains."""
+    """The `.obs` column holding the split labels, written before the data reaches a run (e.g. by a
+    :mod:`~sckitflow.data.splitters` splitter). Its presence is checked when loaders are built. ``None``
+    means there is no split and every non-control group trains."""
 
     condition_state_key: str | None = None
     """The key for the continuous condition covariates to be viewed as state when
@@ -837,6 +805,6 @@ class DataManagerConfig(Component):
     `rep_lin`. Defaults to `True` (a shared linear term, optionally fused with per-side
     quadratics)."""
 
-    def build(self, *, splitter: Splitter[Any] | None = None) -> DataManager:
-        """The data manager, applying ``splitter`` to the data it streams."""
-        return DataManager(self, splitter=splitter)
+    def build(self) -> DataManager:
+        """The data manager."""
+        return DataManager(self)

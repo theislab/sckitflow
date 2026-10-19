@@ -6,14 +6,12 @@ import dataclasses
 from typing import TYPE_CHECKING, Any
 
 import lightning.pytorch as pl
-import numpy as np
 import pandas as pd
 import torch
 
 from sckitflow.data._dims import DataDimensions
 from sckitflow.data._manager import DataManager, DataManagerConfig
 from sckitflow.data._utils import AnnDataLike
-from sckitflow.data.splitters import SplitterConfig
 
 if TYPE_CHECKING:
     from sckitflow.data._loader import Loader
@@ -149,11 +147,8 @@ class FlowDataModule(pl.LightningDataModule):
         checkpoint should not carry the dataset. Pass it to
         :meth:`load_from_checkpoint`.
         """
-        splitter = self._dm.splitter
         return {
             "dm": self._dm.config.to_spec(),
-            # the rng's state, so a resumed run draws the identical split
-            "splitter": None if splitter is None else (splitter.config.to_spec(), splitter.rng.bit_generator.state),
             "data_dims": {**dataclasses.asdict(self._data_dims), "feature_names": list(self._data_dims.feature_names)},
             "train_split": self._train_split,
             "n_train_steps": self._n_train_steps,
@@ -220,17 +215,8 @@ class FlowDataModule(pl.LightningDataModule):
 
 def _schema_from_state(state: dict[str, Any]) -> tuple[DataManager, DataDimensions]:
     """The data manager and dimensionalities a :meth:`FlowDataModule.state_dict` holds."""
-    splitter = None
-    if state["splitter"] is not None:
-        spec, rng_state = state["splitter"]
-        bit_generator = getattr(np.random, rng_state["bit_generator"], None)  # e.g. "PCG64", numpy's state format
-        if not (isinstance(bit_generator, type) and issubclass(bit_generator, np.random.BitGenerator)):
-            raise ValueError(f"not a numpy bit generator: {rng_state['bit_generator']!r}.")
-        rng = np.random.Generator(bit_generator())
-        rng.bit_generator.state = rng_state
-        splitter = SplitterConfig.from_spec(spec).build(rng=rng)
     dims = state["data_dims"]
     return (
-        DataManagerConfig.from_spec(state["dm"]).build(splitter=splitter),
+        DataManagerConfig.from_spec(state["dm"]).build(),
         DataDimensions(**{**dims, "feature_names": pd.Index(dims["feature_names"])}),
     )

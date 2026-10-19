@@ -15,7 +15,7 @@ everything lives; nothing is inferred from the data.
 | Group embeddings | `.uns[rep]`, or an encoder | `groups_reps`, `groups_encoding` | Like condition embeddings, or an encoder with an explicit vocabulary. |
 | Response covariates | `.obs[col]` / `.obsm[key]` | `target_categorical_covs_dict` / `target_continuous_covs` | Categorical in `.obs`, continuous in `.obsm`. |
 | Coupling representations | `.obsm[key]` | `rep_lin`, `source_rep_quad`, `target_rep_quad` | Only for Gromov-Wasserstein style couplings. |
-| Split | `.obs[split_by]`, or derived | `split_by`, or a run's `splitter` | One of the two; a `"split"` column the schema does not declare is an error. |
+| Split | `.obs[split_by]` | `split_by` | Written before the data reaches a run, e.g. by a `sckitflow.data.splitters` splitter: the split is the experiment's choice, not the model's. A `"split"` column the schema does not declare is an error. |
 
 ## Controls
 

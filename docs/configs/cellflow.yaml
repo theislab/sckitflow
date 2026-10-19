@@ -18,13 +18,7 @@ data:
     groups: [cell_line]             # controls are drawn from the same cell line
     groups_reps:
       cell_line: cell_line          # adata.uns["cell_line"][name] -> embedding
-
-splitter:
-  type: splitter.combination
-  group_keys: [cell_line, drug1, drug2]
-  always_train_keys: [cell_line]
-  control_key: drug1
-  test_fraction: 0.2
+    split_by: split                 # written by the experiment beforehand, e.g. a splitter.combination
 
 module:
   type: velocity_field.mlp
@@ -63,5 +57,4 @@ optimizer:
   kwargs: {lr: 1.0e-4}
 
 loader_seed: 0
-splitter_seed: 0
 method_seed: 0

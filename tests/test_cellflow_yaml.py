@@ -12,6 +12,7 @@ from anndata import AnnData
 from sckitflow import RunConfig, load_run, predict_adata, save_run
 from sckitflow.core.methods import MatchedTrainingMethod
 from sckitflow.data.sim import get_dummy_adata
+from sckitflow.data.splitters import CombinationSplitterConfig
 
 CELLFLOW = Path(__file__).parents[1] / "docs" / "configs" / "cellflow.yaml"
 
@@ -30,7 +31,14 @@ def adata() -> AnnData:
         rng=rng,
     )
     adata.obsm["X_pca"] = rng.standard_normal((adata.n_obs, 8))  # the dummy obsm is all zeros, which OT cannot scale
-    return adata
+    # the experiment's split, written before the data reaches the run (`split_by: split` in the YAML)
+    splitter = CombinationSplitterConfig(
+        group_keys=("cell_line", "drug1", "drug2"),
+        always_train_keys=("cell_line",),
+        control_key="drug1",
+        test_fraction=0.2,
+    )
+    return splitter.build(rng=np.random.default_rng(0)).split(adata)
 
 
 def _spec() -> RunConfig:

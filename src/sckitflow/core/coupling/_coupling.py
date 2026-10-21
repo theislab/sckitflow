@@ -128,7 +128,7 @@ def _select_indices(
         - An array of sampled source indices.
         - An array of sampled target indices.
 
-        The two arrays have identical length equal to :param:`size`.
+        The two arrays have identical length equal to ``size``.
     """
     # checking for numerical errors in the coupling matrix
     coupling_matrix = _sanitize_coupling_matrix(coupling_matrix=coupling_matrix)
@@ -155,7 +155,7 @@ def independent_coupling(
     target_quad: TensorLike | None = None,
     rng: np.random.Generator,
 ) -> tuple[NumpyArray, NumpyArray]:
-    """Matches the :param:`source` and :param:`target` groups and returns the respective indices.
+    """Matches the ``source`` and ``target`` groups and returns the respective indices.
 
     :param source: A tensor of values containing the data coming from the source distribution.
     :type source: class:`TensorLike`
@@ -243,7 +243,7 @@ def ot_linear_coupling(
     m: float | None = None,
     stop_thr: float | None = None,
 ) -> tuple[NumpyArray, NumpyArray] | tuple[NumpyArray, NumpyArray, NumpyArray]:
-    """Matches the :param:`source` and :param:`target` groups and returns the respective indices
+    """Matches the ``source`` and ``target`` groups and returns the respective indices
     using an optimal transport-based linear coupling.
 
     The solve is delegated to POT, so the solvers' behaviour and defaults follow the installed POT version.
@@ -411,11 +411,11 @@ def ot_quadratic_coupling(
     :type return_matrix: bool
 
     :param source_lin: Optional source cross-domain features used
-    for fused Gromov-Wasserstein.
+        for fused Gromov-Wasserstein.
     :type source_lin: class:`TensorLike`
 
     :param target_lin: Optional target cross-domain features used
-    for fused Gromov-Wasserstein.
+        for fused Gromov-Wasserstein.
     :type target_lin: class:`TensorLike`
 
     :param cost_fn: A callable used to compute pairwise cost matrices. If ``None``, the squared

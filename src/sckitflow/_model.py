@@ -86,7 +86,7 @@ class ModelConfig(Component):
     """Everything portable about a model: what ``config.json`` holds."""
 
     data: DataManagerConfig
-    """The schema: what each observation is, which flow into which, and where the split is read from."""
+    """The schema, saying what each observation is, which flow into which, and where the split is read from."""
     module: ModuleConfig
     """Builds the module from the data's dims."""
     training: TrainingMethodConfig

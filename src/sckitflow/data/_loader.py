@@ -598,7 +598,7 @@ class Loader(_StepDataBridge):
     :type control_weights: class: `dict | None`
 
     :param pair_key: An ``.obs`` column whose value a target group shares with the source group it flows
-        from -- how fixed matching (:class:`DataManager`'s ``matched_keys``) is expressed. Appended to both
+        from -- how fixed matching (:class:`~sckitflow.data.DataManager`'s ``matched_keys``) is expressed. Appended to both
         streams' ``group_by`` and matched on, then stripped back off the leaf. ``None`` matches on the group
         columns instead.
     :type pair_key: class: `str | None`
@@ -742,7 +742,7 @@ class EvalLoader(_StepDataBridge):
 
     Walks every selected primary group once (full coverage, or a ``max_per_group`` cap that at ``1`` becomes
     predict-once-per-condition), each matched to its control leaf. ``leaf`` is the group's ``group_by`` value
-    tuple -- ordered as :attr:`group_cols` -- from which the caller rebuilds the output ``obs`` directly.
+    tuple -- ordered as ``group_cols`` -- from which the caller rebuilds the output ``obs`` directly.
 
     :param condition_schema: The condition schema; see :class:`Loader`.
     :type condition_schema: class: `ConditionDataSchema`

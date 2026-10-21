@@ -82,22 +82,22 @@ def get_covariates_encoders_from_dict(
 
     :param categorical_covs_dict: Dictionary mapping each categorical column to encode to the
         corresponding identifier of the tranform to apply. Note that each key of this dictionary
-        should appear as column in :param: `covariate_df`.
+        should appear as column in ``covariate_df``.
     :type categorical_covs_dict: class: `Mapping[str, TargetCovariatesEncodingId]`
 
     :param covariates_df: The dataframe containing the data used to fit the tranformations
     :type covariates_df: class:`pd.DataFrame`
 
     :param fn_dict: Optional dictionary used to define the transormation for the functional tranform.
-        Its keys should appear in :param: `categorical_covs_dict` too.
+        Its keys should appear in ``categorical_covs_dict`` too.
         Will only be considered for those keys whose corresponding value in
-        :param: `categorical_covs_dict` is `"functional"`, otherwise such keys are ignored.
+        ``categorical_covs_dict`` is `"functional"`, otherwise such keys are ignored.
     :type fn_dict: class:`Mapping[str, Callable] | None = None`
 
     :param inverse_fn_dict: Optional dictionary used to define the inverse transormation
-        for the functional tranform. Its keys should appear in :param: `categorical_covs_dict` too.
+        for the functional tranform. Its keys should appear in ``categorical_covs_dict`` too.
         Will only be considered for those keys whose corresponding value in
-        :param: `categorical_covs_dict` is `"functional"`, otherwise such keys are ignored.
+        ``categorical_covs_dict`` is `"functional"`, otherwise such keys are ignored.
     :type inverse_fn_dict: class:`Mapping[str, Callable] | None = None`
     """
     encoder_dict = {}
@@ -126,12 +126,12 @@ def get_covariate_encoder(
     :type data: class: `np.ndarray`
 
     :param fn: Optional function used to define the transormation for the functional tranform.
-        Will only be used when :param: `encoder_id` is `"functional"`, ignored otherwise.
+        Will only be used when ``encoder_id`` is `"functional"`, ignored otherwise.
         Defaults to `None`, in which case it will fall back to identity function when used.
     :type fn: class: `Callable | None`
 
     :param inverse_fn: Optional function used to define the inverse transormation for the functional tranform.
-        Will only be used when :param: `encoder_id` is `"functional"`, ignored otherwise.
+        Will only be used when ``encoder_id`` is `"functional"`, ignored otherwise.
         Defaults to `None`, in which case it will fall back to identity function when used.
     :type inverse_fn: class: `Callable | None`
     """

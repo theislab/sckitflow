@@ -124,7 +124,7 @@ class MLPVelocity(BaseVelocityField):
 
         :param time_features_id: (Optional) The identifier for the chosen time features.
             Could be set to any of the string identifiers for predefined time features,
-            specified in :class: `TimeFeaturesId`. Ignored when :param: `time_features_fn`
+            specified in :class: `TimeFeaturesId`. Ignored when ``time_features_fn``
             is passed as well. Defaults to `None`, in which case no time features are computed
             (i.e.: identity mapping).
         :type time_features_id: class: `TimeFeaturesId | None`
@@ -141,33 +141,33 @@ class MLPVelocity(BaseVelocityField):
         :type num_time_features: class: `int | None`
 
         :param max_period: (Optional) Sets the value of $M$, used for the linear scaling of the time features.
-            Only used when :param: `time_features_id` is set to `"torch-cfm"`, ignored otherwise.
+            Only used when ``time_features_id`` is set to `"torch-cfm"`, ignored otherwise.
             When not provided, it will be set to :constant: `sckitflow._constants.DEFAULT_TIME_FEATURES_MAX_PERIOD`. Defaults to `None`.
         :type max_period: class: `int | None`
 
         :param time_features_kwargs: (Optional) Keyword arguments used to compile custom time featurizers. Only used when
-            initializing time featurizers with :param: `time_features_fn`, ignored otherwise. Defaults to `None`
+            initializing time featurizers with ``time_features_fn``, ignored otherwise. Defaults to `None`
         :type time_features_kwargs: class: `dict[str, Any] | None`
 
-        :param state_encoder_output_dim: (Optional) The output dimensionality for the state encoder, only used when :param: `encode_state`
+        :param state_encoder_output_dim: (Optional) The output dimensionality for the state encoder, only used when ``encode_state``
             is set to `True`. When `None` it will be set to :constant: `sckitflow._constants.DEFAULT_VF_LATENT_STATE_DIM`.
             Defaults to `None`.
         :type state_encoder_output_dim: class: `int | None`
 
-        :param time_encoder_output_dim: (Optional) The output dimensionality for the time encoder, only used when :param: `encode_time`
+        :param time_encoder_output_dim: (Optional) The output dimensionality for the time encoder, only used when ``encode_time``
             is set to `True`. When `None` it will be set to :constant: `sckitflow._constants.DEFAULT_VF_LATENT_TIME_DIM`.
             Defaults to `None`.
         :type time_encoder_output_dim: class: `int | None`
 
         :param state_encoder_mlp_kwargs: (Optional) Keyword arguments used for initializing the state encoder. When used, its key-value pairs
             should match the signature of the `__init__` method of the :class: `MLP` class, raise :class: `TypeError` otherwise.
-            Only used when :param: `encode_state` is set to `True`. When `None` it will be set to an empty dictionary,
+            Only used when ``encode_state`` is set to `True`. When `None` it will be set to an empty dictionary,
             hence falling back to the default configurations defined directly in :class: `MLP`. Defaults to `None`.
         :type state_encoder_mlp_kwargs: class: `dict[str, Any] | None`
 
         :param time_encoder_mlp_kwargs: (Optional) Keyword arguments used for initializing the time encoder. When used, its key-value pairs
             should match the signature of the `__init__` method of the :class: `MLP` class, raise :class: `TypeError` otherwise.
-            Only used when :param: `encode_time` is set to `True`. When `None` it will be set to an empty dictionary,
+            Only used when ``encode_time`` is set to `True`. When `None` it will be set to an empty dictionary,
             hence falling back to the default configurations defined directly in :class: `MLP`. Defaults to `None`.
         :type time_encoder_mlp_kwargs: class: `dict[str, Any] | None`
 
@@ -180,7 +180,7 @@ class MLPVelocity(BaseVelocityField):
         :param conditioning_id: (Optional) String identifier indicating the type of conditioning applied to the states.
             For unconditional velocity fields, the conditioning is only done with respect to the time index.
             Could be set to any of the string identifiers for predefined time features, specified in :class: `ConditioningLayersId`.
-            Ignored when :param: `conditioning_fn` is passed as well. Defaults to `None` and, when not provided, it will be set internally set to
+            Ignored when ``conditioning_fn`` is passed as well. Defaults to `None` and, when not provided, it will be set internally set to
             :constant: `sckitflow._constants.DEFAULT_CONDITIONING_LAYER`.
         :type conditioning_id: class: `ConditioningLayersId`
 
@@ -189,7 +189,7 @@ class MLPVelocity(BaseVelocityField):
         :type conditioning_fn: class: `ConditioningFn`
 
         :param conditioning_kwargs: (Optional) Keyword arguments used to initialize the conditioning layer.
-            Ignored when the using concatenation based conditioning. When setting :param: `conditioning_id`
+            Ignored when the using concatenation based conditioning. When setting ``conditioning_id``
             to `"resnet1d"`, it should match the signatures of the `__init__` method of the :class: `Resnet1d` class,
             raise :class: `TypeError` otherwise. Defaults to `None`.
         :type conditioning_kwargs: class: `dict[str, Any]`
@@ -297,7 +297,7 @@ class MLPVelocity(BaseVelocityField):
     ) -> bool:
         """Boolean flag indicating whether time featurization is used for the current velocity field.
 
-        This is the case when either :param: `time_features_id` or :param: `time_features_fn`
+        This is the case when either ``time_features_id`` or ``time_features_fn``
         are passed during initialization.
         """
         return (self._time_features_id is not None) or (self._time_features_fn is not None)
@@ -410,8 +410,8 @@ class MLPVelocity(BaseVelocityField):
     ) -> torch.nn.Module | torch.nn.Identity:
         """Initializes the optional time encoder.
 
-        When :param: `encode_time` is set to `True` it will initialize a :class: `MLP` with the configurations
-        specified in :param: `time_encoder_mlp_kwargs`. Returns an instance of :class: `torch.nn.Identity` otherwise.
+        When ``encode_time`` is set to `True` it will initialize a :class: `MLP` with the configurations
+        specified in ``time_encoder_mlp_kwargs``. Returns an instance of :class: `torch.nn.Identity` otherwise.
         """
         if self._encode_time:
             return init_module_from_dict(
@@ -426,8 +426,8 @@ class MLPVelocity(BaseVelocityField):
     ) -> torch.nn.Module | torch.nn.Identity:
         """Initializes the optional state encoder.
 
-        When :param: `encode_state` is set to `True` it will initialize a :class: `MLP` with the configurations
-        specified in :param: `state_encoder_mlp_kwargs`. Returns an instance of :class: `torch.nn.Identity` otherwise.
+        When ``encode_state`` is set to `True` it will initialize a :class: `MLP` with the configurations
+        specified in ``state_encoder_mlp_kwargs``. Returns an instance of :class: `torch.nn.Identity` otherwise.
         """
         if self._encode_state:
             return init_module_from_dict(
@@ -477,7 +477,7 @@ class MLPVelocity(BaseVelocityField):
     ) -> torch.nn.Module:
         """Initializes the velocity field decoder.
 
-        It will initialize a :class: `MLP` with the configurations specified in :param: `vf_decoder_mlp_kwargs`.
+        It will initialize a :class: `MLP` with the configurations specified in ``vf_decoder_mlp_kwargs``.
         """
         return init_module_from_dict(
             self._vf_decoder_mlp_kwargs,

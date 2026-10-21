@@ -69,13 +69,13 @@ class _Selection(NamedTuple):
 
 
 class LoaderKwargs(TypedDict, total=False):
-    """The :class:`~sckitflow.data._loader.Loader` options :meth:`DataManager.get_dataloaders` forwards.
+    """The :class:`~sckitflow.data._loader.Loader` options :meth:`~sckitflow.data.DataManager.get_dataloaders` forwards.
 
     Declared here rather than beside :class:`~sckitflow.data._loader.Loader` so that typing a call site
     does not import the scfit/annbatch stack (~2s) that the loader module pulls in.
 
     Everything describing *which* observations a loader streams (``primary_weights``,
-    ``control_weights``) is derived by :meth:`DataManager.get_dataloaders` and so is deliberately absent:
+    ``control_weights``) is derived by :meth:`~sckitflow.data.DataManager.get_dataloaders` and so is deliberately absent:
     these are the knobs that survive being passed through.
     """
 
@@ -752,7 +752,7 @@ class DataManager:
 
     @property
     def group_cols(self) -> tuple[str, ...]:
-        """The columns a batch groups on: the group columns, then the categorical condition columns."""
+        """The columns a batch groups on, the group columns first, then the categorical condition columns."""
         return (*tuple(self._groups_data_schema.groups), *self._condition_data_schema.all_condition_cols)
 
     @property
@@ -798,7 +798,7 @@ class DataManager:
 
 @component("data_manager", builds=DataManager)
 class DataManagerConfig(Component):
-    """The schema :class:`DataManager` is built from; portable, so it travels inside a run's spec.
+    """The schema :class:`~sckitflow.data.DataManager` is built from; portable, so it travels inside a run's spec.
 
     What it expects of the ``AnnData``, and how controls are held, is described in ``docs/data_format.md``.
     """
@@ -831,7 +831,7 @@ class DataManagerConfig(Component):
     unpaired, ignoring the registered controls."""
 
     matched_pairs: tuple[tuple[tuple[str, ...], tuple[str, ...]], ...] | None = None
-    """Fixed matching: `[(source group key, target group key), ...]` over `group_cols` values, naming the pairs
+    """Fixed matching as `[(source group key, target group key), ...]` over `group_cols` values, naming the pairs
     outright instead of deriving them from `control_values_dict` (whose source is always the control condition
     sharing a target's group columns). Takes precedence over `control_values_dict`. A group may appear in at
     most one pair -- it carries a single pair id -- so chains (`a -> b`, `b -> c`) and two sources for one

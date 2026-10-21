@@ -29,7 +29,7 @@ class GroupsDataSchema(StrictDataSchema):
             columns in `.obs` used to define the grouping. Defaults to `None`
         :type groups: class: `Collection[str] | None`
 
-        :param groups_reps: Dictionary mapping column identifiers in :param: `groups`
+        :param groups_reps: Dictionary mapping column identifiers in ``groups``
             to the corresponding key of `.uns` used to store the covariate representations.
             The corresponding value in `.uns` need to have keys matching the unique values
             of the corresponding column in `.obs`. Defaults to `None`.

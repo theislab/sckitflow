@@ -113,7 +113,7 @@ def _compile_dict(kwargs_dict: dict[str, Any]) -> dict[str, Any]:
 
 @component("velocity_field.mlp", builds=MLPVelocity)
 class MLPVelocityConfig(ModuleConfig):
-    """The JSON-able arguments of :class:`MLPVelocity`; see it for their meaning.
+    """The JSON-able arguments of :class:`~sckitflow.core.nn.MLPVelocity`; see it for their meaning.
 
     ``state_dim`` and each condition encoder's ``input_dim`` come from the data. The callable
     arguments (``time_features_fn``, ``conditioning_fn``) have no spec, build the module by hand for those.

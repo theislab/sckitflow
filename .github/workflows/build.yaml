@@ -33,3 +33,17 @@ jobs:
         run: uv build
       - name: Check package
         run: uvx twine check --strict dist/*.whl
+
+  docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          filter: blob:none
+          fetch-depth: 0
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          cache-dependency-glob: pyproject.toml
+      - name: Build docs, warnings as errors
+        run: uvx hatch run docs:build

@@ -79,22 +79,22 @@ class MLP(torch.nn.Module):
         :type use_batchnorm: class: `bool`
 
         :param batchnorm_eps: (Optional) The :math: `\epsilon` parameter for the denominator of the normalization for numerical stability.
-            Only used when :param: `use_batchnorm` is set to `True`, ignored otherwise. Sets the :attr: `eps` attribute
+            Only used when ``use_batchnorm`` is set to `True`, ignored otherwise. Sets the :attr: `eps` attribute
             of :class: `torch.nn.BatchNorm1d`. Defaults to :math: `10^{-3}`.
         :type batchnorm: class: `float`
 
         :param batchnorm_momentum: (Optional) The value used for the computation of the running statistics for batch normalization.
-            Only used when :param: `use_batchnorm` is set to `True`, ignored otherwise. Sets the :attr: `momentum` attribute
+            Only used when ``use_batchnorm`` is set to `True`, ignored otherwise. Sets the :attr: `momentum` attribute
             of :class: `torch.nn.BatchNorm1d`. Defaults to :math: `10^{-2}`.
         :type batchnorm_momentum: class: `float`
 
         :param batchnorm_affine: (Optional) Whether to use learnable affine parameters for the batch normalization module.
-            Only used when :param: `use_batchnorm` is set to `True`, ignored otherwise. Sets the :attr: `affine` attribute
+            Only used when ``use_batchnorm`` is set to `True`, ignored otherwise. Sets the :attr: `affine` attribute
             of :class: `torch.nn.BatchNorm1d`. Defaults to `True`.
         :type batchnorm_affine: class: `bool`
 
         :param batchnorm_track_running_stats: Whether to track running statistics or simply compute them on each given batch.
-            Only used when :param: `use_batchnorm` is set to `True`, ignored otherwise. Sets the :attr: `track_running_stats` attribute
+            Only used when ``use_batchnorm`` is set to `True`, ignored otherwise. Sets the :attr: `track_running_stats` attribute
             of :class: `torch.nn.BatchNorm1d`. Defaults to `True`.
         :type batchnorm_track_running_stats: class: `bool`
 
@@ -102,17 +102,17 @@ class MLP(torch.nn.Module):
         :type use_layernorm: class: `bool`
 
         :param layernorm_eps: (Optional) The :math: `\epsilon` parameter for the denominator of the normalization for numerical stability.
-            Only used when :param: `use_layernorm` is set to `True`, ignored otherwise. Sets the :attr: `eps` attribute
+            Only used when ``use_layernorm`` is set to `True`, ignored otherwise. Sets the :attr: `eps` attribute
             of :class: `torch.nn.LayerNorm`. Defaults to :math: `10^{-5}`.
         :type layernorm_eps: class: `float`
 
         :param layernorm_elementwise_affine: (Optional) Whether to use learnable element-wise affine parameters for the layer normalization module.
-            Only used when :param: `use_layernorm` is set to `True`, ignored otherwise. Sets the :attr: `elementwise_affine` attribute
+            Only used when ``use_layernorm`` is set to `True`, ignored otherwise. Sets the :attr: `elementwise_affine` attribute
             of :class: `torch.nn.Layernorm`. Defaults to `False`.
         :type layernorm_elementwise_affine: class: `bool`
 
-        :param layernorm_bias: (Optional) Whether to learn a bias term for the element-wise affine transformations. Only used when :param: `use_layernorm`
-            and :param: `layernorm_elementwise_affine` are both set to `True`, ignored otherwise. Sets the :attr: `bias` of :class: `torch.nn.LayerNorm`.
+        :param layernorm_bias: (Optional) Whether to learn a bias term for the element-wise affine transformations. Only used when ``use_layernorm``
+            and ``layernorm_elementwise_affine`` are both set to `True`, ignored otherwise. Sets the :attr: `bias` of :class: `torch.nn.LayerNorm`.
             Defaults to `False`.
         :type layernorm_bias: class: `bool`
 
@@ -120,7 +120,7 @@ class MLP(torch.nn.Module):
             Defaults to :math: `0.0`, with no dropout.
         :type dropout_p: class: `float`
 
-        :param dropout_inplace: (Optional) Whether to perform dropout in place. Only used when :param: `dropout_p` is positive, ignored otherwise.
+        :param dropout_inplace: (Optional) Whether to perform dropout in place. Only used when ``dropout_p`` is positive, ignored otherwise.
             Defaults to `False`.
         :type dropout_inplace: class: `bool`
 
@@ -339,7 +339,7 @@ class Resnet1d(torch.nn.Module):
         :type num_resnet_layers: class: `int`
 
         :param output_dim: (Optional) The dimensionality of the image space where to project the inputs.
-            When not provided, it will be automatically set to :param: `input_dim`. Defaults to `None`.
+            When not provided, it will be automatically set to ``input_dim``. Defaults to `None`.
         :type output_dim: class: `int | None`
 
         :param activation_cls: (Optional) :class: `torch.nn.Module` used as non-linearity for the Residual Block.
@@ -350,22 +350,22 @@ class Resnet1d(torch.nn.Module):
         :type use_batchnorm: class: `bool`
 
         :param batchnorm_eps: (Optional) The :math: `\epsilon` parameter for the denominator of the normalization for numerical stability.
-            Only used when :param: `use_batchnorm` is set to `True`, ignored otherwise. Sets the :attr: `eps` attribute
+            Only used when ``use_batchnorm`` is set to `True`, ignored otherwise. Sets the :attr: `eps` attribute
             of :class: `torch.nn.BatchNorm1d`. Defaults to :math: `10^{-3}`.
         :type batchnorm: class: `float`
 
         :param batchnorm_momentum: (Optional) The value used for the computation of the running statistics for batch normalization.
-            Only used when :param: `use_batchnorm` is set to `True`, ignored otherwise. Sets the :attr: `momentum` attribute
+            Only used when ``use_batchnorm`` is set to `True`, ignored otherwise. Sets the :attr: `momentum` attribute
             of :class: `torch.nn.BatchNorm1d`. Defaults to :math: `10^{-2}`.
         :type batchnorm_momentum: class: `float`
 
         :param batchnorm_affine: (Optional) Whether to use learnable affine parameters for the batch normalization module.
-            Only used when :param: `use_batchnorm` is set to `True`, ignored otherwise. Sets the :attr: `affine` attribute
+            Only used when ``use_batchnorm`` is set to `True`, ignored otherwise. Sets the :attr: `affine` attribute
             of :class: `torch.nn.BatchNorm1d`. Defaults to `True`.
         :type batchnorm_affine: class: `bool`
 
         :param batchnorm_track_running_stats: Whether to track running statistics or simply compute them on each given batch.
-            Only used when :param: `use_batchnorm` is set to `True`, ignored otherwise. Sets the :attr: `track_running_stats` attribute
+            Only used when ``use_batchnorm`` is set to `True`, ignored otherwise. Sets the :attr: `track_running_stats` attribute
             of :class: `torch.nn.BatchNorm1d`. Defaults to `True`.
         :type batchnorm_track_running_stats: class: `bool`
 
@@ -373,17 +373,17 @@ class Resnet1d(torch.nn.Module):
         :type use_layernorm: class: `bool`
 
         :param layernorm_eps: (Optional) The :math: `\epsilon` parameter for the denominator of the normalization for numerical stability.
-            Only used when :param: `use_layernorm` is set to `True`, ignored otherwise. Sets the :attr: `eps` attribute
+            Only used when ``use_layernorm`` is set to `True`, ignored otherwise. Sets the :attr: `eps` attribute
             of :class: `torch.nn.LayerNorm`. Defaults to :math: `10^{-5}`.
         :type layernorm_eps: class: `float`
 
         :param layernorm_elementwise_affine: (Optional) Whether to use learnable element-wise affine parameters for the layer normalization module.
-            Only used when :param: `use_layernorm` is set to `True`, ignored otherwise. Sets the :attr: `elementwise_affine` attribute
+            Only used when ``use_layernorm`` is set to `True`, ignored otherwise. Sets the :attr: `elementwise_affine` attribute
             of :class: `torch.nn.Layernorm`. Defaults to `False`.
         :type layernorm_elementwise_affine: class: `bool`
 
-        :param layernorm_bias: (Optional) Whether to learn a bias term for the element-wise affine transformations. Only used when :param: `use_layernorm`
-            and :param: `layernorm_elementwise_affine` are both set to `True`, ignored otherwise. Sets the :attr: `bias` of :class: `torch.nn.LayerNorm`.
+        :param layernorm_bias: (Optional) Whether to learn a bias term for the element-wise affine transformations. Only used when ``use_layernorm``
+            and ``layernorm_elementwise_affine`` are both set to `True`, ignored otherwise. Sets the :attr: `bias` of :class: `torch.nn.LayerNorm`.
             Defaults to `False`.
         :type layernorm_bias: class: `bool`
 
@@ -391,7 +391,7 @@ class Resnet1d(torch.nn.Module):
             Defaults to :math: `0.0`, with no dropout.
         :type dropout_p: class: `float`
 
-        :param dropout_inplace: (Optional) Whether to perform dropout in place. Only used when :param: `dropout_p` is positive, ignored otherwise.
+        :param dropout_inplace: (Optional) Whether to perform dropout in place. Only used when ``dropout_p`` is positive, ignored otherwise.
             Defaults to `False`.
         :type dropout_inplace: class: `bool`
 

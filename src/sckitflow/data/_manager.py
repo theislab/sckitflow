@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import dataclasses
 from collections.abc import Collection, Mapping
 from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, Unpack
 
@@ -21,7 +22,6 @@ from sckitflow.data._dims import DataDimensions
 from sckitflow.data._group_encoders import GroupEncoderConfig
 from sckitflow.data._utils import AnnDataLike, as_adatas, with_derived_obs_stacked
 from sckitflow.data.containers._categorical import CategoricalData
-from sckitflow.data.containers._coupling import CouplingData
 from sckitflow.data.containers._distribution import DistributionData
 from sckitflow.data.containers._mixed_type import MixedTypeData
 from sckitflow.data.containers._state import StateData
@@ -244,9 +244,6 @@ class DataManager:
     ) -> MixedTypeData | None:
         return self._condition_data_schema.get_data(adata)
 
-    def _get_coupling_data(self, adata: AnnData) -> tuple[CouplingData, CouplingData]:
-        return self._coupling_data_schema.get_data(adata)
-
     def _get_groups_data(
         self,
         adata: AnnData,
@@ -263,13 +260,18 @@ class DataManager:
         self,
         adata: AnnData,
         require_target_state: bool = True,
+        *,
+        sides: tuple[bool, bool] = (True, True),
     ) -> DistributionData:
         state_data: StateData | None = self._get_state_data(adata) if require_target_state else None
         condition_data: MixedTypeData = self._get_condition_data(adata)
         response_data: MixedTypeData = self._get_target_data(adata)
         groups_data: CategoricalData = self._get_groups_data(adata)
         if require_target_state:
-            source_coupling_data, target_coupling_data = self._get_coupling_data(adata)
+            source, target = sides
+            source_coupling_data, target_coupling_data = self._coupling_data_schema.get_sides(
+                adata, source=source, target=target
+            )
         else:
             # coupling reps default to the state representation (`.X`) unless explicitly
             # configured otherwise, so they are unavailable in the same cases as state_data.
@@ -328,14 +330,48 @@ class DataManager:
         :param adata: The annotated data object(s) which to extract the dimensionalities from.
         :type adata: class: `AnnData | Sequence[AnnData]`
         """
-        dims = [self._dims_of(a) for a in self._parts(adata)]
+        parts = self._parts(adata)
+        roles = self._roles(parts)
+        dims = [self._dims_of(a, sides=r) for a, r in zip(parts, roles, strict=True)]
+        # A side's quadratic dim comes from the files holding that side, and must agree across them.
+        per_side = {"source_quad_dim": 0, "target_quad_dim": 1}
+        merged = {}
+        for field, side in per_side.items():
+            widths = {i: getattr(d, field) for i, (d, r) in enumerate(zip(dims, roles, strict=True)) if r[side]}
+            if len(set(widths.values())) > 1:
+                raise ValueError(
+                    f"{field} differs across the AnnData holding {('sources', 'targets')[side]}: "
+                    + ", ".join(f"AnnData {i}: {w}" for i, w in widths.items())
+                    + ". A side's quadratic rep needs one width in every file holding that side."
+                )
+            merged[field] = next(iter(widths.values()), None)
+        # Everything else must agree across every file.
+        base = _plain(dims[0])
         for i, other in enumerate(dims[1:], start=1):
-            if not other.feature_names.equals(dims[0].feature_names) or _plain(other) != _plain(dims[0]):
-                raise ValueError(f"AnnData {i} disagrees with AnnData 0 on its dimensions or feature names.")
-        return dims[0]
+            plain = _plain(other)
+            differ = [f"{k} ({base[k]} vs {plain[k]})" for k in base if k not in per_side and plain[k] != base[k]]
+            if not other.feature_names.equals(dims[0].feature_names):
+                differ.append("feature_names")
+            if differ:
+                raise ValueError(f"AnnData {i} disagrees with AnnData 0 on {', '.join(differ)}.")
+        return dataclasses.replace(dims[0], **merged)
 
-    def _dims_of(self, adata: AnnData) -> DataDimensions:
-        data: DistributionData = self._get_distribution_data(adata)
+    def _roles(self, parts: list[AnnData]) -> list[tuple[bool, bool]]:
+        """Per AnnData, whether it holds sources and whether it holds targets, as the loaders route them."""
+        if not self.group_cols:
+            return [(False, True)] * len(parts)  # unconditional: every cell is a target, flowing from noise
+        sel = self._selection(parts)
+        n = len(self.group_cols)
+        sources = {key[:n] for key, src in zip(sel.keys, sel.is_source, strict=True) if src}
+        targets = {key[:n] for key, tgt in zip(sel.keys, sel.is_target, strict=True) if tgt}
+        roles = []
+        for part in parts:
+            leaves = set(map(tuple, obs_columns(part, list(self.group_cols)).drop_duplicates().to_numpy()))
+            roles.append((not leaves.isdisjoint(sources), not leaves.isdisjoint(targets)))
+        return roles
+
+    def _dims_of(self, adata: AnnData, *, sides: tuple[bool, bool] = (True, True)) -> DataDimensions:
+        data: DistributionData = self._get_distribution_data(adata, sides=sides)
         n_features = data.state_data.X.shape[1]
         return self._get_data_dimensionalities(data, self._get_feature_names(adata, n_features))
 

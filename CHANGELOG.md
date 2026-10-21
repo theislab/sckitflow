@@ -20,6 +20,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+- A dataset split across files only needs each representation where the cells reading it are: the loaders route the files holding targets and those holding sources to separate scfit sources, so e.g. `source_rep_quad` can live only in the controls' file. A file missing a representation its cells need raises an error naming the file, the side and the schema field
 - `sckitflow.core.surrogate.SurrogatePotential`: a differentiable potential of continuous condition covariates through a trained inference method, averaged over the groups of its context data (`adata`), which it reads once per device onto the inference module's device. It takes a `readout` and a `potential`; `MeanSamplesReadoutConfig` and `SquaredErrorPotentialConfig` build the common ones
 - Basic tool, preprocessing and plotting functions
 - `docs/scripts/fit_cfm.py` trains a run from one YAML spec; install with the `scripts` extra
@@ -29,3 +30,8 @@ and this project adheres to [Semantic Versioning][].
 
 - Flow method configs take only configs: live probability paths and raw sampler callables are rejected
 - Time and noise samplers are separate families (`TimeSamplerConfig`, `NoiseSamplerConfig`)
+
+### Fixed
+
+- Gromov-Wasserstein and fused Gromov-Wasserstein couplings default to `scale_cost="mean"`, like the linear ones: unscaled float32 costs made entropic GW underflow to an all-zero plan. A batch whose plan is all zero still falls back to random pairs, but now warns (`RuntimeWarning`) instead of only logging
+- Pure Gromov-Wasserstein matching (`use_linear=False`) no longer fails on the missing linear term ([#145](https://github.com/theislab/sckitflow/issues/145))

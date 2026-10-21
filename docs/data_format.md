@@ -37,4 +37,5 @@ agree on the state width and on the feature names, and a split column (`split_by
 `.uns` table the schema reads must be in at least one of them: its entries are merged, an entry in several
 must be the same in each, and every value looked up must have one. A list of zarr stores is opened lazily with `scfit.data.open_source(paths,
 keys=..., cols=..., uns=...)`, listing every store explicitly. A store holding only controls is just one more
-entry.
+entry. A store only needs the representations of the cells it holds: the target side reads the stores holding
+targets and the source side the stores holding sources, so e.g. `source_rep_quad` can live only with the controls.

@@ -6,6 +6,7 @@ type: model
 data:
   type: data_manager
   sample_rep: X_pca
+  rep_lin: X_pca                  # OT cost on the PCA space; unset, it falls back to X
   categorical_conditions:
     drug: [drug1, drug2]          # a combination is a set of drugs
   categorical_reps:

@@ -1,4 +1,5 @@
 import logging
+import warnings
 from functools import partial
 from typing import Literal, overload
 
@@ -42,9 +43,15 @@ def _sanitize_coupling_matrix(
         msg = f"Non-finite values found in `coupling_matrix` {coupling_matrix=}\n"
         logger.warning(msg)
 
-    # Degenerate sum → fallback to uniform
+    # Degenerate sum → fallback to uniform. It keeps a long run going, but the batch is then matched at random,
+    # so it must not pass as a log line.
     if np.abs(coupling_matrix.sum()) < eps:
-        logger.warning("Sum of `coupling_matrix` is numerically zero; replacing with a uniform coupling.")
+        warnings.warn(
+            "The optimal transport solver returned an all-zero plan, so this batch is matched uniformly at random. "
+            "Scale the cost (`scale_cost='mean'`) or raise `epsilon`.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
         coupling_matrix = np.ones_like(coupling_matrix) / coupling_matrix.size
 
     return coupling_matrix
@@ -461,8 +468,9 @@ def ot_quadratic_coupling(
     source_quad = to_torch_tensor(source_quad)
     target_quad = to_torch_tensor(target_quad)
 
-    source_lin = to_torch_tensor(source_lin)
-    target_lin = to_torch_tensor(target_lin)
+    # No linear term under pure Gromov-Wasserstein (`use_linear=False`).
+    source_lin = to_torch_tensor(source_lin) if source_lin is not None else None
+    target_lin = to_torch_tensor(target_lin) if target_lin is not None else None
 
     if source_lin is not None and target_lin is not None:
         distance_matrix_lin = cost_fn(source_lin, target_lin)

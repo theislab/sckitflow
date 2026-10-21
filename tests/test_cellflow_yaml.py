@@ -5,6 +5,7 @@ from pathlib import Path
 import lightning as pl
 import numpy as np
 import pytest
+import scipy.sparse as sp
 import torch
 import yaml
 from anndata import AnnData
@@ -32,6 +33,7 @@ def adata() -> AnnData:
         obs_columns_to_fixed_val={"drug1": "control", "drug2": "control"},
         rng=rng,
     )
+    adata.X = sp.csr_matrix(adata.X)  # real counts are sparse; OT must not read them
     adata.obsm["X_pca"] = rng.standard_normal((adata.n_obs, 8))  # the dummy obsm is all zeros, which OT cannot scale
     # the experiment's split, written before the data reaches the run (`split_by: split` in the YAML)
     splitter = CombinationSplitterConfig(

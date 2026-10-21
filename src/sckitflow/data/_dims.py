@@ -31,7 +31,9 @@ class DataDimensions:
         return {cov_name: cov_data.shape[-1] for cov_name, cov_data in data.mapping.items()}
 
     @classmethod
-    def _get_dims_from_coupling_data(cls, data: CouplingData) -> tuple[int | None, int | None]:
+    def _get_dims_from_coupling_data(cls, data: CouplingData | None) -> tuple[int | None, int | None]:
+        if data is None:
+            return None, None
         state_lin_dim = data.state_lin.X.shape[-1] if data.state_lin is not None else None
         state_quad_dim = data.state_quad.X.shape[-1] if data.state_quad is not None else None
         return state_lin_dim, state_quad_dim

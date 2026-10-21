@@ -1,8 +1,12 @@
+import warnings
+
 import numpy as np
 import pytest
 import torch
 from pydantic import ValidationError
 from scfit.registry import parse
+
+from sckitflow.core.coupling import GromovWassersteinCouplingConfig
 
 pytest.importorskip("ot")
 
@@ -135,10 +139,6 @@ def test_ot_quadratic_coupling_basic(quadratic_inputs, method):
     assert (src_idx >= 0).all() and (tgt_idx >= 0).all()
 
 
-@pytest.mark.xfail(
-    reason="https://github.com/theislab/sckitflow/issues/145 - the optional linear terms are converted before the None check",
-    strict=True,
-)
 def test_ot_quadratic_coupling_without_xy_couplings(quadratic_inputs):
     src_xx, tgt_yy, *_ = quadratic_inputs
     src_idx, tgt_idx = ot_quadratic_coupling(
@@ -226,3 +226,24 @@ def test_ot_linear_coupling_requires_linear_reps():
             rng=np.random.default_rng(0),
             **LIN,
         )
+
+
+def _float32_reps():
+    rng = np.random.default_rng(0)
+    return rng.normal(size=(40, 4)).astype("float32"), rng.normal(size=(40, 6)).astype("float32")
+
+
+def test_gromov_wasserstein_defaults_find_a_plan_on_float32():
+    source, target = _float32_reps()
+    match = GromovWassersteinCouplingConfig().build()
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always", RuntimeWarning)
+        match(source_quad=source, target_quad=target, rng=np.random.default_rng(0))
+    assert not [w for w in record if issubclass(w.category, RuntimeWarning)]
+
+
+def test_an_all_zero_plan_warns_that_the_batch_is_random():
+    source, target = _float32_reps()  # unscaled float32 costs make entropic GW underflow
+    match = GromovWassersteinCouplingConfig(scale_cost=1.0, epsilon=1.0).build()
+    with pytest.warns(RuntimeWarning, match="matched uniformly at random"):
+        match(source_quad=source, target_quad=target, rng=np.random.default_rng(0))

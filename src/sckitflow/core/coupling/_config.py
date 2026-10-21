@@ -105,7 +105,9 @@ class _QuadraticCouplingConfig(CouplingConfig):
 
     fn = ot_quadratic_coupling
 
-    scale_cost: ScaleMethod = 1.0
+    # Scaled like the linear couplings: unscaled squared distances make the entropic solver underflow to an
+    # all-zero plan on float32 data.
+    scale_cost: ScaleMethod = "mean"
     epsilon: float = 1.0
     max_iter: int = 1000
     tol: float = 1e-9

@@ -159,6 +159,31 @@ def _get_coupling_locs(coupling_schema: CouplingDataSchema | None) -> tuple[dict
     return source_coupling_locs, target_coupling_locs
 
 
+# The schema field each coupling term is read from, for error messages.
+_COUPLING_FIELD = {
+    _SOURCE_LIN_TERM: "rep_lin",
+    _TARGET_LIN_TERM: "rep_lin",
+    _SOURCE_QUAD_TERM: "source_rep_quad",
+    _TARGET_QUAD_TERM: "target_rep_quad",
+}
+
+
+def get_rep(adata: AnnData, loc: str) -> Any:
+    """Rep ``loc`` (``"X"`` | ``"obsm/<k>"`` | ``"layers/<k>"``) of ``adata``."""
+    if loc == "X":
+        return adata.X
+    field, key = loc.split("/", 1)
+    return getattr(adata, field)[key]
+
+
+def _has_rep(adata: AnnData, loc: str) -> bool:
+    """Whether ``adata`` carries rep ``loc`` (``"X"`` | ``"obsm/<k>"`` | ``"layers/<k>"``)."""
+    if loc == "X":
+        return adata.X is not None
+    field, key = loc.split("/", 1)
+    return key in getattr(adata, field)
+
+
 def _merge_reps(*groups: Iterable[str]) -> tuple[str, ...]:
     seen: dict[str, None] = {}
     for g in groups:
@@ -214,6 +239,17 @@ class _StepDataBridge:
         # Handle coupling terms and construct coupling locs dictionary
         self._coupling_schema = coupling_schema
         self._source_coupling_locs, self._target_coupling_locs = _get_coupling_locs(self._coupling_schema)
+        # Which schema field asks for each rep, so a missing one is reported by the name the user set.
+        self._rep_fields: dict[str, list[str]] = {}
+        for loc, field in [
+            (self._state_loc, "sample_rep"),
+            *((loc, "continuous_conditions") for loc in self._cond_cont_locs),
+            *((loc, "response covariates") for loc in self._resp_cont_locs),
+            *((loc, _COUPLING_FIELD[t]) for loc, t in self._source_coupling_locs.items()),
+            *((loc, _COUPLING_FIELD[t]) for loc, t in self._target_coupling_locs.items()),
+        ]:
+            if field not in self._rep_fields.setdefault(loc, []):
+                self._rep_fields[loc].append(field)
 
         # One O(N) drop_duplicates gives the group combos (no per-obs logic). Encoding a group needs only its values
         # and the `.uns` tables, so it is deferred to batch time (cached), keyed by the group's id. An unconditional
@@ -414,7 +450,7 @@ class _StepDataBridge:
         group_by = [*self._group_cols, *self._pair_cols]
         if control_weights:
             return Stream(
-                _PRIMARY,  # same source as the primary; weights pick out the controls
+                _CONTROL,  # its own source: only the AnnData holding source cells (see `_sources_by_role`)
                 group_by=group_by,
                 reps=_merge_reps((self._state_loc,), self._source_coupling_locs),
                 weights=control_weights,
@@ -422,6 +458,76 @@ class _StepDataBridge:
                 in_memory=in_memory,
             )
         return None
+
+    def _sources_by_role(self, primary: Stream, control: Stream | None) -> dict[str, list[AnnData]]:
+        """Each stream's source: only the AnnData holding its cells, checked to carry its reps.
+
+        A dataset split across files can keep each side's reps where its cells are (e.g. ``source_rep_quad`` only
+        in the controls' file): the target stream reads the files holding targets, the control stream the files
+        holding sources, and a file holding both is in both. The roles come from the streams' weights, so callers
+        still pass one list of AnnData.
+        """
+        sources = {_PRIMARY: self._files_holding(primary, "target")}
+        if control is not None:
+            sources[_CONTROL] = self._files_holding(control, "source")
+            self._check_shared_widths(sources)
+        return sources
+
+    def _check_shared_widths(self, sources: dict[str, list[AnnData]]) -> None:
+        """The linear coupling term compares sources with targets directly, so one width across every file.
+
+        Within a side scfit already requires it; this compares across the sides, which read separate sources.
+        The quadratic terms are exempt (each side's is only compared within itself), and so is the state: whether
+        it must match depends on the method -- flowing from the sources needs one space, generating from noise
+        conditioned on an encoded source (GENOT) does not -- so the method checks it, not the loader.
+        """
+        shared = {loc for loc, t in self._source_coupling_locs.items() if t == _SOURCE_LIN_TERM}
+        index = {id(a): i for i, a in enumerate(self._adatas)}
+        for loc in shared:
+            widths = {
+                (role, index[id(a)]): int(get_rep(a, loc).shape[1])
+                for role, files in (("source", sources[_CONTROL]), ("target", sources[_PRIMARY]))
+                for a in files
+            }
+            if len(set(widths.values())) > 1:
+                where = ", ".join(f"{w} wide in AnnData {i} ({role}s)" for (role, i), w in sorted(widths.items()))
+                raise ValueError(
+                    f"{loc} ({' / '.join(self._rep_fields.get(loc, ['rep']))}) is {where}. The linear coupling "
+                    "term compares sources with targets directly, so it needs one width in every file; align the "
+                    "files to it (one PCA fitted over all of them, or an embedding both sides share when their states "
+                    "live in different spaces), or match across spaces with the quadratic terms alone "
+                    "(`use_linear=False`)."
+                )
+
+    def _files_holding(self, stream: Stream, role: str) -> list[AnnData]:
+        """The AnnData with at least one ``stream``-selected cell, each checked to carry the stream's reps."""
+        if stream.weights is None:
+            held = list(range(len(self._adatas)))
+        else:
+            selected = {leaf for leaf, w in stream.weights.items() if w > 0}
+            held = [
+                i
+                for i, a in enumerate(self._adatas)
+                if not selected.isdisjoint(
+                    map(tuple, obs_columns(a, list(stream.group_by)).drop_duplicates().to_numpy())
+                )
+            ]
+        if not held:
+            raise ValueError(
+                f"None of the {len(self._adatas)} AnnData holds a {role} cell the schema selects, so there is "
+                f"nothing to stream for the {role} side. Check that the group and condition values in the "
+                f"schema (e.g. `control_values_dict`) match the data's obs."
+            )
+        for i in held:
+            missing = [loc for loc in stream.reps if not _has_rep(self._adatas[i], loc)]
+            if missing:
+                described = ", ".join(f"{loc} ({' / '.join(self._rep_fields.get(loc, ['rep']))})" for loc in missing)
+                raise ValueError(
+                    f"AnnData {i} of {len(self._adatas)} holds {role} cells but lacks {described}, which the "
+                    f"{role} side reads. Add it to that AnnData; each file only needs the reps of the cells it holds "
+                    f"(e.g. `source_rep_quad` only where the sources are)."
+                )
+        return [self._adatas[i] for i in held]
 
     @property
     def group_cols(self) -> tuple[str, ...]:
@@ -566,16 +672,13 @@ class Loader(_StepDataBridge):
             reps=primary_reps,
             weights=primary_weights,
         )
-        # `self._adatas`, not the argument: an unconditional schema streams shallow copies carrying the
-        # implicit all-observations group column (see `with_derived_obs`).
-        sources: dict[str, list[AnnData]] = {_PRIMARY: self._adatas}
-        links: dict[str, Stream] = {}
-
         # Control link -- `in_memory` materializes just the selected control observations, a small pool re-drawn
         # every batch. The control stream never groups on the split: controls are shared across splits.
         control_stream = self._control_link(control_weights, in_memory=True)
-        if control_stream is not None:
-            links[_CONTROL] = control_stream
+        links = {_CONTROL: control_stream} if control_stream is not None else {}
+        # `self._adatas`, not the argument: an unconditional schema streams shallow copies carrying the
+        # implicit all-observations group column (see `with_derived_obs`).
+        sources = self._sources_by_role(primary, control_stream)
 
         # Make the scfit loader finite (one epoch by default) so a plain pass terminates and is
         # re-iterable; the caller (e.g. the trainer) sets the training length via `set_n_iters`.
@@ -708,13 +811,10 @@ class EvalLoader(_StepDataBridge):
             reps=primary_reps,
             weights=primary_weights,
         )
-        sources: dict[str, list[AnnData]] = {_PRIMARY: self._adatas}
-        links: dict[str, Stream] = {}
-
         # Control link (source), matched on the group columns -- controls always carry a state to flow from.
         control_stream = self._control_link(control_weights)
-        if control_stream is not None:
-            links[_CONTROL] = control_stream
+        links = {_CONTROL: control_stream} if control_stream is not None else {}
+        sources = self._sources_by_role(primary, control_stream)
 
         self._loader = ScfitEvalLoader(
             sources, primary=primary, links=links, to=to, max_per_group=max_per_group, subsample=subsample, seed=seed

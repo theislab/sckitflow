@@ -93,12 +93,34 @@ class CouplingDataSchema(StrictDataSchema):
         if self._target_rep_quad is not None:
             self._check_key_found_in_adata_field(adata, self._target_rep_quad, "obsm")
 
+    def get_sides(self, adata: AnnData, *, source: bool, target: bool) -> tuple[CouplingData, CouplingData]:
+        """Like :meth:`get_data`, but reads a side's quadratic rep only when ``adata`` holds that side's cells.
+
+        A dataset split across files keeps each side's quadratic rep where its cells are; the linear term is
+        read from every file, since both sides compare in it.
+        """
+        reads = {
+            "source": self._source_rep_quad if source else None,
+            "target": self._target_rep_quad if target else None,
+        }
+        if self._use_linear and self._rep_lin is not None:
+            self._check_key_found_in_adata_field(adata, self._rep_lin, "obsm")
+        for key in reads.values():
+            if key is not None:
+                self._check_key_found_in_adata_field(adata, key, "obsm")
+        return self._read(adata, reads["source"], reads["target"])
+
     def _get_data(self, adata: AnnData) -> tuple[CouplingData, CouplingData]:
         """Enforces the schema on the input :class: `AnnData`.
 
         :param adata: The input data.
         :type adata: class: `AnnData`
         """
+        return self._read(adata, self._source_rep_quad, self._target_rep_quad)
+
+    def _read(
+        self, adata: AnnData, source_rep_quad: str | None, target_rep_quad: str | None
+    ) -> tuple[CouplingData | None, CouplingData | None]:
         # Linear term (shared): `None` under pure Gromov-Wasserstein.
         if self._use_linear:
             X_lin = StateData(self._extract_array(adata, repr=self._rep_lin))
@@ -106,18 +128,20 @@ class CouplingDataSchema(StrictDataSchema):
             X_lin = None
 
         # Quadratic terms, collected separately (specific dimensions).
-        if self._source_rep_quad is not None:
-            X_source_quad = StateData(self._extract_array(adata, repr=self._source_rep_quad))
+        if source_rep_quad is not None:
+            X_source_quad = StateData(self._extract_array(adata, repr=source_rep_quad))
         else:
             X_source_quad = None
-        if self._target_rep_quad is not None:
-            X_target_quad = StateData(self._extract_array(adata, repr=self._target_rep_quad))
+        if target_rep_quad is not None:
+            X_target_quad = StateData(self._extract_array(adata, repr=target_rep_quad))
         else:
             X_target_quad = None
 
-        source_coupling = CouplingData(state_lin=X_lin, state_quad=X_source_quad)
-        target_coupling = CouplingData(state_lin=X_lin, state_quad=X_target_quad)
-        return source_coupling, target_coupling
+        # A side with no term here (pure Gromov-Wasserstein, in a file not holding that side) has no coupling data.
+        def side(quad: StateData | None) -> CouplingData | None:
+            return None if X_lin is None and quad is None else CouplingData(state_lin=X_lin, state_quad=quad)
+
+        return side(X_source_quad), side(X_target_quad)
 
     @property
     def rep_lin(self) -> str | None:

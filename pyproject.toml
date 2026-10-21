@@ -21,13 +21,18 @@ classifiers = [
 ]
 dynamic = [ "version" ]
 dependencies = [
-  "anndata>=0.13",     # scfit streams via the anndata>=0.13 acc reference system
-  "cloudpickle>=3",
+  "anndata>=0.13",      # scfit streams via the anndata>=0.13 acc reference system
+  "lightning>=2.2",     # the training loop, optimizer stepping and logging
   "numpy>=1.26",
   "pandas>=2",
-  "scfit>=0.0.11",     # annbatch-native streaming data layer, the component registry and Hub save/load
+  "pot>=0.9",
+  "scfit>=0.0.11",      # annbatch-native streaming data layer, the component registry and Hub save/load
   "scikit-learn>=1.4",
   "scipy>=1.12",
+  "torch>=2.2",
+  "torchdiffeq>=0.2.4",
+  "torchmetrics>=1.4",
+  "torchsde>=0.2.6",
   "tqdm>=4.66",
 ]
 # Everything an end user could want, minus the dev/doc/test tooling.
@@ -81,6 +86,7 @@ optional-dependencies.notebooks = [
   "sckitflow[torch]",
 ]
 optional-dependencies.test = [
+  "cloudpickle>=3",           # the pickling round-trip test
   "coverage",
   "pytest",
   "pytest-cov",
@@ -88,14 +94,8 @@ optional-dependencies.test = [
   "pytest-xdist>=3",
   "sckitflow[logging,torch]", # TestWandBLogger imports omegaconf for real (wandb itself is mocked)
 ]
-optional-dependencies.torch = [
-  "lightning>=2.2",     # the training loop, optimizer stepping and logging
-  "pot>=0.9",
-  "torch>=2.2",
-  "torchdiffeq>=0.2.4",
-  "torchmetrics>=1.4",
-  "torchsde>=0.2.6",
-]
+# Kept so `sckitflow[torch]` still installs; the torch stack is a core dependency (`import sckitflow` needs it).
+optional-dependencies.torch = [  ]
 
 # https://docs.pypi.org/project_metadata/#project-urls
 urls.Documentation = "https://sckitflow.readthedocs.io/"

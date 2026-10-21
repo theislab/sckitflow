@@ -11,6 +11,7 @@ from sckitflow.core._types import Diffusion, MappedTensor, NoiseType, SDEDynamic
 from sckitflow.core.solvers._solver import BaseSolver
 
 
+# TODO: no inference method uses this yet; wire it in for SDE (Schrodinger bridge) inference.
 class SDESolver(BaseSolver[SDEDynamics]):
     r"""Class for solving stochastic differential equations (SDEs) with TorchSDE.
 

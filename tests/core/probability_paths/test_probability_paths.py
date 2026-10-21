@@ -3,7 +3,6 @@ import inspect
 import pytest
 import torch
 
-from sckitflow._runtime import set_backend
 from sckitflow.core import probability_paths
 from sckitflow.core.probability_paths._probability_paths import (
     BaseProbabilityPath,
@@ -36,8 +35,6 @@ class TestProbabilityPaths:
         self,
         probability_path_cls: type[BaseProbabilityPath],
     ) -> None:
-        set_backend("torch")
-
         if not probability_path_cls.is_deterministic:
             with pytest.raises(ValueError, match=r"Argument sigma should be a positive float"):
                 probability_path_cls(-1.0)
@@ -60,8 +57,6 @@ class TestProbabilityPaths:
         probability_path_cls: BaseProbabilityPath,
         method: str,
     ) -> None:
-        set_backend("torch")
-
         # initialize probability path and retrieving method to test
         probability_path = probability_path_cls(1.0)
         verify_method_output(

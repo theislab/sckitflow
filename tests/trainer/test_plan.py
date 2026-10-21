@@ -245,3 +245,39 @@ def test_checkpoint_restores_datamodule(tmp_path, dims):
     assert restored.data_dims.feature_names.equals(dmod.data_dims.feature_names)
     assert restored.adata is adata
     assert restored.val_names == dmod.val_names
+
+
+def _train_keys(dims: DataDimensions, seed: int = 0, **trainer_kwargs) -> list[tuple[int, float]]:
+    """The torch seed and first numpy draw of every training micro-batch."""
+    module = _module()
+    method = CFMTraining(module, dims=dims)
+    keys = []
+    compute_loss = method.compute_loss
+
+    def spy(batch, *, generator, rng):
+        keys.append((generator.initial_seed(), copy.deepcopy(rng).random()))
+        return compute_loss(batch, generator=generator, rng=rng)
+
+    method.compute_loss = spy
+    plan = TrainingPlan(method, torch.optim.SGD(module.parameters(), lr=0.1), seed=seed)
+    _trainer(max_steps=2, limit_val_batches=0, **trainer_kwargs).fit(
+        plan, datamodule=_datamodule(_adata(), split_by="split")
+    )
+    return keys
+
+
+def test_accumulated_micro_batches_draw_apart(dims):
+    keys = _train_keys(dims, accumulate_grad_batches=2)
+    assert len(keys) == 4
+    assert len({s for s, _ in keys}) == len({x for _, x in keys}) == 4
+
+
+def test_ranks_draw_apart(dims, monkeypatch):
+    rank0 = _train_keys(dims)
+    monkeypatch.setattr(TrainingPlan, "global_rank", property(lambda self: 1))
+    rank1 = _train_keys(dims)
+    assert not {s for s, _ in rank0} & {s for s, _ in rank1}
+
+
+def test_same_seed_same_draws(dims):
+    assert _train_keys(dims, seed=3) == _train_keys(dims, seed=3) != _train_keys(dims, seed=4)

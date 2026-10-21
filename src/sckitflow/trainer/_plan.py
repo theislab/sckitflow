@@ -13,14 +13,11 @@ import lightning.pytorch as pl
 import torch
 
 from sckitflow._predict import prediction_record
-from sckitflow._random import generators
+from sckitflow._random import PREDICT, TRAIN, VALIDATE, generators
 from sckitflow.core._types import StepData
 from sckitflow.core.methods._base import SupportsInference, SupportsTraining
 
 __all__ = ["TrainingPlan"]
-
-# Stream keys: each stage draws from its own generators, never from another stage's.
-_TRAIN, _VALIDATE, _PREDICT = 0, 1, 2
 
 
 class TrainingPlan(pl.LightningModule):
@@ -52,7 +49,8 @@ class TrainingPlan(pl.LightningModule):
     :param target_transform: Optional callable applied to targets before scoring.
     :param predict_kwargs: Forwarded to the inference method's ``predict``.
     :param seed: Every random draw of training, validation and prediction comes from generators derived
-        from it and the step, so nothing reads the global RNG.
+        from it and the step, so nothing reads the global RNG. Training draws differ per rank and
+        micro-batch; validation and prediction draw the same noise every epoch.
     """
 
     def __init__(
@@ -96,7 +94,10 @@ class TrainingPlan(pl.LightningModule):
         self.seed = seed
 
     def training_step(self, batch: StepData, batch_idx: int) -> torch.Tensor:
-        generator, rng = generators(self.seed, _TRAIN, self.global_step, device=self.device)
+        # `global_step` counts optimizer steps, so `batch_idx` tells apart the micro-batches of one step
+        # under gradient accumulation and `global_rank` the ranks; Lightning restores both on resume.
+        key = (TRAIN, self.global_rank, self.global_step, batch_idx)
+        generator, rng = generators(self.seed, *key, device=self.device)
         loss, metrics = self.training_method.compute_loss(batch, generator=generator, rng=rng)
         self.log_dict(metrics, on_step=True, prog_bar=True)
         return loss
@@ -106,7 +107,7 @@ class TrainingPlan(pl.LightningModule):
         if self.inference_method is None or self.metrics is None:
             return
 
-        generator, _ = generators(self.seed, _VALIDATE, dataloader_idx, batch_idx, device=self.device)
+        generator, _ = generators(self.seed, VALIDATE, dataloader_idx, batch_idx, device=self.device)
         preds = self.inference_method.predict(batch, generator=generator, **self._predict_kwargs)
         preds = getattr(preds, "X", preds)
         targets = batch["target_state"]
@@ -142,7 +143,7 @@ class TrainingPlan(pl.LightningModule):
         if self.inference_method is None:
             raise ValueError("this plan has no inference method: pass one to `TrainingPlan(...)`.")
         step_data, leaf = batch
-        generator, _ = generators(self.seed, _PREDICT, dataloader_idx, batch_idx, device=self.device)
+        generator, _ = generators(self.seed, PREDICT, dataloader_idx, batch_idx, device=self.device)
         preds = self.inference_method.predict(step_data, generator=generator, **self._predict_kwargs)
         return prediction_record(self.trainer.predict_dataloaders, step_data, leaf, preds)
 

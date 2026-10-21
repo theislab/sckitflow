@@ -36,7 +36,7 @@ def broadcast_to_target_shape(
     """Broadcasts the input tensor to the target shape.
 
     This is done according to the following reshaping policy:
-        * When the :param: `input_tensor` is of the correct shape, simply returns it.
+        * When the ``input_tensor`` is of the correct shape, simply returns it.
         * When the input tensor has more dimensions than the target shape, a :class: `ValueError` is raised.
         * When the input tensor has at most the same number of dimensions as the target shape, they should be either
             matching the respective dimension in the target shape or be singleton, in which case they will be

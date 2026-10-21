@@ -11,7 +11,7 @@ from sckitflow.core.solvers._solver import BaseSolver
 class ODESolver(BaseSolver[ODEDynamics]):
     r"""Class for solving deterministic ordinary differential equations (ODEs) with :func:`torchdiffeq.odeint`.
 
-    :param dynamics: Velocity field providing the time-dependent dynamics. Must implement :meth:`BaseVelocityField.get_vf_fn`.
+    :param dynamics: Velocity field providing the time-dependent dynamics. Must implement :meth:`~sckitflow.core.nn.BaseVelocityField.get_vf_fn`.
     :type dynamics: class:`ODEDynamics`
 
     :param method: (Optional) Integration scheme used by ``torchdiffeq``. Defaults to ``"euler"``. Other valid options depend on ``torchdiffeq``.
@@ -20,10 +20,10 @@ class ODESolver(BaseSolver[ODEDynamics]):
     :param device_id: (Optional) Identifier for the target compute device.
     :type device_id: class:`torch.types.Device`
 
-    :param condition_dict: (Optional) Encoded conditions passed to :meth:`BaseVelocityField.get_vf_fn`.
+    :param condition_dict: (Optional) Encoded conditions passed to :meth:`~sckitflow.core.nn.BaseVelocityField.get_vf_fn`.
     :type condition_dict: class:`MappedTensor | None`
 
-    :param source: (Optional) Source state passed to :meth:`BaseVelocityField.get_vf_fn`.
+    :param source: (Optional) Source state passed to :meth:`~sckitflow.core.nn.BaseVelocityField.get_vf_fn`.
     :type source: class:`torch.Tensor | None`
     """
 
@@ -72,7 +72,7 @@ class ODESolver(BaseSolver[ODEDynamics]):
         :type return_trajectory: class:`bool`
 
         :returns: Either the full state trajectory or the final state depending on
-            :param:`return_trajectory`.
+            ``return_trajectory``.
         :rtype: class:`torch.Tensor`
         """
         config = self._prepare_solve_config(source, time, solver_kwargs)

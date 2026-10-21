@@ -48,7 +48,7 @@ class ConditionDataSchema(StrictDataSchema):
             condition over two conditioning axes (i.e.: drug perturbations and genetic knockout).
             Each of these axes will be associated to a set of columns, defining the combinatorial nature
             of the conditioning over them. In the following example, we will specify the condition levels/axes
-            by setting :param: `categorical_conditions`.
+            by setting ``categorical_conditions``.
 
             ### Condition Levels
 
@@ -62,14 +62,14 @@ class ConditionDataSchema(StrictDataSchema):
                 - KO A
                 - KO B
 
-            Note that, while the choice of the name of the keys to pass as :param: `categorical_conditions` and :param: `categorical_reps`
+            Note that, while the choice of the name of the keys to pass as ``categorical_conditions`` and ``categorical_reps``
             is arbitrary (as long as the two dictionaries share the same set of keys), the values of both arguments need
             to appear in the input `AnnData`.
 
-            In particular, the values of :param:`conditions`, should be given by sequences of string identifier
+            In particular, the values of ``conditions``, should be given by sequences of string identifier
             of columns in `adata.obs`` for each conditioning level.
 
-            On the other hand, the values of :param:`categorical_reps` should be given by a single string identifier,
+            On the other hand, the values of ``categorical_reps`` should be given by a single string identifier,
             specifying the key in `adata.uns` containing the representation for each level.
 
             .. code-block:: python
@@ -119,7 +119,7 @@ class ConditionDataSchema(StrictDataSchema):
             ## Practical Examples.
             We will continue from the example above and use the data stored in the `"paired_condition"` key of `adata.obsm`
             as dense condition covariates.
-            In order to model this type of conditioning is necessary to add the :param: `continuous_conditions` argument
+            In order to model this type of conditioning is necessary to add the ``continuous_conditions`` argument
             at initialization, specifying the sequence of key identifier to be used as condition.
 
             .. code-block:: python
@@ -294,7 +294,7 @@ class ConditionDataSchema(StrictDataSchema):
     def has_categorical_covariates(self) -> bool:
         """Whether the condition schema includes categorical covariates.
 
-        This will be `True` whenever :param: `categorical_conditions` is set at initializtion
+        This will be `True` whenever ``categorical_conditions`` is set at initializtion
         """
         return len(self._categorical_conditions) > 0
 
@@ -302,7 +302,7 @@ class ConditionDataSchema(StrictDataSchema):
     def has_continuous_covariates(self) -> bool:
         """Whether the condition schema includes categorical covariates.
 
-        This will be `True` whenever :param: `continuous_conditions` is set at initializtion
+        This will be `True` whenever ``continuous_conditions`` is set at initializtion
         """
         return len(self._continuous_conditions) > 0
 

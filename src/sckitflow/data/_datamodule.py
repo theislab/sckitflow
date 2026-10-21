@@ -23,7 +23,7 @@ __all__ = ["FlowDataModule"]
 class FlowDataModule(pl.LightningDataModule):
     """Streams ``StepData`` for training and validation, one loader per split.
 
-    The data half of a run: it owns the schema (:class:`DataManager`) and the
+    The data half of a run: it owns the schema (:class:`~sckitflow.data.DataManager`) and the
     dimensionalities derived from it, and turns them plus an ``AnnData`` into
     loaders. Training itself is a :class:`~sckitflow.trainer.TrainingPlan` and a
     ``lightning.Trainer``; neither needs to know how a batch was assembled.
@@ -135,7 +135,7 @@ class FlowDataModule(pl.LightningDataModule):
         return self._loaders[self._train_split].set_n_iters(self._n_train_steps)
 
     def val_dataloader(self) -> list[Loader]:
-        """One loader per non-training split, positionally matching :attr:`val_names`."""
+        """One loader per non-training split, positionally matching ``val_names``."""
         self.setup()
         return [loader for split, loader in self._loaders.items() if split != self._train_split]
 

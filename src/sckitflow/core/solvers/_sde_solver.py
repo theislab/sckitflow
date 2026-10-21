@@ -35,10 +35,10 @@ class SDESolver(BaseSolver[SDEDynamics]):
     :param device_id: (Optional) Identifier for the device on which the SDE will be solved.
     :type device_id: class:`torch.types.Device`
 
-    :param condition_dict: (Optional) Encoded conditions passed to :meth:`BaseVelocityField.get_vf_fn`.
+    :param condition_dict: (Optional) Encoded conditions passed to :meth:`~sckitflow.core.nn.BaseVelocityField.get_vf_fn`.
     :type condition_dict: class:`MappedTensor | None`
 
-    :param source: (Optional) Source state passed to :meth:`BaseVelocityField.get_vf_fn`.
+    :param source: (Optional) Source state passed to :meth:`~sckitflow.core.nn.BaseVelocityField.get_vf_fn`.
     :type source: class:`torch.Tensor | None`
     """
 

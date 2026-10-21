@@ -25,7 +25,7 @@ class ResponseDataSchema(StrictDataSchema):
     ) -> None:
         """Initializes the data schema.
 
-        :param categorical_covs_dict: Dictionary mapping column identifiers in :param: `groups`
+        :param categorical_covs_dict: Dictionary mapping column identifiers in ``groups``
             to the corresponding key of `.uns` used to store the covariate representations.
             The corresponding value in `.uns` need to have keys matching the unique values
             of the corresponding column in `.obs`. Defaults to `None`.
@@ -35,13 +35,13 @@ class ResponseDataSchema(StrictDataSchema):
             as key in `.obsm`. Defaults to `None`.
         :type continuous_covs: class: `Collection[str] | None`
 
-        :param encoding_transform_fn: Dictionary mapping column identifiers in :param: `categorical_covs_dict`
+        :param encoding_transform_fn: Dictionary mapping column identifiers in ``categorical_covs_dict``
             to the corresponding function used to define functional tranformations.
             This is only used if the corresponding value is `"fuctional"`.
             Defaults to `None`, in which case it will be set to the identity function.
         :type encoding_transform_fn: class: `dict[str, Callable] | None`
 
-        :param encoding_inverse_transform_fn: Dictionary mapping column identifiers in :param: `categorical_covs_dict`
+        :param encoding_inverse_transform_fn: Dictionary mapping column identifiers in ``categorical_covs_dict``
             to the corresponding function used to define inverse functional tranformations.
             This is only used if the corresponding value is `"fuctional"`.
             Defaults to `None`, in which case it will be set to the identity function.
@@ -175,7 +175,7 @@ class ResponseDataSchema(StrictDataSchema):
     def has_categorical_covariates(self) -> bool:
         """Whether the response schema includes categorical covariates.
 
-        This will be `True` whenever :param: `categorical_covs_dict` is set at initializtion
+        This will be `True` whenever ``categorical_covs_dict`` is set at initializtion
         """
         return len(self._categorical_covs_dict) > 0
 
@@ -183,7 +183,7 @@ class ResponseDataSchema(StrictDataSchema):
     def has_continuous_covariates(self) -> bool:
         """Whether the response schema includes categorical covariates.
 
-        This will be `True` whenever :param: `continuous_covs` is set at initializtion
+        This will be `True` whenever ``continuous_covs`` is set at initializtion
         """
         return len(self._continuous_covs) > 0
 

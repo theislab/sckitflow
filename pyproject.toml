@@ -53,19 +53,19 @@ optional-dependencies.dev = [
   "twine>=4.0.2",
 ]
 optional-dependencies.doc = [
-  "docutils>=0.8,!=0.18.*,!=0.19.*",
   "ipykernel",
   "ipython",
   "myst-nb>=1.1",
   "pandas",
-  # Until pybtex >0.24.0 releases: https://bitbucket.org/pybtex-devs/pybtex/issues/169/
-  "setuptools",
+  "sckitflow[torch]",
+  "scverse-misc[sphinx]>=0.1.2",
   "sphinx>=8.1",
   "sphinx-autodoc-typehints",
   "sphinx-book-theme>=1",
   "sphinx-copybutton",
-  "sphinx-tabs",
+  "sphinx-design",
   "sphinxcontrib-bibtex>=1",
+  "sphinxcontrib-katex",
   "sphinxext-opengraph",
 ]
 # GPU-resident streaming: scfit/annbatch can keep the read window on-device via cupy (Linux/CUDA only).

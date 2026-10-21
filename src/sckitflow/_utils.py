@@ -90,7 +90,7 @@ def verify_fn_args(
 ) -> None:
     """Verifies the positional arguments of a function against a template.
 
-    Checks that the annotations of the input function :param: `fn` match the template specified in :param: `Tfn`.
+    Checks that the annotations of the input function ``fn`` match the template specified in ``Tfn``.
     Raises :class: `TypeError` when the input function has a different number of positional
     arguments than the template or when the type annotations for the inputs do not match.
 

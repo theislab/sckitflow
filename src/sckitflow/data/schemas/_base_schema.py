@@ -11,7 +11,7 @@ __all__ = ["DataSchema", "StrictDataSchema"]
 
 
 class DataSchema(abc.ABC):
-    """Abstract base class for enforcing data configurations on :class:`AnnData` objects.
+    """Abstract base class for enforcing data configurations on :class:`~anndata.AnnData` objects.
 
     The derived classes will need to override the following abstract methods to be instantiated:
         * `_get_data`, to extract the data from the input :class: `sc.AnnData`.
@@ -34,10 +34,10 @@ class DataSchema(abc.ABC):
         :param adata: The input annotated data to verify.
         :type adata: class: `AnnData`
 
-        :param identifier: The string identifier for the key to be searched in :param: `adata`.
+        :param identifier: The string identifier for the key to be searched in ``adata``.
         :type identifier: class: `str`
 
-        :param adata_field: The attribute of :param: `adata` checked.
+        :param adata_field: The attribute of ``adata`` checked.
         :type adata_field: class: `Literal["obs", "uns", "obsm"]`
         """
         adata_field = getattr(adata, adata_field_key)
@@ -95,7 +95,7 @@ class DataSchema(abc.ABC):
 
 
 class StrictDataSchema(DataSchema, abc.ABC):
-    """Abstract base class for enforcing and verifying data configurations on :class:`AnnData` objects.
+    """Abstract base class for enforcing and verifying data configurations on :class:`~anndata.AnnData` objects.
 
     The derived classes will need to override the following abstract methods to be instantiated:
         * `_verify_args`, to verify the validity of the configurations provided at initialization.

@@ -135,7 +135,7 @@ class MixedTypeData(BaseData):
         :param state_data: The state data container for the new continuous covariates.
         :type state_data: class: `StateData`
 
-        :param allow_override: Whether to allow ovveriding keys when :param: `state_key` is already
+        :param allow_override: Whether to allow ovveriding keys when ``state_key`` is already
             present as a continuous covariate. Defaults to `False`.
         :type allow_override: class: `bool`
         """

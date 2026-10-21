@@ -336,5 +336,5 @@ class MatchedTrainingMethod:
 
     @property
     def dtype(self) -> torch.dtype:
-        """The wrapped method's dtype; forwarded for the same reason as :attr:`device`."""
+        """The wrapped method's dtype; forwarded for the same reason as ``device``."""
         return self._method.dtype  # type: ignore[attr-defined]

@@ -31,12 +31,12 @@ def get_toy_dataset(dataset_name: str, **kwargs):
         - 's_curve': S-shaped 3D manifold
         - 'swiss_roll': Rolled 3D manifold
 
-    **kwargs : additional parameters
+    **kwargs
         Dataset-specific parameters
 
     Returns
     -------
-    adata : AnnData
+    adata : anndata.AnnData
         Generated dataset wrapped in AnnData format
 
     Raises

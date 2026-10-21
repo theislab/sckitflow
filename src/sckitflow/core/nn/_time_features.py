@@ -23,23 +23,23 @@ def ott_jax_time_features(
     t: torch.Tensor,
     num_time_features: int,
 ) -> torch.Tensor:
-    r"""Applies the sinusoidal time features on the current time index as defined in the `ott-jax`package.
+    r"""Applies the sinusoidal time features on the current time index as defined in the `ott-jax` package.
 
     You can find the original implementation at the following link
     https://github.com/ott-jax/ott/blob/main/src/ott/neural/networks/layers/time_encoder.py.
-    For integer $K\in\mathbb{N}$, the featurized representation $\tilde{t}_K$ of time index vector $t$ is computed as:
+    For integer :math:`K\in\mathbb{N}`, the featurized representation :math:`\tilde{t}_K` of time index vector :math:`t` is computed as:
 
-    $$
+    .. math::
+
         \tilde{t}_K:=[(\cos(2\pi i t), \sin(2\pi i t))]_{i=1}^K
-    $$
 
-    Hence resulting in $2K$ features that are then fed to the Neural Velocity Field.
+    Hence resulting in :math:`2K` features that are then fed to the Neural Velocity Field.
 
-    :param t: The current continuous time index $t$ on which the features $\tilde{t}_K$ are computed.
-        Must be a :class: `torch.Tensor` of shape $()$, $(B, )$ or $(B, 1)$, where $B$ denotes the batch size.
+    :param t: The current continuous time index :math:`t` on which the features :math:`\tilde{t}_K` are computed.
+        Must be a :class: `torch.Tensor` of shape :math:`()`, :math:`(B, )` or :math:`(B, 1)`, where :math:`B` denotes the batch size.
     :type t: class: `torch.Tensor`
 
-    :param num_time_features: Sets the value of $2K$, the number of resulting time features, hence it must be even.
+    :param num_time_features: Sets the value of :math:`2K`, the number of resulting time features, hence it must be even.
         Raises a :class: `ValueError` otherwise.
     :type num_time_features: class: `int`
     """
@@ -57,28 +57,27 @@ def torch_cfm_time_features(
     num_time_features: int,
     max_period: int,
 ) -> torch.Tensor:
-    r"""Applies the sinusoidal time features on the current time index as defined in the `ott-jax`package.
+    r"""Applies the sinusoidal time features on the current time index as defined in the `ott-jax` package.
 
     You can find the original implementation at the following link
     https://github.com/atong01/conditional-flow-matching/blob/66b236b2fd96466a9aa655f46df2b4762aa11281/torchcfm/models/unet/nn.py#L87
-    For integers $K, N\in\mathbb{M}$, the featurized representation $\tilde{t}_K$ of time index vector $t$ is computed as:
+    For integers :math:`K, N\in\mathbb{M}`, the featurized representation :math:`\tilde{t}_K` of time index vector :math:`t` is computed as:
 
-    $$
-        - t \exp(\frac{\pi i }{K} \log M)
+    .. math::
+
         \tilde{t}_K:=[(\cos(- t \exp(\frac{i}{K} \log M)), \sin(- t \exp(\frac{i}{K} \log M)))]_{i=1}^K
-    $$
 
-    Hence resulting in $2K$ features that are then fed to the Neural Velocity Field.
+    Hence resulting in :math:`2K` features that are then fed to the Neural Velocity Field.
 
-    :param t: The current continuous time index $t$ on which the features $\tilde{t}_K$ are computed.
-        Must be a :class: `torch.Tensor` of shape $()$, $(B, )$ or $(B, 1)$, where $B$ denotes the batch size.
+    :param t: The current continuous time index :math:`t` on which the features :math:`\tilde{t}_K` are computed.
+        Must be a :class: `torch.Tensor` of shape :math:`()`, :math:`(B, )` or :math:`(B, 1)`, where :math:`B` denotes the batch size.
     :type t: class: `torch.Tensor`
 
-    :param num_time_features: Sets the value of $2K$, the number of resulting time features, hence it must be even.
+    :param num_time_features: Sets the value of :math:`2K`, the number of resulting time features, hence it must be even.
         Raises a :class: `ValueError` otherwise.
     :type num_time_features: class: `int`
 
-    :param max_period: Sets the value of $M$, used for the linear scaling of the time features.
+    :param max_period: Sets the value of :math:`M`, used for the linear scaling of the time features.
     :type max_period: class: `int`
     """
     if num_time_features % 2 != 0 or num_time_features <= 0:
@@ -97,17 +96,17 @@ def make_custom_time_features(
     """Compiles the input function with the chosen arguments and return its wrapped version.
 
     :param time_features_fn: (Optional) Function defining the custom time featurizer which should accept tensor with
-            trailing singleton dimension and expand the trailing dimension to $2K$.The input function is wrapped,
+            trailing singleton dimension and expand the trailing dimension to :math:`2K`.The input function is wrapped,
             so that it only need to actually implement the expansion of the trailing dimension. Defaults to `None`.
     :type time_features_fn: class: `TimeFeaturesFn | None`
 
-    :param num_time_features: (Optional) Sets the value of $2K$, the number of resulting time features, hence it must be even.
+    :param num_time_features: (Optional) Sets the value of :math:`2K`, the number of resulting time features, hence it must be even.
         Raises a :class: `ValueError` otherwise. When not provided, it will be set to
         :constant: `sckitflow._constants.DEFAULT_NUM_TIME_FEATURES`. Defaults to `None`.
     :type num_time_features: class: `int | None`
 
     :param time_features_kwargs: (Optional) Keyword arguments used to compile custom time featurizers. Only used when
-        initializing time featurizers with :param: `time_features_fn`, ignored otherwise. Defaults to `None`
+        initializing time featurizers with ``time_features_fn``, ignored otherwise. Defaults to `None`
     :type time_features_kwargs: class: `dict[str, Any] | None`
     """
     if num_time_features <= 0:
@@ -141,18 +140,18 @@ def get_time_features_fn(
     It supports initialization of time features functions in the following two ways:
 
         1) Pre-defined time time featurization functions can be chosen by passing the
-            :param: `time_features_id` argument, which can be set to either `"ott-jax"`
+            ``time_features_id`` argument, which can be set to either `"ott-jax"`
             or `"torch-cfm"`.
         2) It is otherwise possible to initialize custom time featurizers by passing
-            the :param: `time_features_fn`, which needs to be a :class: `Callable[torch.Tensor, int, ...]`
-            where the first argument correspond to $t$ and the second one should be named `num_time_features`
-            and represent $2K$.
+            the ``time_features_fn``, which needs to be a :class: `Callable[torch.Tensor, int, ...]`
+            where the first argument correspond to :math:`t` and the second one should be named `num_time_features`
+            and represent :math:`2K`.
 
     When arguments for both method 1 and 2 are passed, the latter will take precedence.
     When no argument is provided, returns the identity function. As all the defaults arguments are set to `None`, this will
     be the default case when calling this function without any argument (i.e.: calling `get_time_features_fn()`).
 
-    :param num_time_features: (Optional) Sets the value of $2K$, the number of resulting time features, hence it must be even.
+    :param num_time_features: (Optional) Sets the value of :math:`2K`, the number of resulting time features, hence it must be even.
         Raises a :class: `ValueError` otherwise. When not provided, it will be set to
         :constant: `sckitflow._constants.DEFAULT_NUM_TIME_FEATURES`. Defaults to `None`.
     :type num_time_features: class: `int | None`
@@ -163,17 +162,17 @@ def get_time_features_fn(
     :class time_features_id: class:`TimeFeaturesId | None`
 
     :param time_features_fn: (Optional) Function defining the custom time featurizer which should accept tensor with
-            trailing singleton dimension and expand the trailing dimension to $2K$.The input function is wrapped,
+            trailing singleton dimension and expand the trailing dimension to :math:`2K`.The input function is wrapped,
             so that it only need to actually implement the expansion of the trailing dimension. Defaults to `None`.
     :type time_features_fn: class: `TimeFeaturesFn | None`
 
-    :param max_period: Sets the value of $M$, used for the linear scaling of the time features.
-        Only used when :param: `time_features_id` is set to `"torch-cfm"`, ignored otherwise.
+    :param max_period: Sets the value of :math:`M`, used for the linear scaling of the time features.
+        Only used when ``time_features_id`` is set to `"torch-cfm"`, ignored otherwise.
         When not provided, it will be set to :constant: `sckitflow._constants.DEFAULT_TIME_FEATURES_MAX_PERIOD`. Defaults to `None`.
     :type max_period: class: `int | None`
 
     :param time_features_kwargs: (Optional) Keyword arguments used to compile custom time featurizers. Only used when
-        initializing time featurizers with :param: `time_features_fn`, ignored otherwise. Defaults to `None`
+        initializing time featurizers with ``time_features_fn``, ignored otherwise. Defaults to `None`
     :type time_features_kwargs: class: `dict[str, Any] | None`
     """
     if time_features_fn is not None:

@@ -10,7 +10,36 @@ space. Optuna `RandomSampler` + SLURM (`submitit_slurm`). Metric: `test/edist`.
 
 ```bash
 conda activate scflow13
-pip install hydra-core hydra-submitit-launcher hydra-optuna-sweeper optuna
+```
+
+Pin a **stable** Hydra line. `hydra-core 1.4.x` (including `1.4.0rc1`) breaks
+`hydra-optuna-sweeper` at composition time (`Key '_recursive_' not in
+'OptunaSweeperConf'`) — see §7. Stable 1.3.x avoids this.
+
+```bash
+pip install "hydra-core==1.3.2" hydra-submitit-launcher hydra-optuna-sweeper optuna
+```
+
+Verify the pin:
+
+```bash
+python - <<'PY'
+import hydra, optuna, hydra_plugins.hydra_optuna_sweeper  # noqa: F401
+print("hydra-core:", hydra.__version__)
+print("optuna    :", optuna.__version__)
+PY
+```
+
+`hydra-core` must print `1.3.x`, **not** `1.4.x`/`1.4.0rc1`. If it still prints
+a 1.4 pre-release, `pip` did not uninstall the old build — force it:
+
+```bash
+pip install --force-reinstall "hydra-core==1.3.2"
+```
+
+Then:
+
+```bash
 cd /ictstr01/home/icb/lorenzo.consoli/repos/sckitflow
 ```
 
@@ -47,21 +76,38 @@ grid values needed — the grid lives in the parent YAML's `choice(...)` block.
 
 ### Level 1: config resolves (5 s, no execution)
 
+`--cfg hydra --resolve` **only prints the resolved Hydra config and exits**.
+It does **not** run training, does **not** load the model, and does **not**
+log `RandomSampler` to stdout/stderr. Its only job here is to prove that
+composition succeeds and that the sampler is configured with `_partial_: false`.
+
+Keep stdout and stderr in **separate** files. Hydra writes composition errors
+to stderr; if you merge the streams (`2>&1`) or pipe into `grep` without
+`2>&1`, the error is either unreadable or silently dropped.
+
 ```bash
 python docs/scripts/fit_cfm.py \
   --config-name hparams_panel_smoke \
-  --cfg hydra --resolve 2>&1 | grep -B1 -A3 "RandomSampler"
+  --cfg hydra --resolve \
+  > /tmp/fit_cfm.out 2> /tmp/fit_cfm.err
+echo "exit code: $?"
+echo "----- STDOUT -----"; cat /tmp/fit_cfm.out
+echo "----- STDERR -----"; cat /tmp/fit_cfm.err
 ```
 
-Expected:
+**Expected exit code: `0`.** `STDERR` may contain a `Hydra15MigrationWarning`
+about `version_base` — that is a warning, not a failure. If `STDERR` instead
+shows a `ConfigKeyError` / `ConfigCompositionException`, stop and fix it
+before proceeding (see §7).
+
+In `STDOUT`, verify the sampler block:
 
 ```yaml
       _target_: optuna.samplers.RandomSampler
       _partial_: false       # ← CRITICAL — must be false, not true, not absent
 ```
 
-The other two `_target_`s to verify (either in the same command or with
-`grep "_target_"`):
+The other two `_target_`s to verify (same command, or `grep _target_ /tmp/fit_cfm.out`):
 
 ```yaml
 _target_: hydra_plugins.hydra_submitit_launcher.submitit_launcher.SlurmLauncher
@@ -84,9 +130,10 @@ Fix, in order (try the cheapest first):
 1. **CLI force** (no file edit, usually works):
    add `'+hydra/sweeper/sampler=random'` to the launch command
 
-2. **Upgrade the plugin**:
+2. **Upgrade the plugin** (keep `hydra-core` pinned to 1.3.x — do **not** upgrade
+   Hydra past 1.3.x here, or you re-enter the `_recursive_` bug from §7):
    ```bash
-   pip install --upgrade --force-reinstall hydra-optuna-sweeper optuna hydra-core
+   pip install --upgrade --force-reinstall hydra-optuna-sweeper optuna
    ```
    then re-run the Level 1 check
 
@@ -110,12 +157,19 @@ Fix, in order (try the cheapest first):
 
 ### Level 2: 1 cell via SLURM (~3 min)
 
+Drop `--cfg hydra --resolve` — **that flag is for Level 1 only**. With it, no
+job is launched and no sampler draws happen.
+
 ```bash
 python docs/scripts/fit_cfm.py \
   --config-name hparams_panel_smoke \
   --multirun \
   2>&1 | tee /tmp/cfm_smoke.log
 ```
+
+Here `2>&1 | tee` is intentional: the job's stdout and stderr are read
+interleaved by a human, and the merged log is what gets kept. (For machine
+parsing, keep them separate as in Level 1.)
 
 Console prints `[HYDRA] Launching 1 jobs locally` then
 `[HYDRA] #0 : paths.target_adata=...,coupling.epsilon=...,...` — that's the
@@ -344,13 +398,40 @@ line and use the plugin's default) so trials cluster around good regions.
 
 ## 7. Troubleshooting
 
+### Hydra / plugin compatibility
+
 | Symptom | Fix |
 |---|---|
-| `ConfigAttributeError: Key 'infer_relative_search_space' not in 'SamplerConfig'` | `hydra-optuna-sweeper` merge bug — see §2 Level 1 fixes (CLI force / upgrade / inline `_partial_: false`) |
+| `ConfigKeyError: Key '_recursive_' not in 'OptunaSweeperConf'` (at composition, before any job) | `hydra-core` is 1.4.x/rc, which removed `_recursive_`; the `hydra-optuna-sweeper` plugin still emits it. Pin the stable line: 
+
+```bash
+conda activate scflow13
+pip install --upgrade "hydra-core>=1.4.0rc1" hydra-submitit-launcher optuna
+pip install --upgrade --pre hydra-optuna-sweeper   # must be >= 1.4.0rc1 (or 1.3.0 stable)
+```
+
+Do **not** upgrade the plugin as a "fix" for this one — it is a Hydra-side incompatibility. |
+| `Hydra15MigrationWarning: The version_base parameter is deprecated` | Harmless on `hydra-core==1.3.x` (it is the correct value there). Only becomes actionable if you deliberately move to Hydra 1.4+, in which case pass `version_base="1.4"` (a string) in `@hydra.main(...)` instead of `None`. Do not chase the warning on 1.3.x. |
+| `ConfigAttributeError: Key 'infer_relative_search_space' not in 'SamplerConfig'` | `hydra-optuna-sweeper` merge bug — see §2 Level 1 fixes (CLI force / plugin upgrade **without** upgrading Hydra / inline `_partial_: false`) |
 | `ConfigCompositionException: Could not override …` referencing `panel_imputation` | Stale config name from before the rename — the current parents are `fit_cfm_panel` / `hparams_panel`; update any local overrides to the new names |
 | `Key 'partition' not in 'BasicLauncherConf'` | You passed `hydra/launcher=basic` — drop it; the YAML sets `submitit_slurm` |
 | `Key 'n_jobs' not in 'BasicSweeperConf'` | You mixed a `basic` sweeper override with Optuna-only keys — remove `override /hydra/sweeper: basic` (or remove `n_jobs`/`n_trials`/`params`) |
 | `Could not find 'hydra/sweeper/optuna'` | Install `hydra-optuna-sweeper`: `pip install hydra-optuna-sweeper optuna` |
+
+### Debugging output — capture stdout and stderr correctly
+
+| Symptom | Why / fix |
+|---|---|
+| Piping into `grep` shows nothing even though the script clearly failed | The script writes its failure to **stderr**; a bare `python … \| grep …` forwards only **stdout** to `grep`. Add `2>&1`: `python … 2>&1 \| grep -B1 -A3 "_recursive_"`. |
+| Need to tell a Hydra composition error apart from program output | Keep the streams **separate**: `python … > out.log 2> err.log`, then `cat err.log` first. Merging with `2>&1` destroys the distinction. |
+| Combined log shows output out of order | stdout is block-buffered when redirected; stderr is line-buffered. Add `python -u` (or `PYTHONUNBUFFERED=1`) before the script. |
+| `grep RandomSampler` on a **training** run comes back empty | Lightning does not log the sampler name on stdout/stderr during normal training. Only `--cfg hydra --resolve` (§2 Level 1) prints it, and only because that prints the resolved config. Verify a `DataLoader`'s sampler in Python instead: `from torch.utils.data.sampler import RandomSampler; isinstance(loader.sampler, RandomSampler)`. |
+| `--cfg hydra --resolve` "does nothing" / no training happens | By design: `--cfg` prints a config section and **exits without running your code**. It is a debug-print, not a run. Drop the flag for Level 2+. |
+
+### Sweep / model errors
+
+| Symptom | Fix |
+|---|---|
 | `IndexError` at `val_names[0]` | `obs["split"]` has no `test` labels — re-run §1 and verify |
 | `File exists: .../save` | A preempted trial left a partial dir — `rm -rf` it, or set `run.allow_overwrite: True` |
 | All jobs `PENDING` (`ReqNodeNotAvail`) | Comment out `constraint:` in the yaml |

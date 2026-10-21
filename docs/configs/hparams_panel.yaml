@@ -22,12 +22,13 @@
 #     --multirun
 # =============================================================================
 
+
 defaults:
-  - panel_imputation
-  - override /hydra/launcher: submitit_slurm
-  - override /hydra/sweeper: optuna
-  - override /hydra/sweeper/sampler: random   # ← selects RandomSamplerConfig
   - _self_
+  - fit_cfm_panel
+  - override /hydra/launcher: submitit_slurm
+  - override /hydra/sweeper/sampler: random   # ← selects RandomSamplerConfig
+  - override /hydra/sweeper: optuna
 
 # -----------------------------------------------------------------------------
 # Hydra
@@ -36,9 +37,11 @@ hydra:
   job:
     chdir: false
 
+  run:
+    dir: "/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/runs"
+
   sweep:
     dir: "/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps"
-    subdir: "seed_${hydra.job.num}"
 
   # ---------------------------------------------------------------------------
   # SLURM launcher (submitit)
@@ -50,7 +53,7 @@ hydra:
     mem_gb: 64
     gres: gpu:1
     constraint: h100_80gb|a100_80gb
-    timeout_min: 4320
+    timeout_min: 720
     array_parallelism: 10
 
   # ---------------------------------------------------------------------------
@@ -69,15 +72,24 @@ hydra:
   # ---------------------------------------------------------------------------
   sweeper:
     _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
-    _recursive_: true
+    # _recursive_: true
     direction: minimize
     n_jobs: 30
     n_trials: 30
     params:
-      paths.target_adata: choice(/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps/adata_concat_seed0.h5ad, /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps/adata_concat_seed1.h5ad, /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps/adata_concat_seed2.h5ad, /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps/adata_concat_seed3.h5ad, /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps/adata_concat_seed4.h5ad)
+      paths.target_adata: >-
+        choice(
+        /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/adata_concat_seed42/adata_concat.h5ad,
+        /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/adata_concat_seed43/adata_concat.h5ad,
+        /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/adata_concat_seed44/adata_concat.h5ad,
+        /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/adata_concat_seed45/adata_concat.h5ad,
+        /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/adata_concat_seed46/adata_concat.h5ad
+        )
       coupling.epsilon: choice(0.5, 1.0, 2.0)
       coupling.alpha: choice(0.25, 0.5, 0.75)
       coupling.scale_cost: choice(mean, median)
+
+optimized_metric: val/edist
 
 # -----------------------------------------------------------------------------
 # Writer paths

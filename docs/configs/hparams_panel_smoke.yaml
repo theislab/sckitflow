@@ -27,7 +27,7 @@
 # =============================================================================
 
 defaults:
-  - panel_imputation_hparams
+  - hparams_panel
   - _self_
 
 # -----------------------------------------------------------------------------
@@ -35,7 +35,7 @@ defaults:
 # -----------------------------------------------------------------------------
 hydra:
   sweep:
-    dir: "/tmp/cfm_sweep_smoke"
+    dir: "/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps_smoke"
     subdir: "seed_${hydra.job.num}"
 
   sweeper:

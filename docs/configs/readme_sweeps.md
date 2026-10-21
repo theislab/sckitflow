@@ -49,7 +49,7 @@ grid values needed — the grid lives in the parent YAML's `choice(...)` block.
 
 ```bash
 python docs/scripts/fit_cfm.py \
-  --config-name panel_imputation_hparams_smoke \
+  --config-name hparams_panel_smoke \
   --cfg hydra --resolve 2>&1 | grep -B1 -A3 "RandomSampler"
 ```
 
@@ -112,7 +112,7 @@ Fix, in order (try the cheapest first):
 
 ```bash
 python docs/scripts/fit_cfm.py \
-  --config-name panel_imputation_hparams_smoke \
+  --config-name hparams_panel_smoke \
   --multirun \
   2>&1 | tee /tmp/cfm_smoke.log
 ```
@@ -147,7 +147,7 @@ jq '."test/edist"' /tmp/cfm_sweep_smoke/seed_0/logs/wandb/wandb/offline-run-*/fi
 cp /tmp/cfm_sweep_smoke/seed_0/save/config.json /tmp/cfg1.json
 rm -rf /tmp/cfm_sweep_smoke
 python docs/scripts/fit_cfm.py \
-  --config-name panel_imputation_hparams_smoke --multirun >/dev/null 2>&1
+  --config-name hparams_panel_smoke --multirun >/dev/null 2>&1
 jq '.coupling' /tmp/cfg1.json /tmp/cfm_sweep_smoke/seed_0/save/config.json
 # different across runs = sampler working + injection working
 # identical twice     = sweeper NOT injecting (grid being ignored)
@@ -176,7 +176,7 @@ sbatch --job-name=cfm-sweep \
        --output=/tmp/cfm_sweep_%j.log \
        --wrap="bash -lc 'source activate scflow13 && \
                 python docs/scripts/fit_cfm.py \
-                  --config-name panel_imputation_hparams \
+                  --config-name hparams_panel \
                   --multirun'"
 ```
 
@@ -222,7 +222,7 @@ sbatch --job-name=cfm-sweep-90 \
        --output=/tmp/cfm_sweep90_%j.log \
        --wrap="bash -lc 'source activate scflow13 && \
                 python docs/scripts/fit_cfm.py \
-                  --config-name panel_imputation_hparams \
+                  --config-name hparams_panel \
                   --multirun \
                   hydra.sweeper.n_trials=90 \
                   hydra.sweeper.n_jobs=90'"
@@ -324,7 +324,7 @@ neural velocity and condition encoder widths. Uncomment **one** at a time,
 then bump `n_trials` proportionally:
 
 ```yaml
-# inside hydra.sweeper.params:
+# inside hparams_panel.yaml -> hydra.sweeper.params:
 module.state_encoder_output_dim: choice(16, 32)          # ×2
 module.condition_encoder_output_dim: choice(32, 64)      # ×2
 ```
@@ -347,6 +347,7 @@ line and use the plugin's default) so trials cluster around good regions.
 | Symptom | Fix |
 |---|---|
 | `ConfigAttributeError: Key 'infer_relative_search_space' not in 'SamplerConfig'` | `hydra-optuna-sweeper` merge bug — see §2 Level 1 fixes (CLI force / upgrade / inline `_partial_: false`) |
+| `ConfigCompositionException: Could not override …` referencing `panel_imputation` | Stale config name from before the rename — the current parents are `fit_cfm_panel` / `hparams_panel`; update any local overrides to the new names |
 | `Key 'partition' not in 'BasicLauncherConf'` | You passed `hydra/launcher=basic` — drop it; the YAML sets `submitit_slurm` |
 | `Key 'n_jobs' not in 'BasicSweeperConf'` | You mixed a `basic` sweeper override with Optuna-only keys — remove `override /hydra/sweeper: basic` (or remove `n_jobs`/`n_trials`/`params`) |
 | `Could not find 'hydra/sweeper/optuna'` | Install `hydra-optuna-sweeper`: `pip install hydra-optuna-sweeper optuna` |

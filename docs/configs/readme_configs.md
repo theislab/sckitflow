@@ -12,16 +12,14 @@ rest comes from the parent.
 ```
 fit_cfm.yaml                                ← base config (all defaults)
 └── fit_cfm_panel.yaml                      ← panel setup (fused-GW, resnet1d)
-    └── panel_imputation_hparams.yaml       ← sweep on top of panel setup
-        └── panel_imputation_hparams_smoke.yaml
-
-fit_cfm_panel_smoke.yaml                    ← fast smoke test (see §5 caveat)
+    ├── fit_cfm_panel_smoke.yaml            ← fast single-run smoke (~30 s)
+    └── hparams_panel.yaml                  ← 30-trial random sweep
+        └── hparams_panel_smoke.yaml        ← 1-trial sweep smoke (~3 min)
 ```
 
-> **Note on `panel_imputation`:** `panel_imputation_hparams.yaml` and
-> `fit_cfm_panel_smoke.yaml` both inherit from a config named
-> `panel_imputation` which is **not in this bundle**. In practice that should
-> be `fit_cfm_panel` — see §6 for the fix.
+Both smoke configs are siblings under `fit_cfm_panel` — they exercise the
+same panel pipeline at two different tiers (single-run vs. Optuna + submitit
+wiring).
 
 ---
 
@@ -81,7 +79,7 @@ small MLP with `resnet1d` conditioning and an explicit source encoder.
 **Inherits from:** `fit_cfm.yaml` via `defaults: [fit_cfm, _self]`.
 
 **When to use:** any single-run panel imputation (no sweeping). This is the
-"real" run config.
+"real" run config and the parent of both smoke configs.
 
 **What it overrides vs. the base:**
 
@@ -113,14 +111,14 @@ python docs/scripts/fit_cfm.py --config-name fit_cfm_panel \
 ## 3. `fit_cfm_panel_smoke.yaml` — fast smoke test for the panel config
 
 **Purpose:** exercises the **full model construction + one forward/backward**
-in seconds instead of hours, so you catch config/wiring bugs before committing
-to a real run.
+in under a minute, so you catch config/wiring bugs before committing to a
+real run.
 
-**Inherits from:** `panel_imputation` (see caveat in §6 — should be
-`fit_cfm_panel`).
+**Inherits from:** `fit_cfm_panel.yaml` via `defaults: [fit_cfm_panel, _self]`.
 
 **When to use:** after every edit to `fit_cfm_panel.yaml` or to
-`docs/scripts/fit_cfm.py`, before launching a real run.
+`docs/scripts/fit_cfm.py`, before launching a real run — and in CI on every
+PR (see the accompanying pytest module).
 
 **What it overrides:**
 
@@ -143,18 +141,20 @@ a real artifact from a sub-minute run.
 **Usage:**
 
 ```bash
-python docs/scripts/fit_cfm.py --config-name fit_cfm_panel_smoke
+python docs/scripts/fit_cfm.py --config-name fit_cfm_panel_smoke \
+  paths.target_adata=/abs/path/to/adata_concat_seed0.h5ad
 ```
 
 ---
 
-## 4. `panel_imputation_hparams.yaml` — 30-trial random sweep
+## 4. `hparams_panel.yaml` — 30-trial random sweep
 
 **Purpose:** sweeps over **5 adatas × 3 ε × 3 α × 2 `scale_cost` = 90 cells**
 using Optuna `RandomSampler` + `submitit_slurm`, minimising `test/edist`.
 Default `n_trials=30, n_jobs=30` draws 30 of those 90.
 
-**Inherits from:** `panel_imputation` (see §6).
+**Inherits from:** `fit_cfm_panel.yaml` via
+`defaults: [fit_cfm_panel, …, _self]`.
 
 **When to use:** hyperparameter search over the fused-GW coupling knobs and
 the input split seed. This is the config driven by §3 of the runbook.
@@ -194,19 +194,19 @@ sbatch --job-name=cfm-sweep \
        --output=/tmp/cfm_sweep_%j.log \
        --wrap="bash -lc 'source activate scflow13 && \
                 python docs/scripts/fit_cfm.py \
-                  --config-name panel_imputation_hparams \
+                  --config-name hparams_panel \
                   --multirun'"
 ```
 
 ---
 
-## 5. `panel_imputation_hparams_smoke.yaml` — 1-trial sweep smoke
+## 5. `hparams_panel_smoke.yaml` — 1-trial sweep smoke
 
 **Purpose:** validates the full **Optuna + submitit_slurm** wiring end-to-end
 in ~3 min, without touching the real sweep tree.
 
-**Inherits from:** `panel_imputation_hparams.yaml` via
-`defaults: [panel_imputation_hparams, _self]`.
+**Inherits from:** `hparams_panel.yaml` via
+`defaults: [hparams_panel, _self]`.
 
 **When to use:** before every real sweep launch — this is the config that
 catches the `SamplerConfig` bug, a broken `constraint:`, or a missing
@@ -225,8 +225,8 @@ catches the `SamplerConfig` bug, a broken `constraint:`, or a missing
 | `run.allow_overwrite` | `true` | iterate cheaply |
 
 The grid (`paths.target_adata`, `coupling.*`) is **inherited** from
-`panel_imputation_hparams.yaml` — do not pass grid values on the CLI; the
-sweeper samples one cell.
+`hparams_panel.yaml` — do not pass grid values on the CLI; the sweeper
+samples one cell.
 
 **Usage:**
 
@@ -238,36 +238,34 @@ sbatch --job-name=cfm-smoke \
        --output=/tmp/cfm_smoke_%j.log \
        --wrap="bash -lc 'source activate scflow13 && \
                 python docs/scripts/fit_cfm.py \
-                  --config-name panel_imputation_hparams_smoke \
+                  --config-name hparams_panel_smoke \
                   --multirun'"
 ```
 
 ---
 
-## 6. Known inconsistencies in this bundle
+## 6. Naming notes
 
-Two things to fix before treating the bundle as self-consistent:
+The five configs follow the pattern `fit_cfm[_<scope>[_smoke]]` /
+`hparams_<scope>[_smoke]`:
 
-1. **`fit_cfm_panel_smoke.yaml` inherits the wrong parent.** Its `defaults:`
-   says `panel_imputation`, but its header says *“Inherits `fit_cfm_panel`
-   verbatim”*. `panel_imputation` is not in this bundle. Change to:
+- `fit_cfm` / `fit_cfm_panel` — **train a model** (base / panel)
+- `fit_cfm_panel_smoke` — **smoke-test a model build** (panel scope)
+- `hparams_panel` / `hparams_panel_smoke` — **sweep hyperparameters** (panel
+  scope), with/without smoke overrides
 
-   ```yaml
-   defaults:
-     - fit_cfm_panel
-     - _self_
-   ```
+Pre-rename names (still in some old notes and logs, but no longer valid as
+`--config-name` values):
 
-2. **`panel_imputation_hparams.yaml` inherits `panel_imputation`**, which is
-   also not in this bundle. If `panel_imputation.yaml` is just
-   `fit_cfm_panel.yaml` under another name, point both configs at
-   `fit_cfm_panel` and delete the phantom name; otherwise ship the missing
-   file.
+| Old name | New name |
+|---|---|
+| `panel_imputation_hparams` | `hparams_panel` |
+| `panel_imputation_hparams_smoke` | `hparams_panel_smoke` |
+| `panel_imputation` (phantom parent) | `fit_cfm_panel` |
 
-3. **Module-path drift in docstrings.** `fit_cfm.yaml` refers to
-   `python -m <pkg>.fit_cfm`; the other configs refer to
-   `python docs/scripts/fit_cfm.py`. Standardise on one — the sweep launcher
-   uses `docs/scripts/fit_cfm.py`.
+The previously-documented phantom `panel_imputation` parent has been
+resolved: both `fit_cfm_panel_smoke` and `hparams_panel` now inherit
+directly from `fit_cfm_panel`.
 
 ---
 
@@ -277,11 +275,9 @@ Two things to fix before treating the bundle as self-consistent:
 |---|---|---|---|---|---|---|
 | `fit_cfm` | — | 1 | `independent` | no | `./runs/cfm_run` | hours |
 | `fit_cfm_panel` | `fit_cfm` | 1 | `fused` | no | `.cache/panel_int/` | hours |
-| `fit_cfm_panel_smoke` | `panel_imputation`* | 1 | `fused` (tiny) | no | `./runs/cfm_panel_smoke` | <1 min |
-| `panel_imputation_hparams` | `panel_imputation`* | 30 | `fused` | yes | `data/out/sweeps/seed_*` | 30 × hours, parallel |
-| `panel_imputation_hparams_smoke` | `panel_imputation_hparams` | 1 | `fused` (tiny) | yes | `/tmp/cfm_sweep_smoke` | ~3 min |
-
-\* parent missing from this bundle — see §6.
+| `fit_cfm_panel_smoke` | `fit_cfm_panel` | 1 | `fused` (tiny) | no | `./runs/cfm_panel_smoke` | <1 min |
+| `hparams_panel` | `fit_cfm_panel` | 30 | `fused` | yes | `data/out/sweeps/seed_*` | 30 × hours, parallel |
+| `hparams_panel_smoke` | `hparams_panel` | 1 | `fused` (tiny) | yes | `/tmp/cfm_sweep_smoke` | ~3 min |
 
 ---
 
@@ -289,9 +285,8 @@ Two things to fix before treating the bundle as self-consistent:
 
 - **Editing the pipeline?** Run `fit_cfm_panel_smoke` after every change — it
   exercises the same construction path as a real run, in under a minute.
-- **Editing the sweep?** Run `panel_imputation_hparams_smoke` after every
-  change — it catches Optuna/sweeper/launcher bugs that a single-run smoke
-  cannot.
+- **Editing the sweep?** Run `hparams_panel_smoke` after every change — it
+  catches Optuna/sweeper/launcher bugs that a single-run smoke cannot.
 - **Never edit `fit_cfm.yaml`** to prototype a panel idea — put the change in
   a child config so the base defaults stay a stable reference.
 - **Never pass grid values on the CLI** when launching a sweep — the sweeper

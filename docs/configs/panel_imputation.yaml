@@ -1,0 +1,210 @@
+# =============================================================================
+# fit_cfm_panel.yaml — override config for `fit_cfm.yaml`.
+#
+# Reproduces the "genot_cross_panel" notebook setup:
+#   * Fused Gromov-Wasserstein coupling (linear shared markers + exclusive
+#     quadratic reps).
+#   * Old panel cells = control source; new panel cells = target.
+#   * Small MLP with resnet1d conditioning and an explicit source encoder.
+#   * AdamW(lr=1e-4), linear_dirac probability path, euler solver.
+#
+# Every path field below is absolute and points into the project folder
+# `…/CITESeq_Imputation_Cambridge/CITESeq-Imputation/.cache/panel_int/`, so a
+# run started from any CWD writes into the same tree. Override at the command
+# line if you need a different destination.
+#
+# Usage:
+#   python -m sckitflow.training.fit_cfm --config-name fit_cfm_panel \
+#     paths.target_adata=/abs/path/to/adata_concat.h5ad \
+#     save.run_dir=/abs/path/to/out
+# =============================================================================
+
+defaults:
+  - fit_cfm
+  - _self_
+
+# -----------------------------------------------------------------------------
+# Project root — every absolute path below is anchored here.
+# -----------------------------------------------------------------------------
+paths:
+  target_adata: "/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/adata_concat.h5ad"
+
+# -----------------------------------------------------------------------------
+# Splitter
+#
+# Notebook splits each dataset independently 80/20 and stores the labels in
+# `obs["split"]`. The script's splitter writes to `split_key`; keep both on
+# `"split"`. The splitter *regenerates* the split — save the adata without a
+# pre-existing `split` column so nothing is silently overwritten.
+# -----------------------------------------------------------------------------
+splitter:
+  split_key: "split"
+  group_keys: ["dataset"]
+  always_train_keys: []
+  control_key: "dataset"
+  control_value: "old panel"
+  test_fraction: 0.2
+  train_label: "train"
+  test_label: "test"
+  control_label: "control"
+
+# -----------------------------------------------------------------------------
+# DataManager
+#
+# Maps the two panels to the `panel` condition; `old panel` is the control
+# (source) pool. `X_lin` / `X_quad_src` / `X_quad_tgt` are the reps prepared
+# in the notebook (`obsm`).
+# -----------------------------------------------------------------------------
+datamanager:
+  sample_rep: "X_zscore"
+  categorical_conditions:
+    panel: ["dataset"]
+  categorical_reps:
+    panel: "dataset"
+  continuous_conditions: []
+  control_values_dict:
+    panel: "old panel"
+  groups: []
+  groups_encoding: {}
+  groups_reps: {}
+  rep_lin: "X_lin"
+  source_rep_quad: "X_quad_src"
+  target_rep_quad: "X_quad_tgt"
+  use_linear: true
+  # split_by inherits "${splitter.split_key}" -> "split"
+
+# -----------------------------------------------------------------------------
+# DataModule
+# -----------------------------------------------------------------------------
+datamodule:
+  n_train_steps: 100
+  batch_size: 256
+  dtype: "float32"
+  loader_kwargs: {}
+
+# -----------------------------------------------------------------------------
+# Module
+#
+# Smaller architecture (matches the printed repr in the notebook):
+#   state / time / source encoders  : 32 -> 16
+#   vf decoder                      : 16 -> 64 -> 64 -> 23
+#   conditioning                    : resnet1d, cond_proj 32 -> 16
+# The source encoder is ON because fused-GW needs quadratic source reps.
+# -----------------------------------------------------------------------------
+module:
+  time_features_id: "ott-jax"
+  num_time_features: 256
+  max_period: 10000.0
+  state_encoder_output_dim: 16
+  time_encoder_output_dim: 16
+  state_encoder_mlp_kwargs:
+    hidden_dims: [32]
+    activation_cls: "silu"
+  time_encoder_mlp_kwargs:
+    hidden_dims: [32]
+    activation_cls: "silu"
+  vf_decoder_mlp_kwargs:
+    hidden_dims: [64, 64]
+    activation_cls: "silu"
+  conditioning_id: "resnet1d"
+  conditioning_kwargs: {}
+  condition_encoder_input_layers: null
+  condition_encoder_output_dim: 32
+  condition_encoder_pooling_mode: "mean"
+  condition_encoder_pooling_kwargs: {}
+  condition_encoder_pooling_proj_dim: 32
+  condition_encoder_output_layers_kwargs:
+    hidden_dims: [32]
+    activation_cls: "silu"
+  source_encoder_mlp_kwargs:
+    hidden_dims: [32]
+    activation_cls: "silu"
+  source_encoder_output_dim: 16
+
+# -----------------------------------------------------------------------------
+# Probability path
+# -----------------------------------------------------------------------------
+probability_path:
+  name: "linear_dirac"
+
+# -----------------------------------------------------------------------------
+# Coupling
+# -----------------------------------------------------------------------------
+coupling:
+  method: "fused"
+  scale_cost: "median"
+  epsilon: 1.0
+  max_iter: 1000
+  tol: 1.0e-9
+  alpha: 0.5
+
+# -----------------------------------------------------------------------------
+# Inference
+# -----------------------------------------------------------------------------
+inference:
+  solver_kwargs:
+    method: "euler"
+  n_steps: 10
+  n_samples: 100
+
+# -----------------------------------------------------------------------------
+# Optimizer
+#
+# Notebook uses AdamW(lr=1e-4). `weight_decay` and `betas` keep their base
+# values (1e-5, [0.9, 0.999]) — set them explicitly if you want to zero them.
+# -----------------------------------------------------------------------------
+optimizer:
+  name: "AdamW"
+  kwargs:
+    lr: 1.0e-4
+
+# -----------------------------------------------------------------------------
+# Metrics
+#
+# Notebook calls MMD with `gammas=None` (kernel picks defaults).
+# -----------------------------------------------------------------------------
+metrics:
+  mmd:
+    gammas: null
+
+# -----------------------------------------------------------------------------
+# Callbacks
+#
+# Absolute checkpoint dir — the base config defaults to "./checkpoints", which
+# would land next to wherever `python -m …` was invoked.
+# -----------------------------------------------------------------------------
+callbacks:
+  model_checkpoint:
+    dirpath: "/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/CITESeq-Imputation/.cache/panel_int/checkpoints"
+
+# -----------------------------------------------------------------------------
+# Trainer
+#
+# Absolute root dir — the base config defaults to "./logs", same reasoning.
+# -----------------------------------------------------------------------------
+trainer:
+  accelerator: "cuda"
+  default_root_dir: "/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/CITESeq-Imputation/.cache/panel_int/logs"
+
+# -----------------------------------------------------------------------------
+# Run metadata
+# -----------------------------------------------------------------------------
+run:
+  method_seed: 0
+  allow_overwrite: true
+
+# -----------------------------------------------------------------------------
+# Outputs — all four writer destinations point into `.cache/panel_int/`.
+# -----------------------------------------------------------------------------
+save:
+  run_dir: "/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/CITESeq-Imputation/.cache/panel_int/saves"
+
+loggers:
+  wandb:
+    save_dir: "/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/CITESeq-Imputation/.cache/panel_int/wandb"
+    offline: true
+    project: "sckitflow"
+    name: "cfm-panel"
+  csv:
+    save_dir: "/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/CITESeq-Imputation/.cache/panel_int/csv"
+    name: "cfm-panel"

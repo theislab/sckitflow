@@ -1,0 +1,119 @@
+# =============================================================================
+# panel_imputation_hparams.yaml — CFM panel sweep over (input adata × OT
+# coupling) hparams, scheduled via SLURM, searched via Optuna RandomSampler.
+#
+# Inherits `panel_imputation` and adds:
+#   * `submitit_slurm` launcher — one SLURM array job per trial,
+#   * `optuna` sweeper with RandomSampler — 30 random draws from a 90-cell
+#     `choice(...)` space,
+#   * `_recursive_: true` on `hydra.sweeper` so the nested `sampler._target_`
+#     is instantiated as `RandomSampler` (without this, Optuna receives a
+#     raw `SamplerConfig` dataclass and crashes with
+#     `ConfigAttributeError: Key 'infer_relative_search_space' not in 'SamplerConfig'`),
+#   * per-run writer paths under `${hydra:runtime.output_dir}/...`,
+#   * bounded training so the whole sweep finishes in a reasonable time.
+#
+# Requirements (in the active conda env, e.g. `scflow13`):
+#   pip install hydra-submitit-launcher hydra-optuna-sweeper optuna
+#
+# Usage (30 SLURM array jobs, random draws from a 90-cell space):
+#   python docs/scripts/fit_cfm.py \
+#     --config-name panel_imputation_hparams \
+#     --multirun
+# =============================================================================
+
+defaults:
+  - panel_imputation
+  - override /hydra/launcher: submitit_slurm
+  - override /hydra/sweeper: optuna
+  - override /hydra/sweeper/sampler: random   # ← selects RandomSamplerConfig
+  - _self_
+
+# -----------------------------------------------------------------------------
+# Hydra
+# -----------------------------------------------------------------------------
+hydra:
+  job:
+    chdir: false
+
+  sweep:
+    dir: "/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps"
+    subdir: "seed_${hydra.job.num}"
+
+  # ---------------------------------------------------------------------------
+  # SLURM launcher (submitit)
+  # ---------------------------------------------------------------------------
+  launcher:
+    partition: gpu_p
+    qos: gpu_normal
+    cpus_per_task: 6
+    mem_gb: 64
+    gres: gpu:1
+    constraint: h100_80gb|a100_80gb
+    timeout_min: 4320
+    array_parallelism: 10
+
+  # ---------------------------------------------------------------------------
+  # Optuna sweeper — RandomSampler, 30 trials over a 90-cell space.
+  #
+  # `_recursive_: true` is THE FIX for the `SamplerConfig` crash. The plugin's
+  # structured config defaults to `_recursive_: false` (it parses `choice(...)`
+  # strings at runtime), which leaves the nested `sampler._target_` as a raw
+  # `SamplerConfig` instead of an instantiated `RandomSampler`. Setting
+  # `_recursive_: true` here forces Hydra to instantiate the sampler subtree
+  # while leaving `params` (plain strings) untouched.
+  #
+  # The sampler itself is selected by `override /hydra/sweeper/sampler: random`
+  # in `defaults:` — do NOT add a manual `sampler:` block here, that conflicts
+  # with the group override and reintroduces the bug.
+  # ---------------------------------------------------------------------------
+  sweeper:
+    _target_: hydra_plugins.hydra_optuna_sweeper.optuna_sweeper.OptunaSweeper
+    _recursive_: true
+    direction: minimize
+    n_jobs: 30
+    n_trials: 30
+    params:
+      paths.target_adata: choice(/lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps/adata_concat_seed0.h5ad, /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps/adata_concat_seed1.h5ad, /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps/adata_concat_seed2.h5ad, /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps/adata_concat_seed3.h5ad, /lustre/groups/ml01/workspace/lorenzo.consoli/projects/CITEseq_Imputation_Cambridge/data/out/sweeps/adata_concat_seed4.h5ad)
+      coupling.epsilon: choice(0.5, 1.0, 2.0)
+      coupling.alpha: choice(0.25, 0.5, 0.75)
+      coupling.scale_cost: choice(mean, median)
+
+# -----------------------------------------------------------------------------
+# Writer paths
+# -----------------------------------------------------------------------------
+save:
+  run_dir: "${hydra:runtime.output_dir}/save"
+
+callbacks:
+  early_stopping:
+    monitor: "test/edist"
+    patience: 10
+  model_checkpoint:
+    dirpath: "${hydra:runtime.output_dir}/checkpoints"
+    monitor: "test/edist"
+
+trainer:
+  default_root_dir: "${hydra:runtime.output_dir}/logs"
+  max_epochs: 30
+  enable_progress_bar: false
+
+loggers:
+  wandb:
+    save_dir: "${hydra:runtime.output_dir}/logs/wandb"
+    name: "cfm-panel-seed-${hydra.job.num}"
+    offline: true
+    init_kwargs:
+      group: "panel-adata-coupling-sweep"
+      job_type: "random_search"
+      tags:
+        - panel
+        - adata-sweep
+        - coupling-sweep
+        - "seed_${hydra.job.num}"
+  csv:
+    save_dir: "${hydra:runtime.output_dir}/logs/csv"
+    name: "cfm-panel-seed-${hydra.job.num}"
+
+run:
+  allow_overwrite: False

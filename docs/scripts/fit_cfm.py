@@ -191,25 +191,42 @@ def main(config: DictConfig) -> float:
     # and writes a column in the input ``ad.AnnData``. We should always
     # fit any data transformation only on the training cases.
     logger.info(f"Initializing splitter with seed {config.run.splitter_seed}.")
-    splitter_rng = np.random.default_rng(config.run.splitter_seed)
-    splitter_cfg = CombinationSplitterConfig(
-        split_key=config.splitter.split_key,
-        group_keys=config.splitter.group_keys,
-        always_train_keys=config.splitter.always_train_keys,
-        control_key=config.splitter.control_key,
-        control_value=config.splitter.control_value,
-        test_fraction=config.splitter.test_fraction,
-        train_label=config.splitter.train_label,
-        test_label=config.splitter.test_label,
-        control_label=config.splitter.control_label,
-    )
-    splitter = splitter_cfg.build(rng=splitter_rng)
+    # If the input already carries the split column -- for example because it
+    # was produced by ``prepare_panel_adata.py``, which writes an 80/20
+    # ``sklearn`` ``train_test_split`` into ``obs["split"]`` -- reuse it and
+    # skip the splitter entirely. ``Splitter.split`` refuses to overwrite an
+    # existing split column (a split is a hold-out decision), so redrawing
+    # here would either fail or silently change which observations are held
+    # out. Drop the column to force the configured splitter to run.
+    split_key = config.splitter.split_key
+    if split_key in adata.obs.columns:
+        label_counts = adata.obs[split_key].value_counts().to_dict()
+        logger.info(
+            f"adata.obs already has a {split_key!r} column; reusing the existing split "
+            f"and skipping the splitter. Drop `adata.obs[{split_key!r}]` to re-split. "
+            f"Existing label counts: {label_counts}"
+        )
+    else:
+        logger.info(f"Initializing splitter with seed {config.run.splitter_seed}.")
+        splitter_rng = np.random.default_rng(config.run.splitter_seed)
+        splitter_cfg = CombinationSplitterConfig(
+            split_key=config.splitter.split_key,
+            group_keys=config.splitter.group_keys,
+            always_train_keys=config.splitter.always_train_keys,
+            control_key=config.splitter.control_key,
+            control_value=config.splitter.control_value,
+            test_fraction=config.splitter.test_fraction,
+            train_label=config.splitter.train_label,
+            test_label=config.splitter.test_label,
+            control_label=config.splitter.control_label,
+        )
+        splitter = splitter_cfg.build(rng=splitter_rng)
 
-    # Split the data upfront. This is required for optional transformations
-    # on the data -- their parameters should be inferred exclusively from
-    # the training data, therefore we need to explicitly split the input
-    # data to avoid information leakage.
-    adata = splitter.split(adata, copy=False)
+        # Split the data upfront. This is required for optional transformations
+        # on the data -- their parameters should be inferred exclusively from
+        # the training data, therefore we need to explicitly split the input
+        # data to avoid information leakage.
+        adata = splitter.split(adata, copy=False)
 
     # Subsetting the data to train only, so that we can then infer the
     # parameters for the required transformations without leaking information

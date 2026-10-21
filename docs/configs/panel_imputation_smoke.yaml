@@ -1,0 +1,115 @@
+# =============================================================================
+# fit_cfm_panel_smoke.yaml — fast smoke test for `fit_cfm_panel.yaml`.
+#
+# Inherits `fit_cfm_panel` verbatim and only overrides the fields that make
+# the run take seconds instead of hours:
+#
+#   * `trainer.fast_dev_run: true` — one train batch, one val batch, no
+#     checkpointing, no loggers. Reaches `save_pretrained` at the end of
+#     `main()`, so you still see `config.json` + `model.safetensors` +
+#     `transform.json` in the output dir.
+#   * Module shrunk (state/time/source encoders 4, vf decoder 8x8) so the
+#     model constructs and one forward+backward finishes quickly.
+#   * Coupling hyperparameters shrunk (fused-GW is the expensive step).
+#   * `datamodule.batch_size` and `n_train_steps` tiny so the streaming loader
+#     starts with minimal setup.
+#   * `save.run_dir` points at a local path, not the lustre workspace.
+#
+# Usage:
+#   python -m sckitflow.training.fit_cfm --config-name fit_cfm_panel_smoke
+# =============================================================================
+
+defaults:
+  - panel_imputation
+  - _self_
+
+# -----------------------------------------------------------------------------
+# Module — small enough to build + forward + backward in well under a second.
+#
+# Exercises the full model construction path: `resnet1d` conditioning, the
+# explicit source encoder (required for quadratic couplings), the per-
+# condition input layers, and the vf_decoder.
+# -----------------------------------------------------------------------------
+module:
+  num_time_features: 16
+  state_encoder_output_dim: 4
+  time_encoder_output_dim: 4
+  state_encoder_mlp_kwargs:
+    hidden_dims: [8]
+    activation_cls: "silu"
+  time_encoder_mlp_kwargs:
+    hidden_dims: [8]
+    activation_cls: "silu"
+  vf_decoder_mlp_kwargs:
+    hidden_dims: [8, 8]
+    activation_cls: "silu"
+  condition_encoder_output_dim: 8
+  condition_encoder_pooling_proj_dim: 8
+  condition_encoder_output_layers_kwargs:
+    hidden_dims: [8]
+    activation_cls: "silu"
+  source_encoder_mlp_kwargs:
+    hidden_dims: [8]
+    activation_cls: "silu"
+  source_encoder_output_dim: 4
+
+# -----------------------------------------------------------------------------
+# Coupling — fused-GW Sinkhorn solver on a full batch is the expensive step.
+# `epsilon` smaller / `max_iter` lower keeps it fast; `tol` looser so it can
+# declare convergence early.
+# -----------------------------------------------------------------------------
+coupling:
+  method: "fused"
+  scale_cost: "mean"
+  epsilon: 0.1
+  max_iter: 20
+  tol: 1.0e-3
+  alpha: 0.5
+
+# -----------------------------------------------------------------------------
+# DataModule — smallest stream that still pushes one batch through.
+# -----------------------------------------------------------------------------
+datamodule:
+  n_train_steps: 5
+  batch_size: 16
+
+# -----------------------------------------------------------------------------
+# Inference — one solver solve per validation batch, tiny step count.
+# -----------------------------------------------------------------------------
+inference:
+  n_steps: 3
+  n_samples: 8
+
+# -----------------------------------------------------------------------------
+# Trainer — `fast_dev_run` is Lightning's "run the full pipeline once" flag.
+# One train batch, one val batch, loggers/checkpointing disabled. The
+# `save_pretrained` call at the end of `main()` still runs.
+# -----------------------------------------------------------------------------
+trainer:
+  fast_dev_run: true
+  enable_progress_bar: false
+
+# -----------------------------------------------------------------------------
+# Run metadata / output
+#
+# `save.run_dir` is overridden to a local path so a smoke run doesn't clobber
+# the real output. `allow_overwrite` is true so iterating on the config is
+# cheap.
+# -----------------------------------------------------------------------------
+run:
+  allow_overwrite: true
+
+save:
+  run_dir: "./runs/cfm_panel_smoke"
+
+# -----------------------------------------------------------------------------
+# Loggers — `fast_dev_run` already disables them, but overriding to CSV-only
+# avoids constructing a WandbLogger (which can be slow on first call).
+# -----------------------------------------------------------------------------
+loggers:
+  wandb:
+    offline: true
+    save_dir: "./logs/wandb_smoke"
+  csv:
+    save_dir: "./logs/csv_smoke"
+    name: "cfm-panel-smoke"

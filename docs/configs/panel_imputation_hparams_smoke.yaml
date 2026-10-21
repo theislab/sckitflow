@@ -1,0 +1,62 @@
+# =============================================================================
+# panel_imputation_hparams_smoke.yaml — fast validation of the hparam sweep.
+#
+# Inherits the real sweep (Optuna RandomSampler + submitit_slurm) and
+# overrides only:
+#
+#   * `hydra.sweeper.n_trials` / `n_jobs` → 1, so a single trial runs instead
+#     of the parent's 30.
+#   * `hydra.sweep.dir` → /tmp so smoke artifacts don't pollute the real tree.
+#   * `datamodule.n_train_steps` → 20 (was 100) so one epoch is fast.
+#   * `inference.n_steps` / `n_samples` → 3 / 8 so validation ODE solves are
+#     cheap.
+#   * `trainer.max_epochs` → 1 so a trial stops after one epoch.
+#   * `run.allow_overwrite` → True so iterating on bugs is cheap.
+#
+# The grid (paths, coupling.*) is inherited from the parent's
+# `hydra.sweeper.params` — do NOT pass grid values on the CLI; the sweeper
+# samples one cell from the parent's `choice(...)` sets at n_trials=1.
+#
+# Requirements (same as the parent):
+#   pip install hydra-submitit-launcher hydra-optuna-sweeper optuna
+#
+# Usage (1-trial smoke, ~3 min including submitit startup):
+#   python docs/scripts/fit_cfm.py \
+#     --config-name panel_imputation_hparams_smoke \
+#     --multirun
+# =============================================================================
+
+defaults:
+  - panel_imputation_hparams
+  - _self_
+
+# -----------------------------------------------------------------------------
+# Hydra
+# -----------------------------------------------------------------------------
+hydra:
+  sweep:
+    dir: "/tmp/cfm_sweep_smoke"
+    subdir: "seed_${hydra.job.num}"
+
+  sweeper:
+    # Override the parent's 30 trials / 30 batch to a single trial. This
+    # keeps the Optuna RandomSampler wiring (inherited) but samples exactly
+    # one cell from the parent's choice() grid, submitted as one SLURM job.
+    n_trials: 1
+    n_jobs: 1
+
+# -----------------------------------------------------------------------------
+# Shrink the training budget so one trial finishes in ~2 min end-to-end.
+# -----------------------------------------------------------------------------
+datamodule:
+  n_train_steps: 20
+
+inference:
+  n_steps: 3
+  n_samples: 8
+
+trainer:
+  max_epochs: 1
+
+run:
+  allow_overwrite: True

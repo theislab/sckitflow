@@ -72,6 +72,7 @@ _STEP_DATA_KEYS = (
 
 _PRIMARY = "primary"
 _CONTROL = "control"
+_ROWS = "rows"  # beside a stream's reps in an eval batch: the global rows read; never a rep loc ("X", "obsm/<k>")
 
 # Coupling terms
 _TARGET_LIN_TERM = "target_coupling_lin"
@@ -726,6 +727,16 @@ class Loader(_StepDataBridge):
         return int(self._loader.n_iters)
 
 
+class _RowsEvalLoader(ScfitEvalLoader):
+    """:class:`scfit.data.EvalLoader` that also returns, under ``rows``, the global rows each stream read.
+
+    scfit batches carry no row identities, but every read goes through ``_read`` with its rows.
+    """
+
+    def _read(self, src: Any, reps: tuple[str, ...], rows: np.ndarray) -> dict[str, object]:
+        return {**super()._read(src, reps, rows), _ROWS: rows}
+
+
 class EvalLoader(_StepDataBridge):
     """Deterministic, per-group ``(StepData, leaf)`` for prediction, backed by :class:`scfit.data.EvalLoader`.
 
@@ -743,6 +754,8 @@ class EvalLoader(_StepDataBridge):
     Walks every selected primary group once (full coverage, or a ``max_per_group`` cap that at ``1`` becomes
     predict-once-per-condition), each matched to its control leaf. ``leaf`` is the group's ``group_by`` value
     tuple -- ordered as :attr:`group_cols` -- from which the caller rebuilds the output ``obs`` directly.
+    With a source, :attr:`source_obs_names` maps each yielded ``leaf`` to the obs names of the source rows
+    behind its ``source_state``, one per row.
 
     :param condition_schema: The condition schema; see :class:`Loader`.
     :type condition_schema: class: `ConditionDataSchema`
@@ -833,23 +846,35 @@ class EvalLoader(_StepDataBridge):
         control_stream = self._control_link(control_weights)
         links = {_CONTROL: control_stream} if control_stream is not None else {}
         sources = self._sources_by_role(primary, control_stream)
+        self._control_files = sources.get(_CONTROL, [])
+        self.source_obs_names: dict[tuple, np.ndarray] = {}
 
-        self._loader = ScfitEvalLoader(
+        self._loader = _RowsEvalLoader(
             sources, primary=primary, links=links, to=to, max_per_group=max_per_group, subsample=subsample, seed=seed
         )
 
     def __iter__(self) -> Iterator[tuple[StepData, tuple]]:
         """Yield ``(StepData, leaf)`` per selected group, deterministically."""
+        self.source_obs_names = {}
         for batch in self._loader:
             leaf = self._strip(batch["leaf"])
             # the group's cell count, capped the same way scfit caps the rows it reads
             n_rows = self._leaf_size[leaf]
             if self._max_per_group is not None:
                 n_rows = min(n_rows, self._max_per_group)
-            yield (
-                self._step_data_from_batch(batch, self._leaf_to_gid[leaf], has_state=self._has_state, n_rows=n_rows),
-                leaf,
+            step_data = self._step_data_from_batch(
+                batch, self._leaf_to_gid[leaf], has_state=self._has_state, n_rows=n_rows
             )
+            if _CONTROL in batch:
+                # aligned as `_align_source` aligns the source state; kept by leaf, as Lightning fetches ahead
+                rows = batch[_CONTROL][_ROWS]
+                self.source_obs_names[leaf] = self._control_names[rows[np.arange(step_data["n_obs"]) % len(rows)]]
+            yield step_data, leaf
+
+    @cached_property
+    def _control_names(self) -> np.ndarray:
+        """The obs names of the control source, indexed by scfit's global rows (its files in list order)."""
+        return np.concatenate([a.obs_names.to_numpy(dtype=str) for a in self._control_files])
 
     def __len__(self) -> int:
         """Number of groups (== number of batches) this pass yields."""

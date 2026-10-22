@@ -27,6 +27,7 @@ from sckitflow.data._utils import AnnDataLike
 __all__ = ["prediction_record", "predictions_to_adata", "predict_adata"]
 
 SAMPLE_COL = "sample_idx"
+SOURCE_COL = "source_obs_name"
 
 
 def _predict_empty(data_dims: DataDimensions, return_raw: bool) -> AnnData | tuple[AnnData, None]:
@@ -187,10 +188,14 @@ def prediction_record(
     :param preds: What the inference method returned.
     """
     cont_keys = (*loader.cond_cont_keys, *loader.resp_keys)
+    obs = _pred_obs_from_leaf(loader.group_cols, leaf, preds)
+    source_names = getattr(loader, "source_obs_names", {}).get(leaf)
+    if source_names is not None:
+        obs[SOURCE_COL] = source_names
     return {
         "preds_cls": type(preds),
         "preds_fields": {f.name: getattr(preds, f.name) for f in fields(preds)},
-        "obs": _pred_obs_from_leaf(loader.group_cols, leaf, preds),
+        "obs": obs,
         "obsm": _get_pred_obsm_dict(step_data, preds, cont_keys),
     }
 
@@ -260,7 +265,8 @@ def predict_adata(
     :param aggregate: With several samples per input row (``n_samples``), ``"samples"`` returns one row per
         (input row, sample), the row's obs repeated and the sample's index in ``obs["sample_idx"]``.
         ``"mean"`` returns one row per input row holding the mean over samples, with every sample in
-        ``obsm["raw_samples"]``. With one sample per row both give the same output.
+        ``obsm["raw_samples"]``. With one sample per row both give the same output. When predictions flow
+        from (or are conditioned on) source cells, ``obs["source_obs_name"]`` names each row's source cell.
     :param max_per_group: Per-group cap on observations.
     :param require_target_state: Whether ``adata`` must carry a target state representation.
     :param control_values_dict: Mapping from each condition level to its control value.

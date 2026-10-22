@@ -13,7 +13,7 @@ from sckitflow._constants import (
     DEFAULT_VF_LATENT_TIME_DIM,
 )
 from sckitflow._types import ConditioningLayersId, LayersDict, NestedLayersDict, TimeFeaturesId
-from sckitflow.core._types import ConditioningFn, MappedTensor, TimeFeaturesFn, VfFn
+from sckitflow.core._types import MappedTensor, TimeFeaturesFn, VfFn
 from sckitflow.core._utils import make_concatenation_possible
 from sckitflow.core.nn._conditioning_layers import BaseConditioningLayer, get_conditioning_layer
 from sckitflow.core.nn._modules import FunctionalModule
@@ -91,7 +91,6 @@ class MLPVelocity(BaseVelocityField):
         time_encoder_mlp_kwargs: LayersDict | None = None,
         vf_decoder_mlp_kwargs: LayersDict | None = None,
         conditioning_id: ConditioningLayersId | None = None,
-        conditioning_fn: ConditioningFn | None = None,
         conditioning_kwargs: dict[str, Any] | None = None,
         condition_encoder_input_layers: NestedLayersDict | None = None,
         condition_encoder_output_dim: int | None = None,
@@ -180,13 +179,8 @@ class MLPVelocity(BaseVelocityField):
         :param conditioning_id: (Optional) String identifier indicating the type of conditioning applied to the states.
             For unconditional velocity fields, the conditioning is only done with respect to the time index.
             Could be set to any of the string identifiers for predefined time features, specified in :class: `ConditioningLayersId`.
-            Ignored when :param: `conditioning_fn` is passed as well. Defaults to `None` and, when not provided, it will be set internally set to
-            :constant: `sckitflow._constants.DEFAULT_CONDITIONING_LAYER`.
+            It will be set internally set to :constant: `sckitflow._constants.DEFAULT_CONDITIONING_LAYER`.
         :type conditioning_id: class: `ConditioningLayersId`
-
-        :param conditioning_fn: (Optional) Callable using for the instantiation of custom conditioning layers.
-            When provided, takes precedence over string initialization. Defaults to `None`.
-        :type conditioning_fn: class: `ConditioningFn`
 
         :param conditioning_kwargs: (Optional) Keyword arguments used to initialize the conditioning layer.
             Ignored when the using concatenation based conditioning. When setting :param: `conditioning_id`
@@ -257,7 +251,6 @@ class MLPVelocity(BaseVelocityField):
         self._time_encoder_mlp_kwargs = {} if time_encoder_mlp_kwargs is None else time_encoder_mlp_kwargs
         self._vf_decoder_mlp_kwargs = {} if vf_decoder_mlp_kwargs is None else vf_decoder_mlp_kwargs
         self._conditioning_id = conditioning_id
-        self._conditioning_fn = conditioning_fn
         self._conditioning_kwargs = {} if conditioning_kwargs is None else conditioning_kwargs
         self._condition_encoder_input_layers = condition_encoder_input_layers
         self._condition_encoder_output_dim = (
@@ -446,7 +439,6 @@ class MLPVelocity(BaseVelocityField):
             self._time_encoder_output_dim if self._encode_time else self._get_num_time_features(),
             latent_condition_dim=self._conditioning_dim,
             conditioning_id=self._conditioning_id,
-            conditioning_fn=self._conditioning_fn,
             conditioning_kwargs=self._conditioning_kwargs,
         )
 

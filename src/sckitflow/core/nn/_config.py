@@ -116,7 +116,7 @@ class MLPVelocityConfig(ModuleConfig):
     """The JSON-able arguments of :class:`MLPVelocity`; see it for their meaning.
 
     ``state_dim`` and each condition encoder's ``input_dim`` come from the data. The callable
-    arguments (``time_features_fn``, ``conditioning_fn``) have no spec, build the module by hand for those.
+    arguments (``time_features_fn``) have no spec, build the module by hand for those.
     """
 
     encode_state: bool = True

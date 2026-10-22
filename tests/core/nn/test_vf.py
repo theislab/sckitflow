@@ -210,7 +210,7 @@ def _assert_forward_shapes(vf: MLPVelocity) -> None:
 
 class TestVF:
     @pytest.mark.parametrize("encoder_config", ENCODER_CONFIGS)
-    @pytest.mark.parametrize("conditioning_id", [None, "concat", "resnet1d"])
+    @pytest.mark.parametrize("conditioning_id", [None, "concat", "resnet1d", "film"])
     def test_vanilla_mlp_vf_forward(
         self,
         encoder_config: dict[str, Any],
@@ -224,7 +224,7 @@ class TestVF:
         _assert_forward_shapes(vf)
 
     @pytest.mark.parametrize("mlp_kwargs_config", MLP_KWARGS_CONFIGS)
-    @pytest.mark.parametrize("conditioning_id", [None, "concat", "resnet1d"])
+    @pytest.mark.parametrize("conditioning_id", [None, "concat", "resnet1d", "film"])
     def test_vanilla_mlp_vf_forward_batchnorm(
         self,
         mlp_kwargs_config: dict[str, Any],

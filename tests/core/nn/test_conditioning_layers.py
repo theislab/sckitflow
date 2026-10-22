@@ -3,6 +3,7 @@ import torch
 
 from sckitflow.core.nn._conditioning_layers import (
     ConcatConditioning,
+    FiLMConditioning,
     Resnet1dConditioning,
 )
 
@@ -226,10 +227,97 @@ class TestConditioningLayers:
             assert out.shape == ((batch_size, num_samples, num_feats))
             assert out.shape[-1] == conditioning.output_dim
 
-    def test_make_custom_conditioning_layer(
-        self,
-    ) -> None: ...
+    @pytest.mark.parametrize("concat_condition", [True, False])
+    def test_film_conditioning(self, concat_condition: bool) -> None:
+        # initializing conditioning layers
+        if concat_condition:
+            conditioning = FiLMConditioning(
+                num_feats,
+                num_time_feats,
+                num_cond_feats,
+            )
+        else:
+            conditioning = FiLMConditioning(
+                num_feats,
+                num_time_feats,
+            )
 
-    def test_get_conditioning_layer(
-        self,
-    ) -> None: ...
+        # FiLM output preserves the state shape
+        assert conditioning.output_dim == num_feats
+
+        # case 0
+        t = torch.zeros((num_time_feats,))
+        cond = torch.zeros((num_cond_feats,))
+        x = torch.zeros((batch_size, num_feats))
+        if concat_condition:
+            out = conditioning(t, x, cond)
+        else:
+            out = conditioning(t, x)
+        assert out.shape == ((batch_size, num_feats))
+        assert out.shape[-1] == conditioning.output_dim
+
+        # case 1
+        t = torch.zeros((1, num_time_feats))
+        cond = torch.zeros((1, num_cond_feats))
+        x = torch.zeros((batch_size, num_feats))
+        if concat_condition:
+            out = conditioning(t, x, cond)
+        else:
+            out = conditioning(t, x)
+        assert out.shape == ((batch_size, num_feats))
+        assert out.shape[-1] == conditioning.output_dim
+
+        # case 2
+        t = torch.zeros((batch_size, num_time_feats))
+        cond = torch.zeros((batch_size, num_cond_feats))
+        x = torch.zeros((batch_size, num_feats))
+        if concat_condition:
+            out = conditioning(t, x, cond)
+        else:
+            out = conditioning(t, x)
+        assert out.shape == ((batch_size, num_feats))
+        assert out.shape[-1] == conditioning.output_dim
+
+        # case 3
+        t = torch.zeros((num_time_feats,))
+        cond = torch.zeros((num_cond_feats,))
+        x = torch.zeros((batch_size, num_samples, num_feats))
+        if concat_condition:
+            out = conditioning(t, x, cond)
+        else:
+            out = conditioning(t, x)
+        assert out.shape == ((batch_size, num_samples, num_feats))
+        assert out.shape[-1] == conditioning.output_dim
+
+        # case 4
+        t = torch.zeros((1, num_time_feats))
+        cond = torch.zeros((1, num_cond_feats))
+        x = torch.zeros((batch_size, num_samples, num_feats))
+        if concat_condition:
+            out = conditioning(t, x, cond)
+        else:
+            out = conditioning(t, x)
+        assert out.shape == ((batch_size, num_samples, num_feats))
+        assert out.shape[-1] == conditioning.output_dim
+
+        # case 5
+        t = torch.zeros((batch_size, num_time_feats))
+        cond = torch.zeros((batch_size, num_cond_feats))
+        x = torch.zeros((batch_size, num_samples, num_feats))
+        if concat_condition:
+            out = conditioning(t, x, cond)
+        else:
+            out = conditioning(t, x)
+        assert out.shape == ((batch_size, num_samples, num_feats))
+        assert out.shape[-1] == conditioning.output_dim
+
+        # case 6
+        t = torch.zeros((batch_size, num_samples, num_time_feats))
+        cond = torch.zeros((batch_size, num_samples, num_cond_feats))
+        x = torch.zeros((batch_size, num_samples, num_feats))
+        if concat_condition:
+            out = conditioning(t, x, cond)
+        else:
+            out = conditioning(t, x)
+        assert out.shape == ((batch_size, num_samples, num_feats))
+        assert out.shape[-1] == conditioning.output_dim

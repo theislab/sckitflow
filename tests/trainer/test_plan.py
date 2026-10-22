@@ -182,6 +182,7 @@ def test_predict_adata_unconditional():
     )
     pred = predict_adata(dmod, inference, adata)
     assert pred.n_obs == 10 and pred.n_vars == 2
+    assert "source_obs_name" not in pred.obs
 
 
 def test_predict_adata_schema(paired, dims):
@@ -371,3 +372,20 @@ def test_predict_adata_aggregate(paired, dims):
     np.testing.assert_allclose(mean.X, np.asarray(raw.X))
     np.testing.assert_allclose(mean.obsm["raw_samples"].reshape(-1, 2), pred.X)
     np.testing.assert_allclose(pred.X.reshape(30, 16, 2).mean(1), mean.X, rtol=1e-5, atol=1e-6)
+
+
+def test_predict_adata_names_source_cells(dims):
+    """A zero velocity field returns its source, so each row's `source_obs_name` is the control it came from."""
+    adata = _adata()
+    adata = adata[(adata.obs["drug"] != "control") | adata.obs_names.isin(["0", "1", "20", "21"])].copy()
+    dmod = _datamodule(adata, **GROUPS, control_values_dict={"drug": "control"})
+    module = _module()
+    for p in module.parameters():
+        torch.nn.init.zeros_(p)
+    pred = predict_adata(dmod, _inference(module, dims), adata)
+
+    np.testing.assert_allclose(pred.X, adata[pred.obs["source_obs_name"]].X, atol=1e-6)
+    # each group of five tiles its cell line's two controls, in obs order
+    controls = {"c1": ["0", "1"], "c2": ["20", "21"]}
+    for (cell_line, _), obs in pred.obs.groupby(["cell_line", "drug"], observed=True):
+        assert list(obs["source_obs_name"]) == [controls[cell_line][i % 2] for i in range(5)]

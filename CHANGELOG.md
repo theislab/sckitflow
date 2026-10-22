@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+- `predict_adata` names the source cell behind each prediction in `obs["source_obs_name"]` when the batch has a source (one name per row, aligned as the source state is, repeated per sample under `aggregate="samples"`); `EvalLoader.source_obs_names` holds them per group
 - `EnergyDistance(max_samples=...)` and `MaximumMeanDiscrepancy(max_samples=...)` score a fixed random subset of at most that many rows per update: validation scores every sample, and the cost is quadratic in the rows
 
 ### Changed

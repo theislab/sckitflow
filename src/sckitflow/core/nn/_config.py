@@ -1,7 +1,7 @@
 from abc import ABC, abstractmethod
 
 import torch
-from scfit import Component
+from scfit.registry import Component
 
 from sckitflow.data._dims import DataDimensions
 

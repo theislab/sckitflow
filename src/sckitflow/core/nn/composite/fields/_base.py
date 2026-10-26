@@ -3,7 +3,7 @@ from __future__ import annotations
 import abc
 from collections.abc import Callable
 from functools import partial
-from typing import ClassVar, Literal, Protocol
+from typing import Protocol
 
 import torch
 from scfit.registry import component
@@ -17,24 +17,12 @@ from sckitflow.core.nn.blocks.conditioning._film import AdaLNZeroConditioningCon
 from sckitflow.core.nn.composite._set_encoder import SetEncoderConfig
 from sckitflow.data._dims import DataDimensions
 
-__all__ = ["Field", "FlowMap", "NeuralVelocity", "NeuralFlowMap", "NeuralVelocityConfig", "NeuralFlowMapConfig"]
+__all__ = ["Field", "NeuralVelocity", "NeuralVelocityConfig"]
 
 
 class Field(Protocol):
     def forward(
         self,
-        t: torch.Tensor,
-        x: torch.Tensor,
-        *,
-        condition_dict: dict[str, torch.Tensor] | None = None,
-        source: torch.Tensor | None = None,
-    ) -> torch.Tensor: ...
-
-
-class FlowMap(Protocol):
-    def forward(
-        self,
-        s: torch.Tensor,
         t: torch.Tensor,
         x: torch.Tensor,
         *,
@@ -49,7 +37,6 @@ _CONDITION_ENCODER_KEY = "condition_encoder"
 _SOURCE_ENCODER_KEY = "source_encoder"
 _TIME_FEATURES_KEY = "time_features"
 _T_ENCODER_KEY = "t_encoder"
-_S_ENCODER_KEY = "s_encoder"
 _FIELD_DECODER_KEY = "field_decoder"
 
 
@@ -91,12 +78,6 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
         conditioning_cfg = AdaLNZeroConditioningConfig() if cfg.conditioning is None else cfg.conditioning
         field_decoder_cfg = MLPConfig() if cfg.field_decoder is None else cfg.field_decoder
 
-        # We need to register the config flag ``model_s_index`` as a class attribute;
-        # this is required because it would change some part of the model's forward pass --
-        # at the moment, this information is only available through the configuration object,
-        # and we would lose it as the config is not registered as an attribute for models instances.
-        self._model_s_index: bool = cfg.model_s_index
-
         # ------------------------------------------------------------------------------------------
         # ---- B. Initialize neural networks. ------------------------------------------------------
         # ------------------------------------------------------------------------------------------
@@ -136,10 +117,6 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
         if cfg.time_encoder is not None:
             latent_time_dim = cfg.time_encoder.output_dim
             field_dict[_T_ENCODER_KEY] = cfg.time_encoder.build(n_time_features)
-
-            # We optionally initialize the s_encoder when specified by the config
-            if self._model_s_index:
-                field_dict[_S_ENCODER_KEY] = cfg.time_encoder.build(n_time_features)
         else:
             latent_time_dim = n_time_features
 
@@ -176,12 +153,9 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
         # way to achieve this, would be to expose the ``h_time_dim`` property from the ``NeuralFieldConfig``, and
         # override it for flow map configurations.
         # Then, we initialize the conditioning layer, which will always be required regardless of the configurations.
-        # We need to double down the inferred dimensionality for the latent time indices
-        # whenever we are modeling the source time index too. This is required to correctly initialize
-        # the conditioning layer, as it will now take more inputs.
         field_dict[_CONDITIONING_LAYER_KEY] = conditioning_cfg.build(
             latent_state_dim=latent_state_dim,
-            latent_time_dim=latent_time_dim * 2 if self._model_s_index else latent_time_dim,
+            latent_time_dim=latent_time_dim,
             latent_condition_dim=latent_condition_dim,
         )
 
@@ -193,11 +167,7 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
         # We then register all these neural modules as a single ``torch.nn.ModuleDict``.
         self._field = torch.nn.ModuleDict(field_dict)
 
-    def _encode_time(self, t: torch.Tensor, mode: Literal["s", "t"] = "t") -> torch.Tensor:
-        # We first perform a sanity check: we cannot encode in mode "s" when no modeling of source
-        # time indices is allowed.
-        if mode == "s" and not self._model_s_index:
-            raise ValueError(f"Cannot encode time in mode {mode} when no modeling of the source time index is done.")
+    def _encode_time(self, t: torch.Tensor) -> torch.Tensor:
         # We firts retrieve the optional time feature extractor. When available, we transform
         # the time index with it; otherwise, we keep it unchanged.
         if _TIME_FEATURES_KEY in self._field:
@@ -206,12 +176,8 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
             # raw time comes as ``()`` (ODE solvers) or ``(B,)`` (training); the layers want a trailing time axis
             t = ensure_2d_tensor_with_singleton_trailing_dim(t)
 
-        # We map each mode to the key that maps to the corresponding neural network,
-        # and then retrieve the neural network for the current time index.
-        # We optionally return
-        mode_to_nn_key = {"s": _S_ENCODER_KEY, "t": _T_ENCODER_KEY}
-        if mode_to_nn_key[mode] in self._field:
-            return self._field[mode_to_nn_key[mode]](t)
+        if _T_ENCODER_KEY in self._field:
+            return self._field[_T_ENCODER_KEY](t)
         return t
 
     def _encode_state(self, x: torch.Tensor) -> torch.Tensor:
@@ -280,26 +246,11 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
         t: torch.Tensor,
         x: torch.Tensor,
         *,
-        s: torch.Tensor | None = None,
         cond_dict: dict[str, torch.Tensor] | None = None,
         source: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        """Compose the shared encoder stack → conditioning layer.
-
-        ``s`` is required iff ``self._model_s_index`` is ``True``.
-        """
-        h_t = self._encode_time(t, mode="t")
-
-        if self._model_s_index:
-            if s is None:
-                raise ValueError(
-                    "This field was built with ``model_s_index=True``; ``s`` is required but was not provided."
-                )
-            h_s = self._encode_time(s, mode="s")
-            h_time = torch.cat([h_s, h_t], dim=-1)
-        else:
-            h_time = h_t
-
+        """Compose the shared encoder stack → conditioning layer."""
+        h_time = self._encode_time(t)
         h_x = self._encode_state(x)
         h_c = self._encode_condition(cond_dict, source)  # returns None if unconditional
         return self._field[_CONDITIONING_LAYER_KEY](h_time, h_x, h_c)
@@ -327,40 +278,11 @@ class NeuralVelocity(_NeuralFieldMixin):
         return partial(self.forward, condition_dict=condition_dict, source=source)
 
 
-class NeuralFlowMap(_NeuralFieldMixin):
-    """Doubly-time-conditional field: ``Φ(s, t, x) -> state_dim``."""
-
-    def forward(
-        self,
-        s: torch.Tensor,
-        t: torch.Tensor,
-        x: torch.Tensor,
-        *,
-        condition_dict: dict[str, torch.Tensor] | None = None,
-        source: torch.Tensor | None = None,
-    ) -> torch.Tensor:
-        return self._field[_FIELD_DECODER_KEY](self._encode(t, x, s=s, cond_dict=condition_dict, source=source))
-
-
 class _BaseNeuralFieldConfig(ModuleConfig):
     """Base configuration set for time-dependent neural fields.
 
-    This configuration should be used to instantiate any time-dependent or
-    doubly-time-dependent fields. They are specified through the overload of the
-    ``Field`` protocol with the signatures:
+    Fields are time-dependent and implement the ``Field`` protocol:
 
-    * Single-time conditioning:
-    ```python
-    def forward(
-        t: torch.Tensor,
-        x: torch.Tensor,
-        *,
-        condition_dict: dict[str, torch.Tensor] | None = None,
-        source: torch.Tensor | None = None,
-    )
-    ```
-
-    * Double-time conditioning:
     ```python
     def forward(
         t: torch.Tensor,
@@ -371,9 +293,6 @@ class _BaseNeuralFieldConfig(ModuleConfig):
     )
     ```
     """
-
-    model_s_index: ClassVar[bool]
-    """Class variable indicating whether to initialize the encoder for the source time index."""
 
     state_encoder: MLPEncoderConfig | None = None
     """State representation fields.
@@ -407,7 +326,6 @@ class _BaseNeuralFieldConfig(ModuleConfig):
     allows to set upfront the output dimension, while the latter assumes the output
     dimension to be known only at build time, because it is constrained by the rest of the architecture.
 
-    When ``modeling_s_index`` is ``True``, these configurations will be the same for both time indices.
     When neither are provided, the model will process raw scalar time indices.
 
     :param time_features: Optional ``TimeFeaturesConfig`` configuring the used time features.
@@ -426,15 +344,5 @@ class _BaseNeuralFieldConfig(ModuleConfig):
 
 @component("nn.models.velocity", builds=NeuralVelocity)
 class NeuralVelocityConfig(_BaseNeuralFieldConfig):
-    model_s_index: ClassVar[bool] = False
-
     def build(self, dims: DataDimensions) -> NeuralVelocity:
         return NeuralVelocity(self, dims=dims)
-
-
-@component("nn.models.flow_map", builds=NeuralFlowMap)
-class NeuralFlowMapConfig(_BaseNeuralFieldConfig):
-    model_s_index: ClassVar[bool] = True
-
-    def build(self, dims: DataDimensions) -> NeuralFlowMap:
-        return NeuralFlowMap(self, dims=dims)

@@ -82,7 +82,7 @@ class ResNetConditioning(BaseConditioningLayer):
 
 @component("nn.conditioning.resnet", builds=ResNetConditioning)
 class ResNetConditioningConfig(BaseConditioningLayerConfig):
-    resnet: ResNetConfig
+    resnet: ResNetConfig | None = None
 
     def build(
         self,

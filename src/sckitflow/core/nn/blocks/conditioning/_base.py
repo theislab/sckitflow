@@ -85,33 +85,19 @@ class BaseConditioningLayer(abc.ABC, torch.nn.Module):
         encoded_condition: torch.Tensor | None = None,
     ) -> None:
         """Verifies that the inputs match their respective expected shapes."""
-        # sanity checks
-        if encoded_state.shape[-1] != self._latent_state_dim:
-            msg = (
-                "The encoded state has the wrong trailing dimension."
-                f"Found {encoded_state.shape[-1]}, expected {self._latent_state_dim}"
+        if encoded_condition is None and self._latent_condition_dim is not None:
+            raise RuntimeError(
+                "When the latent condition dimension is specified, the corresponding input should be passed, found `None`."
             )
-            raise RuntimeError(msg)
-        if encoded_t.shape[-1] != self._latent_time_dim:
-            msg = (
-                "The encoded time has the wrong trailing dimension."
-                f"Found {encoded_t.shape[-1]}, expected {self._latent_time_dim}"
-            )
-            raise RuntimeError(msg)
-        if encoded_condition is not None:
-            if encoded_condition.shape[-1] != self._latent_condition_dim:
-                msg = (
-                    f"Incorrect trailing dimension for additional condition input."
-                    f"Found {encoded_condition.shape[-1]}, expected {self._latent_condition_dim}"
+        for name, tensor, expected in (
+            ("state", encoded_state, self._latent_state_dim),
+            ("time", encoded_t, self._latent_time_dim),
+            ("condition", encoded_condition, self._latent_condition_dim),
+        ):
+            if tensor is not None and tensor.shape[-1] != expected:
+                raise RuntimeError(
+                    f"The encoded {name} has the wrong trailing dimension. Found {tensor.shape[-1]}, expected {expected}"
                 )
-                raise RuntimeError(msg)
-        else:
-            if self._latent_condition_dim is not None:
-                msg = (
-                    "When the latent condition dimension is specified,"
-                    "the corresponding input should be passed, found `None`."
-                )
-                raise RuntimeError(msg)
 
     @property
     def latent_state_dim(self) -> int:

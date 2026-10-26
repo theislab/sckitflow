@@ -95,18 +95,7 @@ class AdaLNZeroConditioning(FiLMConditioning):
         latent_time_dim: int,
         latent_condition_dim: int | None = None,
     ) -> None:
-        """Initializes the adaLN-Zero based conditioning.
-
-        :param latent_state_dim: The latent dimensionality of the input states.
-        :type latent_state_dim: class: `int`
-
-        :param latent_time_dim: The latent dimensionality of the input time index.
-        :type latent_time_dim: class: `int`
-
-        :param latent_condition_dim: (Optional) The dimensionality of extra conditioning
-            argument to be used in the modulation.
-        :type latent_condition_dim: class: `int | None`
-        """
+        """Initializes the adaLN-Zero conditioning; the arguments are those of :class:`FiLMConditioning`."""
         super().__init__(
             latent_state_dim=latent_state_dim,
             latent_time_dim=latent_time_dim,

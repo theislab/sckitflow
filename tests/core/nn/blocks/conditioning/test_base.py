@@ -91,16 +91,12 @@ class TestBaseConditioningLayer:
 
     # ---- error message formatting ---------------------------------------
 
-    def test_verify_shape_error_has_a_space_after_period(self) -> None:
-        """The base-class error messages are built from two adjacent string
-        literals with no space between ``.`` and ``Found``; this test pins
-        the current (broken) formatting so a future fix is a visible change.
-        If you fix the missing space, update this test's expectation.
-        """
+    def test_verify_shape_error_names_the_widths(self) -> None:
         layer = ConcatConditioning(_STATE, _TIME)
-        with pytest.raises(RuntimeError) as excinfo:
+        with pytest.raises(
+            RuntimeError, match=rf"state has the wrong trailing dimension\. Found {_STATE + 1}, expected {_STATE}"
+        ):
             layer(torch.zeros(_BATCH, _TIME), torch.zeros(_BATCH, _STATE + 1))
-        assert "dimension.Found" in str(excinfo.value)
 
 
 class TestBaseConditioningLayerConfig:

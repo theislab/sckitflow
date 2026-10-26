@@ -170,10 +170,7 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
         # ---- B-6 Build conditioning layer -----
         # To build the conditioning layer, we first need to evaluate the latent dimensionality of the conditioning
         # signal. We only pass it when there is at least one conditioning signal, and we set it to ``None`` otherwise.
-        if len(latent_condition_dims_to_sum) > 0:
-            latent_condition_dim = sum(latent_condition_dims_to_sum)
-        else:
-            latent_condition_dim = None
+        latent_condition_dim = sum(latent_condition_dims_to_sum) or None
         # NOTE: We may need to adapt this building step to accommodate flow map fields: the only required change would
         # be to double the value of ``latent_dim_dim`` before initializing the conditioning layer. One possible
         # way to achieve this, would be to expose the ``h_time_dim`` property from the ``NeuralFieldConfig``, and

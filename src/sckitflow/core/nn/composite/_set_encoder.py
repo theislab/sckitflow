@@ -182,59 +182,30 @@ class SetEncoder(torch.nn.Module):
             each perturbation covariate.
         :type condition_dict: class: `MappedTensor`
         """
-        # ---- Encode continuous covariates ----
-        continuous_covariates_dict = {}
-        for covariate, covariate_layer in self._set_encoder[_INPUT_LAYERS_KEY][_CONTINUOUS_LAYERS_KEY].items():
-            if covariate not in condition_dict:
-                raise ValueError(
-                    f"Continuous covariate {covariate} not found in {condition_dict}. "
-                    f"Available keys are {sorted(condition_dict)}."
-                )
-            x_covariate = condition_dict.get(covariate)
-            continuous_covariates_dict[covariate] = covariate_layer(x_covariate)
+        encoded = {}
+        for kind, label in ((_CONTINUOUS_LAYERS_KEY, "Continuous"), (_CATEGORICAL_LAYERS_KEY, "Categorical")):
+            encoded[kind] = {}
+            for covariate, covariate_layer in self._set_encoder[_INPUT_LAYERS_KEY][kind].items():
+                if covariate not in condition_dict:
+                    raise ValueError(
+                        f"{label} covariate {covariate} not found in {condition_dict}. "
+                        f"Available keys are {sorted(condition_dict)}."
+                    )
+                encoded[kind][covariate] = covariate_layer(condition_dict[covariate])
 
-        # ---- Encode categorical covariates ----
-        categorical_covariates_dict = {}
-        for covariate, covariate_layer in self._set_encoder[_INPUT_LAYERS_KEY][_CATEGORICAL_LAYERS_KEY].items():
-            if covariate not in condition_dict:
-                raise ValueError(
-                    f"Categorical covariate {covariate} not found in {condition_dict}. "
-                    f"Available keys are {sorted(condition_dict)}."
-                )
-            x_covariate = condition_dict.get(covariate)
-            z_covariate = covariate_layer(x_covariate)
-            categorical_covariates_dict[covariate] = self._set_encoder[_PROJECTION_LAYERS_KEY][covariate](z_covariate)
-
-        # ---- Pool categorical covariates ----
-        if len(categorical_covariates_dict):
-            categorical_covariates = torch.concatenate(tuple(categorical_covariates_dict.values()), dim=-2)
-            categorical_covariates = self._set_encoder[_POOLING_LAYER_KEY](categorical_covariates)
-        else:
-            categorical_covariates = None
-
-        # ---- Concatenate all the continuous covariates ---
-        if len(continuous_covariates_dict) > 0:
-            continuous_covariates = torch.concatenate(tuple(continuous_covariates_dict.values()), dim=-1)
-        else:
-            continuous_covariates = None
-
-        # ---- Forward pass on output layer ----
-        # We raise an error if no covariate was found. We make this check explicit, even though it
-        # is guaranteed from the validation performed at initialization, and the one perfomed at the
-        # beginning of the forward pass.
-        if categorical_covariates is None and continuous_covariates is None:
-            raise ValueError("Neither continuous nor categorical covariates were found.")
-        # No categorical covariates; the output layer processes only the continuous ones.
-        if categorical_covariates is None:
-            return self._set_encoder[_OUTPUT_LAYER_KEY](continuous_covariates)
-        # No continuous covariates; the output layer processes only the categorical ones.
-        elif continuous_covariates is None:
-            return self._set_encoder[_OUTPUT_LAYER_KEY](categorical_covariates)
-        # Both continuous and categorical covariates present; we concatenate and pass them to the ouput layer.
-        else:
-            categorical_covariates = make_concatenation_possible(categorical_covariates, continuous_covariates, -1)
-            latent_cond = torch.concatenate((categorical_covariates, continuous_covariates), dim=-1)
-            return self._set_encoder[_OUTPUT_LAYER_KEY](latent_cond)
+        # The pooled categorical covariates come first, then the concatenated continuous ones; at least one of the
+        # two is present, as checked at initialization.
+        parts = []
+        if encoded[_CATEGORICAL_LAYERS_KEY]:
+            projected = [
+                self._set_encoder[_PROJECTION_LAYERS_KEY][k](z) for k, z in encoded[_CATEGORICAL_LAYERS_KEY].items()
+            ]
+            parts.append(self._set_encoder[_POOLING_LAYER_KEY](torch.concatenate(projected, dim=-2)))
+        if encoded[_CONTINUOUS_LAYERS_KEY]:
+            parts.append(torch.concatenate(tuple(encoded[_CONTINUOUS_LAYERS_KEY].values()), dim=-1))
+        if len(parts) == 2:
+            parts[0] = make_concatenation_possible(parts[0], parts[1], -1)
+        return self._set_encoder[_OUTPUT_LAYER_KEY](torch.concatenate(parts, dim=-1))
 
 
 @component("nn.composite.set_encoder", builds=SetEncoder)

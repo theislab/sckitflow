@@ -13,7 +13,7 @@ from sckitflow.core.nn._config import ModuleConfig
 from sckitflow.core.nn.blocks._mlp import MLPConfig, MLPEncoderConfig
 from sckitflow.core.nn.blocks._time_features import TimeFeaturesConfig
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayerConfig
-from sckitflow.core.nn.blocks.conditioning._film import AdaLNZeroConditioningConfig
+from sckitflow.core.nn.blocks.conditioning._concat import ConcatConditioningConfig
 from sckitflow.core.nn.composite._set_encoder import SetEncoderConfig
 from sckitflow.data._dims import DataDimensions
 
@@ -53,20 +53,9 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
         # ------------------------------------------------------------------------------------------
         # ---- A. Verify and register attributes + set defaults. -----------------------------------
         # ------------------------------------------------------------------------------------------
-        # Conditioning on the souce state only occurs when the corresponding dimension appears in the
-        # ``DataDimensionality``. Only in that case we are allowed to initialize the source encoder.
-        # For the moment, modeling of source conditioning always require the definition of its
-        # corresponding encoder.
-        # The first clause will guard against passing a source encoder when no source conditioning is
-        # modeled.
-        if cfg.source_encoder is not None and dims.source_state_dim is None:
-            raise ValueError(
-                "Cannot initialize source encoder with the current data configurations -- "
-                "``dims.source_state_dim`` is ``None``."
-            )
-        # The second clause will instead guard against modeling source conditioning without the
-        # corresponding source encoder.
-        elif cfg.source_encoder is None and dims.source_state_dim is not None:
+        # Sources in their own state space (``dims.source_state_dim`` set) can only be read through a source
+        # encoder. Sources sharing the targets' state (``None``) may still be encoded, from ``dims.state_dim``.
+        if cfg.source_encoder is None and dims.source_state_dim is not None:
             raise ValueError(
                 "The data configurations imply source conditioning; please pass the "
                 "``source_encoder`` field to the configuration (modeling source conditioning) "
@@ -75,7 +64,7 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
 
         # Regardless of the configurations, we are always going to require a conditioning layer
         # and a field decoder. We initialize these to their defaults when they are not provided.
-        conditioning_cfg = AdaLNZeroConditioningConfig() if cfg.conditioning is None else cfg.conditioning
+        conditioning_cfg = ConcatConditioningConfig() if cfg.conditioning is None else cfg.conditioning
         field_decoder_cfg = MLPConfig() if cfg.field_decoder is None else cfg.field_decoder
 
         # ------------------------------------------------------------------------------------------
@@ -140,7 +129,7 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
         # in case-control studies when the interpolation occurs between noise and samples from the target distribution.
         # Source-conditioning always require the definition of the source encoder, and an error is thrown otherwise.
         if cfg.source_encoder is not None:
-            field_dict[_SOURCE_ENCODER_KEY] = cfg.source_encoder.build(dims.source_state_dim)
+            field_dict[_SOURCE_ENCODER_KEY] = cfg.source_encoder.build(dims.source_state_dim or dims.state_dim)
             # We update the list of conditioning signals' dimensionality with the source encoder's output dimension.
             latent_condition_dims_to_sum.append(cfg.source_encoder.output_dim)
 
@@ -336,7 +325,7 @@ class _BaseNeuralFieldConfig(ModuleConfig):
 
     conditioning: BaseConditioningLayerConfig | None = None
     """:param conditioning: Configurations specifying the conditioning layer to be used.
-        Defaults to ``AdaLNZeroConditioningConfig``."""
+        Defaults to ``ConcatConditioningConfig``."""
 
     field_decoder: MLPConfig | None = None
     """:param field_decoder: The ``MLPConfig`` for the field decoder."""

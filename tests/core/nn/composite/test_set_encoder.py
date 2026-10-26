@@ -552,8 +552,7 @@ class TestPoolingVariants:
     @pytest.mark.parametrize("pooling,expected_dim", _POOLINGS)
     def test_pooling_layer_exposes_correct_output_dim(self, pooling, expected_dim: int) -> None:
         """Every pooling config's built module must expose ``output_dim``.
-        The set encoder relies on this to size the decoder — a missing
-        ``output_dim`` on ``_FunctionalModule`` used to crash construction.
+        The set encoder relies on this to size the decoder.
         """
         enc = _build(categorical=("condition0",), pooling=pooling)
         pooling_layer = enc._set_encoder["pooling"]

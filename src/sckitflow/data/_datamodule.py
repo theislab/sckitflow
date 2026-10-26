@@ -32,8 +32,8 @@ class FlowDataModule(pl.LightningDataModule):
 
         dm = DataManagerConfig(categorical_conditions=..., groups=..., split_by="split").build()
         dmod = FlowDataModule.from_adata(adata, dm)
-        module = NeuralVelocity(dmod.data_dims.state_dim)
-        plan = TrainingPlan(CFMTraining(module=module), torch.optim.Adam(module.parameters()))
+        module = NeuralVelocityConfig().build(dmod.data_dims)
+        plan = TrainingPlan(CFMTraining(module, dims=dmod.data_dims), torch.optim.Adam(module.parameters()))
         pl.Trainer(max_steps=1000).fit(plan, datamodule=dmod)
 
     The schema rides along in the Lightning checkpoint: `state_dict` is written

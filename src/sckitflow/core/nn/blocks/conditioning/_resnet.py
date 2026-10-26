@@ -32,8 +32,8 @@ class ResNetConditioning(BaseConditioningLayer):
         :param latent_condition_dim: (Optional) The dimensionality of extra conditioning argument to be concatenated to the input.
         :type latent_condition_dim: class: `int | None`
 
-        :param resnet_cfg: Configuration object used to initialize the :class: `Resnet1d` object.
-        :type resnet_cfg: class: `dict[str, Any]`
+        :param resnet_cfg: Configuration of the :class:`ResNet`; ``None`` uses its defaults.
+        :type resnet_cfg: class: `ResNetConfig | None`
         """
         super().__init__(
             latent_state_dim,

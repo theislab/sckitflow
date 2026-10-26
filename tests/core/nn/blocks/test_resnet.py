@@ -196,22 +196,10 @@ class TestResNet:
         with torch.no_grad():
             assert not torch.allclose(mod(x_a, cond), mod(x_b, cond))
 
-    def test_zero_layers_is_identity_and_ignores_output_dim(self) -> None:
-        """``num_resnet_layers=0`` bypasses the ``output_dim`` projection;
-        output stays ``input_dim``-shaped. Documents the edge case.
-        """
-        mod = ResNet(
-            self._input_dim,
-            self._embedding_dim,
-            num_resnet_layers=0,
-            output_dim=4,
-        ).eval()
-        x = torch.randn(self._batch_size, self._input_dim)
-        cond = torch.randn(self._batch_size, self._embedding_dim)
-        with torch.no_grad():
-            out = mod(x, cond)
-        assert out.shape == (self._batch_size, self._input_dim)  # not 4
-        assert torch.allclose(out, x)
+    def test_zero_layers_reject_a_different_output_dim(self) -> None:
+        """With no layers the output is the input, so a different ``output_dim`` would be misreported."""
+        with pytest.raises(ValueError, match="output_dim"):
+            ResNet(self._input_dim, self._embedding_dim, num_resnet_layers=0, output_dim=4)
 
     # ---- layer-config matrix --------------------------------------------
 
@@ -322,6 +310,12 @@ class TestResNet:
 class TestResNetConfig:
     _input_dim = _INPUT_DIM
     _embedding_dim = _EMBEDDING_DIM
+
+    def test_activation_by_name_round_trips(self) -> None:
+        """The activation is a name, so the config serialises and builds the matching class."""
+        cfg = ResNetConfig.model_validate_json(ResNetConfig(activation_cls="relu").model_dump_json())
+        assert cfg.activation_cls == "relu"
+        assert any(isinstance(m, torch.nn.ReLU) for m in cfg.build(4, 3).modules())
 
     def test_defaults(self) -> None:
         cfg = ResNetConfig()

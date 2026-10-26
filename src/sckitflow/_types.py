@@ -13,7 +13,6 @@ ProbabilityPathId = Literal[
     "linear-dirac",
     "ld-pp",
 ]
-TimeFeaturesId = Literal["ott-jax", "torch-cfm"]
 
 ActivationId = Literal["relu", "leaky_relu", "elu", "gelu", "silu", "tanh", "sigmoid", "softplus"]
 

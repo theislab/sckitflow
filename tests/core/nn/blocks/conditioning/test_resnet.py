@@ -185,10 +185,6 @@ class TestResNetConditioningConfig:
         assert issubclass(ResNetConditioningConfig, BaseConditioningLayerConfig)
 
     def test_build_returns_resnet_conditioning(self) -> None:
-        """Current source: ``build`` returns ``Resnet1dConditioning`` (a
-        ``NameError``), and is annotated as ``-> ResNet``. Both are wrong;
-        this test fails with ``NameError`` on the current source.
-        """
         cfg = ResNetConditioningConfig(resnet=_small_cfg())
         layer = cfg.build(latent_state_dim=_STATE, latent_time_dim=_TIME)
         assert isinstance(layer, ResNetConditioning)

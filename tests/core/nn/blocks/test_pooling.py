@@ -1,7 +1,7 @@
 """Tests for the pooling layers and their configs.
 
 Covers :class:`TokenAttentionPooling`, :class:`SeedAttentionPooling`,
-:class:`_FunctionalModule` (via the aggregation configs), and the
+the mean and sum aggregation configs, and the
 :class:`BasePoolingLayer` contract they all share.
 
 Coverage axes:

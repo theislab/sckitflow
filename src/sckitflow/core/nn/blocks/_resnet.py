@@ -5,6 +5,8 @@ import torch
 from scfit.registry import Component, component
 
 from sckitflow._constants import DEFAULT_NUM_RESNET_LAYERS
+from sckitflow._types import ActivationId
+from sckitflow.core.nn.blocks._mlp import _ACTIVATIONS
 
 __all__ = [
     "ResNet",
@@ -70,6 +72,8 @@ class ResNet(torch.nn.Module):
         self._embedding_dim = embedding_dim
         self._num_resnet_layers = DEFAULT_NUM_RESNET_LAYERS if num_resnet_layers is None else num_resnet_layers
         self._output_dim = input_dim if output_dim is None else output_dim
+        if self._num_resnet_layers == 0 and self._output_dim != input_dim:
+            raise ValueError(f"With no residual layers the output is the input, so `output_dim` must be {input_dim}.")
         self._activation_cls = torch.nn.SiLU if activation_cls is None else activation_cls
         self._use_batchnorm = use_batchnorm
         self._use_layernorm = use_layernorm
@@ -224,7 +228,7 @@ class ResNet(torch.nn.Module):
 class ResNetConfig(Component):
     num_resnet_layers: int | None = None
     output_dim: int | None = None
-    activation_cls: type[torch.nn.Module] | None = None
+    activation_cls: ActivationId | None = None
     use_batchnorm: bool = False
     batchnorm_eps: float = 1e-3
     batchnorm_momentum: float = 1e-2
@@ -244,4 +248,7 @@ class ResNetConfig(Component):
         input_dim: int,
         embedding_dim: int,
     ) -> ResNet:
-        return ResNet(input_dim, embedding_dim, **dict(self))
+        kwargs = dict(self)
+        if kwargs["activation_cls"] is not None:
+            kwargs["activation_cls"] = _ACTIVATIONS[kwargs["activation_cls"]]
+        return ResNet(input_dim, embedding_dim, **kwargs)

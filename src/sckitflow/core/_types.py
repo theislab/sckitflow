@@ -18,7 +18,6 @@ TensorLike = torch.Tensor | np.ndarray
 
 VfFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
-TimeFeaturesFn = Callable[[torch.Tensor, int], torch.Tensor]
 
 MeanFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
 DriftFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]

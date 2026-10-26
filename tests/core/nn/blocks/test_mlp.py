@@ -1,7 +1,6 @@
 """Tests for :class:`MLP`, :class:`MLPConfig` and :class:`MLPEncoderConfig`.
 
-Adapted and extended from the original ``test_nn_modules`` suite (which also
-covered ``Resnet1d``). Focus of this module:
+Adapted and extended from the original ``test_nn_modules`` suite. Focus of this module:
 
 * Full cartesian coverage of the layer-config axes that actually share code
   paths in ``MLP._make_layer`` (batchnorm x layernorm x dropout x bias).

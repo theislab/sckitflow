@@ -28,8 +28,6 @@ Design notes baked into the tests:
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
 import pytest
 import torch
 
@@ -73,19 +71,15 @@ def _dims(
     extra_continuous=(),
     extra_categorical=(),
 ):
-    """Minimal ``DataDimensions`` substitute.
+    """Per-covariate input dims, as keyword arguments for ``SetEncoder`` / ``SetEncoderConfig.build``.
 
-    Only ``condition_continuous_dims`` and ``condition_reps_dims`` are read
-    by the encoder, so a ``SimpleNamespace`` is sufficient.
     ``extra_*`` arguments populate the dims with covariates that have no
     corresponding encoder — a legitimate case (dims can be a superset).
     """
-    cont = {k: COV_DIMS[k][0] for k in (*continuous, *extra_continuous)}
-    cat = {k: COV_DIMS[k][0] for k in (*categorical, *extra_categorical)}
-    return SimpleNamespace(
-        condition_continuous_dims=cont or None,
-        condition_reps_dims=cat or None,
-    )
+    return {
+        "categorical_dims": {k: COV_DIMS[k][0] for k in (*categorical, *extra_categorical)},
+        "continuous_dims": {k: COV_DIMS[k][0] for k in (*continuous, *extra_continuous)},
+    }
 
 
 def _encoder_cfg(cov_id: str, *, batchnorm: bool = False) -> MLPEncoderConfig:
@@ -132,7 +126,7 @@ def _build(*, continuous=(), categorical=(), **overrides) -> SetEncoder:
     """Convenience: build encoder and matching dims in one call."""
     cfg = _cfg(continuous=continuous, categorical=categorical, **overrides)
     dims = _dims(continuous=continuous, categorical=categorical)
-    return SetEncoder(cfg, dims=dims)
+    return SetEncoder(cfg, **dims)
 
 
 def _decoder_in_features(encoder: SetEncoder) -> int:
@@ -182,24 +176,24 @@ class TestSetEncoderConfig:
 
 
 # ---------------------------------------------------------------------------
-# SetEncoderConfig.build(dims)
+# SetEncoderConfig.build(...)
 # ---------------------------------------------------------------------------
 
 
 class TestSetEncoderConfigBuild:
-    """The ``build(dims)`` convenience method must construct a working
+    """The ``build`` convenience method must construct a working
     encoder using the config's own fields.
     """
 
     def test_returns_set_encoder(self) -> None:
         cfg = _cfg(categorical=["condition0"])
         dims = _dims(categorical=["condition0"])
-        enc = cfg.build(dims)
+        enc = cfg.build(**dims)
         assert isinstance(enc, SetEncoder)
 
     def test_uses_config_output_dim(self) -> None:
         cfg = _cfg(categorical=["condition0"], output_dim=7)
-        enc = cfg.build(_dims(categorical=["condition0"])).eval()
+        enc = cfg.build(**_dims(categorical=["condition0"])).eval()
         cond = _inputs(categorical=("condition0",))
         with torch.no_grad():
             assert enc(cond).shape == (BATCH, 7)
@@ -210,25 +204,25 @@ class TestSetEncoderConfigBuild:
             categorical=["condition0"],
             pooling=SeedAttentionPoolingConfig(num_heads=2, v_dim=v_dim, seed_dim=4),
         )
-        enc = cfg.build(_dims(categorical=["condition0"]))
+        enc = cfg.build(**_dims(categorical=["condition0"]))
         assert _decoder_in_features(enc) == v_dim
 
     def test_uses_config_pooling_proj_dim(self) -> None:
         cfg = _cfg(categorical=["condition0"], pooling_proj_dim=7)
-        enc = cfg.build(_dims(categorical=["condition0"]))
+        enc = cfg.build(**_dims(categorical=["condition0"]))
         assert enc._set_encoder["projection"]["condition0"].out_features == 7
 
     def test_equivalent_to_direct_construction(self) -> None:
-        """``cfg.build(dims)`` must produce the same architecture as
-        ``SetEncoder(cfg, dims=dims)`` directly.
+        """``cfg.build(**dims)`` must produce the same architecture as
+        ``SetEncoder(cfg, **dims)`` directly.
         """
         cfg = _cfg(
             continuous=["condition0"],
             categorical=["condition1"],
         )
         dims = _dims(continuous=["condition0"], categorical=["condition1"])
-        enc_direct = SetEncoder(cfg, dims=dims)
-        enc_built = cfg.build(dims)
+        enc_direct = SetEncoder(cfg, **dims)
+        enc_built = cfg.build(**dims)
         # Both produce the same decoder input dim and same module structure
         assert _decoder_in_features(enc_direct) == _decoder_in_features(enc_built)
         assert set(enc_direct._set_encoder.keys()) == set(enc_built._set_encoder.keys())
@@ -243,7 +237,7 @@ class TestSetEncoderConstruction:
     def test_no_covariates_raises(self) -> None:
         cfg = _cfg()  # neither categorical nor continuous
         with pytest.raises(ValueError, match="Set encoder needs one of"):
-            SetEncoder(cfg, dims=_dims())
+            SetEncoder(cfg, **_dims())
 
     def test_continuous_only(self) -> None:
         """A continuous-only encoder is legitimate; no ``min([])`` crash."""
@@ -264,12 +258,12 @@ class TestSetEncoderConstruction:
     def test_missing_categorical_dim_rejected(self) -> None:
         cfg = _cfg(categorical=["condition0"])
         with pytest.raises(ValueError, match="no corresponding data dimensionality"):
-            SetEncoder(cfg, dims=_dims())  # empty dims
+            SetEncoder(cfg, **_dims())  # empty dims
 
     def test_missing_continuous_dim_rejected(self) -> None:
         cfg = _cfg(continuous=["condition0"])
         with pytest.raises(ValueError, match="no corresponding data dimensionality"):
-            SetEncoder(cfg, dims=_dims())
+            SetEncoder(cfg, **_dims())
 
     def test_extra_dim_key_is_ignored(self) -> None:
         """Dims may be a superset of the config — not every covariate needs
@@ -277,7 +271,7 @@ class TestSetEncoderConstruction:
         """
         cfg = _cfg(categorical=["condition0"])
         dims = _dims(categorical=["condition0"], extra_categorical=["condition1"])
-        SetEncoder(cfg, dims=dims)  # must not raise
+        SetEncoder(cfg, **dims)  # must not raise
 
     # ---- batchnorm guards -----------------------------------------------
 
@@ -289,7 +283,7 @@ class TestSetEncoderConstruction:
         """
         cfg = _cfg(categorical=["condition0"], categorical_batchnorm=True)
         with pytest.raises(ValueError, match="only ever see one row per batch"):
-            SetEncoder(cfg, dims=_dims(categorical=["condition0"]))
+            SetEncoder(cfg, **_dims(categorical=["condition0"]))
 
     def test_batchnorm_on_output_rejected_when_no_continuous(self) -> None:
         """Nothing per-observation reaches the output layer, so batchnorm is
@@ -300,7 +294,7 @@ class TestSetEncoderConstruction:
             output_layer=MLPConfig(use_batchnorm=True),
         )
         with pytest.raises(ValueError, match="only ever see one row per batch"):
-            SetEncoder(cfg, dims=_dims(categorical=["condition0"]))
+            SetEncoder(cfg, **_dims(categorical=["condition0"]))
 
     def test_batchnorm_on_output_allowed_when_continuous_present(self) -> None:
         """With continuous covariates, the output layer sees per-observation
@@ -313,12 +307,12 @@ class TestSetEncoderConstruction:
         )
         SetEncoder(
             cfg,
-            dims=_dims(continuous=["condition0"], categorical=["condition1"]),
+            **_dims(continuous=["condition0"], categorical=["condition1"]),
         )
 
     def test_batchnorm_on_continuous_input_allowed(self) -> None:
         cfg = _cfg(continuous=["condition0"], continuous_batchnorm=True)
-        SetEncoder(cfg, dims=_dims(continuous=["condition0"]))
+        SetEncoder(cfg, **_dims(continuous=["condition0"]))
 
     def test_multiple_categorical_batchnorm_names_all_flagged(self) -> None:
         """The error message should list every offending covariate."""
@@ -329,7 +323,7 @@ class TestSetEncoderConstruction:
         with pytest.raises(ValueError, match="condition0.*condition1|condition1.*condition0"):
             SetEncoder(
                 cfg,
-                dims=_dims(categorical=["condition0", "condition1"]),
+                **_dims(categorical=["condition0", "condition1"]),
             )
 
 
@@ -598,7 +592,7 @@ class TestPoolingVariants:
             pooling=TokenAttentionPoolingConfig(num_heads=3, qkv_dim=8),
         )
         with pytest.raises(ValueError, match="divisible"):
-            SetEncoder(cfg, dims=_dims(categorical=["condition0"]))
+            SetEncoder(cfg, **_dims(categorical=["condition0"]))
 
 
 # ---------------------------------------------------------------------------
@@ -786,8 +780,8 @@ class TestSetEncoderConfigRegistry:
         )
         rebuilt = SetEncoderConfig.model_validate(cfg.model_dump())
         dims = _dims(continuous=["condition0"], categorical=["condition1"])
-        enc_orig = cfg.build(dims)
-        enc_rebuilt = rebuilt.build(dims)
+        enc_orig = cfg.build(**dims)
+        enc_rebuilt = rebuilt.build(**dims)
         assert _decoder_in_features(enc_orig) == _decoder_in_features(enc_rebuilt)
 
 

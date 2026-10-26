@@ -1,14 +1,14 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 import torch
-from scfit.registry import component
+from scfit.registry import Component, component
 
 from sckitflow.core._types import MappedTensor
 from sckitflow.core._utils import make_concatenation_possible
-from sckitflow.core.nn._config import ModuleConfig
 from sckitflow.core.nn.blocks._mlp import MLPConfig, MLPEncoderConfig
 from sckitflow.core.nn.blocks._pooling import MeanPoolingConfig, PoolingLayerConfig
-from sckitflow.data._dims import DataDimensions
 
 __all__ = ["SetEncoderConfig", "SetEncoder"]
 
@@ -31,9 +31,10 @@ class SetEncoder(torch.nn.Module):
         self,
         cfg: SetEncoderConfig,
         *,
-        dims: DataDimensions,
+        categorical_dims: Mapping[str, int],
+        continuous_dims: Mapping[str, int],
     ) -> None:
-        """Initializes the set encoder from the given configurations and data dimensionalities."""
+        """Initializes the set encoder from the given configurations and per-covariate input dimensionalities."""
         # The first thing we have to do in any case, is to call the constructor of the parent class.
         super().__init__()
 
@@ -67,13 +68,6 @@ class SetEncoder(torch.nn.Module):
                 "normalization off for these layers (`use_layernorm` works on a single row)."
             )
 
-        # We retrieve the data dimensionalities for categorical and continuous condition
-        # covariates; we automatically initialize them to empty dictionaries when
-        # they are ``None``. The input layers are validated against the data dimensionalities
-        # as their encoders are initialized,
-        condition_continuous_dims = {} if dims.condition_continuous_dims is None else dims.condition_continuous_dims
-        condition_reps_dims = {} if dims.condition_reps_dims is None else dims.condition_reps_dims
-
         # ------------------------------------------------------------------------------------------
         # ---- B. Initialize neural networks. ------------------------------------------------------
         # ------------------------------------------------------------------------------------------
@@ -87,8 +81,8 @@ class SetEncoder(torch.nn.Module):
         # corresponding data dimensionalities -- we iterate over this packed tuples and validate
         # them against the data dimensionalities.
         for input_type, type_specific_layers, type_specific_dims in [
-            (_CONTINUOUS_LAYERS_KEY, continuous_input_layers, condition_continuous_dims),
-            (_CATEGORICAL_LAYERS_KEY, categorical_input_layers, condition_reps_dims),
+            (_CONTINUOUS_LAYERS_KEY, continuous_input_layers, continuous_dims),
+            (_CATEGORICAL_LAYERS_KEY, categorical_input_layers, categorical_dims),
         ]:
             # We create two separate ``torch.nn.ModuleDict`` for categorical and continuous
             # condition covariates. Here, we initialize the dictoinary to store the type-specific
@@ -154,23 +148,25 @@ class SetEncoder(torch.nn.Module):
             # We compute here the contribution of categorical covariates to the decoder input dimension. This will
             # be done by the trailing dimension of the pooling layer's output. We guard with the length of
             # ``categorical_input_layers`` because this contribution should only be considered when the
-            # set encoder models categorical covariates. The ``categorical_dims`` variable will hold such component.
+            # set encoder models categorical covariates. The ``categorical_out_dim`` variable will hold such component.
             # Attention-seed pools to `v_dim`; every other mode keeps the projection dim.
             # We rely on the public API of pooling layers, that are required to expose their output dimension.
-            categorical_dims = set_encoder_dict[_POOLING_LAYER_KEY].output_dim
+            categorical_out_dim = set_encoder_dict[_POOLING_LAYER_KEY].output_dim
 
         # When there are no categorical covariates, the only contribution comes from the continuous covariates;
         # therefore, we set ``pooled_dim`` to ``0``.
         else:
-            categorical_dims = 0
+            categorical_out_dim = 0
 
         # ---- B-3. Build the output layer. ----
         # Computing the component coming from the continuous covariates.
-        continuous_dims = sum(covariate_cfg.output_dim for covariate_cfg in continuous_input_layers.values())
+        continuous_out_dim = sum(covariate_cfg.output_dim for covariate_cfg in continuous_input_layers.values())
 
         # Finally -- once we have computed both categorical and continuous covariates latent dimensionalities --
         # we can build the output layer.
-        set_encoder_dict[_OUTPUT_LAYER_KEY] = output_layer_cfg.build(categorical_dims + continuous_dims, cfg.output_dim)
+        set_encoder_dict[_OUTPUT_LAYER_KEY] = output_layer_cfg.build(
+            categorical_out_dim + continuous_out_dim, cfg.output_dim
+        )
 
         # We ultimately register all the neural networks in ``set_encoder_dict`` in a single ``torch.nn.ModuleDict``,
         # which will be the main and only entrypoint for the forward pass.
@@ -242,7 +238,7 @@ class SetEncoder(torch.nn.Module):
 
 
 @component("nn.composite.set_encoder", builds=SetEncoder)
-class SetEncoderConfig(ModuleConfig):
+class SetEncoderConfig(Component):
     """Configuration class for set encoders."""
 
     output_dim: int
@@ -293,5 +289,5 @@ class SetEncoderConfig(ModuleConfig):
     :type output_layer: `MLPConfig | None`
     """
 
-    def build(self, dims: DataDimensions) -> SetEncoder:
-        return SetEncoder(self, dims=dims)
+    def build(self, categorical_dims: Mapping[str, int], continuous_dims: Mapping[str, int]) -> SetEncoder:
+        return SetEncoder(self, categorical_dims=categorical_dims, continuous_dims=continuous_dims)

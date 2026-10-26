@@ -16,8 +16,7 @@ class ModuleConfig(Component, ABC):
     must override :meth:`build`.
 
     The return type is deliberately loose (``torch.nn.Module``) so each
-    subclass can narrow it covariantly (e.g. ``SetEncoderConfig.build``
-    returns ``SetEncoder``).
+    subclass can narrow it covariantly.
     """
 
     @abstractmethod

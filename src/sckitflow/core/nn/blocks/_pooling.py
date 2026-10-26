@@ -5,6 +5,8 @@ from typing import ClassVar
 import torch
 from scfit.registry import Component, component
 
+from sckitflow.core.nn.blocks._functional import FunctionalModule
+
 __all__ = [
     "BasePoolingLayer",
     "TokenAttentionPooling",
@@ -130,19 +132,10 @@ class SeedAttentionPoolingConfig(AttentionPoolingConfig):
         return SeedAttentionPooling(input_dim, **dict(self))
 
 
-class _FunctionalModule(BasePoolingLayer, torch.nn.Module):
+class _AggregationPooling(BasePoolingLayer, FunctionalModule):
     def __init__(self, input_dim: int, fn: Callable[[torch.Tensor], torch.Tensor]) -> None:
-        super().__init__()
-        self._fn = fn
-        # We don't really need the ``self._input_dim`` attribute
+        super().__init__(fn)
         self._output_dim = input_dim
-        # The identity module is required to register the parameters of modules
-        # using this functional component; an error is thrown otherwise. Hence,
-        # despite this being a no-op, we need to keep it nevertheless.
-        self._net = torch.nn.Identity()
-
-    def forward(self, x: torch.Tensor):
-        return self._net(self._fn(x))
 
     @property
     def output_dim(self) -> int:
@@ -156,7 +149,7 @@ class _AggregationPoolingConfig(Component):
         def _wrapped_fn(x: torch.Tensor):
             return type(self).fn(x, dim=-2)
 
-        return _FunctionalModule(input_dim, _wrapped_fn)
+        return _AggregationPooling(input_dim, _wrapped_fn)
 
 
 @component("nn.pooling.mean")

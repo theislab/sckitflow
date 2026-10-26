@@ -8,6 +8,7 @@ from scfit.registry import Component, component
 
 from sckitflow._constants import PI
 from sckitflow.core._utils import ensure_2d_tensor_with_singleton_trailing_dim
+from sckitflow.core.nn.blocks._functional import FunctionalModule
 
 __all__ = [
     "TimeFeaturesFn",
@@ -91,9 +92,9 @@ def _torch_cfm_time_features(
 
 class TimeFeaturesFn(Protocol):
     @overload
-    def __call__(self, t: torch.Tensor, n_time_features: int): ...
+    def __call__(self, t: torch.Tensor, n_time_features: int) -> torch.Tensor: ...
     @overload
-    def __call__(self, t: torch.Tensor, n_time_features: int, max_period: int): ...
+    def __call__(self, t: torch.Tensor, n_time_features: int, max_period: int) -> torch.Tensor: ...
 
 
 class TimeFeaturesConfig(Component):
@@ -101,7 +102,7 @@ class TimeFeaturesConfig(Component):
     n_time_features: int
 
     def build(self) -> Callable[[torch.Tensor], torch.Tensor]:
-        return partial(type(self).fn, **dict(self))
+        return FunctionalModule(partial(type(self).fn, **dict(self)))
 
 
 @component("nn.time_features.ott_jax")

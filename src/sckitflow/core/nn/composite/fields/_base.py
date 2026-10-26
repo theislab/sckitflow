@@ -13,7 +13,7 @@ from sckitflow.core.nn._config import ModuleConfig
 from sckitflow.core.nn.blocks._mlp import MLPConfig, MLPEncoderConfig
 from sckitflow.core.nn.blocks._time_features import TimeFeaturesConfig
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayerConfig
-from sckitflow.core.nn.blocks.conditioning._concat import ConcatConditioningConfig
+from sckitflow.core.nn.blocks.conditioning._film import AdaLNZeroConditioningConfig
 from sckitflow.core.nn.composite._set_encoder import SetEncoderConfig
 from sckitflow.data._dims import DataDimensions
 
@@ -88,7 +88,7 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
 
         # Regardless of the configurations, we are always going to require a conditioning layer
         # and a field decoder. We initialize these to their defaults when they are not provided.
-        conditioning_cfg = ConcatConditioningConfig() if cfg.conditioning is None else cfg.conditioning
+        conditioning_cfg = AdaLNZeroConditioningConfig() if cfg.conditioning is None else cfg.conditioning
         field_decoder_cfg = MLPConfig() if cfg.field_decoder is None else cfg.field_decoder
 
         # We need to register the config flag ``model_s_index`` as a class attribute;
@@ -438,7 +438,8 @@ class _BaseNeuralFieldConfig(ModuleConfig):
     """
 
     conditioning: BaseConditioningLayerConfig | None = None
-    """:param conditioning: Configurations specifying the conditioning layer to be used."""
+    """:param conditioning: Configurations specifying the conditioning layer to be used.
+        Defaults to ``AdaLNZeroConditioningConfig``."""
 
     field_decoder: MLPConfig | None = None
     """:param field_decoder: The ``MLPConfig`` for the field decoder."""

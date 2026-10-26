@@ -14,11 +14,9 @@ __all__ = [
 class FiLMConditioning(BaseConditioningLayer):
     """Feature-wise linear modulation (FiLM, Perez et al. 2018) of the state by time and condition.
 
-    A linear map of the conditioning signal gives a per-feature scale ``gamma`` and shift ``beta``, and the state
-    becomes ``(1 + gamma) * encoded_state + beta``: ``gamma`` is an offset from 1, as in the paper's code. The
-    projection starts at zero, as DiT's modulation does, so the layer starts as the identity and a random
-    projection cannot rescale the state before training. The modulation is bilinear in condition and state,
-    which concatenation cannot express. ``output_dim`` is ``latent_state_dim``.
+    A linear map of the SiLU of the conditioning signal gives a per-feature ``gamma`` and ``beta``, and the state
+    becomes ``(1 + gamma) * encoded_state + beta``. The projection starts at zero, so the layer starts as the
+    identity. ``output_dim`` is ``latent_state_dim``.
     """
 
     def __init__(
@@ -46,7 +44,6 @@ class FiLMConditioning(BaseConditioningLayer):
             latent_condition_dim,
         )
 
-        # one projection for both: its output splits into (gamma, beta); zero, so the layer starts as the identity
         self._linear = torch.nn.Linear(self.embedding_dim, 2 * self._latent_state_dim)
         torch.nn.init.zeros_(self._linear.weight)
         torch.nn.init.zeros_(self._linear.bias)
@@ -57,8 +54,8 @@ class FiLMConditioning(BaseConditioningLayer):
         return self._latent_state_dim
 
     def _modulate(self, conditions: torch.Tensor, state: torch.Tensor) -> torch.Tensor:
-        """Scales and shifts ``state`` per feature by the ``(gamma, beta)`` projected from ``conditions``."""
-        gamma, beta = self._linear(conditions).chunk(2, dim=-1)
+        """Scales and shifts ``state`` per feature by the ``(gamma, beta)`` projected from the SiLU of ``conditions``."""
+        gamma, beta = self._linear(torch.nn.functional.silu(conditions)).chunk(2, dim=-1)
         return (1 + gamma) * state + beta
 
     def forward(
@@ -83,11 +80,10 @@ class FiLMConditioning(BaseConditioningLayer):
 
 
 class AdaLNZeroConditioning(FiLMConditioning):
-    """adaLN-Zero (Peebles & Xie 2023): FiLM of the layer-normed state, with SiLU on the condition.
+    """adaLN-Zero (Peebles & Xie 2023): FiLM of the layer-normed state.
 
-    The state is normalized without a learned scale or shift of its own and the conditioning signal goes through a
-    SiLU before the projection; the projection starts at zero as in FiLM, so the layer starts as ``LayerNorm(state)``.
-    DiT also gates a residual branch; this layer feeds the decoder directly, so there is no branch to gate.
+    The state is normalized without a learned affine before the modulation, so the layer starts as
+    ``LayerNorm(state)``.
     """
 
     def __init__(
@@ -134,8 +130,7 @@ class AdaLNZeroConditioning(FiLMConditioning):
             to compute the modulation.
         :type encoded_condition: class: `torch.Tensor`
         """
-        conditions = torch.nn.functional.silu(self._conditions(encoded_t, encoded_state, encoded_condition))
-        return self._modulate(conditions, self._norm(encoded_state))
+        return self._modulate(self._conditions(encoded_t, encoded_state, encoded_condition), self._norm(encoded_state))
 
 
 @component("nn.conditioning.film", builds=FiLMConditioning)

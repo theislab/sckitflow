@@ -84,7 +84,7 @@ class TestFiLMConditioning:
     def test_embedding_dim_with_cond(self) -> None:
         assert _make_layer(with_cond=True).embedding_dim == _TIME + _COND
 
-    # ---- semantics: output equals (1 + gamma) * x + beta ----------------
+    # ---- semantics: output equals (1 + gamma) * x + beta, (gamma, beta) from SiLU(conditions) ----
 
     def test_output_is_one_plus_gamma_x_plus_beta(self) -> None:
         """Recompute the documented formula from the module's own linear and compare against ``forward``."""
@@ -93,7 +93,7 @@ class TestFiLMConditioning:
         x = torch.randn(_BATCH, _STATE)
         t = torch.randn(_BATCH, _TIME)
         with torch.no_grad():
-            gamma, beta = layer._linear(t).chunk(2, dim=-1)
+            gamma, beta = layer._linear(torch.nn.functional.silu(t)).chunk(2, dim=-1)
             torch.testing.assert_close(layer(t, x), (1 + gamma) * x + beta)
 
     def test_starts_as_identity(self) -> None:

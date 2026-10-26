@@ -90,7 +90,7 @@ class ResNetConditioningConfig(BaseConditioningLayerConfig):
         latent_state_dim: int,
         latent_time_dim: int,
         latent_condition_dim: int | None = None,
-    ) -> ResNet:
+    ) -> ResNetConditioning:
         return ResNetConditioning(
             latent_state_dim=latent_state_dim,
             latent_time_dim=latent_time_dim,

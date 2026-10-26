@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import torch
 from scfit.registry import component
 
@@ -11,29 +13,6 @@ __all__ = [
 
 class ConcatConditioning(BaseConditioningLayer):
     """Class for concatenation based conditioning layers."""
-
-    def __init__(
-        self,
-        latent_state_dim: int,
-        latent_time_dim: int,
-        latent_condition_dim: int | None = None,
-    ) -> None:
-        """Initializes the concatenation based conditioning.
-
-        :param latent_state_dim: The latent dimensionality of the input states.
-        :type latent_state_dim: class: `int`
-
-        :param latent_time_dim: The latent dimensionality of the input time index.
-        :type latent_time_dim: class: `int`
-
-        :param latent_condition_dim: (Optional) The dimensionality of extra conditioning argument to be concatenated to the input.
-        :type latent_condition_dim: class: `int | None`
-        """
-        super().__init__(
-            latent_state_dim,
-            latent_time_dim,
-            latent_condition_dim,
-        )
 
     @property
     def output_dim(
@@ -73,15 +52,4 @@ class ConcatConditioning(BaseConditioningLayer):
 
 @component("nn.conditioning.concat", builds=ConcatConditioning)
 class ConcatConditioningConfig(BaseConditioningLayerConfig):
-    def build(
-        self,
-        *,
-        latent_state_dim: int,
-        latent_time_dim: int,
-        latent_condition_dim: int | None = None,
-    ) -> ConcatConditioning:
-        return ConcatConditioning(
-            latent_state_dim=latent_state_dim,
-            latent_time_dim=latent_time_dim,
-            latent_condition_dim=latent_condition_dim,
-        )
+    layer: ClassVar[type[BaseConditioningLayer]] = ConcatConditioning

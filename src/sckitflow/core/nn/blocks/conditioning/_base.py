@@ -1,4 +1,5 @@
 import abc
+from typing import ClassVar
 
 import torch
 from scfit.registry import Component
@@ -126,6 +127,8 @@ class BaseConditioningLayer(abc.ABC, torch.nn.Module):
 
 
 class BaseConditioningLayerConfig(Component):
+    layer: ClassVar[type[BaseConditioningLayer]]
+
     def build(
         self,
         *,
@@ -133,4 +136,8 @@ class BaseConditioningLayerConfig(Component):
         latent_time_dim: int,
         latent_condition_dim: int | None = None,
     ) -> BaseConditioningLayer:
-        raise NotImplementedError
+        return type(self).layer(
+            latent_state_dim=latent_state_dim,
+            latent_time_dim=latent_time_dim,
+            latent_condition_dim=latent_condition_dim,
+        )

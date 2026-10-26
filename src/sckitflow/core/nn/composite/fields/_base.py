@@ -311,15 +311,6 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
 class NeuralVelocity(_NeuralFieldMixin):
     """Time-conditional field: ``v(t, x) -> state_dim``."""
 
-    def __init__(
-        self,
-        cfg: NeuralVelocityConfig,
-        *,
-        dims: DataDimensions,
-    ) -> None:
-        # The first thing we have to do in any case, is to call the constructor of the parent class.
-        super().__init__(cfg, dims=dims)
-
     def forward(
         self,
         t: torch.Tensor,
@@ -341,15 +332,6 @@ class NeuralVelocity(_NeuralFieldMixin):
 
 class NeuralFlowMap(_NeuralFieldMixin):
     """Doubly-time-conditional field: ``Φ(s, t, x) -> state_dim``."""
-
-    def __init__(
-        self,
-        cfg: NeuralFlowMapConfig,
-        *,
-        dims: DataDimensions,
-    ) -> None:
-        # The first thing we have to do in any case, is to call the constructor of the parent class.
-        super().__init__(cfg, dims=dims)
 
     def forward(
         self,

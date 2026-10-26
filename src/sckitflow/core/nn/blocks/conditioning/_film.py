@@ -1,3 +1,5 @@
+from typing import ClassVar
+
 import torch
 from scfit.registry import component
 
@@ -135,31 +137,9 @@ class AdaLNZeroConditioning(FiLMConditioning):
 
 @component("nn.conditioning.film", builds=FiLMConditioning)
 class FiLMConditioningConfig(BaseConditioningLayerConfig):
-    def build(
-        self,
-        *,
-        latent_state_dim: int,
-        latent_time_dim: int,
-        latent_condition_dim: int | None = None,
-    ) -> FiLMConditioning:
-        return FiLMConditioning(
-            latent_state_dim=latent_state_dim,
-            latent_time_dim=latent_time_dim,
-            latent_condition_dim=latent_condition_dim,
-        )
+    layer: ClassVar[type[BaseConditioningLayer]] = FiLMConditioning
 
 
 @component("nn.conditioning.adaln_zero", builds=AdaLNZeroConditioning)
 class AdaLNZeroConditioningConfig(BaseConditioningLayerConfig):
-    def build(
-        self,
-        *,
-        latent_state_dim: int,
-        latent_time_dim: int,
-        latent_condition_dim: int | None = None,
-    ) -> AdaLNZeroConditioning:
-        return AdaLNZeroConditioning(
-            latent_state_dim=latent_state_dim,
-            latent_time_dim=latent_time_dim,
-            latent_condition_dim=latent_condition_dim,
-        )
+    layer: ClassVar[type[BaseConditioningLayer]] = AdaLNZeroConditioning

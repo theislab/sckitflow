@@ -71,15 +71,6 @@ class SamplerFn(Protocol):
     ) -> torch.Tensor: ...
 
 
-class ConditioningFn(Protocol):
-    def __call__(
-        self,
-        encoded_t: torch.Tensor,
-        encoded_state: torch.Tensor,
-        *args: torch.Tensor,
-    ) -> torch.Tensor: ...
-
-
 NoiseType = Literal["scalar", "diagonal", "general", "additive"]
 SDEType = Literal["ito", "stratonovich"]
 

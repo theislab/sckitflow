@@ -18,7 +18,12 @@ from sckitflow.core.nn.blocks._resnet import ResNet, ResNetConfig
 from sckitflow.core.nn.blocks._time_features import OTTJaxTimeFeaturesConfig, TorchCFMTimeFeaturesConfig
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayer, BaseConditioningLayerConfig
 from sckitflow.core.nn.blocks.conditioning._concat import ConcatConditioning, ConcatConditioningConfig
-from sckitflow.core.nn.blocks.conditioning._film import FiLMConditioning, FiLMConditioningConfig
+from sckitflow.core.nn.blocks.conditioning._film import (
+    AdaLNZeroConditioning,
+    AdaLNZeroConditioningConfig,
+    FiLMConditioning,
+    FiLMConditioningConfig,
+)
 from sckitflow.core.nn.blocks.conditioning._resnet import ResNetConditioning, ResNetConditioningConfig
 
 __all__ = [
@@ -44,6 +49,8 @@ __all__ = [
     "BaseConditioningLayerConfig",
     "ConcatConditioning",
     "ConcatConditioningConfig",
+    "AdaLNZeroConditioning",
+    "AdaLNZeroConditioningConfig",
     "FiLMConditioning",
     "FiLMConditioningConfig",
     "ResNetConditioning",

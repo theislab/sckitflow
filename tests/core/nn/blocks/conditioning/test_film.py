@@ -1,12 +1,15 @@
-"""Tests for :class:`FiLMConditioning` and :class:`FiLMConditioningConfig`."""
+"""Tests for :class:`FiLMConditioning`, :class:`AdaLNZeroConditioning` and their configs."""
 
 from __future__ import annotations
 
 import pytest
 import torch
+from scfit.registry import parse
 
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayerConfig
 from sckitflow.core.nn.blocks.conditioning._film import (
+    AdaLNZeroConditioning,
+    AdaLNZeroConditioningConfig,
     FiLMConditioning,
     FiLMConditioningConfig,
 )
@@ -40,14 +43,17 @@ def _input_tensors(x_shape, t_shape, cond_shape):
     return x, t, cond
 
 
-def _make_layer(*, with_cond: bool) -> FiLMConditioning:
-    """``FiLMConditioning.__init__`` is keyword-only — the historical test
-    passed positional args and would now raise ``TypeError``."""
-    return FiLMConditioning(
+def _make_layer(*, with_cond: bool, trained: bool = False, cls=FiLMConditioning) -> FiLMConditioning:
+    """``trained`` replaces the zero init of the projection with random weights."""
+    layer = cls(
         latent_state_dim=_STATE,
         latent_time_dim=_TIME,
         latent_condition_dim=_COND if with_cond else None,
     )
+    if trained:
+        torch.nn.init.normal_(layer._linear.weight)
+        torch.nn.init.normal_(layer._linear.bias)
+    return layer
 
 
 class TestFiLMConditioning:
@@ -55,8 +61,9 @@ class TestFiLMConditioning:
 
     @pytest.mark.parametrize("x_shape,t_shape,cond_shape", SHAPE_CASES)
     @pytest.mark.parametrize("with_cond", [True, False])
-    def test_forward_shape(self, x_shape, t_shape, cond_shape, with_cond) -> None:
-        layer = _make_layer(with_cond=with_cond)
+    @pytest.mark.parametrize("cls", [FiLMConditioning, AdaLNZeroConditioning])
+    def test_forward_shape(self, x_shape, t_shape, cond_shape, with_cond, cls) -> None:
+        layer = _make_layer(with_cond=with_cond, cls=cls)
         if not with_cond:
             cond_shape = None
         x, t, cond = _input_tensors(x_shape, t_shape, cond_shape)
@@ -77,36 +84,36 @@ class TestFiLMConditioning:
     def test_embedding_dim_with_cond(self) -> None:
         assert _make_layer(with_cond=True).embedding_dim == _TIME + _COND
 
-    # ---- semantics: output equals gamma * x + beta ---------------------
+    # ---- semantics: output equals (1 + gamma) * x + beta ----------------
 
-    def test_output_is_gamma_x_plus_beta(self) -> None:
-        """Recompute the documented formula manually from the module's own
-        linear + activation and compare against ``forward``.
-        """
+    def test_output_is_one_plus_gamma_x_plus_beta(self) -> None:
+        """Recompute the documented formula from the module's own linear and compare against ``forward``."""
         torch.manual_seed(0)
-        layer = _make_layer(with_cond=False)
+        layer = _make_layer(with_cond=False, trained=True)
         x = torch.randn(_BATCH, _STATE)
         t = torch.randn(_BATCH, _TIME)
         with torch.no_grad():
-            gamma, beta = layer._activation(layer._linear(t)).chunk(2, dim=-1)
-            expected = gamma * x + beta
-            actual = layer(t, x)
-        assert torch.allclose(actual, expected)
+            gamma, beta = layer._linear(t).chunk(2, dim=-1)
+            torch.testing.assert_close(layer(t, x), (1 + gamma) * x + beta)
 
-    def test_zeroed_linear_gives_zero_output(self) -> None:
-        """``SiLU(0) = 0`` ⇒ ``gamma = beta = 0`` ⇒ ``out = 0 * x + 0 = 0``."""
+    def test_starts_as_identity(self) -> None:
+        """The projection starts at zero, so ``gamma = beta = 0`` and the state passes through unchanged."""
+        layer = _make_layer(with_cond=True)
+        x = torch.randn(_BATCH, _STATE)
+        torch.testing.assert_close(layer(torch.randn(_BATCH, _TIME), x, torch.randn(_BATCH, _COND)), x)
+
+    def test_modulation_is_unbounded(self) -> None:
+        """No activation on ``(gamma, beta)``: a negative projection flips the state's sign."""
         layer = _make_layer(with_cond=False)
         with torch.no_grad():
-            layer._linear.weight.zero_()
-            layer._linear.bias.zero_()
+            layer._linear.bias.copy_(torch.cat([torch.full((_STATE,), -3.0), torch.zeros(_STATE)]))
         x = torch.randn(_BATCH, _STATE)
-        t = torch.randn(_BATCH, _TIME)
-        assert torch.allclose(layer(t, x), torch.zeros_like(x))
+        torch.testing.assert_close(layer(torch.zeros(_TIME), x), -2 * x)
 
     def test_output_depends_on_time(self) -> None:
         """Guard against a future refactor that drops the modulation."""
         torch.manual_seed(0)
-        layer = _make_layer(with_cond=False)
+        layer = _make_layer(with_cond=False, trained=True)
         x = torch.randn(_BATCH, _STATE)
         t1 = torch.randn(_BATCH, _TIME)
         t2 = torch.randn(_BATCH, _TIME)
@@ -114,7 +121,7 @@ class TestFiLMConditioning:
 
     def test_output_depends_on_condition(self) -> None:
         torch.manual_seed(0)
-        layer = _make_layer(with_cond=True)
+        layer = _make_layer(with_cond=True, trained=True)
         x = torch.randn(_BATCH, _STATE)
         t = torch.randn(_BATCH, _TIME)
         c1 = torch.randn(_BATCH, _COND)
@@ -161,3 +168,40 @@ class TestFiLMConditioningConfig:
         x = torch.randn(_BATCH, _STATE)
         t = torch.randn(_BATCH, _TIME)
         assert layer(t, x).shape == (_BATCH, _STATE)
+
+
+class TestAdaLNZeroConditioning:
+    def test_is_film(self) -> None:
+        assert issubclass(AdaLNZeroConditioning, FiLMConditioning)
+
+    def test_starts_as_layer_norm(self) -> None:
+        """Zero projection: the output is the state layer-normed without a learned affine."""
+        layer = _make_layer(with_cond=True, cls=AdaLNZeroConditioning)
+        x = torch.randn(_BATCH, _SAMPLES, _STATE) * 5 + 3
+        out = layer(torch.randn(_BATCH, _TIME), x, torch.randn(_BATCH, _COND))
+        torch.testing.assert_close(out, torch.nn.functional.layer_norm(x, (_STATE,)))
+
+    def test_modulates_silu_of_conditions(self) -> None:
+        torch.manual_seed(0)
+        layer = _make_layer(with_cond=False, trained=True, cls=AdaLNZeroConditioning)
+        x = torch.randn(_BATCH, _STATE)
+        t = torch.randn(_BATCH, _TIME)
+        with torch.no_grad():
+            gamma, beta = layer._linear(torch.nn.functional.silu(t)).chunk(2, dim=-1)
+            expected = (1 + gamma) * torch.nn.functional.layer_norm(x, (_STATE,)) + beta
+            torch.testing.assert_close(layer(t, x), expected)
+
+
+class TestAdaLNZeroConditioningConfig:
+    def test_build_returns_adaln_zero(self) -> None:
+        layer = AdaLNZeroConditioningConfig().build(latent_state_dim=_STATE, latent_time_dim=_TIME)
+        assert isinstance(layer, AdaLNZeroConditioning)
+        assert layer.output_dim == _STATE
+
+    @pytest.mark.parametrize(
+        ("type_", "cls"),
+        [("nn.conditioning.film", FiLMConditioning), ("nn.conditioning.adaln_zero", AdaLNZeroConditioning)],
+    )
+    def test_registered(self, type_, cls) -> None:
+        layer = parse({"type": type_}).build(latent_state_dim=_STATE, latent_time_dim=_TIME)
+        assert type(layer) is cls

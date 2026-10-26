@@ -1,7 +1,6 @@
 import torch
 from scfit.registry import component
 
-from sckitflow.core._utils import make_concatenation_possible
 from sckitflow.core.nn.blocks._resnet import ResNet, ResNetConfig
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayer, BaseConditioningLayerConfig
 
@@ -71,20 +70,7 @@ class ResNetConditioning(BaseConditioningLayer):
             attribute, otherwise a :class: `RuntimeError` is raised.
         :type encoded_condition: class: `torch.Tensor`
         """
-        # sanity checks
-        self._verify_inputs_shape(
-            encoded_t,
-            encoded_state,
-            encoded_condition,
-        )
-
-        # concatenating input
-        to_concat = (make_concatenation_possible(encoded_t, encoded_state, -1),)
-        if encoded_condition is not None:
-            to_concat = to_concat + (make_concatenation_possible(encoded_condition, encoded_state, -1),)
-
-        conditions = torch.concatenate(to_concat, dim=-1)
-        return self._resnet(encoded_state, conditions)
+        return self._resnet(encoded_state, self._conditions(encoded_t, encoded_state, encoded_condition))
 
     @property
     def output_dim(
@@ -92,16 +78,6 @@ class ResNetConditioning(BaseConditioningLayer):
     ) -> int:
         """Return the dimensionality of the conditioned output."""
         return self._resnet.output_dim
-
-    @property
-    def embedding_dim(
-        self,
-    ) -> int:
-        """Return the dimensionality of the conditioned output."""
-        embedding_dim = self._latent_time_dim
-        if self._latent_condition_dim is not None:
-            embedding_dim = embedding_dim + self._latent_condition_dim
-        return embedding_dim
 
 
 @component("nn.conditioning.resnet", builds=ResNetConditioning)

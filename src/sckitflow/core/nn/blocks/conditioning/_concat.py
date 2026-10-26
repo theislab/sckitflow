@@ -1,7 +1,6 @@
 import torch
 from scfit.registry import component
 
-from sckitflow.core._utils import make_concatenation_possible
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayer, BaseConditioningLayerConfig
 
 __all__ = [
@@ -36,8 +35,6 @@ class ConcatConditioning(BaseConditioningLayer):
             latent_condition_dim,
         )
 
-        self._identity = torch.nn.Identity()
-
     @property
     def output_dim(
         self,
@@ -71,19 +68,7 @@ class ConcatConditioning(BaseConditioningLayer):
             attribute, otherwise a :class: `RuntimeError` is raised.
         :type encoded_condition: class: `torch.Tensor`
         """
-        # sanity checks
-        self._verify_inputs_shape(
-            encoded_t,
-            encoded_state,
-            encoded_condition,
-        )
-
-        # concatenating input
-        to_concat = (encoded_state, make_concatenation_possible(encoded_t, encoded_state, -1))
-        if encoded_condition is not None:
-            to_concat = to_concat + (make_concatenation_possible(encoded_condition, encoded_state, -1),)
-        concat_input = torch.concatenate(to_concat, dim=-1)
-        return self._identity(concat_input)
+        return torch.cat([encoded_state, self._conditions(encoded_t, encoded_state, encoded_condition)], dim=-1)
 
 
 @component("nn.conditioning.concat", builds=ConcatConditioning)

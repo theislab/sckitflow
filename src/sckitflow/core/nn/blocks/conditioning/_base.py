@@ -3,6 +3,8 @@ import abc
 import torch
 from scfit.registry import Component
 
+from sckitflow.core._utils import make_concatenation_possible
+
 __all__ = ["BaseConditioningLayer", "BaseConditioningLayerConfig"]
 
 
@@ -58,6 +60,22 @@ class BaseConditioningLayer(abc.ABC, torch.nn.Module):
             attribute, otherwise a :class: `RuntimeError` is raised.
         :type encoded_condition: class: `torch.Tensor`
         """
+
+    @property
+    def embedding_dim(self) -> int:
+        """Width of the conditioning signal: the time embedding plus the optional condition."""
+        return self._latent_time_dim + (self._latent_condition_dim or 0)
+
+    def _conditions(
+        self,
+        encoded_t: torch.Tensor,
+        encoded_state: torch.Tensor,
+        encoded_condition: torch.Tensor | None,
+    ) -> torch.Tensor:
+        """Checks the inputs, then broadcasts time and condition to the state's leading dims and concatenates them."""
+        self._verify_inputs_shape(encoded_t, encoded_state, encoded_condition)
+        parts = [encoded_t] if encoded_condition is None else [encoded_t, encoded_condition]
+        return torch.cat([make_concatenation_possible(p, encoded_state, -1) for p in parts], dim=-1)
 
     def _verify_inputs_shape(
         self,

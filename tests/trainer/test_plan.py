@@ -374,7 +374,32 @@ def test_predict_adata_aggregate(paired, dims):
     np.testing.assert_allclose(pred.X.reshape(30, 16, 2).mean(1), mean.X, rtol=1e-5, atol=1e-6)
 
 
-def test_predict_adata_names_source_cells(dims):
+@pytest.mark.parametrize("batch_size", [1, 2, 4])
+def test_predict_adata_batched_matches_unbatched(paired, dims, batch_size):
+    """Flowing from controls with the ODE draws no noise, so splitting each group of five into batches changes nothing."""
+    dmod, adata = paired
+    inference = _inference(_module(), dims)
+    whole = predict_adata(dmod, inference, adata)
+    batched = predict_adata(dmod, inference, adata, batch_size=batch_size)
+    pd.testing.assert_frame_equal(batched.obs, whole.obs)
+    np.testing.assert_allclose(batched.X, whole.X, rtol=1e-6)
+
+
+def test_predict_adata_batched_from_noise(paired, dims):
+    """Without a source the noise is sized by each batch's `n_obs`: one row per cell, each batch its own noise."""
+    dmod, adata = paired
+    inference = _noise_inference(dims, n_samples=1)
+    whole = predict_adata(dmod, inference, adata, control_values_dict={})
+    batched = predict_adata(dmod, inference, adata, control_values_dict={}, batch_size=2)
+    pd.testing.assert_frame_equal(batched.obs, whole.obs)
+    # the first batch of a group draws the unsplit run's noise; the rest draw their own
+    first = (batched.obs.groupby(["cell_line", "drug"], observed=True).cumcount() < 2).to_numpy()
+    np.testing.assert_allclose(batched.X[first], whole.X[first], rtol=1e-6)
+    assert not np.allclose(batched.X[~first], whole.X[~first])
+
+
+@pytest.mark.parametrize("batch_size", [None, 2])
+def test_predict_adata_names_source_cells(dims, batch_size):
     """A zero velocity field returns its source, so each row's `source_obs_name` is the control it came from."""
     adata = _adata()
     adata = adata[(adata.obs["drug"] != "control") | adata.obs_names.isin(["0", "1", "20", "21"])].copy()
@@ -382,7 +407,7 @@ def test_predict_adata_names_source_cells(dims):
     module = _module()
     for p in module.parameters():
         torch.nn.init.zeros_(p)
-    pred = predict_adata(dmod, _inference(module, dims), adata)
+    pred = predict_adata(dmod, _inference(module, dims), adata, batch_size=batch_size)
 
     np.testing.assert_allclose(pred.X, adata[pred.obs["source_obs_name"]].X, atol=1e-6)
     # each group of five tiles its cell line's two controls, in obs order

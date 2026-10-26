@@ -72,13 +72,24 @@ _STEP_DATA_KEYS = (
 
 _PRIMARY = "primary"
 _CONTROL = "control"
-_ROWS = "rows"  # beside a stream's reps in an eval batch: the global rows read; never a rep loc ("X", "obsm/<k>")
 
 # Coupling terms
 _TARGET_LIN_TERM = "target_coupling_lin"
 _TARGET_QUAD_TERM = "target_coupling_quad"
 _SOURCE_LIN_TERM = "source_coupling_lin"
 _SOURCE_QUAD_TERM = "source_coupling_quad"
+
+
+def _tile_index(n_source: int, batch_size: int) -> np.ndarray:
+    """Row index aligning ``n_source`` source rows to ``batch_size``: sliced when longer, tiled when shorter."""
+    if n_source == 0:
+        raise ValueError(
+            "a group was matched to zero control observations, so there is no source to flow from. Check that "
+            "every group value present in the primary also has controls (matching is on the group "
+            "columns, or on the pair id under `matched_keys`), or predict unpaired by passing "
+            "`control_values_dict={}`."
+        )
+    return np.arange(batch_size) % n_source
 
 
 def _get_loc(sample_rep: str | None) -> str:
@@ -374,17 +385,10 @@ class _StepDataBridge:
         """Row-align the source to ``batch_size``, slicing it when longer and tiling it when shorter."""
         if source_state is None or int(source_state.shape[0]) == batch_size:
             return source_state
-        n_source = int(source_state.shape[0])
-        if n_source == 0:
-            raise ValueError(
-                "a group was matched to zero control observations, so there is no source to flow from. Check that "
-                "every group value present in the primary also has controls (matching is on the group "
-                "columns, or on the pair id under `matched_keys`), or predict unpaired by passing "
-                "`control_values_dict={}`."
-            )
         import torch
 
-        return source_state[torch.arange(batch_size, device=source_state.device) % n_source]
+        idx = _tile_index(int(source_state.shape[0]), batch_size)
+        return source_state[torch.as_tensor(idx, device=source_state.device)]
 
     def _source_coupling_dict(self, batch: dict) -> dict[str, torch.Tensor]:
         """Assembles the source coupling dictionary for a `StepData`."""
@@ -727,16 +731,6 @@ class Loader(_StepDataBridge):
         return int(self._loader.n_iters)
 
 
-class _RowsEvalLoader(ScfitEvalLoader):
-    """:class:`scfit.data.EvalLoader` that also returns, under ``rows``, the global rows each stream read.
-
-    scfit batches carry no row identities, but every read goes through ``_read`` with its rows.
-    """
-
-    def _read(self, src: Any, reps: tuple[str, ...], rows: np.ndarray) -> dict[str, object]:
-        return {**super()._read(src, reps, rows), _ROWS: rows}
-
-
 class EvalLoader(_StepDataBridge):
     """Deterministic, per-group ``(StepData, leaf)`` for prediction, backed by :class:`scfit.data.EvalLoader`.
 
@@ -849,7 +843,7 @@ class EvalLoader(_StepDataBridge):
         self._control_files = sources.get(_CONTROL, [])
         self.source_obs_names: dict[tuple, np.ndarray] = {}
 
-        self._loader = _RowsEvalLoader(
+        self._loader = ScfitEvalLoader(
             sources, primary=primary, links=links, to=to, max_per_group=max_per_group, subsample=subsample, seed=seed
         )
 
@@ -867,8 +861,8 @@ class EvalLoader(_StepDataBridge):
             )
             if _CONTROL in batch:
                 # aligned as `_align_source` aligns the source state; kept by leaf, as Lightning fetches ahead
-                rows = batch[_CONTROL][_ROWS]
-                self.source_obs_names[leaf] = self._control_names[rows[np.arange(step_data["n_obs"]) % len(rows)]]
+                rows = batch["rows"][_CONTROL]
+                self.source_obs_names[leaf] = self._control_names[rows[_tile_index(len(rows), step_data["n_obs"])]]
             yield step_data, leaf
 
     @cached_property

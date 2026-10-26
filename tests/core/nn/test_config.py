@@ -30,7 +30,7 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-from scfit.registry import component
+from scfit.registry import component, parse
 
 from sckitflow.core.nn._config import ModuleConfig
 
@@ -72,14 +72,8 @@ class TestModuleConfigBase:
         assert issubclass(ModuleConfig, Component)
 
     def test_cannot_instantiate_directly(self) -> None:
-        """Family-base check: scfit's ``Component`` rejects direct
-        instantiation of a non-``@component``-decorated base. This is the
-        mechanism that makes ``ModuleConfig`` non-instantiable, not
-        ``Protocol``.
-        """
-        from pydantic import ValidationError
-
-        with pytest.raises(ValidationError):
+        """``build`` is abstract, so Python's ABC check rejects direct instantiation."""
+        with pytest.raises(TypeError, match="abstract"):
             ModuleConfig()  # type: ignore[abstract]
 
     def test_build_method_is_declared(self) -> None:
@@ -218,10 +212,7 @@ class TestModuleConfigRegistry:
         decorator).
         """
 
-        # The exact registry API varies; check via the metadata that the
-        # decorator sets. ``Component.builds`` is the one all other configs
-        # in the tree rely on.
-        assert getattr(_ProbeConfig, "builds", None) is torch.nn.Linear
+        assert type(parse({"type": "test.nn.module_probe"})) is _ProbeConfig
 
     def test_subclass_round_trips_through_pydantic(self) -> None:
         """Pydantic's ``model_dump`` / ``model_validate`` must work through

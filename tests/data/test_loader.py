@@ -259,26 +259,25 @@ class TestLeafEncoding:
         with pytest.raises(ValueError, match=r"one representative row.*got 2"):
             _leaf_encoding(np.zeros((2, 3)))
 
-    @pytest.mark.parametrize("pooling_mode", ["mean", "sum"])
-    def test_a_group_row_feeds_the_set_encoder_for_any_realm_width(self, pooling_mode):
+    @pytest.mark.parametrize("pooling", ["mean", "sum"])
+    def test_a_group_row_feeds_the_set_encoder_for_any_realm_width(self, pooling):
         """The loader -> `SetEncoder` shape contract, which nothing else covers end to end.
 
         A group's encoding is `(1, c, d)`; pooling reduces `c` (`dim=-2`), so the set axis must survive and the
         batch axis stay 1. Losing `c` would make the pooling reduce the wrong axis, silently.
         """
-        from sckitflow.core.nn._set_encoder import SetEncoder
+        from sckitflow.core.nn.blocks._mlp import MLPConfig, MLPEncoderConfig
+        from sckitflow.core.nn.blocks._pooling import MeanPoolingConfig, SumPoolingConfig
+        from sckitflow.core.nn.composite._set_encoder import SetEncoderConfig
         from sckitflow.data._loader import _group_row, _leaf_encoding
 
         dim, out_dim = 3, 8
-        encoder = SetEncoder(
-            input_layers={"drug": {"input_dim": dim, "output_dim": out_dim}},
+        encoder = SetEncoderConfig(
             output_dim=out_dim,
-            pooling_mode=pooling_mode,
-            pooling_kwargs=None,
+            categorical_input_layers={"drug": MLPEncoderConfig(mlp=MLPConfig(), output_dim=out_dim)},
+            pooling={"mean": MeanPoolingConfig, "sum": SumPoolingConfig}[pooling](),
             pooling_proj_dim=out_dim,
-            pooling_proj_bias=True,
-            output_layers_kwargs={},
-        )
+        ).build(categorical_dims={"drug": dim}, continuous_dims={})
         for n_cols in (1, 2, 3):
             # the shape `CategoricalData.extract_reps` emits for a realm of `n_cols` columns
             rep = np.zeros((1, n_cols, dim), dtype=np.float32)

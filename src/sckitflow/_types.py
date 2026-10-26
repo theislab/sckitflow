@@ -15,7 +15,7 @@ ProbabilityPathId = Literal[
 ]
 TimeFeaturesId = Literal["ott-jax", "torch-cfm"]
 
-ConditioningLayersId = Literal["concat", "resnet1d", "film"]
+ConditioningLayersId = Literal["concat", "resnet1d", "film", "adaln_zero"]
 ActivationId = Literal["relu", "leaky_relu", "elu", "gelu", "silu", "tanh", "sigmoid", "softplus"]
 
 LayersDict = dict[str, Any]

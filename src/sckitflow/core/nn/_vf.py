@@ -183,7 +183,7 @@ class MLPVelocity(BaseVelocityField):
         :type conditioning_id: class: `ConditioningLayersId`
 
         :param conditioning_kwargs: (Optional) Keyword arguments used to initialize the conditioning layer.
-            Ignored when the using concatenation based conditioning. When setting :param: `conditioning_id`
+            Only `"resnet1d"` takes any; the other layers ignore them. When setting :param: `conditioning_id`
             to `"resnet1d"`, it should match the signatures of the `__init__` method of the :class: `Resnet1d` class,
             raise :class: `TypeError` otherwise. Defaults to `None`.
         :type conditioning_kwargs: class: `dict[str, Any]`

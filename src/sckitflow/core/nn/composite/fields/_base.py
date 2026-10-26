@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import abc
+from collections.abc import Callable
+from functools import partial
 from typing import ClassVar, Literal, Protocol
 
 import torch
 from scfit.registry import component
 
-from sckitflow.core._utils import make_concatenation_possible
+from sckitflow.core._utils import ensure_2d_tensor_with_singleton_trailing_dim, make_concatenation_possible
 from sckitflow.core.nn._config import ModuleConfig
 from sckitflow.core.nn.blocks._mlp import MLPConfig, MLPEncoderConfig
 from sckitflow.core.nn.blocks._time_features import TimeFeaturesConfig
@@ -24,8 +26,8 @@ class Field(Protocol):
         t: torch.Tensor,
         x: torch.Tensor,
         *,
-        cond_dict: dict[str, torch.Tensor] | None = None,
-        source_state: torch.Tensor | None = None,
+        condition_dict: dict[str, torch.Tensor] | None = None,
+        source: torch.Tensor | None = None,
     ) -> torch.Tensor: ...
 
 
@@ -36,8 +38,8 @@ class FlowMap(Protocol):
         t: torch.Tensor,
         x: torch.Tensor,
         *,
-        cond_dict: dict[str, torch.Tensor] | None = None,
-        source_state: torch.Tensor | None = None,
+        condition_dict: dict[str, torch.Tensor] | None = None,
+        source: torch.Tensor | None = None,
     ) -> torch.Tensor: ...
 
 
@@ -148,7 +150,11 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
         # We build the optional condition encoder; condition modeling is only allowed when the configurations
         # for the set encoder are provided. An unconditional field will be instead modeled otherwise.
         if cfg.condition_encoder is not None:
-            field_dict[_CONDITION_ENCODER_KEY] = cfg.condition_encoder.build(dims)
+            # Groups reach the condition dict as categorical encodings, next to the categorical conditions.
+            field_dict[_CONDITION_ENCODER_KEY] = cfg.condition_encoder.build(
+                categorical_dims={**(dims.groups_reps_dims or {}), **(dims.condition_reps_dims or {})},
+                continuous_dims=dims.condition_continuous_dims or {},
+            )
             # We update the list of conditioning signals' dimensionality with the condition encoder's output dimension.
             latent_condition_dims_to_sum.append(cfg.condition_encoder.output_dim)
 
@@ -199,6 +205,9 @@ class _NeuralFieldMixin(abc.ABC, torch.nn.Module):
         # the time index with it; otherwise, we keep it unchanged.
         if _TIME_FEATURES_KEY in self._field:
             t = self._field[_TIME_FEATURES_KEY](t)
+        else:
+            # raw time comes as ``()`` (ODE solvers) or ``(B,)`` (training); the layers want a trailing time axis
+            t = ensure_2d_tensor_with_singleton_trailing_dim(t)
 
         # We map each mode to the key that maps to the corresponding neural network,
         # and then retrieve the neural network for the current time index.
@@ -316,10 +325,18 @@ class NeuralVelocity(_NeuralFieldMixin):
         t: torch.Tensor,
         x: torch.Tensor,
         *,
-        cond_dict: dict[str, torch.Tensor] | None = None,
-        source_state: torch.Tensor | None = None,
+        condition_dict: dict[str, torch.Tensor] | None = None,
+        source: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        return self._field[_FIELD_DECODER_KEY](self._encode(t, x, cond_dict=cond_dict, source=source_state))
+        return self._field[_FIELD_DECODER_KEY](self._encode(t, x, cond_dict=condition_dict, source=source))
+
+    def get_vf_fn(
+        self,
+        condition_dict: dict[str, torch.Tensor] | None = None,
+        source: torch.Tensor | None = None,
+    ) -> Callable[[torch.Tensor, torch.Tensor], torch.Tensor]:
+        """Binds the condition and source, returning ``v(t, x)`` for the ODE/SDE solvers."""
+        return partial(self.forward, condition_dict=condition_dict, source=source)
 
 
 class NeuralFlowMap(_NeuralFieldMixin):
@@ -340,10 +357,10 @@ class NeuralFlowMap(_NeuralFieldMixin):
         t: torch.Tensor,
         x: torch.Tensor,
         *,
-        cond_dict: dict[str, torch.Tensor] | None = None,
-        source_state: torch.Tensor | None = None,
+        condition_dict: dict[str, torch.Tensor] | None = None,
+        source: torch.Tensor | None = None,
     ) -> torch.Tensor:
-        return self._field[_FIELD_DECODER_KEY](self._encode(t, x, s=s, cond_dict=cond_dict, source=source_state))
+        return self._field[_FIELD_DECODER_KEY](self._encode(t, x, s=s, cond_dict=condition_dict, source=source))
 
 
 class _BaseNeuralFieldConfig(ModuleConfig):

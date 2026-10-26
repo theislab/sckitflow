@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 
 if TYPE_CHECKING:
-    from sckitflow.core.nn._vf import BaseVelocityField
+    from sckitflow.core.nn import NeuralVelocity
 
 from sckitflow.data import mixins
 from sckitflow.data.containers import BaseData
@@ -75,7 +75,7 @@ NoiseType = Literal["scalar", "diagonal", "general", "additive"]
 SDEType = Literal["ito", "stratonovich"]
 
 
-ODEDynamics = TypeVar("ODEDynamics", bound="BaseVelocityField")
+ODEDynamics = TypeVar("ODEDynamics", bound="NeuralVelocity")
 TimeStateDiffusion = Callable[[Tensor, Tensor], Tensor]
 TimeDiffusion = Callable[[Tensor], Tensor]
 Diffusion = TimeDiffusion | TimeStateDiffusion

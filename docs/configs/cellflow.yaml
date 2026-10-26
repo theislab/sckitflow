@@ -19,20 +19,19 @@ data:
   split_by: split                 # written by the experiment beforehand
 
 module:
-  type: velocity_field.mlp
-  time_features_id: ott-jax
-  num_time_features: 128
-  time_encoder_output_dim: 256
-  state_encoder_output_dim: 256
-  state_encoder_mlp_kwargs: {hidden_dims: [1024]}
-  conditioning_id: concat
-  vf_decoder_mlp_kwargs: {hidden_dims: [1024, 1024]}
-  condition_encoder_output_dim: 256
-  condition_encoder_pooling_mode: attention-token
-  condition_encoder_pooling_kwargs: {num_heads: 8, qkv_dim: 64}
-  condition_encoder_input_layers:   # input_dim comes from the embeddings
-    drug: {output_dim: 256, hidden_dims: [512]}
-    cell_line: {output_dim: 256, hidden_dims: [512]}
+  type: nn.models.velocity
+  time_features: {type: nn.time_features.ott_jax, n_time_features: 128}
+  time_encoder: {type: nn.mlp_encoder, mlp: {type: nn.mlp}, output_dim: 256}
+  state_encoder: {type: nn.mlp_encoder, mlp: {type: nn.mlp, hidden_dims: [1024]}, output_dim: 256}
+  conditioning: {type: nn.conditioning.concat}
+  field_decoder: {type: nn.mlp, hidden_dims: [1024, 1024]}
+  condition_encoder:
+    type: nn.composite.set_encoder
+    output_dim: 256
+    pooling: {type: nn.pooling.token_attention, num_heads: 8, qkv_dim: 64}
+    categorical_input_layers:       # input widths come from the embeddings
+      drug: {type: nn.mlp_encoder, mlp: {type: nn.mlp, hidden_dims: [512]}, output_dim: 256}
+      cell_line: {type: nn.mlp_encoder, mlp: {type: nn.mlp, hidden_dims: [512]}, output_dim: 256}
 
 training:
   type: training_method.matched

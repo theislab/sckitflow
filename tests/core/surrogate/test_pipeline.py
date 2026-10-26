@@ -604,21 +604,20 @@ class TestRealInference:
 
     @pytest.mark.parametrize(
         "groups",
-        [
-            None,
-            pytest.param(
-                ("target",),
-                marks=pytest.mark.xfail(
-                    strict=True,
-                    reason="set encoder rank bug, likely fixed on main by #171; plain predict_adata fails too",
-                ),
-            ),
-        ],
+        [None, ("target",)],
         ids=["noise", "noise-groups"],
     )
     def test_generate_from_noise(self, adata, ystar, groups):
         from sckitflow.core.methods import ODEInference, ODEInferenceConfig
-        from sckitflow.core.nn import NeuralVelocity
+        from sckitflow.core.nn import (
+            MLPConfig,
+            MLPEncoderConfig,
+            NeuralVelocityConfig,
+            ResNetConditioningConfig,
+            SetEncoderConfig,
+        )
+        from sckitflow.core.nn.blocks._resnet import ResNetConfig
+        from sckitflow.core.nn.blocks._time_features import TorchCFMTimeFeaturesConfig
 
         dmod = build_datamodule(
             adata,
@@ -627,13 +626,18 @@ class TestRealInference:
             groups_encoding=None if groups is None else {"target": TARGET_LABELS},
         )
         dims = dmod.data_dims
-        layers = {**dims.condition_continuous_dims, **(dims.groups_reps_dims or {})}
-        module = NeuralVelocity(
-            dims.state_dim,
-            time_features_id="torch-cfm",
-            conditioning_id="resnet1d",
-            condition_encoder_input_layers={k: {"input_dim": d, "output_dim": 2} for k, d in layers.items()},
-        )
+        encoder = MLPEncoderConfig(mlp=MLPConfig(), output_dim=2)
+        module = NeuralVelocityConfig(
+            time_features=TorchCFMTimeFeaturesConfig(n_time_features=16, max_period=1_000),
+            conditioning=ResNetConditioningConfig(resnet=ResNetConfig()),
+            condition_encoder=SetEncoderConfig(
+                output_dim=2,
+                continuous_input_layers=dict.fromkeys(dims.condition_continuous_dims, encoder),
+                categorical_input_layers=dict.fromkeys(dims.groups_reps_dims, encoder)
+                if dims.groups_reps_dims
+                else None,
+            ),
+        ).build(dims)
         inferer = ODEInference(module, ODEInferenceConfig(generate_from_noise=True, n_samples=2, n_steps=2), dims=dims)
         potential = mean_mse_surrogate(inferer, ystar, dmod, adata, require_target_state=False)
         cond = {CONT_COV_1: torch.zeros(3, 1, requires_grad=True)}

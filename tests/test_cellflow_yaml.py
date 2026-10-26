@@ -78,6 +78,6 @@ def test_cellflow_yaml_trains_saves_and_predicts(tmp_path, adata: AnnData):
 
 def test_input_dim_comes_from_the_data():
     module = yaml.safe_load(CELLFLOW.read_text())["module"]
-    module["condition_encoder_input_layers"]["drug"]["input_dim"] = 3
-    with pytest.raises(ValueError, match="comes from the data"):
+    module["condition_encoder"]["categorical_input_layers"]["drug"]["input_dim"] = 3
+    with pytest.raises(ValueError, match="input_dim"):
         ModelConfig.from_spec({**yaml.safe_load(CELLFLOW.read_text()), "module": module})

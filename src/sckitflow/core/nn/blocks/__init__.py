@@ -1,8 +1,7 @@
 from sckitflow.core.nn.blocks import _pooling as pooling
 from sckitflow.core.nn.blocks import _time_features as time_features
 from sckitflow.core.nn.blocks import conditioning
-from sckitflow.core.nn.blocks._functional import FunctionalModule
-from sckitflow.core.nn.blocks._mlp import MLP, MLPConfig
+from sckitflow.core.nn.blocks._mlp import MLP, MLPConfig, MLPEncoderConfig
 from sckitflow.core.nn.blocks._pooling import (
     AttentionPoolingConfig,
     BasePoolingLayer,
@@ -32,6 +31,7 @@ __all__ = [
     "time_features",
     "MLP",
     "MLPConfig",
+    "MLPEncoderConfig",
     "BasePoolingLayer",
     "AttentionPoolingConfig",
     "MeanPoolingConfig",

@@ -3,7 +3,6 @@ from __future__ import annotations
 import abc
 from collections.abc import Callable
 from functools import partial
-from typing import Protocol
 
 import torch
 from scfit.registry import component
@@ -17,18 +16,7 @@ from sckitflow.core.nn.blocks.conditioning._concat import ConcatConditioningConf
 from sckitflow.core.nn.composite._set_encoder import SetEncoderConfig
 from sckitflow.data._dims import DataDimensions
 
-__all__ = ["Field", "NeuralVelocity", "NeuralVelocityConfig"]
-
-
-class Field(Protocol):
-    def forward(
-        self,
-        t: torch.Tensor,
-        x: torch.Tensor,
-        *,
-        condition_dict: dict[str, torch.Tensor] | None = None,
-        source: torch.Tensor | None = None,
-    ) -> torch.Tensor: ...
+__all__ = ["NeuralVelocity", "NeuralVelocityConfig"]
 
 
 _STATE_ENCODER_KEY = "state_encoder"
@@ -268,20 +256,7 @@ class NeuralVelocity(_NeuralFieldMixin):
 
 
 class _BaseNeuralFieldConfig(ModuleConfig):
-    """Base configuration set for time-dependent neural fields.
-
-    Fields are time-dependent and implement the ``Field`` protocol:
-
-    ```python
-    def forward(
-        t: torch.Tensor,
-        x: torch.Tensor,
-        *,
-        condition_dict: dict[str, torch.Tensor] | None = None,
-        source: torch.Tensor | None = None,
-    )
-    ```
-    """
+    """Base configuration set for time-dependent neural fields."""
 
     state_encoder: MLPEncoderConfig | None = None
     """State representation fields.

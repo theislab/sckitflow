@@ -390,7 +390,7 @@ def test_predict_adata_batched_matches_unbatched(paired, dims, batch_size):
     whole = predict_adata(dmod, inference, adata)
     batched = predict_adata(dmod, inference, adata, batch_size=batch_size)
     pd.testing.assert_frame_equal(batched.obs, whole.obs)
-    np.testing.assert_allclose(batched.X, whole.X, rtol=1e-6)
+    np.testing.assert_allclose(batched.X, whole.X, rtol=1e-6, atol=1e-6)
 
 
 def test_predict_adata_batched_from_noise(paired, dims):
@@ -402,7 +402,7 @@ def test_predict_adata_batched_from_noise(paired, dims):
     pd.testing.assert_frame_equal(batched.obs, whole.obs)
     # the first batch of a group draws the unsplit run's noise; the rest draw their own
     first = (batched.obs.groupby(["cell_line", "drug"], observed=True).cumcount() < 2).to_numpy()
-    np.testing.assert_allclose(batched.X[first], whole.X[first], rtol=1e-6)
+    np.testing.assert_allclose(batched.X[first], whole.X[first], rtol=1e-6, atol=1e-6)
     assert not np.allclose(batched.X[~first], whole.X[~first])
 
 

@@ -15,7 +15,7 @@ in particular, the [API documentation][].
 
 ## Installation
 
-You need to have Python 3.10 or newer installed on your system.
+You need to have Python 3.12 or newer installed on your system.
 If you don't have Python installed, we recommend installing [uv][].
 
 There are several alternative options to install sckitflow:
@@ -33,6 +33,19 @@ pip install sckitflow
 ```bash
 pip install git+https://github.com/theislab/sckitflow.git@main
 ```
+
+For GPU-resident streaming (`preload_to_gpu=True`), add the cupy extra matching the CUDA major of your torch build:
+
+| Extra | What it adds |
+| --- | --- |
+| `cupy-cuda12` | cupy for CUDA 12, with its CUDA toolkit wheels |
+| `cupy-cuda13` | cupy for CUDA 13, with its CUDA toolkit wheels |
+
+```bash
+pip install "sckitflow[cupy-cuda13] @ git+https://github.com/theislab/sckitflow.git@main"
+```
+
+In a uv-managed checkout, `uv sync --extra cu130` (or `cu126`, `cpu`) picks torch from the matching PyTorch index together with the cupy of the same CUDA major.
 
 ## Release notes
 

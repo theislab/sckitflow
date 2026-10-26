@@ -32,7 +32,7 @@ class FlowDataModule(pl.LightningDataModule):
 
         dm = DataManagerConfig(categorical_conditions=..., groups=..., split_by="split").build()
         dmod = FlowDataModule.from_adata(adata, dm)
-        module = MLPVelocity(dmod.data_dims.state_dim)
+        module = NeuralVelocity(dmod.data_dims.state_dim)
         plan = TrainingPlan(CFMTraining(module=module), torch.optim.Adam(module.parameters()))
         pl.Trainer(max_steps=1000).fit(plan, datamodule=dmod)
 

@@ -11,7 +11,7 @@ import torch
 from sckitflow import Model, ModelConfig, predict_adata
 from sckitflow.core.coupling import GromovWassersteinCouplingConfig
 from sckitflow.core.methods import CFMTrainingConfig, MatchedTrainingConfig, ODEInference, ODEInferenceConfig
-from sckitflow.core.nn import MLPVelocityConfig
+from sckitflow.core.nn import NeuralVelocityConfig
 from sckitflow.data import DataManagerConfig, FlowDataModule
 from sckitflow.data._group_encoders import LabelEncoderConfig
 from sckitflow.data.sim import get_dummy_adata
@@ -55,7 +55,7 @@ def _spec(*, generate_from_noise: bool = True, module: dict | None = None) -> Mo
             target_rep_quad="X_rna",
             use_linear=False,
         ),
-        module=MLPVelocityConfig(**(ENCODER if module is None else module)),
+        module=NeuralVelocityConfig(**(ENCODER if module is None else module)),
         training=MatchedTrainingConfig(
             method=CFMTrainingConfig(generate_from_noise=generate_from_noise),
             # scaled costs: unscaled float32 squared distances make entropic GW underflow to a degenerate plan

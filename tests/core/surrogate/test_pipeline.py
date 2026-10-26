@@ -618,7 +618,7 @@ class TestRealInference:
     )
     def test_generate_from_noise(self, adata, ystar, groups):
         from sckitflow.core.methods import ODEInference, ODEInferenceConfig
-        from sckitflow.core.nn import MLPVelocity
+        from sckitflow.core.nn import NeuralVelocity
 
         dmod = build_datamodule(
             adata,
@@ -628,7 +628,7 @@ class TestRealInference:
         )
         dims = dmod.data_dims
         layers = {**dims.condition_continuous_dims, **(dims.groups_reps_dims or {})}
-        module = MLPVelocity(
+        module = NeuralVelocity(
             dims.state_dim,
             time_features_id="torch-cfm",
             conditioning_id="resnet1d",

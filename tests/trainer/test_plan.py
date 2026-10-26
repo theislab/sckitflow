@@ -12,7 +12,7 @@ from anndata import AnnData
 from sckitflow import predict_adata
 from sckitflow.core._types import PredictionData
 from sckitflow.core.methods import CFMTraining, ODEInference, ODEInferenceConfig
-from sckitflow.core.nn import MLPVelocity
+from sckitflow.core.nn import NeuralVelocity
 from sckitflow.data import DataManagerConfig, FlowDataModule
 from sckitflow.data._dims import DataDimensions
 from sckitflow.data._group_encoders import OneHotEncoderConfig
@@ -35,7 +35,7 @@ def _adata() -> AnnData:
 
 @pytest.fixture
 def dims() -> DataDimensions:
-    """Shape spec matching the test module: `MLPVelocity(2, ...)` on 2D data.
+    """Shape spec matching the test module: `NeuralVelocity(2, ...)` on 2D data.
 
     Only `state_dim` is read by the code under test; the covariate fields are
     populated with the same values the datamodule's manager produces, so a
@@ -63,8 +63,8 @@ def _datamodule(adata: AnnData, **dm_kwargs) -> FlowDataModule:
     return FlowDataModule.from_adata(adata, dm, n_train_steps=10, batch_size=8)
 
 
-def _module() -> MLPVelocity:
-    return MLPVelocity(2, time_features_id="torch-cfm", vf_decoder_mlp_kwargs={"hidden_dims": [8]})
+def _module() -> NeuralVelocity:
+    return NeuralVelocity(2, time_features_id="torch-cfm", vf_decoder_mlp_kwargs={"hidden_dims": [8]})
 
 
 def _trainer(max_steps: int = 3, **kwargs) -> pl.Trainer:

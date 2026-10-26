@@ -8,11 +8,11 @@ from scfit.registry import component
 
 from sckitflow.core._utils import make_concatenation_possible
 from sckitflow.core.nn._config import ModuleConfig
-from sckitflow.core.nn._mlp import MLPConfig, MLPEncoderConfig
-from sckitflow.core.nn._set_encoder import SetEncoderConfig
-from sckitflow.core.nn._time_features import TimeFeaturesConfig
+from sckitflow.core.nn.blocks._mlp import MLPConfig, MLPEncoderConfig
+from sckitflow.core.nn.blocks._time_features import TimeFeaturesConfig
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayerConfig
 from sckitflow.core.nn.blocks.conditioning._concat import ConcatConditioningConfig
+from sckitflow.core.nn.composite._set_encoder import SetEncoderConfig
 from sckitflow.data._dims import DataDimensions
 
 __all__ = ["Field", "FlowMap", "NeuralVelocity", "NeuralFlowMap", "NeuralVelocityConfig", "NeuralFlowMapConfig"]

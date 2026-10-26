@@ -26,7 +26,7 @@ dependencies = [
   "numpy>=1.26",
   "pandas>=2",
   "pot>=0.9",
-  "scfit>=0.0.11",      # annbatch-native streaming data layer, the component registry and Hub save/load
+  "scfit>=0.0.12",      # annbatch-native streaming data layer, the component registry and Hub save/load
   "scikit-learn>=1.4",
   "scipy>=1.12",
   "torch>=2.2",
@@ -40,12 +40,26 @@ optional-dependencies.all = [
   "sckitflow[logging,torch]",
 ]
 
-# Accelerator selectors for uv-managed development and CI environments.
+# Accelerator selectors for uv-managed development and CI environments: torch from the matching PyTorch index
+# and, on CUDA, cupy of the same CUDA major, so both share one set of CUDA libraries.
 optional-dependencies.cpu = [
   "torch>=2.2",
 ]
-optional-dependencies.cu130 = [
+optional-dependencies.cu126 = [
+  "sckitflow[cupy-cuda12]",
   "torch>=2.2",
+]
+optional-dependencies.cu130 = [
+  "sckitflow[cupy-cuda13]",
+  "torch>=2.2",
+]
+# GPU-resident streaming (`preload_to_gpu`): scfit/annbatch keep the read window on-device via cupy. Pick the CUDA
+# major of your torch build; cupy brings its CUDA toolkit wheels, so only a driver is needed.
+optional-dependencies.cupy-cuda12 = [
+  "scfit[cupy-cuda12]>=0.0.13",
+]
+optional-dependencies.cupy-cuda13 = [
+  "scfit[cupy-cuda13]>=0.0.13",
 ]
 
 optional-dependencies.dev = [
@@ -67,10 +81,6 @@ optional-dependencies.doc = [
   "sphinx-tabs",
   "sphinxcontrib-bibtex>=1",
   "sphinxext-opengraph",
-]
-# GPU-resident streaming: scfit/annbatch can keep the read window on-device via cupy (Linux/CUDA only).
-optional-dependencies.gpu = [
-  "scfit[cuda12]>=0.0.11",
 ]
 # Imported lazily inside `sckitflow.trainer._callbacks.WandBLogger`.
 optional-dependencies.logging = [
@@ -209,22 +219,32 @@ omit = [
 ]
 
 [tool.uv]
+# One CUDA major per environment: a cupy extra on its own may sit next to PyPI's torch, so these keep the selectors
+# resolving separately (otherwise `cu126` inherits the older cupy that fits CUDA 13 torch).
 conflicts = [
-  [
-    { extra = "cpu" },
-    { extra = "cu130" },
-  ],
+  [ { extra = "cpu" }, { extra = "cu126" }, { extra = "cu130" } ],
+  [ { extra = "cupy-cuda12" }, { extra = "cupy-cuda13" } ],
+  [ { extra = "cu126" }, { extra = "cupy-cuda13" } ],
+  [ { extra = "cu130" }, { extra = "cupy-cuda12" } ],
+  [ { extra = "cpu" }, { extra = "cupy-cuda12" } ],
+  [ { extra = "cpu" }, { extra = "cupy-cuda13" } ],
 ]
 
 [tool.uv.sources]
 torch = [
   { index = "pytorch-cpu", extra = "cpu" },
+  { index = "pytorch-cu126", extra = "cu126" },
   { index = "pytorch-cu130", extra = "cu130" },
 ]
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
 explicit = true
 
 [[tool.uv.index]]

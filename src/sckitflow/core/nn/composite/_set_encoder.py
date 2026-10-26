@@ -182,6 +182,9 @@ class SetEncoder(torch.nn.Module):
             each perturbation covariate.
         :type condition_dict: class: `MappedTensor`
         """
+        configured = {k for layers in self._set_encoder[_INPUT_LAYERS_KEY].values() for k in layers}
+        if extra := sorted(set(condition_dict) - configured):
+            raise ValueError(f"No input layer for covariates {extra}; the configured ones are {sorted(configured)}.")
         encoded = {}
         for kind, label in ((_CONTINUOUS_LAYERS_KEY, "Continuous"), (_CATEGORICAL_LAYERS_KEY, "Categorical")):
             encoded[kind] = {}

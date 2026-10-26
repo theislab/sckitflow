@@ -16,9 +16,7 @@ Where ``P`` is ``pooling_proj_dim`` and ``P'`` is the pooling layer's own
 
 Design notes baked into the tests:
 
-* Extra covariates in ``condition_dict`` are **ignored by design** — they
-  carry case-control / batch metadata that travels alongside the encoding
-  but has no encoder. ``test_extra_covariate_ignored_by_design`` pins this.
+* Covariates in ``condition_dict`` without an input layer raise ``ValueError``.
 * Missing *registered* covariates raise ``ValueError`` per covariate.
 * ``projection`` and ``pooling`` modules only exist when categorical
   covariates are present.
@@ -678,22 +676,12 @@ class TestSetEncoderCovariateValidation:
         with pytest.raises(ValueError, match="Continuous covariate condition0 not found"):
             enc({"condition1": torch.randn(BATCH, N_COMBS, COV_DIMS["condition1"][0])})
 
-    def test_extra_covariate_ignored_by_design(self) -> None:
-        """Extra keys in ``condition_dict`` that have no encoder are silently
-        ignored. Supports case-control workflows where grouping metadata
-        travels through ``condition_dict`` without being encoded.
-        """
-        enc = _build(continuous=("condition0",)).eval()
-        cond_with_extra = {
-            "condition0": torch.randn(BATCH, COV_DIMS["condition0"][0]),
-            "case_id": torch.randn(BATCH, 1),  # not registered, ignored
-        }
-        cond_clean = {"condition0": cond_with_extra["condition0"]}
-        with torch.no_grad():
-            out_extra = enc(cond_with_extra)
-            out_clean = enc(cond_clean)
-        assert out_extra.shape == (BATCH, OUTPUT_DIM)
-        torch.testing.assert_close(out_extra, out_clean)
+    def test_extra_covariate_raises(self) -> None:
+        """A covariate in ``condition_dict`` without an input layer raises instead of being dropped silently."""
+        enc = _build(continuous=("condition0",))
+        cond = {"condition0": torch.randn(BATCH, COV_DIMS["condition0"][0]), "case_id": torch.randn(BATCH, 1)}
+        with pytest.raises(ValueError, match=r"No input layer for covariates \['case_id'\]"):
+            enc(cond)
 
     def test_empty_condition_dict_raises(self) -> None:
         enc = _build(categorical=("condition0",))

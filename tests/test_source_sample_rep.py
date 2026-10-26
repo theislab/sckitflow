@@ -85,6 +85,23 @@ def test_generating_from_the_sources_own_rep(tmp_path, caplog):
     assert pred.n_vars == 6 and np.isfinite(np.asarray(pred.X)).all()  # predictions live in the targets' space
 
 
+@pytest.mark.parametrize("aggregate", ["samples", "mean"])
+def test_predictions_name_their_source_cells(aggregate):
+    """Each prediction names the control cell it was conditioned on: its cell line's controls in obs order, tiled."""
+    ctrl, pert = _two_spaces()
+    model = _spec().build([ctrl, pert])
+    datamodule = FlowDataModule(model.manager, model.dims, [ctrl, pert], batch_size=8, n_train_steps=3)
+    inference = ODEInference(model.module, ODEInferenceConfig(generate_from_noise=True, n_samples=2), dims=model.dims)
+    pred = predict_adata(datamodule, inference, [ctrl, pert], max_per_group=15, aggregate=aggregate)
+
+    first = pred.obs if aggregate == "mean" else pred.obs[pred.obs["sample_idx"] == 0]
+    assert len(first) == len(pred.obs) // (1 if aggregate == "mean" else 2)
+    for (cell_line, _), obs in first.groupby(["cell_line", "drug"], observed=True):
+        controls = ctrl.obs_names[ctrl.obs["cell_line"] == cell_line][:15]
+        assert list(obs["source_obs_name"]) == [controls[i % len(controls)] for i in range(len(obs))]
+    assert list(pred.var_names) == [f"X_rna_{i}" for i in range(6)]
+
+
 def test_two_spaces_of_the_same_width_are_told_apart():
     ctrl, pert = _two_spaces(source_width=6)  # ATAC and RNA both 6 wide: only `source_sample_rep` tells them apart
     assert _spec().build([ctrl, pert]).dims.source_state_dim == 6

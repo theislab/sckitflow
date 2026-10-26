@@ -80,6 +80,18 @@ _SOURCE_LIN_TERM = "source_coupling_lin"
 _SOURCE_QUAD_TERM = "source_coupling_quad"
 
 
+def _tile_index(n_source: int, batch_size: int) -> np.ndarray:
+    """Row index aligning ``n_source`` source rows to ``batch_size``: sliced when longer, tiled when shorter."""
+    if n_source == 0:
+        raise ValueError(
+            "a group was matched to zero control observations, so there is no source to flow from. Check that "
+            "every group value present in the primary also has controls (matching is on the group "
+            "columns, or on the pair id under `matched_keys`), or predict unpaired by passing "
+            "`control_values_dict={}`."
+        )
+    return np.arange(batch_size) % n_source
+
+
 def _get_loc(sample_rep: str | None) -> str:
     """The scfit rep loc for the state representation: ``.X`` (``None``) or an ``obsm`` key."""
     return "X" if sample_rep is None else f"obsm/{sample_rep}"
@@ -373,17 +385,10 @@ class _StepDataBridge:
         """Row-align the source to ``batch_size``, slicing it when longer and tiling it when shorter."""
         if source_state is None or int(source_state.shape[0]) == batch_size:
             return source_state
-        n_source = int(source_state.shape[0])
-        if n_source == 0:
-            raise ValueError(
-                "a group was matched to zero control observations, so there is no source to flow from. Check that "
-                "every group value present in the primary also has controls (matching is on the group "
-                "columns, or on the pair id under `matched_keys`), or predict unpaired by passing "
-                "`control_values_dict={}`."
-            )
         import torch
 
-        return source_state[torch.arange(batch_size, device=source_state.device) % n_source]
+        idx = _tile_index(int(source_state.shape[0]), batch_size)
+        return source_state[torch.as_tensor(idx, device=source_state.device)]
 
     def _source_coupling_dict(self, batch: dict) -> dict[str, torch.Tensor]:
         """Assembles the source coupling dictionary for a `StepData`."""
@@ -743,6 +748,8 @@ class EvalLoader(_StepDataBridge):
     Walks every selected primary group once (full coverage, or a ``max_per_group`` cap that at ``1`` becomes
     predict-once-per-condition), each matched to its control leaf. ``leaf`` is the group's ``group_by`` value
     tuple -- ordered as :attr:`group_cols` -- from which the caller rebuilds the output ``obs`` directly.
+    With a source, :attr:`source_obs_names` maps each yielded ``leaf`` to the obs names of the source rows
+    behind its ``source_state``, one per row.
 
     :param condition_schema: The condition schema; see :class:`Loader`.
     :type condition_schema: class: `ConditionDataSchema`
@@ -833,6 +840,8 @@ class EvalLoader(_StepDataBridge):
         control_stream = self._control_link(control_weights)
         links = {_CONTROL: control_stream} if control_stream is not None else {}
         sources = self._sources_by_role(primary, control_stream)
+        self._control_files = sources.get(_CONTROL, [])
+        self.source_obs_names: dict[tuple, np.ndarray] = {}
 
         self._loader = ScfitEvalLoader(
             sources, primary=primary, links=links, to=to, max_per_group=max_per_group, subsample=subsample, seed=seed
@@ -840,16 +849,26 @@ class EvalLoader(_StepDataBridge):
 
     def __iter__(self) -> Iterator[tuple[StepData, tuple]]:
         """Yield ``(StepData, leaf)`` per selected group, deterministically."""
+        self.source_obs_names = {}
         for batch in self._loader:
             leaf = self._strip(batch["leaf"])
             # the group's cell count, capped the same way scfit caps the rows it reads
             n_rows = self._leaf_size[leaf]
             if self._max_per_group is not None:
                 n_rows = min(n_rows, self._max_per_group)
-            yield (
-                self._step_data_from_batch(batch, self._leaf_to_gid[leaf], has_state=self._has_state, n_rows=n_rows),
-                leaf,
+            step_data = self._step_data_from_batch(
+                batch, self._leaf_to_gid[leaf], has_state=self._has_state, n_rows=n_rows
             )
+            if _CONTROL in batch:
+                # aligned as `_align_source` aligns the source state; kept by leaf, as Lightning fetches ahead
+                rows = batch["rows"][_CONTROL]
+                self.source_obs_names[leaf] = self._control_names[rows[_tile_index(len(rows), step_data["n_obs"])]]
+            yield step_data, leaf
+
+    @cached_property
+    def _control_names(self) -> np.ndarray:
+        """The obs names of the control source, indexed by scfit's global rows (its files in list order)."""
+        return np.concatenate([a.obs_names.to_numpy(dtype=str) for a in self._control_files])
 
     def __len__(self) -> int:
         """Number of groups (== number of batches) this pass yields."""

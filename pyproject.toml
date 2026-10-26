@@ -26,7 +26,7 @@ dependencies = [
   "numpy>=1.26",
   "pandas>=2",
   "pot>=0.9",
-  "scfit>=0.0.11",      # annbatch-native streaming data layer, the component registry and Hub save/load
+  "scfit>=0.0.12",      # annbatch-native streaming data layer, the component registry and Hub save/load
   "scikit-learn>=1.4",
   "scipy>=1.12",
   "torch>=2.2",
@@ -70,7 +70,7 @@ optional-dependencies.doc = [
 ]
 # GPU-resident streaming: scfit/annbatch can keep the read window on-device via cupy (Linux/CUDA only).
 optional-dependencies.gpu = [
-  "scfit[cuda12]>=0.0.11",
+  "scfit[cuda12]>=0.0.12",
 ]
 # Imported lazily inside `sckitflow.trainer._callbacks.WandBLogger`.
 optional-dependencies.logging = [

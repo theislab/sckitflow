@@ -35,12 +35,8 @@ class TestProbabilityPaths:
         self,
         probability_path_cls: type[BaseProbabilityPath],
     ) -> None:
-        if not probability_path_cls.is_deterministic:
-            with pytest.raises(ValueError, match=r"Argument sigma should be a positive float"):
-                probability_path_cls(-1.0)
-            assert not probability_path_cls(1.0).is_deterministic
-        else:
-            assert probability_path_cls().is_deterministic
+        with pytest.raises(ValueError, match=r"Argument sigma should be a positive float"):
+            probability_path_cls(-1.0)
 
     @pytest.mark.parametrize(
         "probability_path_cls",
@@ -91,7 +87,7 @@ ALL_PATHS = [
 def _path_and_data(cls: type[BaseProbabilityPath]) -> tuple[BaseProbabilityPath, torch.Tensor, torch.Tensor]:
     g = torch.Generator().manual_seed(0)
     x0, x1 = torch.randn(5, 3, generator=g, dtype=torch.float64), torch.randn(5, 3, generator=g, dtype=torch.float64)
-    return cls(0.7) if not cls.is_deterministic else cls(), x0, x1
+    return cls(0.7), x0, x1
 
 
 def test_all_paths_collected() -> None:

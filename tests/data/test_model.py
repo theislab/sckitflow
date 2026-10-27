@@ -10,7 +10,7 @@ from tests.data.shared import with_split
 from sckitflow import Model, ModelConfig
 from sckitflow.core.methods.inference._ode import ODEInferenceConfig
 from sckitflow.core.methods.training._cfm import CFMTrainingConfig
-from sckitflow.core.nn.composite.fields._base import NeuralVelocityConfig
+from sckitflow.core.nn.fields._velocity import NeuralVelocityConfig
 from sckitflow.data._datamodule import FlowDataModule
 from sckitflow.data._group_encoders import OneHotEncoderConfig
 from sckitflow.data._manager import DataManagerConfig

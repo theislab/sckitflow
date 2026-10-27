@@ -1,7 +1,7 @@
-from sckitflow.core.nn import blocks, composite
+from sckitflow.core.nn import blocks, fields
 from sckitflow.core.nn.blocks import *  # noqa: F403
-from sckitflow.core.nn.composite import *  # noqa: F403
+from sckitflow.core.nn.fields import *  # noqa: F403
 
-__all__ = ["blocks", "composite"]
+__all__ = ["blocks", "fields"]
 __all__ += blocks.__all__
-__all__ += composite.__all__
+__all__ += fields.__all__

@@ -14,6 +14,7 @@ from sckitflow.core.nn.blocks._pooling import (
     TokenAttentionPoolingConfig,
 )
 from sckitflow.core.nn.blocks._resnet import ResNet, ResNetConfig
+from sckitflow.core.nn.blocks._set_encoder import SetEncoder, SetEncoderConfig
 from sckitflow.core.nn.blocks._time_features import OTTJaxTimeFeaturesConfig, TorchCFMTimeFeaturesConfig
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayer, BaseConditioningLayerConfig
 from sckitflow.core.nn.blocks.conditioning._concat import ConcatConditioning, ConcatConditioningConfig
@@ -43,6 +44,8 @@ __all__ = [
     "PoolingLayerConfig",
     "ResNet",
     "ResNetConfig",
+    "SetEncoder",
+    "SetEncoderConfig",
     "OTTJaxTimeFeaturesConfig",
     "TorchCFMTimeFeaturesConfig",
     "BaseConditioningLayer",

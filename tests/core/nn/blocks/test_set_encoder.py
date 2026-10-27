@@ -36,7 +36,7 @@ from sckitflow.core.nn.blocks._pooling import (
     SumPoolingConfig,
     TokenAttentionPoolingConfig,
 )
-from sckitflow.core.nn.composite._set_encoder import SetEncoder, SetEncoderConfig
+from sckitflow.core.nn.blocks._set_encoder import SetEncoder, SetEncoderConfig
 
 # ---------------------------------------------------------------------------
 # Shared constants

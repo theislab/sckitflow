@@ -268,7 +268,7 @@ class TestLeafEncoding:
         """
         from sckitflow.core.nn.blocks._mlp import MLPConfig, MLPEncoderConfig
         from sckitflow.core.nn.blocks._pooling import MeanPoolingConfig, SumPoolingConfig
-        from sckitflow.core.nn.composite._set_encoder import SetEncoderConfig
+        from sckitflow.core.nn.blocks._set_encoder import SetEncoderConfig
         from sckitflow.data._loader import _group_row, _leaf_encoding
 
         dim, out_dim = 3, 8

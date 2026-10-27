@@ -11,7 +11,7 @@ model reads back under the package versions that saved it.
 
 .. code-block:: python
 
-    spec = ModelConfig(data=DataManagerConfig(...), module=MLPVelocityConfig(), training=CFMTrainingConfig())
+    spec = ModelConfig(data=DataManagerConfig(...), module=NeuralVelocityConfig(), training=CFMTrainingConfig())
     model = spec.build(adata)
     datamodule = FlowDataModule(model.manager, model.dims, adata, batch_size=256)
     plan = TrainingPlan(model.training_method, torch.optim.Adam(model.module.parameters()))

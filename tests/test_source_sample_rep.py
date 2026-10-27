@@ -11,13 +11,13 @@ import torch
 from sckitflow import Model, ModelConfig, predict_adata
 from sckitflow.core.coupling import GromovWassersteinCouplingConfig
 from sckitflow.core.methods import CFMTrainingConfig, MatchedTrainingConfig, ODEInference, ODEInferenceConfig
-from sckitflow.core.nn import MLPVelocityConfig
+from sckitflow.core.nn import MLPConfig, MLPEncoderConfig, NeuralVelocityConfig
 from sckitflow.data import DataManagerConfig, FlowDataModule
 from sckitflow.data._group_encoders import LabelEncoderConfig
 from sckitflow.data.sim import get_dummy_adata
 from sckitflow.trainer import TrainingPlan
 
-ENCODER = {"source_encoder_mlp_kwargs": {"hidden_dims": [8]}, "source_encoder_output_dim": 8}
+ENCODER = {"source_encoder": MLPEncoderConfig(mlp=MLPConfig(hidden_dims=(8,)), output_dim=8)}
 
 
 def _two_spaces(source_width: int = 4):
@@ -55,7 +55,7 @@ def _spec(*, generate_from_noise: bool = True, module: dict | None = None) -> Mo
             target_rep_quad="X_rna",
             use_linear=False,
         ),
-        module=MLPVelocityConfig(**(ENCODER if module is None else module)),
+        module=NeuralVelocityConfig(**(ENCODER if module is None else module)),
         training=MatchedTrainingConfig(
             method=CFMTrainingConfig(generate_from_noise=generate_from_noise),
             # scaled costs: unscaled float32 squared distances make entropic GW underflow to a degenerate plan
@@ -116,17 +116,14 @@ def test_inference_alone_refuses_to_start_from_another_space():
         ODEInference(model.module, ODEInferenceConfig(generate_from_noise=False), dims=model.dims)
 
 
-@pytest.mark.parametrize(
-    ("module", "match"),
-    [
-        ({}, "only reads through a source encoder"),
-        ({"source_encoder_mlp_kwargs": {"input_dim": 4}}, "comes from the data"),
-    ],
-)
-def test_the_source_encoder_reads_the_other_space(module, match):
+def test_the_source_encoder_reads_the_other_space():
+    """The sources have their own width, so the field only reads them through a source encoder.
+
+    Its input width always comes from the data: ``MLPEncoderConfig`` has no ``input_dim`` to get wrong.
+    """
     ctrl, pert = _two_spaces()
-    with pytest.raises(ValueError, match=match):
-        _spec(module=module).build([ctrl, pert])
+    with pytest.raises(ValueError, match="demands the presence of a source encoder"):
+        _spec(module={}).build([ctrl, pert])
 
 
 def test_reloading_needs_target_cells(tmp_path):

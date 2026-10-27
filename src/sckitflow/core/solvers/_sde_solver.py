@@ -15,7 +15,7 @@ from sckitflow.core.solvers._solver import BaseSolver
 class SDESolver(BaseSolver[SDEDynamics]):
     r"""Class for solving stochastic differential equations (SDEs) with TorchSDE.
 
-    :param dynamics: Encodes the drift (of type BaseVelocityField) and the diffusion terms of the SDE
+    :param dynamics: Encodes the drift (of type NeuralVelocity) and the diffusion terms of the SDE
     :type dynamics: class:`SDEDynamics`
 
     :param sde_type: (Optional) Specifies whether the SDE should be interpreted as
@@ -35,10 +35,10 @@ class SDESolver(BaseSolver[SDEDynamics]):
     :param device_id: (Optional) Identifier for the device on which the SDE will be solved.
     :type device_id: class:`torch.types.Device`
 
-    :param condition_dict: (Optional) Encoded conditions passed to :meth:`BaseVelocityField.get_vf_fn`.
+    :param condition_dict: (Optional) Encoded conditions passed to :meth:`NeuralVelocity.get_vf_fn`.
     :type condition_dict: class:`MappedTensor | None`
 
-    :param source: (Optional) Source state passed to :meth:`BaseVelocityField.get_vf_fn`.
+    :param source: (Optional) Source state passed to :meth:`NeuralVelocity.get_vf_fn`.
     :type source: class:`torch.Tensor | None`
     """
 

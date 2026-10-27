@@ -205,7 +205,7 @@ class AbstractFlowMethod(AbstractMethod):
                 f"The sources have their own state rep (`source_sample_rep`, {dims.source_state_dim} features; the "
                 f"targets' has {dims.state_dim}), so the flow cannot start from them (`generate_from_noise=False`). "
                 "Generate from noise conditioned on the encoded source instead, as GENOT does: set "
-                "`generate_from_noise=True` and give the velocity field a source encoder (`source_encoder_mlp_kwargs`)."
+                "`generate_from_noise=True` and give the velocity field a source encoder (`NeuralVelocityConfig.source_encoder`)."
             )
 
     @property

@@ -7,7 +7,7 @@ import torch
 from torch import Tensor
 
 if TYPE_CHECKING:
-    from sckitflow.core.nn._vf import BaseVelocityField
+    from sckitflow.core.nn import NeuralVelocity
 
 from sckitflow.data import mixins
 from sckitflow.data.containers import BaseData
@@ -18,7 +18,6 @@ TensorLike = torch.Tensor | np.ndarray
 
 VfFn = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
 
-TimeFeaturesFn = Callable[[torch.Tensor, int], torch.Tensor]
 
 MeanFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
 DriftFn = Callable[[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor], torch.Tensor]
@@ -71,20 +70,11 @@ class SamplerFn(Protocol):
     ) -> torch.Tensor: ...
 
 
-class ConditioningFn(Protocol):
-    def __call__(
-        self,
-        encoded_t: torch.Tensor,
-        encoded_state: torch.Tensor,
-        *args: torch.Tensor,
-    ) -> torch.Tensor: ...
-
-
 NoiseType = Literal["scalar", "diagonal", "general", "additive"]
 SDEType = Literal["ito", "stratonovich"]
 
 
-ODEDynamics = TypeVar("ODEDynamics", bound="BaseVelocityField")
+ODEDynamics = TypeVar("ODEDynamics", bound="NeuralVelocity")
 TimeStateDiffusion = Callable[[Tensor, Tensor], Tensor]
 TimeDiffusion = Callable[[Tensor], Tensor]
 Diffusion = TimeDiffusion | TimeStateDiffusion

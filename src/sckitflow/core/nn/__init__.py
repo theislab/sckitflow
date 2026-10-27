@@ -1,34 +1,7 @@
-from sckitflow.core.nn._config import MLPVelocityConfig, ModuleConfig
-from sckitflow.core.nn._modules import (
-    MLP,
-    FunctionalModule,
-    Resnet1d,
-)
-from sckitflow.core.nn._set_encoder import SeedAttentionPooling, SetEncoder, TokenAttentionPooling
-from sckitflow.core.nn._time_features import (
-    get_time_features_fn,
-    make_custom_time_features,
-    ott_jax_time_features,
-    torch_cfm_time_features,
-)
-from sckitflow.core.nn._vf import (
-    BaseVelocityField,
-    MLPVelocity,
-)
+from sckitflow.core.nn import blocks, fields
+from sckitflow.core.nn.blocks import *  # noqa: F403
+from sckitflow.core.nn.fields import *  # noqa: F403
 
-__all__ = [
-    "FunctionalModule",
-    "MLP",
-    "Resnet1d",
-    "get_time_features_fn",
-    "make_custom_time_features",
-    "ott_jax_time_features",
-    "torch_cfm_time_features",
-    "BaseVelocityField",
-    "MLPVelocity",
-    "ModuleConfig",
-    "MLPVelocityConfig",
-    "SetEncoder",
-    "TokenAttentionPooling",
-    "SeedAttentionPooling",
-]
+__all__ = ["blocks", "fields"]
+__all__ += blocks.__all__
+__all__ += fields.__all__

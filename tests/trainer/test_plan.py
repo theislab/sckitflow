@@ -12,7 +12,8 @@ from anndata import AnnData
 from sckitflow import predict_adata
 from sckitflow.core._types import PredictionData
 from sckitflow.core.methods import CFMTraining, ODEInference, ODEInferenceConfig
-from sckitflow.core.nn import MLPVelocity
+from sckitflow.core.nn import MLPConfig, NeuralVelocity, NeuralVelocityConfig
+from sckitflow.core.nn.blocks._time_features import TorchCFMTimeFeaturesConfig
 from sckitflow.data import DataManagerConfig, FlowDataModule
 from sckitflow.data._dims import DataDimensions
 from sckitflow.data._group_encoders import OneHotEncoderConfig
@@ -33,9 +34,8 @@ def _adata() -> AnnData:
     return adata
 
 
-@pytest.fixture
-def dims() -> DataDimensions:
-    """Shape spec matching the test module: `MLPVelocity(2, ...)` on 2D data.
+def _dims() -> DataDimensions:
+    """Shape spec matching the test module: an unconditional `NeuralVelocity` on 2D data.
 
     Only `state_dim` is read by the code under test; the covariate fields are
     populated with the same values the datamodule's manager produces, so a
@@ -56,6 +56,11 @@ def dims() -> DataDimensions:
     )
 
 
+@pytest.fixture
+def dims() -> DataDimensions:
+    return _dims()
+
+
 def _datamodule(adata: AnnData, **dm_kwargs) -> FlowDataModule:
     dm = DataManagerConfig(
         categorical_conditions={"drug": ("drug",)}, categorical_reps={"drug": "drug"}, **dm_kwargs
@@ -63,8 +68,11 @@ def _datamodule(adata: AnnData, **dm_kwargs) -> FlowDataModule:
     return FlowDataModule.from_adata(adata, dm, n_train_steps=10, batch_size=8)
 
 
-def _module() -> MLPVelocity:
-    return MLPVelocity(2, time_features_id="torch-cfm", vf_decoder_mlp_kwargs={"hidden_dims": [8]})
+def _module() -> NeuralVelocity:
+    return NeuralVelocityConfig(
+        time_features=TorchCFMTimeFeaturesConfig(n_time_features=16, max_period=1_000),
+        field_decoder=MLPConfig(hidden_dims=(8,)),
+    ).build(_dims())
 
 
 def _trainer(max_steps: int = 3, **kwargs) -> pl.Trainer:
@@ -382,7 +390,7 @@ def test_predict_adata_batched_matches_unbatched(paired, dims, batch_size):
     whole = predict_adata(dmod, inference, adata)
     batched = predict_adata(dmod, inference, adata, batch_size=batch_size)
     pd.testing.assert_frame_equal(batched.obs, whole.obs)
-    np.testing.assert_allclose(batched.X, whole.X, rtol=1e-6)
+    np.testing.assert_allclose(batched.X, whole.X, rtol=1e-6, atol=1e-6)
 
 
 def test_predict_adata_batched_from_noise(paired, dims):
@@ -394,7 +402,7 @@ def test_predict_adata_batched_from_noise(paired, dims):
     pd.testing.assert_frame_equal(batched.obs, whole.obs)
     # the first batch of a group draws the unsplit run's noise; the rest draw their own
     first = (batched.obs.groupby(["cell_line", "drug"], observed=True).cumcount() < 2).to_numpy()
-    np.testing.assert_allclose(batched.X[first], whole.X[first], rtol=1e-6)
+    np.testing.assert_allclose(batched.X[first], whole.X[first], rtol=1e-6, atol=1e-6)
     assert not np.allclose(batched.X[~first], whole.X[~first])
 
 

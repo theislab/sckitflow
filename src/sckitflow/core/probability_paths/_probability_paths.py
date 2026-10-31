@@ -1,535 +1,292 @@
-import abc
-
 import torch
 
 from sckitflow._constants import PI
-from sckitflow.core._utils import broadcast_to_target_shape
+from sckitflow.core.probability_paths._base import BasePath, OneSidedPath
 
 __all__ = [
-    "BaseProbabilityPath",
-    "LinearProbabilityPath",
-    "LinearGaussianProbabilityPath",
-    "SchrodingerBridgeProbabilityPath",
-    "LinearDiracProbabilityPath",
-    "VariancePreservingDiracProbabilityPath",
+    "LinearTwoSidedPath",
+    "TrigTwoSidedPath",
+    "EncDecTwoSidedPath",
+    "LinearOneSidedPath",
+    "TrigOneSidedPath",
+    "VPOneSidedPath",
 ]
 
 
-class BaseProbabilityPath(abc.ABC):
-    r"""Base Class for Conditional Probability Paths :math: `p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)`.
+class _LinearPathMixin:
+    r"""Mixin supplying a linear :math:`\beta_t = t` coefficient.
 
-    :param _require_prng: Whether the path samples noise, drawn from the ``generator`` passed to
-        :meth:`compute_xt`. ``False`` for deterministic paths.
-    :type _require_prng: class: `bool`
+    Combined with :class:`OneSidedPath` (where :math:`\alpha_t \equiv 0`)
+    this gives paths whose mean grows linearly from the origin at
+    :math:`t = 0` to :math:`\boldsymbol{x}_1` at :math:`t = 1`.
     """
 
-    def __init__(
-        self,
-        sigma: float,
-    ) -> None:
-        r"""Initializes the probability path.
+    def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\beta_t = t`.
 
-        :param sigma: Positive scalar for the noise strength of the probability path.
-            This will determine the factor :math: `\sigma` by which the time-dependent standard deviation
-            :math: `\sigma_t` of the conditional probability path will be scaled.
-            For non-deterministic probability paths, this has to be a positive scalar. A :class: `ValueError` is thrown otherwise.
-        :type sigma: class: `float`
-        """
-        # sanity check for positive values
-        if not sigma >= 0:
-            msg = f"Argument sigma should be a positive float for non deterministic probability paths. Found {sigma=}"
-            raise ValueError(msg)
-
-        # setting the attributes
-        self._sigma = sigma
-
-    def _verify_shapes(
-        self,
-        input_tensor: torch.Tensor,
-        target_tensor: torch.Tensor,
-    ) -> None:
-        r"""Verifies that the input and the target tensors have the same shape.
-
-        :param input_tensor: The input tensor.
-        :type input_tensor: class: `torch.Tensor`
-
-        :param target_tensor: The target tensor.
-        :type target_tensor: class: `torch.Tensor`
-        """
-        if input_tensor.shape != target_tensor.shape:
-            msg = (
-                "`input_tensor` and `target_tensor` are supposed to have the same shape"
-                f"found  {input_tensor.shape=} and {target_tensor.shape=}"
-            )
-            raise ValueError(msg)
-
-    @abc.abstractmethod
-    def compute_mu_t(
-        self,
-        t: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the mean :math: `\mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1)` of the probability path.
-
-        :param t: The current time index.
+        :param t: Time tensor, with values in :math:`[0, 1]`.
         :type t: class: `torch.Tensor`
 
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
+        :returns: The coefficient :math:`t`, with the same shape as ``t``.
+        :rtype: class: `torch.Tensor`
         """
-
-    @abc.abstractmethod
-    def compute_sigma_t(
-        self,
-        t: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the standard deviation :math: `\sigma_t` of the probability path.
-
-        :param t: The current time index.
-        :type t: class: `torch.Tensor`
-        """
-
-    @abc.abstractmethod
-    def compute_ut(
-        self,
-        t: torch.Tensor,
-        xt: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the conditional velocity field :math: `\u_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)` generating the probability path.
-
-        :param t: The current time index.
-        :type t: class: `torch.Tensor`
-
-        :param xt: The current sample from the conditional probability path.
-        :type xt: class: `torch.Tensor`
-
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
-        """
-
-    def compute_xt(
-        self,
-        t: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-        *,
-        generator: torch.Generator,
-    ) -> torch.Tensor:
-        r"""Samples from the conditional probability path :math: `p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)`.
-
-        Samples from the conditional probability paths are computes as:
-
-            .. math::
-
-                \boldsymbol{x}_t = \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) + \sigma_t \boldsymbol{z}, \text{ with }\boldsymbol{z}\sim\mathcal{N}(0_d, \mathbb{I}_d)
-
-        For deterministic probability paths (i.e.: the ones with :attr: `self._require_prng` set to `False`),
-        only the mean :math: `\mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1)` will be returned.
-
-        :param t: The current time index.
-        :type t: class: `torch.Tensor`
-
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
-
-        :param generator: Draws the noise of non-deterministic paths, on ``x0``'s device.
-        :type generator: class: `torch.Generator`
-        """
-        # handling shapes
-        t = broadcast_to_target_shape(t, x0.shape)
-        self._verify_shapes(x0, x1)
-        self._verify_shapes(t, x1)
-        # computing coefficients and noise value
-        mu_t = self.compute_mu_t(t, x0, x1)
-        # sampling noise
-        if self._sigma > 0:
-            sigma_t = self.compute_sigma_t(t)
-            noise = torch.randn(x0.shape, generator=generator, device=x0.device, dtype=x0.dtype)
-            return mu_t + sigma_t * noise
-        # returning mean for deterministic paths
-        return mu_t
+        return t
 
 
-class LinearProbabilityPath(BaseProbabilityPath, abc.ABC):
-    r"""Class implementing Probability Paths with interpolation linear in time.
+class _TrigPathMixin:
+    r"""Mixin supplying a sinusoidal :math:`\beta_t = \sin\!\left(\tfrac{\pi}{2} t\right)` coefficient.
 
-    Where the mean \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) is computed as:
-
-        .. math::
-            \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) = (1 - t)\boldsymbol{x}_0 + t\boldsymbol{x}_1
-
-    :param _require_prng: Whether a Pseudo-Random Numbers Generator is required for the probability path.
-        Pseudo-Random Numbers Generators are required for non-deterministic probability paths.
-    :type _require_prng: class: `bool`
+    The derivative vanishes at both endpoints, which gives smoother path
+    endpoints than :class:`_LinearPathMixin`.
     """
 
-    def __init__(
-        self,
-        sigma: float,
-    ) -> None:
-        r"""Initializes the probability path.
+    def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\beta_t = \sin\!\left(\tfrac{\pi}{2} t\right)`.
 
-        :param sigma: Positive scalar for the noise strength of the probability path.
-            This will determine the factor :math: `\sigma` by which the time-dependent standard deviation
-            :math: `\sigma_t` of the conditional probability path will be scaled.
-        :type sigma: class: `float`
-        """
-        super().__init__(sigma=sigma)
-
-    def compute_mu_t(
-        self,
-        t: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the mean :math: `\mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1)` of the probability path.
-
-        :param t: The current time index.
+        :param t: Time tensor, with values in :math:`[0, 1]`.
         :type t: class: `torch.Tensor`
 
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
+        :returns: The coefficient, with the same shape as ``t``.
+        :rtype: class: `torch.Tensor`
         """
-        # handling shapes
-        t = broadcast_to_target_shape(t, x0.shape)
-        self._verify_shapes(x0, x1)
-        self._verify_shapes(t, x1)
-
-        return (1 - t) * x0 + t * x1
+        return torch.sin(0.5 * PI * t)
 
 
-class LinearGaussianProbabilityPath(LinearProbabilityPath):
-    r"""Class implementing Constant Noise Gaussian Probability Paths with linear interpolation.
+class LinearTwoSidedPath(_LinearPathMixin, BasePath):
+    r"""Two-sided path with linear interpolation and :math:`\sqrt{\cdot}` noise schedule.
 
-    The Constant Noise Gaussian Probability Path is defined as:
+    The interpolation coefficients are
 
-        .. math::
-            p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1) = \mathcal{N}(\boldsymbol{x}_t | \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1), \sigma^2\mathbb{I}_d)
+    .. math::
 
+        \alpha_t = 1 - t,
+        \qquad
+        \beta_t = t,
+        \qquad
+        \sigma_t = \sqrt{\sigma \, t \, (1 - t)}.
 
-    Where the mean \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) is computed as:
-
-        .. math::
-            \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) = (1 - t)\boldsymbol{x}_0 + t\boldsymbol{x}_1
-
-    The Conditional Velocity Field Generating the Constant Noise Gaussian Probability Path is defined as:
-
-        .. math::
-            u_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1) = \boldsymbol{x}_1 - \boldsymbol{x}_0
-
-    This class requires a Pseudo-Random Numbers Generator to be instantiated (i.e.: :attr: `self._require_prng` is `True`).
+    The path runs from :math:`\boldsymbol{x}_0` at :math:`t = 0` to
+    :math:`\boldsymbol{x}_1` at :math:`t = 1`, and the standard deviation
+    vanishes at both endpoints.
     """
 
-    def __init__(
-        self,
-        sigma: float,
-    ) -> None:
-        r"""Initializes the probability path.
+    def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\alpha_t = 1 - t`.
 
-        :param sigma: Positive scalar for the noise strength of the probability path.
-            This will determine the factor :math: `\sigma` by which the time-dependent standard deviation
-            :math: `\sigma_t` of the conditional probability path will be scaled.
-        :type sigma: class: `float`
-        """
-        super().__init__(sigma=sigma)
-
-    def compute_sigma_t(
-        self,
-        t: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the standard deviation :math: `\sigma_t` of the probability path.
-
-        :param t: The current time index.
-        :type t: class: `torch.Tensor`
-        """
-        return torch.ones_like(t) * self._sigma
-
-    def compute_ut(
-        self,
-        t: torch.Tensor,
-        xt: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the conditional velocity field :math: `\u_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)` generating the probability path.
-
-        :param t: The current time index. Such argument will be ignored as the conditional velocity field is constant in time.
+        :param t: Time tensor, with values in :math:`[0, 1]`.
         :type t: class: `torch.Tensor`
 
-        :param xt: The current sample from the conditional probability path.
-            Such argument will be ignored as the conditional velocity field is independent of the current interpolation value :math: `\boldsymbol{x}_t`.
-        :type xt: class: `torch.Tensor`
-
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
+        :returns: The coefficient :math:`1 - t`.
+        :rtype: class: `torch.Tensor`
         """
-        # handling shapes
-        self._verify_shapes(x0, x1)
-        return x1 - x0
+        return 1 - t
+
+    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\sigma_t = \sqrt{\sigma \, t \, (1 - t)}`.
+
+        :param t: Time tensor, with values in :math:`[0, 1]`.
+        :type t: class: `torch.Tensor`
+
+        :returns: The standard deviation :math:`\sigma_t`.
+        :rtype: class: `torch.Tensor`
+        """
+        return torch.sqrt(self.sigma * t * (1 - t))
 
 
-class SchrodingerBridgeProbabilityPath(LinearProbabilityPath):
-    r"""Class implementing Schrodinger Bridge Probability Paths with linear interpolation.
+class TrigTwoSidedPath(_TrigPathMixin, BasePath):
+    r"""Two-sided path with cosine/sine interpolation and :math:`\sqrt{\cdot}` noise schedule.
 
-    Subclasses :class: `LinearGaussianProbabilityPath` and overrides its :method: `.compute_sigma_t` and :method: `.compute_ut` methods.
+    The interpolation coefficients are
 
-    The  Schrodinger Bridge  Probability Path is defined as:
+    .. math::
 
-        .. math::
-            p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1) = \mathcal{N}(\boldsymbol{x}_t | \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1), \sigma_t^2\mathbb{I}_d)
+        \alpha_t = \cos\!\left(\tfrac{\pi}{2} t\right),
+        \qquad
+        \beta_t = \sin\!\left(\tfrac{\pi}{2} t\right),
+        \qquad
+        \sigma_t = \sqrt{\sigma \, t \, (1 - t)}.
 
-    Where the mean \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) is computed as:
-
-        .. math::
-            \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) = (1 - t)\boldsymbol{x}_0 + t\boldsymbol{x}_1
-
-    And the standard deviation reads:
-        ..math::
-            \sigma_t = \sqrt{t(1-t)}\sigma
-
-    The Conditional Velocity Field Generating the Schrodinger Bridge Probability Path is defined as:
-
-        .. math::
-            u_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1) = \frac{1 - 2t}{2t(1 - t)}(\boldsymbol{x}_t - \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1))+ (\boldsymbol{x}_1 - \boldsymbol{x}_0)
-
-    For numerical stability in the computation of :math: `u_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)` at times :math: `t=0` and :math: `t=1` a small scalar is added to the denominator.
-
-    This class requires a Pseudo-Random Numbers Generator to be instantiated (i.e.: :attr: `self._require_prng` is `True`).
+    The path runs from :math:`\boldsymbol{x}_0` at :math:`t = 0` to
+    :math:`\boldsymbol{x}_1` at :math:`t = 1`, with vanishing derivatives
+    of :math:`\alpha_t` and :math:`\beta_t` at the endpoints.
     """
 
-    def __init__(self, sigma: float, eps: float = 1e-35) -> None:
-        r"""Initializes the gaussian probability path probability paths.
+    def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\alpha_t = \cos\!\left(\tfrac{\pi}{2} t\right)`.
 
-        :param sigma: The noise value for the flow. This will determine the factor :math: `\sigma` for standard deviation :math: `\sigma_t = \sigma\sqrt{t(1-t)}` of the conditional probability path.
-        :type sigma: class: `float`
-
-        :param eps: Small constant to be added to the denominator of the conditional velocity field for numerical stability, defaults to :math: `10^{-35}`.
-        :type eps: class: `float`
-        """
-        self._eps = eps
-        super().__init__(sigma=sigma)
-
-    def compute_sigma_t(
-        self,
-        t: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the standard deviation :math: `\sigma_t` of the probability path.
-
-        :param t: The current time index.
-        :type t: class: `torch.Tensor`
-        """
-        return self._sigma * torch.sqrt(t * (1 - t))
-
-    def compute_ut(
-        self,
-        t: torch.Tensor,
-        xt: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the conditional velocity field :math: `\u_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)` generating the probability path.
-
-        :param t: The current time index. Such argument will be ignored as the conditional velocity field is constant in time.
+        :param t: Time tensor, with values in :math:`[0, 1]`.
         :type t: class: `torch.Tensor`
 
-        :param xt: The current sample from the conditional probability path.
-            Such argument will be ignored as the conditional velocity field is independent of the current interpolation value :math: `\boldsymbol{x}_t`.
-        :type xt: class: `torch.Tensor`
-
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
+        :returns: The coefficient :math:`\alpha_t`.
+        :rtype: class: `torch.Tensor`
         """
-        # handling shapes
-        t = broadcast_to_target_shape(t, x0.shape)
-        self._verify_shapes(xt, x1)
-        self._verify_shapes(x0, x1)
-        self._verify_shapes(t, x1)
-        # computing coefficients and noise value
-        mu_t = self.compute_mu_t(t, x0, x1)
-        return (1 - 2 * t) / (2 * t * (1 - t) + self._eps) * (xt - mu_t) + x1 - x0
+        return torch.cos(0.5 * PI * t)
+
+    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\sigma_t = \sqrt{\sigma \, t \, (1 - t)}`.
+
+        :param t: Time tensor, with values in :math:`[0, 1]`.
+        :type t: class: `torch.Tensor`
+
+        :returns: The standard deviation :math:`\sigma_t`.
+        :rtype: class: `torch.Tensor`
+        """
+        return torch.sqrt(self.sigma * t * (1 - t))
 
 
-class LinearDiracProbabilityPath(LinearProbabilityPath):
-    r"""Class implementing Deterministic Dirac Probability Paths.
+class EncDecTwoSidedPath(BasePath):
+    r"""Two-sided path with piecewise :math:`\cos^2(\pi t)` interpolation.
 
-    The Deterministic Dirac Probability Paths is defined as:
+    The path is built from two one-sided segments joined at
+    :math:`t = \tfrac{1}{2}`:
 
-        .. math::
-            p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1) = \delta(\boldsymbol{x}_t  - \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1))
+    .. math::
 
-    Where :math: `\delta(\cdot)` is the Dirac point measure centered around 0.
+        \alpha_t =
+        \begin{cases}
+            \cos^2(\pi t), & t \le \tfrac{1}{2}, \\
+            0,             & t > \tfrac{1}{2},
+        \end{cases}
+        \qquad
+        \beta_t =
+        \begin{cases}
+            0,             & t \le \tfrac{1}{2}, \\
+            \cos^2(\pi t), & t > \tfrac{1}{2}.
+        \end{cases}
 
-    The Mean of the Dirac Probability Path is defined as:
+    The standard deviation is
 
-        .. math::
-            \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) = (1 - t)\boldsymbol{x}_0 + t\boldsymbol{x}_1
+    .. math::
 
-    The Conditional Velocity Field Generating the Dirac Probability Path is defined as:
+        \sigma_t = \sigma \sin^2(\pi t),
 
-        .. math::
-            u_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1) = \boldsymbol{x}_1 - \boldsymbol{x}_0
-
-    It is deterministic and it does not require a Pseudo-Random Numbers Generator to be instantiated.
+    which vanishes at both endpoints and peaks at :math:`t = \tfrac{1}{2}`.
+    This path is the "encoder/decoder" schedule: the model first collapses
+    :math:`\boldsymbol{x}_0` to the origin, then expands towards
+    :math:`\boldsymbol{x}_1`.
     """
 
-    def __init__(
-        self,
-        sigma: float = 0.0,
-    ) -> None:
-        super().__init__(sigma=sigma)
+    def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\alpha_t = \cos^2(\pi t)` for :math:`t \le \tfrac{1}{2}`, and :math:`0` otherwise.
 
-    def compute_sigma_t(
-        self,
-        t: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the standard deviation :math: `\sigma_t` of the probability path.
-
-        This method always returns zero.
-
-        :param t: The current time index at which to compute the interpolation.
-        :type t: class: `torch.Tensor`
-        """
-        return torch.zeros_like(t)
-
-    def compute_ut(
-        self,
-        t: torch.Tensor,
-        xt: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the conditional velocity field :math: `\u_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)` generating the probability path.
-
-        :param t: The current time index at which to compute the interpolation.
-            Such argument will be ignored as the conditional velocity field is constant in time.
+        :param t: Time tensor, with values in :math:`[0, 1]`.
         :type t: class: `torch.Tensor`
 
-        :param xt: The current sample from the conditional probability path.
-            Such argument will be ignored as the conditional velocity field is independent of the current interpolation value :math: `\boldsymbol{x}_t`.
-        :type xt: class: `torch.Tensor`
-
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
+        :returns: The coefficient :math:`\alpha_t`.
+        :rtype: class: `torch.Tensor`
         """
-        # handling shapes
-        self._verify_shapes(x0, x1)
-        return x1 - x0
+        return torch.where(
+            t <= 0.5,
+            torch.cos(PI * t) ** 2,
+            torch.zeros_like(t),
+        )
+
+    def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`0` for :math:`t \le \tfrac{1}{2}`, and :math:`\beta_t = \cos^2(\pi t)` otherwise.
+
+        :param t: Time tensor, with values in :math:`[0, 1]`.
+        :type t: class: `torch.Tensor`
+
+        :returns: The coefficient :math:`\beta_t`.
+        :rtype: class: `torch.Tensor`
+        """
+        return torch.where(
+            t > 0.5,
+            torch.cos(PI * t) ** 2,
+            torch.zeros_like(t),
+        )
+
+    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\sigma_t = \sigma \sin^2(\pi t)`.
+
+        :param t: Time tensor, with values in :math:`[0, 1]`.
+        :type t: class: `torch.Tensor`
+
+        :returns: The standard deviation :math:`\sigma_t`.
+        :rtype: class: `torch.Tensor`
+        """
+        return self.sigma * torch.sin(PI * t) ** 2
 
 
-class VariancePreservingDiracProbabilityPath(BaseProbabilityPath):
-    r"""Class implementing Variance Preserving Probability Paths.
+class LinearOneSidedPath(_LinearPathMixin, OneSidedPath):
+    r"""One-sided path with linear interpolation and linearly decaying noise.
 
-    The Deterministic Variance Preserving Probability Path is defined as:
+    .. math::
 
-        .. math::
-            p_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1) = \delta(\boldsymbol{x}_t  - \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1))
+        \alpha_t = 0,
+        \qquad
+        \beta_t = t,
+        \qquad
+        \sigma_t = 1 - t.
 
-    Where :math: `\delta(\cdot)` is the Dirac point measure centered at 0.
-
-    The Mean of the Variance Preserving Probability Path is defined as:
-
-        .. math::
-            \mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1) = \cos(\frac{1}{2}\pi t)\boldsymbol{x}_0 + \sin(\frac{1}{2}\pi t)\boldsymbol{x}_1
-
-    The Conditional Velocity Field Generating the Variance Preserving Probability Path is defined as:
-
-        .. math::
-            u_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1) = -\frac{1}{2}\pi \sin(\frac{1}{2}\pi t)\boldsymbol{x}_0 + \frac{1}{2}\pi\cos(\frac{1}{2}\pi t)\boldsymbol{x}_1
-
-    It is deterministic and it does not require a Pseudo-Random Numbers Generator to be instantiated.
+    Since :math:`\alpha_t \equiv 0`, the initial sample
+    :math:`\boldsymbol{x}_0` is unused; the path draws
+    :math:`\boldsymbol{x}_t` from :math:`t \boldsymbol{x}_1` plus noise that
+    decays linearly to zero at :math:`t = 1`.
     """
 
-    def __init__(
-        self,
-        sigma: float = 0.0,
-    ) -> None:
-        super().__init__(sigma=sigma)
+    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\sigma_t = 1 - t`.
 
-    def compute_mu_t(
-        self,
-        t: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the mean :math: `\mu_t(\boldsymbol{x}_0, \boldsymbol{x}_1)` of the probability path.
-
-        :param t: The current time index.
+        :param t: Time tensor, with values in :math:`[0, 1]`.
         :type t: class: `torch.Tensor`
 
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
+        :returns: The standard deviation :math:`\sigma_t`.
+        :rtype: class: `torch.Tensor`
         """
-        # handling shapes
-        t = broadcast_to_target_shape(t, x0.shape)
-        self._verify_shapes(x0, x1)
-        self._verify_shapes(t, x1)
-        return torch.cos(0.5 * PI * t) * x0 + torch.sin(0.5 * PI * t) * x1
+        return 1 - t
 
-    def compute_sigma_t(
-        self,
-        t: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the standard deviation :math: `\sigma_t` of the probability path.
 
-        This method always returns zero.
+class TrigOneSidedPath(_TrigPathMixin, OneSidedPath):
+    r"""One-sided path with sinusoidal interpolation and cosine-decaying noise.
 
-        :param t: The current time index at which to compute the interpolation.
-        :type t: class: `torch.Tensor`
-        """
-        return torch.zeros_like(t)
+    .. math::
 
-    def compute_ut(
-        self,
-        t: torch.Tensor,
-        xt: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Computes the conditional velocity field :math: `\u_t(\boldsymbol{x}_t | \boldsymbol{x}_0, \boldsymbol{x}_1)` generating the probability path.
+        \alpha_t = 0,
+        \qquad
+        \beta_t = \sin\!\left(\tfrac{\pi}{2} t\right),
+        \qquad
+        \sigma_t = \cos\!\left(\tfrac{\pi}{2} t\right).
 
-        :param t: The current time index at which to compute the interpolation.
-            Such argument will be ignored as the conditional velocity field is constant in time.
+    The coefficients satisfy :math:`\beta_t^2 + \sigma_t^2 = 1`, so the
+    path preserves the variance of unit Gaussian noise.
+    """
+
+    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\sigma_t = \cos\!\left(\tfrac{\pi}{2} t\right)`.
+
+        :param t: Time tensor, with values in :math:`[0, 1]`.
         :type t: class: `torch.Tensor`
 
-        :param xt: The current sample from the conditional probability path.
-            Such argument will be ignored as the conditional velocity field is independent of the current interpolation value :math: `\boldsymbol{x}_t`.
-        :type xt: class: `torch.Tensor`
-
-        :param x0: The source state.
-        :type x0: class: `torch.Tensor`
-
-        :param x1: The target state.
-        :type x1: class: `torch.Tensor`
+        :returns: The standard deviation :math:`\sigma_t`.
+        :rtype: class: `torch.Tensor`
         """
-        # handling shapes
-        t = broadcast_to_target_shape(t, x0.shape)
-        self._verify_shapes(x0, x1)
-        self._verify_shapes(t, x1)
-        return -0.5 * PI * torch.sin(0.5 * PI * t) * x0 + 0.5 * PI * torch.cos(0.5 * PI * t) * x1
+        return torch.cos(0.5 * PI * t)
+
+
+class VPOneSidedPath(_LinearPathMixin, OneSidedPath):
+    r"""One-sided variance-preserving path.
+
+    .. math::
+
+        \alpha_t = 0,
+        \qquad
+        \beta_t = t,
+        \qquad
+        \sigma_t = \sqrt{1 - t^2}.
+
+    The coefficients satisfy :math:`\beta_t^2 + \sigma_t^2 = 1`, so the
+    path preserves the variance of unit Gaussian noise; the standard
+    deviation vanishes at :math:`t = 1`.
+    """
+
+    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\sigma_t = \sqrt{1 - t^2}`.
+
+        :param t: Time tensor, with values in :math:`[0, 1]`.
+        :type t: class: `torch.Tensor`
+
+        :returns: The standard deviation :math:`\sigma_t`.
+        :rtype: class: `torch.Tensor`
+        """
+        return torch.sqrt(1 - t**2)

@@ -12,10 +12,10 @@ from sckitflow._samplers import (
 from sckitflow.core._data_utils import prepare_latent_train
 from sckitflow.core.methods.training._cfm import CFMTraining, CFMTrainingConfig
 from sckitflow.core.probability_paths import (
-    BaseProbabilityPath,
-    LinearGaussianProbabilityPathConfig,
+    BasePath,
+    LinearTwoSidedPath,
+    PathConfig,
 )
-from sckitflow.core.probability_paths._config import ProbabilityPathConfig
 from sckitflow.data._dims import DataDimensions
 
 MODULE = "sckitflow.core.methods.training._cfm"
@@ -45,24 +45,24 @@ class LinearModule(torch.nn.Module):
 
 
 def dummy_probability_path() -> MagicMock:
-    """A live ``BaseProbabilityPath``-shaped mock with fixed compute_xt/ut."""
-    path = MagicMock(spec=BaseProbabilityPath)
+    """A live ``BasePath``-shaped mock with fixed compute_xt/ut."""
+    path = MagicMock(spec=BasePath)
     path.compute_xt.side_effect = lambda t, x0, x1, *, generator: torch.zeros_like(x0)
     path.compute_ut.side_effect = lambda t, xt, x0, x1: torch.ones_like(x0)
     return path
 
 
-def _to_path_config(mock: MagicMock) -> ProbabilityPathConfig:
+def _to_path_config(mock: MagicMock) -> PathConfig:
     """Wrap a live path mock in a config whose ``build()`` returns it.
 
-    Subclasses a *concrete* path config (``LinearGaussianProbabilityPathConfig``)
-    rather than the family base ``ProbabilityPathConfig``: the base runs a model
+    Subclasses a *concrete* path config (``LinearTwoSidedPath``)
+    rather than the family base ``PathConfig``: the base runs a model
     validator that rejects non-member subclasses ("family base; give a spec with
     a 'type', or a member").  Subclassing the concrete member passes that check
     while still letting us override ``build()``.
     """
 
-    class _MockPathConfig(LinearGaussianProbabilityPathConfig):
+    class _MockPathConfig(LinearTwoSidedPath):
         def build(self):
             return mock
 
@@ -129,8 +129,8 @@ def make_cfm(dummy_module, dims):
     def _make(module=None, probability_path=None, time_sampler=None, noise_sampler=None, **overrides):
         # Path: live mock or config or missing -> config
         if probability_path is None:
-            probability_path = LinearGaussianProbabilityPathConfig(sigma=1.0)
-        elif not isinstance(probability_path, ProbabilityPathConfig):
+            probability_path = LinearTwoSidedPath(sigma=1.0)
+        elif not isinstance(probability_path, PathConfig):
             probability_path = _to_path_config(probability_path)
 
         # Time sampler: raw callable or config or default
@@ -308,7 +308,7 @@ def test_compute_loss_depends_only_on_generator(step_data, dims, generate_from_n
     cfm = CFMTraining(
         LinearModule(),
         CFMTrainingConfig(
-            probability_path=LinearGaussianProbabilityPathConfig(sigma=0.1),
+            probability_path=LinearTwoSidedPath(sigma=0.1),
             generate_from_noise=generate_from_noise,
         ),
         dims=dims,

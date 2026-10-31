@@ -21,11 +21,8 @@ from sckitflow._samplers import (
 from sckitflow.core._data_utils import subscript_step_data
 from sckitflow.core._types import MatchFn, PredictionData, SamplerFn, StepData
 from sckitflow.core.coupling._coupling import degenerate_plan
-from sckitflow.core.probability_paths._config import ProbabilityPathConfig
-from sckitflow.core.probability_paths._probability_paths import (
-    BaseProbabilityPath,
-    LinearDiracProbabilityPath,
-)
+from sckitflow.core.probability_paths._base import BasePath
+from sckitflow.core.probability_paths._config import LinearTwoSidedPathConfig, PathConfig
 from sckitflow.data._dims import DataDimensions
 
 __all__ = [
@@ -164,8 +161,8 @@ class FlowMethodConfig(Component):
     write the spec and ``Model.from_pretrained`` rebuilds the same method from it.
     """
 
-    probability_path: ProbabilityPathConfig | None = None
-    """A probability-path config. ``None`` uses ``LinearDiracProbabilityPath``."""
+    probability_path: PathConfig | None = None
+    """A probability-path config. ``None`` uses ``LinearTwoSidedPathConfig``."""
 
     time_sampler: TimeSamplerConfig | None = None
     """A time-sampler config. ``None`` uses ``UniformTimeSamplerConfig``."""
@@ -196,7 +193,8 @@ class AbstractFlowMethod(AbstractMethod):
         """
         super().__init__(module, dims=dims)
         path_cfg = config.probability_path
-        self._probability_path = LinearDiracProbabilityPath() if path_cfg is None else path_cfg.build()
+        # TODO: we need to set it to either one or two sided cases depending on dims.
+        self._probability_path = LinearTwoSidedPathConfig() if path_cfg is None else path_cfg.build()
         self._time_sampler = (config.time_sampler or UniformTimeSamplerConfig()).build()
         self._noise_sampler = (config.noise_sampler or IsotropicGaussianNoiseSamplerConfig()).build()
         self._generate_from_noise = config.generate_from_noise
@@ -209,7 +207,7 @@ class AbstractFlowMethod(AbstractMethod):
             )
 
     @property
-    def probability_path(self) -> BaseProbabilityPath:
+    def probability_path(self) -> BasePath:
         return self._probability_path
 
     @property

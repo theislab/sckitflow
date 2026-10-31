@@ -23,11 +23,8 @@ from sckitflow.core.methods._base import (
     _placement_of,
 )
 from sckitflow.core.methods.training._cfm import CFMTrainingConfig
-from sckitflow.core.probability_paths._config import LinearGaussianProbabilityPathConfig
-from sckitflow.core.probability_paths._probability_paths import (
-    LinearDiracProbabilityPath,
-    LinearGaussianProbabilityPath,
-)
+from sckitflow.core.probability_paths._config import LinearTwoSidedPathConfig
+from sckitflow.core.probability_paths._probability_paths import LinearTwoSidedPath
 from sckitflow.data._dims import DataDimensions
 
 
@@ -144,21 +141,21 @@ def test_abstract_method_device_and_dtype_track_the_module(module, dims):
 # -------------------- AbstractFlowMethod --------------------
 def test_flow_method_defaults(module, dims):
     method = AbstractFlowMethod(module, CFMTrainingConfig(), dims=dims)
-    assert isinstance(method.probability_path, LinearDiracProbabilityPath)
+    assert isinstance(method.probability_path, LinearTwoSidedPath)
     assert method.time_sampler is _uniform
     assert method.noise_sampler is _standard_normal
     assert method.generate_from_noise is False
 
 
 def test_flow_method_builds_path_config(module, dims):
-    config = CFMTrainingConfig(probability_path=LinearGaussianProbabilityPathConfig(sigma=0.5))
+    config = CFMTrainingConfig(probability_path=LinearTwoSidedPathConfig(sigma=0.5))
     method = AbstractFlowMethod(module, config, dims=dims)
-    assert isinstance(method.probability_path, LinearGaussianProbabilityPath)
+    assert isinstance(method.probability_path, LinearTwoSidedPath)
 
 
 def test_flow_method_custom_values(module, dims):
     """Non-default configs are built; the method stores their live objects."""
-    path_cfg = LinearGaussianProbabilityPathConfig(sigma=0.5)
+    path_cfg = LinearTwoSidedPathConfig(sigma=0.5)
     config = CFMTrainingConfig(
         probability_path=path_cfg,
         time_sampler=UniformTimeSamplerConfig(),
@@ -166,7 +163,7 @@ def test_flow_method_custom_values(module, dims):
         generate_from_noise=True,
     )
     method = AbstractFlowMethod(module, config, dims=dims)
-    assert isinstance(method.probability_path, LinearGaussianProbabilityPath)
+    assert isinstance(method.probability_path, LinearTwoSidedPath)
     assert method.generate_from_noise is True
 
 
@@ -221,7 +218,7 @@ def test_config_rejects_raw_callable_sampler():
 def test_config_rejects_live_probability_path():
     """Live ``BaseProbabilityPath`` instances are rejected; only configs are accepted."""
     with pytest.raises(pydantic.ValidationError):
-        CFMTrainingConfig(probability_path=LinearGaussianProbabilityPath(sigma=0.5))
+        CFMTrainingConfig(probability_path=LinearTwoSidedPath(sigma=0.5))
 
 
 def test_config_rejects_swapped_samplers():

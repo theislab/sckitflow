@@ -33,6 +33,25 @@ class _LinearPathMixin:
         return t
 
 
+class _BridgeNoiseMixin:
+    r"""Mixin supplying the Brownian-bridge noise schedule :math:`\sigma_t = \sqrt{\sigma \, t (1 - t)}`.
+
+    The standard deviation vanishes at both endpoints and peaks at :math:`t = \tfrac{1}{2}`, so the path is
+    anchored on :math:`\boldsymbol{x}_0` and :math:`\boldsymbol{x}_1` and noisiest in between.
+    """
+
+    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\sigma_t = \sqrt{\sigma \, t \, (1 - t)}`.
+
+        :param t: Time tensor, with values in :math:`[0, 1]`.
+        :type t: class: `torch.Tensor`
+
+        :returns: The standard deviation :math:`\sigma_t`.
+        :rtype: class: `torch.Tensor`
+        """
+        return torch.sqrt(self.sigma * t * (1 - t))
+
+
 class _TrigPathMixin:
     r"""Mixin supplying a sinusoidal :math:`\beta_t = \sin\!\left(\tfrac{\pi}{2} t\right)` coefficient.
 
@@ -52,7 +71,7 @@ class _TrigPathMixin:
         return torch.sin(0.5 * PI * t)
 
 
-class LinearTwoSidedPath(_LinearPathMixin, BasePath):
+class LinearTwoSidedPath(_LinearPathMixin, _BridgeNoiseMixin, BasePath):
     r"""Two-sided path with linear interpolation and :math:`\sqrt{\cdot}` noise schedule.
 
     The interpolation coefficients are
@@ -81,19 +100,8 @@ class LinearTwoSidedPath(_LinearPathMixin, BasePath):
         """
         return 1 - t
 
-    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \sqrt{\sigma \, t \, (1 - t)}`.
 
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The standard deviation :math:`\sigma_t`.
-        :rtype: class: `torch.Tensor`
-        """
-        return torch.sqrt(self.sigma * t * (1 - t))
-
-
-class TrigTwoSidedPath(_TrigPathMixin, BasePath):
+class TrigTwoSidedPath(_TrigPathMixin, _BridgeNoiseMixin, BasePath):
     r"""Two-sided path with cosine/sine interpolation and :math:`\sqrt{\cdot}` noise schedule.
 
     The interpolation coefficients are
@@ -121,17 +129,6 @@ class TrigTwoSidedPath(_TrigPathMixin, BasePath):
         :rtype: class: `torch.Tensor`
         """
         return torch.cos(0.5 * PI * t)
-
-    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \sqrt{\sigma \, t \, (1 - t)}`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The standard deviation :math:`\sigma_t`.
-        :rtype: class: `torch.Tensor`
-        """
-        return torch.sqrt(self.sigma * t * (1 - t))
 
 
 class EncDecTwoSidedPath(BasePath):

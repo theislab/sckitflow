@@ -47,8 +47,8 @@ class LinearModule(torch.nn.Module):
 def dummy_probability_path() -> MagicMock:
     """A live ``BasePath``-shaped mock with fixed compute_xt/ut."""
     path = MagicMock(spec=BasePath)
-    path.compute_xt.side_effect = lambda t, xt, x0, x1, *, generator: torch.zeros_like(x0)
-    path.compute_ut.side_effect = lambda t, xt, x0, x1, *, generator: torch.ones_like(x0)
+    path.compute_xt.side_effect = lambda t, x0, x1, *, generator: torch.zeros_like(x0)
+    path.compute_ut.side_effect = lambda t, xt, x0, x1: torch.ones_like(x0)
     return path
 
 
@@ -239,13 +239,11 @@ def test_probability_path_receives_latent_target_and_generator(make_cfm, step_da
     g = gen()
     make_cfm(probability_path=path).compute_loss(step_data, generator=g)
 
-    t, xt, x0, x1 = path.compute_xt.call_args.args
-    assert xt is None
-    assert [a.shape for a in (t, x0, x1)] == [(2,), (2, 4), (2, 4)]
+    xt_args = path.compute_xt.call_args.args
+    assert [a.shape for a in xt_args] == [(2,), (2, 4), (2, 4)]
     assert path.compute_xt.call_args.kwargs["generator"] is g
     ut_args = path.compute_ut.call_args.args
     assert [a.shape for a in ut_args] == [(2,), (2, 4), (2, 4), (2, 4)]
-    assert path.compute_ut.call_args.kwargs["generator"] is g
 
 
 # -------------------- Loss value --------------------
@@ -259,7 +257,7 @@ def test_loss_matches_mse_between_predicted_and_target_velocity(step_data, dims)
             return torch.ones_like(x)
 
     path = dummy_probability_path()
-    path.compute_ut.side_effect = lambda t, xt, x0, x1, *, generator: 2 * torch.ones_like(x0)
+    path.compute_ut.side_effect = lambda t, xt, x0, x1: 2 * torch.ones_like(x0)
     cfm = CFMTraining(
         OnesModule(),
         CFMTrainingConfig(

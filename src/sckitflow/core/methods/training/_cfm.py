@@ -79,8 +79,8 @@ class CFMTraining(AbstractFlowMethod):
         t = self.time_sampler((batch_size,), generator=generator, device=latent.device, dtype=latent.dtype)
 
         # ---- Sample from probability path: interpolant and velocity ----
-        xt = self.probability_path.compute_xt(t, None, latent, target, generator=generator)
-        ut = self.probability_path.compute_ut(t, xt, latent, target, generator=generator)
+        xt = self.probability_path.compute_xt(t, latent, target, generator=generator)
+        ut = self.probability_path.compute_ut(t, xt, latent, target)
 
         # ---- Predict velocity field and compute loss ----
         vt = self.module(t, xt, condition_dict=cond, source=source)

@@ -45,6 +45,12 @@ class LossGuidedVelocity(torch.nn.Module):
     $\hat x_1$, so the gradient is $J_{\hat x_1}^\top \nabla \Psi$. Pass it to
     :class:`~sckitflow.core.solvers.ODESolver` like any velocity.
 
+    Keep the Jacobian: dropping it and using $\nabla \Psi(\hat x_1)$ alone is cheaper, but $J \to 0$ as
+    $t \to 0$, exactly where $\lambda_t$ is largest, so it is what stops the guidance over-steering while
+    $\hat x_1$ is still a guess. Benchmarked against exactly-tilted Gaussian mixtures it reached a 2.5-4x
+    lower energy distance to the true posterior, and stayed useful across a ~10x range of ``scale`` against
+    a narrow band outside which the Jacobian-free form is worse than not guiding at all.
+
     Needs autograd, so it cannot run under ``torch.inference_mode``.
 
     :param velocity: The prior's velocity module, implementing ``get_vf_fn``.

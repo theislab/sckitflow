@@ -40,8 +40,9 @@ training:
     reg: 0.5
   method:
     type: training_method.cfm
-    probability_path:               # CellFlow's default: constant noise 0
-      type: probability_path.linear_dirac
+    probability_path:               # CellFlow's default: no noise
+      type: paths.two_sided.linear
+      sigma: 0.0
 
 inference:
   type: inference_method.ode

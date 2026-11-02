@@ -13,7 +13,7 @@ from sckitflow.core._data_utils import prepare_latent_train
 from sckitflow.core.methods.training._cfm import CFMTraining, CFMTrainingConfig
 from sckitflow.core.probability_paths import (
     BasePath,
-    LinearTwoSidedPath,
+    LinearTwoSidedPathConfig,
     PathConfig,
 )
 from sckitflow.data._dims import DataDimensions
@@ -47,26 +47,26 @@ class LinearModule(torch.nn.Module):
 def dummy_probability_path() -> MagicMock:
     """A live ``BasePath``-shaped mock with fixed compute_xt/ut."""
     path = MagicMock(spec=BasePath)
-    path.compute_xt.side_effect = lambda t, x0, x1, *, generator: torch.zeros_like(x0)
-    path.compute_ut.side_effect = lambda t, xt, x0, x1: torch.ones_like(x0)
+    path.compute_xt.side_effect = lambda t, xt, x0, x1, *, generator: torch.zeros_like(x0)
+    path.compute_ut.side_effect = lambda t, xt, x0, x1, *, generator: torch.ones_like(x0)
     return path
 
 
 def _to_path_config(mock: MagicMock) -> PathConfig:
     """Wrap a live path mock in a config whose ``build()`` returns it.
 
-    Subclasses a *concrete* path config (``LinearTwoSidedPath``)
+    Subclasses a *concrete* path config (``LinearTwoSidedPathConfig``)
     rather than the family base ``PathConfig``: the base runs a model
     validator that rejects non-member subclasses ("family base; give a spec with
     a 'type', or a member").  Subclassing the concrete member passes that check
     while still letting us override ``build()``.
     """
 
-    class _MockPathConfig(LinearTwoSidedPath):
+    class _MockPathConfig(LinearTwoSidedPathConfig):
         def build(self):
             return mock
 
-    return _MockPathConfig(sigma=1.0)
+    return _MockPathConfig(sigma=0.0)
 
 
 def _to_sampler_config(fn, *, concrete_cls):
@@ -129,7 +129,7 @@ def make_cfm(dummy_module, dims):
     def _make(module=None, probability_path=None, time_sampler=None, noise_sampler=None, **overrides):
         # Path: live mock or config or missing -> config
         if probability_path is None:
-            probability_path = LinearTwoSidedPath(sigma=1.0)
+            probability_path = LinearTwoSidedPathConfig(sigma=1.0, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
         elif not isinstance(probability_path, PathConfig):
             probability_path = _to_path_config(probability_path)
 
@@ -239,11 +239,13 @@ def test_probability_path_receives_latent_target_and_generator(make_cfm, step_da
     g = gen()
     make_cfm(probability_path=path).compute_loss(step_data, generator=g)
 
-    xt_args = path.compute_xt.call_args.args
-    assert [a.shape for a in xt_args] == [(2,), (2, 4), (2, 4)]
+    t, xt, x0, x1 = path.compute_xt.call_args.args
+    assert xt is None
+    assert [a.shape for a in (t, x0, x1)] == [(2,), (2, 4), (2, 4)]
     assert path.compute_xt.call_args.kwargs["generator"] is g
     ut_args = path.compute_ut.call_args.args
     assert [a.shape for a in ut_args] == [(2,), (2, 4), (2, 4), (2, 4)]
+    assert path.compute_ut.call_args.kwargs["generator"] is g
 
 
 # -------------------- Loss value --------------------
@@ -257,7 +259,7 @@ def test_loss_matches_mse_between_predicted_and_target_velocity(step_data, dims)
             return torch.ones_like(x)
 
     path = dummy_probability_path()
-    path.compute_ut.side_effect = lambda t, xt, x0, x1: 2 * torch.ones_like(x0)
+    path.compute_ut.side_effect = lambda t, xt, x0, x1, *, generator: 2 * torch.ones_like(x0)
     cfm = CFMTraining(
         OnesModule(),
         CFMTrainingConfig(
@@ -308,7 +310,7 @@ def test_compute_loss_depends_only_on_generator(step_data, dims, generate_from_n
     cfm = CFMTraining(
         LinearModule(),
         CFMTrainingConfig(
-            probability_path=LinearTwoSidedPath(sigma=0.1),
+            probability_path=LinearTwoSidedPathConfig(sigma=0.1, sampler_cfg=IsotropicGaussianNoiseSamplerConfig()),
             generate_from_noise=generate_from_noise,
         ),
         dims=dims,

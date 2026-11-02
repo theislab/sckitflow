@@ -148,14 +148,16 @@ def test_flow_method_defaults(module, dims):
 
 
 def test_flow_method_builds_path_config(module, dims):
-    config = CFMTrainingConfig(probability_path=LinearTwoSidedPathConfig(sigma=0.5))
+    config = CFMTrainingConfig(
+        probability_path=LinearTwoSidedPathConfig(sigma=0.5, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
+    )
     method = AbstractFlowMethod(module, config, dims=dims)
     assert isinstance(method.probability_path, LinearTwoSidedPath)
 
 
 def test_flow_method_custom_values(module, dims):
     """Non-default configs are built; the method stores their live objects."""
-    path_cfg = LinearTwoSidedPathConfig(sigma=0.5)
+    path_cfg = LinearTwoSidedPathConfig(sigma=0.5, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
     config = CFMTrainingConfig(
         probability_path=path_cfg,
         time_sampler=UniformTimeSamplerConfig(),
@@ -218,7 +220,9 @@ def test_config_rejects_raw_callable_sampler():
 def test_config_rejects_live_probability_path():
     """Live ``BaseProbabilityPath`` instances are rejected; only configs are accepted."""
     with pytest.raises(pydantic.ValidationError):
-        CFMTrainingConfig(probability_path=LinearTwoSidedPath(sigma=0.5))
+        CFMTrainingConfig(
+            probability_path=LinearTwoSidedPath(sigma=0.5, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
+        )
 
 
 def test_config_rejects_swapped_samplers():

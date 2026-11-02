@@ -37,11 +37,9 @@ class PathConfig(Component):
     concrete member instead.
 
     :param sigma: Non-negative scalar noise strength of the path.
-    :type sigma: class: `float`
 
     :param sampler_cfg: Optional noise-sampler configuration. Required when ``sigma > 0`` and ignored for
         deterministic paths.
-    :type sampler_cfg: class: `NoiseSamplerConfig` | None
     """
 
     path_cls: ClassVar[type[BasePath]]
@@ -51,11 +49,7 @@ class PathConfig(Component):
     sampler_cfg: NoiseSamplerConfig | None = None
 
     def build(self) -> BasePath:
-        r"""Builds the probability path described by this config.
-
-        :returns: The configured probability path.
-        :rtype: class: `BasePath`
-        """
+        r"""Builds the probability path described by this config."""
         return type(self).path_cls(self.sigma, sampler_cfg=self.sampler_cfg)
 
 

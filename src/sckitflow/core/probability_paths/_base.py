@@ -47,11 +47,9 @@ class BasePath(abc.ABC):
             time-dependent standard deviation :math:`\sigma_t` of the
             conditional probability path; a value of :math:`0` yields a
             deterministic path.
-        :type sigma: class: `float`
 
         :param sampler_cfg: Configuration used to build the noise sampler.
             Required when ``sigma > 0`` and ignored otherwise.
-        :type sampler_cfg: class: `NoiseSamplerConfig` | None
 
         :raises ValueError: If ``sigma`` is negative, or if ``sigma > 0``
             is given without a ``sampler_cfg``.
@@ -72,42 +70,21 @@ class BasePath(abc.ABC):
         self,
         t: torch.Tensor,
     ) -> torch.Tensor:
-        r"""Returns the coefficient :math:`\alpha_t` of the initial sample.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The coefficient :math:`\alpha_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns the coefficient :math:`\alpha_t` of the initial sample."""
 
     @abc.abstractmethod
     def compute_beta_t(
         self,
         t: torch.Tensor,
     ) -> torch.Tensor:
-        r"""Returns the coefficient :math:`\beta_t` of the final sample.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The coefficient :math:`\beta_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns the coefficient :math:`\beta_t` of the final sample."""
 
     @abc.abstractmethod
     def compute_sigma_t(
         self,
         t: torch.Tensor,
     ) -> torch.Tensor:
-        r"""Returns the time-dependent standard deviation :math:`\sigma_t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The standard deviation :math:`\sigma_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns the time-dependent standard deviation :math:`\sigma_t`."""
 
     def _value_and_dot(
         self, fn: Callable[[torch.Tensor], torch.Tensor], t: torch.Tensor
@@ -115,48 +92,24 @@ class BasePath(abc.ABC):
         r"""Returns ``fn(t)`` and its time-derivative, by a VJP so the derivative stays analytic.
 
         :param fn: One of the coefficient methods.
-        :type fn: class: `Callable`
 
         :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
 
         :returns: The pair ``(fn(t), d fn(t) / dt)``.
-        :rtype: class: `tuple` [class: `torch.Tensor`, class: `torch.Tensor`]
         """
         value, grad_fn = torch.func.vjp(fn, t)
         return value, grad_fn(torch.ones_like(value))[0]
 
     def compute_alpha_t_and_dot_alpha_t(self, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Returns :math:`\alpha_t` and its time-derivative :math:`\dot{\alpha}_t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The pair :math:`(\alpha_t, \dot{\alpha}_t)`.
-        :rtype: class: `tuple` [class: `torch.Tensor`, class: `torch.Tensor`]
-        """
+        r"""Returns :math:`\alpha_t` and its time-derivative :math:`\dot{\alpha}_t`."""
         return self._value_and_dot(self.compute_alpha_t, t)
 
     def compute_beta_t_and_dot_beta_t(self, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Returns :math:`\beta_t` and its time-derivative :math:`\dot{\beta}_t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The pair :math:`(\beta_t, \dot{\beta}_t)`.
-        :rtype: class: `tuple` [class: `torch.Tensor`, class: `torch.Tensor`]
-        """
+        r"""Returns :math:`\beta_t` and its time-derivative :math:`\dot{\beta}_t`."""
         return self._value_and_dot(self.compute_beta_t, t)
 
     def compute_sigma_t_and_dot_sigma_t(self, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Returns :math:`\sigma_t` and its time-derivative :math:`\dot{\sigma}_t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The pair :math:`(\sigma_t, \dot{\sigma}_t)`.
-        :rtype: class: `tuple` [class: `torch.Tensor`, class: `torch.Tensor`]
-        """
+        r"""Returns :math:`\sigma_t` and its time-derivative :math:`\dot{\sigma}_t`."""
         return self._value_and_dot(self.compute_sigma_t, t)
 
     def compute_xt(
@@ -182,19 +135,14 @@ class BasePath(abc.ABC):
         term vanishes and the output equals the mean :math:`\mu_t`.
 
         :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
 
         :param x0: The initial sample :math:`\boldsymbol{x}_0`.
-        :type x0: class: `torch.Tensor`
 
         :param x1: The final sample :math:`\boldsymbol{x}_1`.
-        :type x1: class: `torch.Tensor`
 
         :param generator: Random generator used to draw the noise.
-        :type generator: class: `torch.Generator`
 
         :returns: The sample :math:`\boldsymbol{x}_t`.
-        :rtype: class: `torch.Tensor`
         """
 
         def bc(value: torch.Tensor) -> torch.Tensor:
@@ -238,19 +186,14 @@ class BasePath(abc.ABC):
         and the velocity equals :math:`\dot{\boldsymbol{\mu}}_t`.
 
         :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
 
         :param xt: The sample :math:`\boldsymbol{x}_t` at time ``t``.
-        :type xt: class: `torch.Tensor`
 
         :param x0: The initial sample :math:`\boldsymbol{x}_0`.
-        :type x0: class: `torch.Tensor`
 
         :param x1: The final sample :math:`\boldsymbol{x}_1`.
-        :type x1: class: `torch.Tensor`
 
         :returns: The velocity :math:`\boldsymbol{u}_t`.
-        :rtype: class: `torch.Tensor`
         """
 
         def bc(pair: tuple[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
@@ -282,10 +225,7 @@ class BasePath(abc.ABC):
 
     @property
     def sigma(self) -> float:
-        r"""The scalar noise strength :math:`\sigma` of the path.
-
-        :rtype: class: `float`
-        """
+        r"""The scalar noise strength :math:`\sigma` of the path."""
         return self._sigma
 
 
@@ -313,12 +253,5 @@ class OneSidedPath(BasePath):
         super().__init__(sigma, sampler_cfg)
 
     def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\alpha_t \equiv 0` for every :math:`t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: A tensor of zeros with the same shape as ``t``.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`\alpha_t \equiv 0` for every :math:`t`."""
         return torch.zeros_like(t)

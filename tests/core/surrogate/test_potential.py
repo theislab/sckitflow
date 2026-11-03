@@ -4,7 +4,8 @@ Test suite for ``SurrogatePotential``.
 
 Uses minimal fakes for ``SupportsInference``, ``EvalLoader`` and ``FlowDataModule``
 so nothing here touches AnnData or Lightning. The fake inferer returns the response
-itself, so the readout is the identity and the potential a mean squared error.
+itself as the generated cells, so the default readout's mean over them is the response and the potential
+a mean squared error.
 """
 
 from types import SimpleNamespace
@@ -13,8 +14,10 @@ import pytest
 import torch
 
 from sckitflow._random import generators
+from sckitflow.core._types import PredictionData
 from sckitflow.core.surrogate._potential import (
     SurrogatePotential,
+    SurrogateResponse,
     _pair_leaf,
     _verify_continuous_conditions_dims,
 )
@@ -42,7 +45,7 @@ class FakeInferer:
 
     def predict(self, step_data, *, generator):
         self.calls.append((step_data, generator))
-        return self._response_fn(step_data, generator)
+        return PredictionData(X=None, raw_samples=self._response_fn(step_data, generator))
 
 
 class FakeEvalLoader:
@@ -85,18 +88,13 @@ class FakeDataModule:
 # ---------------------------------------------------------------------------
 
 
-def _identity(pred_data):
-    return pred_data
-
-
 def _mse(y, ystar):
     return ((y - ystar) ** 2).mean(dim=-1)
 
 
-def surrogate(inferer, ystar, datamodule, *, readout=_identity, potential=_mse, **kwargs):
-    return SurrogatePotential(
-        inferer=inferer, ystar=ystar, datamodule=datamodule, adata=None, readout=readout, potential=potential, **kwargs
-    )
+def surrogate(inferer, ystar, datamodule, *, potential=_mse, mask=None, **kwargs):
+    response = SurrogateResponse(inferer=inferer, datamodule=datamodule, adata=None, **kwargs)
+    return SurrogatePotential(response, ystar=ystar, potential=potential, mask=mask)
 
 
 class Recorder:
@@ -214,13 +212,10 @@ class TestVerifyDims:
 class TestInit:
     def test_registers_buffers_and_attributes(self):
         potential, inferer, dmod = make_potential(seed=42)
-        assert potential.ystar is potential._ystar
-        assert potential.mask is potential._mask
-        assert potential.seed == 42
-        assert potential.inferer is inferer
-        assert potential.datamodule is dmod
-        assert "_ystar" in dict(potential.named_buffers())
-        assert "_mask" in dict(potential.named_buffers())
+        assert potential.response.seed == 42
+        assert potential.response.inferer is inferer
+        assert potential.response.datamodule is dmod
+        assert {"ystar", "mask"} <= set(dict(potential.named_buffers()))
         assert list(potential.parameters()) == []
 
     def test_rejects_non_1d_ystar(self):
@@ -520,13 +515,24 @@ class TestForwardErrors:
         with pytest.raises(ValueError, match="wrong shape"):
             p(make_cond_dict(n=4))
 
+    def test_readout_maps_each_cell_before_the_mean(self):
+        """The response is the mean of the mapped cells, not the map of the mean cell."""
+        dims = make_dims(("cond_a",), 3)
+        step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
+        cells = torch.arange(2 * 4 * 3, dtype=torch.float32).reshape(2, 4, 3)
+        inferer = FakeInferer(lambda sd, g: cells)
+        dmod = FakeDataModule(dims, FakeEvalLoader([(step, "leaf_0")]))
+        rec = Recorder()
+        surrogate(inferer, torch.zeros(3), dmod, readout=torch.square, potential=rec)(make_cond_dict(n=4))
+        torch.testing.assert_close(rec.y, cells.square().mean(0))
+
     def test_a_readout_with_the_wrong_last_dim_raises(self):
         """The readout's last dim must match ``ystar``; caught with a ValueError, not an IndexError."""
         dims = make_dims(("cond_a",), 3)
         step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
-        inferer = FakeInferer(lambda sd, g: None)
+        inferer = FakeInferer(lambda sd, g: torch.zeros(4, 3))
         dmod = FakeDataModule(dims, FakeEvalLoader([(step, "leaf_0")]))
-        p = surrogate(inferer, torch.zeros(3), dmod, readout=lambda pred: torch.zeros(4, 10))
+        p = surrogate(inferer, torch.zeros(3), dmod, readout=lambda cells: torch.zeros(*cells.shape[:-1], 10))
 
         with pytest.raises(ValueError, match="last dim"):
             p(make_cond_dict(n=4))
@@ -583,6 +589,10 @@ class TestPairLeaf:
 
 
 class TestPopulations:
+    def test_response_has_one_row_per_group_and_condition(self):
+        potential, _, _ = make_potential(n=4, n_leaves=3, ystar_dim=5)
+        assert potential.response(make_cond_dict(n=4)).shape == (3, 4, 5)
+
     def test_shape_and_first_population_matches_forward(self):
         potential, _, _ = make_potential(n=3)
         cond = make_cond_dict(n=3)
@@ -594,7 +604,7 @@ class TestPopulations:
         potential, inferer, _ = make_potential(n_leaves=2)
         potential(make_cond_dict())
         seeds = [generator.initial_seed() for _, generator in inferer.calls]
-        assert seeds == [generators(potential.seed, i).initial_seed() for i in range(2)]
+        assert seeds == [generators(potential.response.seed, i).initial_seed() for i in range(2)]
 
     def test_populations_differ(self):
         potential, _, _ = make_potential(n=3)

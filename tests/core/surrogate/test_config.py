@@ -1,20 +1,8 @@
-"""The readout and potential components a surrogate's spec can name."""
+"""The potential components a surrogate's spec can name."""
 
 import torch
 
-from sckitflow.core._types import PredictionData
-from sckitflow.core.surrogate import (
-    MeanSamplesReadoutConfig,
-    PotentialConfig,
-    ReadoutConfig,
-    SquaredErrorPotentialConfig,
-)
-
-
-def test_mean_samples_averages_every_axis_before_the_conditions():
-    samples = torch.arange(2 * 3 * 4 * 5, dtype=torch.float32).reshape(2, 3, 4, 5)
-    out = MeanSamplesReadoutConfig().build()(PredictionData(X=None, traj=None, raw_samples=samples))
-    torch.testing.assert_close(out, samples.mean(dim=(0, 1)))
+from sckitflow.core.surrogate import CrossEntropyPotentialConfig, PotentialConfig, SquaredErrorPotentialConfig
 
 
 def test_squared_error_sums_over_response_dimensions():
@@ -22,14 +10,22 @@ def test_squared_error_sums_over_response_dimensions():
     torch.testing.assert_close(SquaredErrorPotentialConfig().build()(y, ystar), torch.tensor([4.0, 1.0]))
 
 
+def test_cross_entropy_is_minimal_at_the_target_and_finite_on_empty_classes():
+    ystar = torch.tensor([0.7, 0.3, 0.0])
+    y = torch.tensor([[0.7, 0.3, 0.0], [0.3, 0.7, 0.0], [0.0, 0.5, 0.5]])
+    out = CrossEntropyPotentialConfig().build()(y, ystar)
+    assert out[0] < out[1] < out[2]
+    assert torch.isfinite(out).all()
+
+
 def test_specs_round_trip_through_their_family():
-    assert ReadoutConfig.from_spec(MeanSamplesReadoutConfig().to_spec()) == MeanSamplesReadoutConfig()
-    assert PotentialConfig.from_spec(SquaredErrorPotentialConfig().to_spec()) == SquaredErrorPotentialConfig()
+    for cfg in (SquaredErrorPotentialConfig(), CrossEntropyPotentialConfig()):
+        assert PotentialConfig.from_spec(cfg.to_spec()) == cfg
 
 
 def test_built_potentials_pickle():
     """Module-level functions bound with `partial`, so a surrogate holding them can be pickled."""
     import pickle
 
-    for built in (MeanSamplesReadoutConfig().build(), SquaredErrorPotentialConfig().build()):
+    for built in (SquaredErrorPotentialConfig().build(), CrossEntropyPotentialConfig().build()):
         assert pickle.loads(pickle.dumps(built)).func is built.func

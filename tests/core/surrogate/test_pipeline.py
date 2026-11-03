@@ -15,7 +15,7 @@ import pytest
 import torch
 
 from sckitflow.core._types import PredictionData
-from sckitflow.core.surrogate import MeanSamplesReadoutConfig, SquaredErrorPotentialConfig, SurrogatePotential
+from sckitflow.core.surrogate import SquaredErrorPotentialConfig, SurrogatePotential, SurrogateResponse
 from sckitflow.data import DataManagerConfig, FlowDataModule
 from sckitflow.data._group_encoders import LabelEncoderConfig
 
@@ -63,7 +63,7 @@ class FakeInferer:
             raise RuntimeError("FakeInferer: no per-sample covariate")
 
         # The aligned layout is (B, N, D); its condition axis lives at
-        # position -2 and survives the readout's collapse. Prefer a 3D
+        # position -2 and survives the Monte Carlo mean. Prefer a 3D
         # tensor so the fake never accidentally uses the batch dim as N.
         three_d = [v for v in candidates if v.ndim == 3]
         if three_d:
@@ -92,17 +92,10 @@ class FakeInferer:
 # ---------------------------------------------------------------------------
 
 
-def mean_mse_surrogate(inferer, ystar, datamodule, adata, **kwargs):
+def mean_mse_surrogate(inferer, ystar, datamodule, adata, *, mask=None, **kwargs):
     """Averages the samples over every axis before the conditions', then a summed squared error."""
-    return SurrogatePotential(
-        inferer=inferer,
-        ystar=ystar,
-        datamodule=datamodule,
-        adata=adata,
-        readout=MeanSamplesReadoutConfig().build(),
-        potential=SquaredErrorPotentialConfig().build(),
-        **kwargs,
-    )
+    response = SurrogateResponse(inferer=inferer, datamodule=datamodule, adata=adata, **kwargs)
+    return SurrogatePotential(response, ystar=ystar, potential=SquaredErrorPotentialConfig().build(), mask=mask)
 
 
 # ---------------------------------------------------------------------------
@@ -506,7 +499,7 @@ class TestDeterminism:
     def test_context_read_once(self, adata, cond_dict_single, ystar):
         potential, _ = build_potential(adata, cond_dict_single, ystar, continuous_conditions=(CONT_COV_1,))
         cpu = torch.device("cpu")
-        assert potential.context_leaves(cpu) is potential.context_leaves(cpu)
+        assert potential.response.context_leaves(cpu) is potential.response.context_leaves(cpu)
 
 
 # ---------------------------------------------------------------------------

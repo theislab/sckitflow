@@ -109,7 +109,8 @@ def _sample_rep_to_key(sample_rep: str) -> str:
 
 @dataclass(frozen=True)
 class _Problem:
-    """Everything read from obs to describe the streams + size the net (the 'compile', via scfit readers)."""
+    """Everything read from obs to describe the streams + size the net (the 'compile', via scfit readers).
+    ``condition_masks`` (set by ``lookup_fallback``): pert leaf -> {realm: (1, set) bool}, the slots that enter the condition's pooling."""
 
     source: Any  # resolved scfit Container (backed)
     rep_loc: str  # "X" | "obsm/<rep>"
@@ -121,6 +122,7 @@ class _Problem:
     dims: _Dims
     pert_leaf_min_run: dict[tuple, int]  # pert leaf -> shortest contiguous on-disk run (per path); for min_runs_per_leaf
     ctrl_source: Any = None  # optional separate control store (e.g. controls.zarr)
+    condition_masks: dict[tuple, dict[str, np.ndarray]] | None = None
 
 
 
@@ -203,6 +205,7 @@ def _read_problem(
     split_covariates: Sequence[str],
     perturbation_covariate_reps: Mapping[str, str] | None = None,
     controls: Any | None = None,
+    lookup_fallback: Sequence[str] = (),
 ) -> _Problem:
     """Read obs once (via scfit's readers) → the streams' description + the net's dims. No cells materialized.
 
@@ -210,6 +213,9 @@ def _read_problem(
     condition realm to its obs column(s). Leaves are grouped over ``match_on + condition cols``; the
     perturbed leaves get a categorical ``label_lookup`` (one integer index per realm column, shape ``(1, set)``
     so the objective broadcasts it over the batch); dims come from the rep header + the per-realm vocab.
+    ``lookup_fallback`` names realms with a rep table whose values may be missing from it (genes or cytokines next to drugs): each
+    gains a ``<realm>_lookup`` categorical twin over the same columns, the table gets zero vectors for the missing values, and
+    ``condition_masks`` routes every slot to the table vector when its value has one and to the twin's learned row otherwise.
     """
     import pandas as pd
     import time
@@ -272,6 +278,18 @@ def _read_problem(
     # perturbation category). Feature realms → a width in dims.condition (→ a feature_mlp encoder); categorical
     # realms → a vocab size in dims.condition_num_categories (→ an embedding/onehot encoder).
     rep_tables = _load_rep_tables(data, dict(perturbation_covariate_reps or {}))
+    vectored: dict[str, set[str]] = {}
+    for realm in lookup_fallback:
+        twin = f"{realm}_lookup"
+        if realm not in rep_tables or twin in realm_cols:
+            raise ValueError(f"lookup_fallback {realm!r} needs a perturbation_covariate_reps table and no existing {twin!r} realm.")
+        table, dim = rep_tables[realm]
+        values = {str(v) for v in pert_obs[list(realm_cols[realm])].to_numpy().reshape(-1)}
+        vectored[realm] = values & set(table)
+        table.update({v: np.zeros(dim, dtype=np.float32) for v in values - vectored[realm]})
+        realm_cols[twin] = realm_cols[realm]
+        logger.info("lookup_fallback %s: %d value(s) use the rep table, %d a learned %s row", realm, len(vectored[realm]),
+                    len(values) - len(vectored[realm]), twin)
     col_idx = {c: group_by.index(c) for c in group_by}
     vocab: dict[str, dict[str, int]] = {}
     num_categories: dict[str, int] = {}
@@ -301,13 +319,22 @@ def _read_problem(
         return out
 
     label_lookup = {leaf: _label(leaf) for leaf in pert_leaves}
+    masks = None
+    if vectored:
+        masks = {}
+        for leaf in pert_leaves:
+            m = {realm: np.ones((1, len(cols)), dtype=bool) for realm, cols in realm_cols.items()}
+            for realm, have in vectored.items():
+                m[realm] = np.asarray([[str(leaf[col_idx[c]]) in have for c in realm_cols[realm]]])
+                m[f"{realm}_lookup"] = ~m[realm]
+            masks[leaf] = m
     state_dim = int(get_from_container(source, rep_loc)[0].shape[1])
     dims = _Dims(state=state_dim, condition=condition_dims, condition_num_categories=num_categories, max_comb=max_comb)
     min_run = _min_run_per_leaf(source, group_by)
     pert_leaf_min_run = {leaf: min_run.get(leaf, 0) for leaf in pert_leaves}
     return _Problem(
         source, rep_loc, group_by, match_on, pert_leaves, ctrl_leaves, label_lookup, dims, pert_leaf_min_run,
-        ctrl_source=ctrl_source
+        ctrl_source=ctrl_source, condition_masks=masks
     )
 
 
@@ -319,9 +346,11 @@ class _SemanticBatches(torch.utils.data.IterableDataset):
     coupling objectives.
     """
 
-    def __init__(self, loader: Any, rep_loc: str) -> None:
+    def __init__(self, loader: Any, rep_loc: str, masks: Mapping[int, Any] | None = None) -> None:
+        """``masks``: ``id(label dict) -> condition mask`` (``lookup_fallback``); scfit hands back each leaf's own label dict."""
         self._loader = loader
         self._loc = rep_loc
+        self._masks = masks
 
     def __iter__(self):
         for b in self._loader:
@@ -334,25 +363,28 @@ class _SemanticBatches(torch.utils.data.IterableDataset):
             labels = b.get("labels")
             if labels is not None and "primary" in labels:
                 out["condition"] = labels["primary"]
+                if self._masks is not None:
+                    out["condition_mask"] = self._masks[id(labels["primary"])]
             yield out
 
 
 class FlowMatchingDataModule(pl.LightningDataModule):
     """A ``LightningDataModule`` whose train/val loaders are scfit :class:`~scfit.data.Loader`s (Streams)."""
 
-    def __init__(self, train_loader: Any, val_loader: Any, rep_loc: str) -> None:
+    def __init__(self, train_loader: Any, val_loader: Any, rep_loc: str, masks: Mapping[int, Any] | None = None) -> None:
         super().__init__()
         self._train_loader = train_loader
         self._val_loader = val_loader
         self._loc = rep_loc
+        self._masks = masks
 
     def train_dataloader(self):
-        return torch.utils.data.DataLoader(_SemanticBatches(self._train_loader, self._loc), batch_size=None)
+        return torch.utils.data.DataLoader(_SemanticBatches(self._train_loader, self._loc, self._masks), batch_size=None)
 
     def val_dataloader(self):
         if self._val_loader is None:
             return None
-        return torch.utils.data.DataLoader(_SemanticBatches(self._val_loader, self._loc), batch_size=None)
+        return torch.utils.data.DataLoader(_SemanticBatches(self._val_loader, self._loc, self._masks), batch_size=None)
 
 
 class FlowMatching:
@@ -412,8 +444,11 @@ class FlowMatching:
             perturbation_covariates=d.get("perturbation_covariates", {"drug": ["drug"]}),
             split_covariates=d.get("split_covariates", []),
             perturbation_covariate_reps=d.get("perturbation_covariate_reps", {}),
+            lookup_fallback=d.get("lookup_fallback") or (),
         )
         self._dims = self._problem.dims
+        cm = self._problem.condition_masks
+        self._masks_by_id = {id(self._problem.label_lookup[lf]): m for lf, m in cm.items()} if cm else None
 
         # torch velocity field (weights) + probability path + objective (OT coupling in JAX, rest torch).
         self.vf = self._build_vf(self._dims)
@@ -433,7 +468,7 @@ class FlowMatching:
         from sc_flow.training import TrainingModule
 
         self._module = TrainingModule(self.vf, self.objective, lr=float(self._trainer.get("lr", 1e-4)))
-        self._datamodule = FlowMatchingDataModule(train_loader, val_loader, self._problem.rep_loc)
+        self._datamodule = FlowMatchingDataModule(train_loader, val_loader, self._problem.rep_loc, self._masks_by_id)
 
         self._callbacks: list[Any] = []
         if val_loader is not None:

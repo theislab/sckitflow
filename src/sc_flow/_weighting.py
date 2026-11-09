@@ -52,6 +52,27 @@ class GroupUniformConfig:
         return {lf: 1.0 / (len(groups) * len(members)) for members in groups.values() for lf in members}
 
 
+@WEIGHTING_REGISTRY.register("sc_flow.group_share")
+@dataclass(frozen=True)
+class GroupShareConfig:
+    """A fixed total share per ``by`` group (``"val1|val2"`` keys), uniform within it; every leaf outside the named groups shares
+    ``rest``. Replay, e.g. ``by: [dataset]``, ``shares: {tahoe: 0.7}``, ``rest: 0.3``: 70% of batches from Tahoe, 30% from the rest."""
+
+    by: Sequence[str] = ()
+    shares: Mapping[str, float] = field(default_factory=dict)
+    rest: float = 0.0
+
+    def build(self, context: WeightingContext) -> dict[tuple, float]:
+        idx = [context.group_by.index(c) for c in self.by]
+        groups: dict[str, list[tuple]] = {}
+        for lf in context.leaves:
+            groups.setdefault("|".join(str(lf[i]) for i in idx), []).append(lf)
+        out = {lf: float(self.shares[g]) / len(m) for g, m in groups.items() if g in self.shares for lf in m}
+        other = [lf for g, m in groups.items() if g not in self.shares for lf in m]
+        out.update(dict.fromkeys(other, float(self.rest) / len(other)) if other else {})
+        return out
+
+
 @WEIGHTING_REGISTRY.register("sc_flow.custom")
 @dataclass(frozen=True)
 class CustomConfig:

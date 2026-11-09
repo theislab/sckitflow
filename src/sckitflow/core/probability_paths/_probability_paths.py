@@ -22,15 +22,20 @@ class _LinearPathMixin:
     """
 
     def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\beta_t = t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The coefficient :math:`t`, with the same shape as ``t``.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`\beta_t = t`."""
         return t
+
+
+class _BridgeNoiseMixin:
+    r"""Mixin supplying the Brownian-bridge noise schedule :math:`\sigma_t = \sqrt{\sigma \, t (1 - t)}`.
+
+    The standard deviation vanishes at both endpoints and peaks at :math:`t = \tfrac{1}{2}`, so the path is
+    anchored on :math:`\boldsymbol{x}_0` and :math:`\boldsymbol{x}_1` and noisiest in between.
+    """
+
+    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\sigma_t = \sqrt{\sigma \, t \, (1 - t)}`."""
+        return torch.sqrt(self.sigma * t * (1 - t))
 
 
 class _TrigPathMixin:
@@ -41,18 +46,11 @@ class _TrigPathMixin:
     """
 
     def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\beta_t = \sin\!\left(\tfrac{\pi}{2} t\right)`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The coefficient, with the same shape as ``t``.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`\beta_t = \sin\!\left(\tfrac{\pi}{2} t\right)`."""
         return torch.sin(0.5 * PI * t)
 
 
-class LinearTwoSidedPath(_LinearPathMixin, BasePath):
+class LinearTwoSidedPath(_LinearPathMixin, _BridgeNoiseMixin, BasePath):
     r"""Two-sided path with linear interpolation and :math:`\sqrt{\cdot}` noise schedule.
 
     The interpolation coefficients are
@@ -71,29 +69,11 @@ class LinearTwoSidedPath(_LinearPathMixin, BasePath):
     """
 
     def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\alpha_t = 1 - t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The coefficient :math:`1 - t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`\alpha_t = 1 - t`."""
         return 1 - t
 
-    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \sqrt{\sigma \, t \, (1 - t)}`.
 
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The standard deviation :math:`\sigma_t`.
-        :rtype: class: `torch.Tensor`
-        """
-        return torch.sqrt(self.sigma * t * (1 - t))
-
-
-class TrigTwoSidedPath(_TrigPathMixin, BasePath):
+class TrigTwoSidedPath(_TrigPathMixin, _BridgeNoiseMixin, BasePath):
     r"""Two-sided path with cosine/sine interpolation and :math:`\sqrt{\cdot}` noise schedule.
 
     The interpolation coefficients are
@@ -112,26 +92,8 @@ class TrigTwoSidedPath(_TrigPathMixin, BasePath):
     """
 
     def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\alpha_t = \cos\!\left(\tfrac{\pi}{2} t\right)`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The coefficient :math:`\alpha_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`\alpha_t = \cos\!\left(\tfrac{\pi}{2} t\right)`."""
         return torch.cos(0.5 * PI * t)
-
-    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \sqrt{\sigma \, t \, (1 - t)}`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The standard deviation :math:`\sigma_t`.
-        :rtype: class: `torch.Tensor`
-        """
-        return torch.sqrt(self.sigma * t * (1 - t))
 
 
 class EncDecTwoSidedPath(BasePath):
@@ -167,14 +129,7 @@ class EncDecTwoSidedPath(BasePath):
     """
 
     def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\alpha_t = \cos^2(\pi t)` for :math:`t \le \tfrac{1}{2}`, and :math:`0` otherwise.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The coefficient :math:`\alpha_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`\alpha_t = \cos^2(\pi t)` for :math:`t \le \tfrac{1}{2}`, and :math:`0` otherwise."""
         return torch.where(
             t <= 0.5,
             torch.cos(PI * t) ** 2,
@@ -182,14 +137,7 @@ class EncDecTwoSidedPath(BasePath):
         )
 
     def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`0` for :math:`t \le \tfrac{1}{2}`, and :math:`\beta_t = \cos^2(\pi t)` otherwise.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The coefficient :math:`\beta_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`0` for :math:`t \le \tfrac{1}{2}`, and :math:`\beta_t = \cos^2(\pi t)` otherwise."""
         return torch.where(
             t > 0.5,
             torch.cos(PI * t) ** 2,
@@ -197,14 +145,7 @@ class EncDecTwoSidedPath(BasePath):
         )
 
     def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \sigma \sin^2(\pi t)`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The standard deviation :math:`\sigma_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`\sigma_t = \sigma \sin^2(\pi t)`."""
         return self.sigma * torch.sin(PI * t) ** 2
 
 
@@ -226,14 +167,7 @@ class LinearOneSidedPath(_LinearPathMixin, OneSidedPath):
     """
 
     def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = 1 - t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The standard deviation :math:`\sigma_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`\sigma_t = 1 - t`."""
         return 1 - t
 
 
@@ -253,14 +187,7 @@ class TrigOneSidedPath(_TrigPathMixin, OneSidedPath):
     """
 
     def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \cos\!\left(\tfrac{\pi}{2} t\right)`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The standard deviation :math:`\sigma_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`\sigma_t = \cos\!\left(\tfrac{\pi}{2} t\right)`."""
         return torch.cos(0.5 * PI * t)
 
 
@@ -281,12 +208,5 @@ class VPOneSidedPath(_LinearPathMixin, OneSidedPath):
     """
 
     def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \sqrt{1 - t^2}`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The standard deviation :math:`\sigma_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns :math:`\sigma_t = \sqrt{1 - t^2}`."""
         return torch.sqrt(1 - t**2)

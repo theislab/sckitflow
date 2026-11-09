@@ -135,15 +135,6 @@ class TestVJPDerivatives:
         torch.testing.assert_close(sigma, self.t * (1 - self.t))
         torch.testing.assert_close(dot_sigma, 1 - 2 * self.t)
 
-    def test_dot_alpha_t(self) -> None:
-        torch.testing.assert_close(self.path.compute_dot_alpha_t(self.t), -torch.ones_like(self.t))
-
-    def test_dot_beta_t(self) -> None:
-        torch.testing.assert_close(self.path.compute_dot_beta_t(self.t), torch.ones_like(self.t))
-
-    def test_dot_sigma_t(self) -> None:
-        torch.testing.assert_close(self.path.compute_dot_sigma_t(self.t), 1 - 2 * self.t)
-
 
 # ---------------------------------------------------------------------------
 # compute_xt
@@ -156,7 +147,7 @@ class TestComputeXt:
         t = torch.tensor([[0.3], [0.7]], dtype=torch.float64)
         x0 = torch.randn(2, 4, dtype=torch.float64)
         x1 = torch.randn(2, 4, dtype=torch.float64)
-        xt = path.compute_xt(t, torch.zeros_like(x0), x0, x1, generator=torch.Generator())
+        xt = path.compute_xt(t, x0, x1, generator=torch.Generator())
         torch.testing.assert_close(xt, (1 - t) * x0 + t * x1)
 
     def test_shape_matches_x0(self) -> None:
@@ -164,7 +155,7 @@ class TestComputeXt:
         t = torch.full((2, 1), 0.5)
         x0 = torch.randn(2, 4, 3)
         x1 = torch.randn(2, 4, 3)
-        out = path.compute_xt(t, torch.zeros_like(x0), x0, x1, generator=torch.Generator())
+        out = path.compute_xt(t, x0, x1, generator=torch.Generator())
         assert out.shape == x0.shape
 
     def test_noise_driven_by_generator_only(self) -> None:
@@ -172,14 +163,13 @@ class TestComputeXt:
         t = torch.full((4, 1), 0.5)
         x0 = torch.zeros(4, 3)
         x1 = torch.ones(4, 3)
-        xt_arg = torch.zeros_like(x0)
 
-        a = path.compute_xt(t, xt_arg, x0, x1, generator=torch.Generator().manual_seed(0))
-        b = path.compute_xt(t, xt_arg, x0, x1, generator=torch.Generator().manual_seed(0))
+        a = path.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
+        b = path.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
         assert torch.equal(a, b)
 
         torch.manual_seed(1)  # global RNG must not matter
-        c = path.compute_xt(t, xt_arg, x0, x1, generator=torch.Generator().manual_seed(1))
+        c = path.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(1))
         assert not torch.equal(a, c)
 
     def test_deterministic_ignores_generator(self) -> None:
@@ -187,8 +177,8 @@ class TestComputeXt:
         t = torch.full((4, 1), 0.5)
         x0 = torch.zeros(4, 3)
         x1 = torch.ones(4, 3)
-        a = path.compute_xt(t, torch.zeros_like(x0), x0, x1, generator=torch.Generator().manual_seed(0))
-        b = path.compute_xt(t, torch.zeros_like(x0), x0, x1, generator=torch.Generator().manual_seed(123))
+        a = path.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
+        b = path.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(123))
         assert torch.equal(a, b)
 
 
@@ -203,7 +193,7 @@ class TestComputeUt:
         t = torch.tensor([[0.3], [0.7]], dtype=torch.float64)
         x0 = torch.randn(2, 4, dtype=torch.float64)
         x1 = torch.randn(2, 4, dtype=torch.float64)
-        ut = path.compute_ut(t, torch.zeros_like(x0), x0, x1, generator=torch.Generator())
+        ut = path.compute_ut(t, torch.zeros_like(x0), x0, x1)
         # dot_alpha = -1, dot_beta = 1  =>  -x0 + x1
         torch.testing.assert_close(ut, -x0 + x1)
 
@@ -214,7 +204,7 @@ class TestComputeUt:
         x1 = torch.randn(2, 4, dtype=torch.float64)
         xt = torch.randn(2, 4, dtype=torch.float64)
 
-        ut = path.compute_ut(t, xt, x0, x1, generator=torch.Generator())
+        ut = path.compute_ut(t, xt, x0, x1)
 
         mu_t = (1 - t) * x0 + t * x1
         dot_mu_t = -x0 + x1
@@ -232,7 +222,7 @@ class TestComputeUt:
         x1 = torch.randn(2, 4, dtype=torch.float64)
         xt = torch.randn(2, 4, dtype=torch.float64)
 
-        ut = path.compute_ut(t, xt, x0, x1, generator=torch.Generator())
+        ut = path.compute_ut(t, xt, x0, x1)
 
         assert torch.isfinite(ut).all()
         # coeff is guarded to 0 => ut collapses to dot_mu_t
@@ -246,12 +236,12 @@ class TestComputeUt:
         path = _LinearTestPath(1.0, sampler_cfg=_FixedSamplerCfg(eps))
 
         def xt_of(t: torch.Tensor) -> torch.Tensor:
-            return path.compute_xt(t, torch.zeros_like(x0), x0, x1, generator=torch.Generator())
+            return path.compute_xt(t, x0, x1, generator=torch.Generator())
 
         t = torch.tensor([[0.1], [0.3], [0.5], [0.7], [0.9]], dtype=torch.float64)
         xt, dxt_dt = torch.func.jvp(xt_of, (t,), (torch.ones_like(t),))
 
-        ut = path.compute_ut(t, xt, x0, x1, generator=torch.Generator())
+        ut = path.compute_ut(t, xt, x0, x1)
         torch.testing.assert_close(ut, dxt_dt)
 
 
@@ -269,7 +259,7 @@ class TestBroadcasting:
         t = torch.full(t_shape, 0.5)
         x0 = torch.randn(2, 4)
         x1 = torch.randn(2, 4)
-        out = path.compute_xt(t, torch.zeros_like(x0), x0, x1, generator=torch.Generator())
+        out = path.compute_xt(t, x0, x1, generator=torch.Generator())
         assert out.shape == x0.shape
 
     @pytest.mark.parametrize("t_shape", [(), (1,), (2, 1), (2, 4)])
@@ -279,5 +269,5 @@ class TestBroadcasting:
         x0 = torch.randn(2, 4)
         x1 = torch.randn(2, 4)
         xt = torch.randn(2, 4)
-        out = path.compute_ut(t, xt, x0, x1, generator=torch.Generator())
+        out = path.compute_ut(t, xt, x0, x1)
         assert out.shape == x0.shape

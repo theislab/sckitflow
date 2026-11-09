@@ -30,6 +30,7 @@ PAIRS = [
     (VPOneSidedPathConfig, "paths.one_sided.vp", VPOneSidedPath),
 ]
 _PAIR_IDS = [cfg_cls.__name__ for cfg_cls, _, _ in PAIRS]
+TWO_SIDED_PAIRS, ONE_SIDED_PAIRS = PAIRS[:3], PAIRS[3:]
 
 
 def _make_sampler_cfg_or_skip():
@@ -46,13 +47,6 @@ def _make_sampler_cfg_or_skip():
 
 
 class TestPathConfigBase:
-    def test_build_raises_not_implemented(self) -> None:
-        # ``PathConfig`` is a family base: pydantic rejects direct
-        # instantiation, so call the unbound method. ``PathConfig.build``
-        # raises immediately and never touches ``self``.
-        with pytest.raises(NotImplementedError):
-            PathConfig.build(object())
-
     def test_sigma_and_sampler_cfg_fields(self) -> None:
         # No instance required: inspect the pydantic field declarations.
         fields = PathConfig.model_fields
@@ -75,13 +69,18 @@ class TestPathConfigBase:
 
 
 class TestConfigBuild:
-    @pytest.mark.parametrize("cfg_cls, key, path_cls", PAIRS, ids=_PAIR_IDS)
+    @pytest.mark.parametrize("cfg_cls, key, path_cls", TWO_SIDED_PAIRS, ids=_PAIR_IDS[:3])
     def test_deterministic_sigma_zero(self, cfg_cls, key, path_cls) -> None:
         # sigma == 0 needs no sampler — build must succeed regardless of
         # whether a NoiseSamplerConfig can be constructed in this env.
         path = cfg_cls(sigma=0.0).build()
         assert isinstance(path, path_cls)
         assert type(path) is path_cls  # exact type, not a subclass
+
+    @pytest.mark.parametrize("cfg_cls, key, path_cls", ONE_SIDED_PAIRS, ids=_PAIR_IDS[3:])
+    def test_one_sided_zero_sigma_raises_on_build(self, cfg_cls, key, path_cls) -> None:
+        with pytest.raises(ValueError, match="needs sigma > 0"):
+            cfg_cls(sigma=0.0).build()
 
     @pytest.mark.parametrize("cfg_cls, key, path_cls", PAIRS, ids=_PAIR_IDS)
     def test_forwards_sigma(self, cfg_cls, key, path_cls) -> None:

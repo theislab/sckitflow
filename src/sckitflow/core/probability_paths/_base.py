@@ -1,4 +1,5 @@
 import abc
+from collections.abc import Callable
 
 import torch
 
@@ -46,11 +47,9 @@ class BasePath(abc.ABC):
             time-dependent standard deviation :math:`\sigma_t` of the
             conditional probability path; a value of :math:`0` yields a
             deterministic path.
-        :type sigma: class: `float`
 
         :param sampler_cfg: Configuration used to build the noise sampler.
             Required when ``sigma > 0`` and ignored otherwise.
-        :type sampler_cfg: class: `NoiseSamplerConfig` | None
 
         :raises ValueError: If ``sigma`` is negative, or if ``sigma > 0``
             is given without a ``sampler_cfg``.
@@ -71,116 +70,51 @@ class BasePath(abc.ABC):
         self,
         t: torch.Tensor,
     ) -> torch.Tensor:
-        r"""Returns the coefficient :math:`\alpha_t` of the initial sample.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The coefficient :math:`\alpha_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns the coefficient :math:`\alpha_t` of the initial sample."""
 
     @abc.abstractmethod
     def compute_beta_t(
         self,
         t: torch.Tensor,
     ) -> torch.Tensor:
-        r"""Returns the coefficient :math:`\beta_t` of the final sample.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The coefficient :math:`\beta_t`.
-        :rtype: class: `torch.Tensor`
-        """
+        r"""Returns the coefficient :math:`\beta_t` of the final sample."""
 
     @abc.abstractmethod
     def compute_sigma_t(
         self,
         t: torch.Tensor,
     ) -> torch.Tensor:
-        r"""Returns the time-dependent standard deviation :math:`\sigma_t`.
+        r"""Returns the time-dependent standard deviation :math:`\sigma_t`."""
+
+    def _value_and_dot(
+        self, fn: Callable[[torch.Tensor], torch.Tensor], t: torch.Tensor
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        r"""Returns ``fn(t)`` and its time-derivative, by a VJP so the derivative stays analytic.
+
+        :param fn: One of the coefficient methods.
 
         :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
 
-        :returns: The standard deviation :math:`\sigma_t`.
-        :rtype: class: `torch.Tensor`
+        :returns: The pair ``(fn(t), d fn(t) / dt)``.
         """
+        value, grad_fn = torch.func.vjp(fn, t)
+        return value, grad_fn(torch.ones_like(value))[0]
 
     def compute_alpha_t_and_dot_alpha_t(self, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Returns :math:`\alpha_t` and its time-derivative :math:`\dot{\alpha}_t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The pair :math:`(\alpha_t, \dot{\alpha}_t)`.
-        :rtype: class: `tuple` [class: `torch.Tensor`, class: `torch.Tensor`]
-        """
-        alpha_t, grad_fn = torch.func.vjp(self.compute_alpha_t, t)
-        return alpha_t, grad_fn(torch.ones_like(alpha_t))[0]
+        r"""Returns :math:`\alpha_t` and its time-derivative :math:`\dot{\alpha}_t`."""
+        return self._value_and_dot(self.compute_alpha_t, t)
 
     def compute_beta_t_and_dot_beta_t(self, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Returns :math:`\beta_t` and its time-derivative :math:`\dot{\beta}_t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The pair :math:`(\beta_t, \dot{\beta}_t)`.
-        :rtype: class: `tuple` [class: `torch.Tensor`, class: `torch.Tensor`]
-        """
-        beta_t, grad_fn = torch.func.vjp(self.compute_beta_t, t)
-        return beta_t, grad_fn(torch.ones_like(beta_t))[0]
+        r"""Returns :math:`\beta_t` and its time-derivative :math:`\dot{\beta}_t`."""
+        return self._value_and_dot(self.compute_beta_t, t)
 
     def compute_sigma_t_and_dot_sigma_t(self, t: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-        r"""Returns :math:`\sigma_t` and its time-derivative :math:`\dot{\sigma}_t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The pair :math:`(\sigma_t, \dot{\sigma}_t)`.
-        :rtype: class: `tuple` [class: `torch.Tensor`, class: `torch.Tensor`]
-        """
-        sigma_t, grad_fn = torch.func.vjp(self.compute_sigma_t, t)
-        return sigma_t, grad_fn(torch.ones_like(sigma_t))[0]
-
-    def compute_dot_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns the time-derivative :math:`\dot{\alpha}_t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The derivative :math:`\dot{\alpha}_t`.
-        :rtype: class: `torch.Tensor`
-        """
-        return self.compute_alpha_t_and_dot_alpha_t(t)[1]
-
-    def compute_dot_beta_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns the time-derivative :math:`\dot{\beta}_t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The derivative :math:`\dot{\beta}_t`.
-        :rtype: class: `torch.Tensor`
-        """
-        return self.compute_beta_t_and_dot_beta_t(t)[1]
-
-    def compute_dot_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns the time-derivative :math:`\dot{\sigma}_t`.
-
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: The derivative :math:`\dot{\sigma}_t`.
-        :rtype: class: `torch.Tensor`
-        """
-        return self.compute_sigma_t_and_dot_sigma_t(t)[1]
+        r"""Returns :math:`\sigma_t` and its time-derivative :math:`\dot{\sigma}_t`."""
+        return self._value_and_dot(self.compute_sigma_t, t)
 
     def compute_xt(
         self,
         t: torch.Tensor,
-        xt: torch.Tensor,
         x0: torch.Tensor,
         x1: torch.Tensor,
         *,
@@ -201,31 +135,23 @@ class BasePath(abc.ABC):
         term vanishes and the output equals the mean :math:`\mu_t`.
 
         :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :param xt: Unused; kept for signature symmetry with
-            :meth:`compute_ut`.
-        :type xt: class: `torch.Tensor`
 
         :param x0: The initial sample :math:`\boldsymbol{x}_0`.
-        :type x0: class: `torch.Tensor`
 
         :param x1: The final sample :math:`\boldsymbol{x}_1`.
-        :type x1: class: `torch.Tensor`
 
         :param generator: Random generator used to draw the noise.
-        :type generator: class: `torch.Generator`
 
         :returns: The sample :math:`\boldsymbol{x}_t`.
-        :rtype: class: `torch.Tensor`
         """
-        alpha_t = broadcast_to_target_shape(self.compute_alpha_t(t), x0.shape)
-        beta_t = broadcast_to_target_shape(self.compute_beta_t(t), x0.shape)
-        mu_t = alpha_t * x0 + beta_t * x1
+
+        def bc(value: torch.Tensor) -> torch.Tensor:
+            return broadcast_to_target_shape(value, x0.shape)
+
+        mu_t = bc(self.compute_alpha_t(t)) * x0 + bc(self.compute_beta_t(t)) * x1
         if self._sigma > 0:
-            sigma_t = broadcast_to_target_shape(self.compute_sigma_t(t), x0.shape)
             noise = self._sampler(x1.shape, generator=generator, device=x0.device, dtype=x0.dtype)
-            return mu_t + sigma_t * noise
+            return mu_t + bc(self.compute_sigma_t(t)) * noise
         return mu_t
 
     def compute_ut(
@@ -234,8 +160,6 @@ class BasePath(abc.ABC):
         xt: torch.Tensor,
         x0: torch.Tensor,
         x1: torch.Tensor,
-        *,
-        generator: torch.Generator,
     ) -> torch.Tensor:
         r"""Returns the velocity field :math:`\boldsymbol{u}_t` along the path.
 
@@ -262,33 +186,22 @@ class BasePath(abc.ABC):
         and the velocity equals :math:`\dot{\boldsymbol{\mu}}_t`.
 
         :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
 
         :param xt: The sample :math:`\boldsymbol{x}_t` at time ``t``.
-        :type xt: class: `torch.Tensor`
 
         :param x0: The initial sample :math:`\boldsymbol{x}_0`.
-        :type x0: class: `torch.Tensor`
 
         :param x1: The final sample :math:`\boldsymbol{x}_1`.
-        :type x1: class: `torch.Tensor`
-
-        :param generator: Unused; kept for signature symmetry with
-            :meth:`compute_xt`.
-        :type generator: class: `torch.Generator`
 
         :returns: The velocity :math:`\boldsymbol{u}_t`.
-        :rtype: class: `torch.Tensor`
         """
-        # Compute alpha terms.
-        alpha_t, dot_alpha_t = self.compute_alpha_t_and_dot_alpha_t(t)
-        alpha_t = broadcast_to_target_shape(alpha_t, x0.shape)
-        dot_alpha_t = broadcast_to_target_shape(dot_alpha_t, x0.shape)
 
-        # Compute beta terms.
-        beta_t, dot_beta_t = self.compute_beta_t_and_dot_beta_t(t)
-        beta_t = broadcast_to_target_shape(beta_t, x0.shape)
-        dot_beta_t = broadcast_to_target_shape(dot_beta_t, x0.shape)
+        def bc(pair: tuple[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
+            value, dot_value = pair
+            return broadcast_to_target_shape(value, x0.shape), broadcast_to_target_shape(dot_value, x0.shape)
+
+        alpha_t, dot_alpha_t = bc(self.compute_alpha_t_and_dot_alpha_t(t))
+        beta_t, dot_beta_t = bc(self.compute_beta_t_and_dot_beta_t(t))
 
         # Compute mean and differential.
         mu_t = alpha_t * x0 + beta_t * x1
@@ -298,10 +211,7 @@ class BasePath(abc.ABC):
         if self._sigma <= 0:
             return dot_mu_t
 
-        # Compute sigma terms.
-        sigma_t, dot_sigma_t = self.compute_sigma_t_and_dot_sigma_t(t)
-        sigma_t = broadcast_to_target_shape(sigma_t, x0.shape)
-        dot_sigma_t = broadcast_to_target_shape(dot_sigma_t, x0.shape)
+        sigma_t, dot_sigma_t = bc(self.compute_sigma_t_and_dot_sigma_t(t))
 
         # Guard for zero division
         eps = torch.finfo(sigma_t.dtype).eps
@@ -315,10 +225,7 @@ class BasePath(abc.ABC):
 
     @property
     def sigma(self) -> float:
-        r"""The scalar noise strength :math:`\sigma` of the path.
-
-        :rtype: class: `float`
-        """
+        r"""The scalar noise strength :math:`\sigma` of the path."""
         return self._sigma
 
 
@@ -331,13 +238,20 @@ class OneSidedPath(BasePath):
     :math:`\beta_t` and :math:`\sigma_t`.
     """
 
-    def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\alpha_t \equiv 0` for every :math:`t`.
+    def __init__(self, sigma: float, sampler_cfg: NoiseSamplerConfig | None = None) -> None:
+        r"""Initializes the one-sided path.
 
-        :param t: Time tensor, with values in :math:`[0, 1]`.
-        :type t: class: `torch.Tensor`
-
-        :returns: A tensor of zeros with the same shape as ``t``.
-        :rtype: class: `torch.Tensor`
+        :raises ValueError: If ``sigma`` is zero. With :math:`\alpha_t \equiv 0` the noise term is the only thing
+            standing in for :math:`\boldsymbol{x}_0`, so a deterministic one-sided path would collapse
+            :math:`\boldsymbol{x}_t` to :math:`\beta_t \boldsymbol{x}_1` and flow from the origin.
         """
+        if sigma == 0:
+            raise ValueError(
+                f"A one-sided path interpolates noise into the data, so it needs sigma > 0; found {sigma=}. "
+                "Use a two-sided path for a deterministic interpolation between two samples."
+            )
+        super().__init__(sigma, sampler_cfg)
+
+    def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\alpha_t \equiv 0` for every :math:`t`."""
         return torch.zeros_like(t)

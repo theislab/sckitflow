@@ -35,8 +35,15 @@ class _Field(torch.nn.Module):
         return self.fn
 
 
+def _path(path_cls):
+    """One-sided paths need noise; two-sided ones are deterministic here."""
+    if issubclass(path_cls, OneSidedPath):
+        return path_cls(sigma=1.0, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
+    return path_cls(sigma=0.0)
+
+
 def _guided(field, potential, path=None, **kwargs):
-    path = LinearOneSidedPath(sigma=0.0) if path is None else path
+    path = _path(LinearOneSidedPath) if path is None else path
     return LossGuidedVelocity(field, path, potential, flow_map=PathFlowMap(field, path), **kwargs)
 
 
@@ -44,12 +51,11 @@ def _guided(field, potential, path=None, **kwargs):
 @pytest.mark.parametrize("t", [0.1, 0.3, 0.7, 0.9])
 def test_posterior_coefficients_recover_the_pair(path_cls, t):
     # draws from the path's own sampler, with noise on the one-sided paths, so the assumed blend is checked
-    one_sided = issubclass(path_cls, OneSidedPath)
-    path = path_cls(sigma=1.0, sampler_cfg=IsotropicGaussianNoiseSamplerConfig()) if one_sided else path_cls(sigma=0.0)
+    one_sided, path = issubclass(path_cls, OneSidedPath), _path(path_cls)
     t, generator = torch.tensor(t, dtype=torch.float64), torch.Generator().manual_seed(0)
     x0, x1 = torch.randn(2, 8, 3, dtype=torch.float64)
-    xt = path.compute_xt(t, None, x0, x1, generator=generator)
-    ut = path.compute_ut(t, xt, x0, x1, generator=generator)
+    xt = path.compute_xt(t, x0, x1, generator=generator)
+    ut = path.compute_ut(t, xt, x0, x1)
     (c0_x, c0_v), (c1_x, c1_v) = posterior_coefficients(path, t)
     torch.testing.assert_close(c1_x * xt + c1_v * ut, x1)
     if not one_sided:  # one-sided paths draw their own x0
@@ -59,16 +65,16 @@ def test_posterior_coefficients_recover_the_pair(path_cls, t):
 
 def test_closed_forms():
     t = torch.linspace(0.05, 0.95, 7, dtype=torch.float64)
-    path = LinearOneSidedPath(sigma=0.0)
+    path = _path(LinearOneSidedPath)
     (_, (c_x, c_v)), strength = posterior_coefficients(path, t), guidance_strength(path, t)
     torch.testing.assert_close((c_x, c_v, strength), (torch.ones_like(t), 1 - t, (1 - t) / t))
-    _, (c_x, c_v) = posterior_coefficients(VPOneSidedPath(sigma=0.0), t)
+    _, (c_x, c_v) = posterior_coefficients(_path(VPOneSidedPath), t)
     torch.testing.assert_close((c_x, c_v), (t, 1 - t**2))
 
 
 def test_path_flow_map_rejects_unsolvable_paths():
     with pytest.raises(ValueError, match="does not determine"):
-        PathFlowMap(_Field(lambda t, x: -x), EncDecTwoSidedPath(sigma=0.0))
+        PathFlowMap(_Field(lambda t, x: -x), _path(EncDecTwoSidedPath))
 
 
 @pytest.mark.parametrize("path_cls", SOLVABLE)
@@ -76,10 +82,10 @@ def test_path_flow_map_rejects_unsolvable_paths():
 def test_endpoints_finite_with_a_singular_potential(path_cls, t):
     # the potential's gradient is NaN everywhere: wherever the strength is 0 none of it may leak in
     potential = lambda x: torch.sqrt(-(x**2).sum(-1))
-    velocity = _guided(_Field(lambda t, x: -x), potential, path_cls(sigma=0.0)).get_vf_fn()(
+    velocity = _guided(_Field(lambda t, x: -x), potential, _path(path_cls)).get_vf_fn()(
         torch.tensor(t), torch.randn(4, 3)
     )
-    if guidance_strength(path_cls(sigma=0.0), torch.tensor(t)) == 0:
+    if guidance_strength(_path(path_cls), torch.tensor(t)) == 0:
         assert torch.isfinite(velocity).all()
 
 
@@ -124,7 +130,7 @@ def test_gradient_matches_analytic():
 def test_path_flow_map_follows_curved_paths(path_cls, n_steps):
     # with the exact velocity of a single pair, x_u = a_u x0 + b_u x1, the map lands on x1 from any t,
     # however curved the schedule; plain Euler steps would not on the trig and VP paths
-    path, t = path_cls(sigma=0.0), torch.tensor(0.3, dtype=torch.float64)
+    path, t = _path(path_cls), torch.tensor(0.3, dtype=torch.float64)
     x0, x1 = torch.randn(2, 8, 3, dtype=torch.float64)
 
     def v(u, x):

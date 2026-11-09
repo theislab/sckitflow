@@ -199,6 +199,11 @@ class SurrogateResponse(torch.nn.Module):
                 cells = pred.raw_samples if pred.raw_samples is not None else pred.X
                 if self.readout is not None:
                     cells = self.readout(cells)
+                    if cells.shape[-2] != n:
+                        raise ValueError(
+                            f"The readout must keep one row per condition on axis -2: got {cells.shape[-2]}, "
+                            f"expected {n}."
+                        )
                 # average over every axis before the conditions' (samples, the leaf's pairs)
                 groups.append(cells.reshape(-1, *cells.shape[-2:]).mean(0))
             populations.append(torch.stack(groups))

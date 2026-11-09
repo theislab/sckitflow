@@ -526,6 +526,18 @@ class TestForwardErrors:
         surrogate(inferer, torch.zeros(3), dmod, readout=torch.square, potential=rec)(make_cond_dict(n=4))
         torch.testing.assert_close(rec.y[0, 0], cells.square().mean(0))
 
+    def test_a_readout_that_collapses_the_conditions_raises(self):
+        """A readout reducing over the conditions would give every condition one shared potential."""
+        dims = make_dims(("cond_a",), 3)
+        step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
+        inferer = FakeInferer(lambda sd, g: torch.zeros(4, 3))
+        dmod = FakeDataModule(dims, FakeEvalLoader([(step, "leaf_0")]))
+        readout = lambda cells: cells.softmax(-1).mean(-2, keepdim=True)
+        p = surrogate(inferer, torch.zeros(3), dmod, readout=readout)
+
+        with pytest.raises(ValueError, match="one row per condition"):
+            p(make_cond_dict(n=4))
+
     def test_a_readout_with_the_wrong_last_dim_raises(self):
         """The readout's last dim must match ``ystar``; caught with a ValueError, not an IndexError."""
         dims = make_dims(("cond_a",), 3)

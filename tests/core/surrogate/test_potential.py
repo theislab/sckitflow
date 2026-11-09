@@ -127,9 +127,9 @@ def make_cond_dict(cond_keys=("cond_a",), n=4, dim=3, requires_grad=True, device
     return {k: torch.randn(n, dim, requires_grad=requires_grad, device=device) for k in cond_keys}
 
 
-def make_potential(cond_keys=("cond_a",), n=4, dim=3, n_leaves=3, ystar_dim=3, mask=None, seed=0, device="cpu"):
+def make_potential(cond_keys=("cond_a",), n=4, dim=3, n_leaves=3, ystar_dim=3, mask=None, seed=0):
     dims = make_dims(cond_keys, dim)
-    step_data = make_step_data(cond_keys, n=n, dims=dict.fromkeys(cond_keys, dim), device=device)
+    step_data = make_step_data(cond_keys, n=n, dims=dict.fromkeys(cond_keys, dim))
     batches = [(step_data, f"leaf_{i}") for i in range(n_leaves)]
 
     # Fixed projection so the response is a deterministic function of the
@@ -139,22 +139,19 @@ def make_potential(cond_keys=("cond_a",), n=4, dim=3, n_leaves=3, ystar_dim=3, m
         dim * len(cond_keys),
         ystar_dim,
         generator=torch.Generator().manual_seed(1234),
-        device=device,
     )
 
     def response_fn(step_data, generator):
         cond_cov = step_data["target_condition_data"]
         flat = torch.cat([cond_cov[k] for k in cond_keys], dim=-1)
-        noise = torch.randn(n, ystar_dim, generator=generator, device=device)
+        noise = torch.randn(n, ystar_dim, generator=generator)
         return flat @ projection + 0.1 * noise
 
     inferer = FakeInferer(response_fn)
     datamodule = FakeDataModule(dims, FakeEvalLoader(batches))
-    ystar = torch.zeros(ystar_dim, device=device)
+    ystar = torch.zeros(ystar_dim)
 
     potential = surrogate(inferer, ystar, datamodule, mask=mask, seed=seed)
-    if device != "cpu":
-        potential = potential.to(device)
     return potential, inferer, datamodule
 
 
@@ -250,7 +247,7 @@ class TestInit:
     def test_mask_moves_with_module(self):
         if not torch.cuda.is_available():
             pytest.skip("CUDA not available")
-        potential, _, _ = make_potential(device="cuda")
+        potential = make_potential()[0].to("cuda")
         assert potential.mask.is_cuda
         assert potential.ystar.is_cuda
 
@@ -498,12 +495,13 @@ class TestForwardErrors:
         with pytest.raises(ValueError, match="two-dimensional"):
             potential({"cond_a": torch.zeros(4)})
 
-    def test_conditions_move_to_the_module_device(self):
+    def test_conditions_off_the_module_device_raise(self):
         if not torch.cuda.is_available():
             pytest.skip("CUDA not available")
         potential, _, _ = make_potential(cond_keys=("cond_a", "cond_b"))
         cond = {"cond_a": torch.zeros(4, 3), "cond_b": torch.zeros(4, 3, device="cuda")}
-        assert potential(cond).device.type == "cpu"
+        with pytest.raises(ValueError, match=r"\['cond_b'\] are not on the inference module's device"):
+            potential(cond)
 
     def test_potential_of_the_wrong_shape_raises(self):
         dims = make_dims(("cond_a",), 3)

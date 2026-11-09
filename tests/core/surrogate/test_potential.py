@@ -379,10 +379,10 @@ class TestMasking:
         rec = Recorder()
         surrogate(inferer, ystar, dmod, potential=rec, mask=mask)(make_cond_dict(n=4))
 
-        assert rec.y.shape == (4, 2)
+        assert rec.y.shape == (1, 1, 4, 2)  # (populations, groups, conditions, masked dims)
         assert rec.ystar.shape == (2,)
         assert torch.allclose(rec.ystar, torch.tensor([1.0, 3.0]))
-        assert torch.allclose(rec.y, torch.ones(4, 2))
+        assert torch.allclose(rec.y, torch.ones(1, 1, 4, 2))
 
     def test_all_true_mask_matches_no_mask_at_hook(self):
         dims = make_dims(("cond_a",), 3)
@@ -524,7 +524,7 @@ class TestForwardErrors:
         dmod = FakeDataModule(dims, FakeEvalLoader([(step, "leaf_0")]))
         rec = Recorder()
         surrogate(inferer, torch.zeros(3), dmod, readout=torch.square, potential=rec)(make_cond_dict(n=4))
-        torch.testing.assert_close(rec.y, cells.square().mean(0))
+        torch.testing.assert_close(rec.y[0, 0], cells.square().mean(0))
 
     def test_a_readout_with_the_wrong_last_dim_raises(self):
         """The readout's last dim must match ``ystar``; caught with a ValueError, not an IndexError."""

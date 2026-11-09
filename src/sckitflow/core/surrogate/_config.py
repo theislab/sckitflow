@@ -16,14 +16,14 @@ __all__ = [
     "SquaredErrorPotentialConfig",
     "CrossEntropyPotentialConfig",
     "squared_error",
-    "cross_entropy",
+    "cross_entropy_probs",
 ]
 
 Readout = Callable[[torch.Tensor], torch.Tensor]
 """A per-cell map ``(..., D) -> (..., D')``, e.g. a cell-type classifier's probabilities."""
 
 Potential = Callable[[torch.Tensor, torch.Tensor], torch.Tensor]
-"""``(y, ystar)``, shapes ``(N, D')`` and ``(D',)`` -> ``(N,)``, one potential per condition."""
+"""``(y, ystar)``, shapes ``(..., N, D')`` and ``(D',)`` -> ``(..., N)``, one potential per row."""
 
 
 def squared_error(y: torch.Tensor, ystar: torch.Tensor) -> torch.Tensor:
@@ -31,8 +31,11 @@ def squared_error(y: torch.Tensor, ystar: torch.Tensor) -> torch.Tensor:
     return ((y - ystar) ** 2).sum(-1)
 
 
-def cross_entropy(y: torch.Tensor, ystar: torch.Tensor) -> torch.Tensor:
-    """``-Σ ystar log y`` for a response ``y`` of class probabilities, e.g. a mean cell-type composition."""
+def cross_entropy_probs(y: torch.Tensor, ystar: torch.Tensor) -> torch.Tensor:
+    """``-Σ ystar log y`` for a response ``y`` of class probabilities, e.g. a mean cell-type composition.
+
+    Unlike :func:`torch.nn.functional.cross_entropy`, both arguments are probabilities, not logits and labels.
+    """
     return -(ystar * torch.log(y.clamp_min(torch.finfo(y.dtype).tiny))).sum(-1)
 
 
@@ -54,6 +57,6 @@ class SquaredErrorPotentialConfig(PotentialConfig):
 
 @component("surrogate.potential.cross_entropy")
 class CrossEntropyPotentialConfig(PotentialConfig):
-    """See `cross_entropy`."""
+    """See `cross_entropy_probs`."""
 
-    fn = cross_entropy
+    fn = cross_entropy_probs

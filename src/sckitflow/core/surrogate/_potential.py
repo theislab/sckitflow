@@ -161,9 +161,9 @@ class SurrogateResponse(torch.nn.Module):
         :param cond_dict: A dictionary of input tensors, each of shape ``(N, D)``.
         :returns: Shape ``(n_groups, N, D')``.
         """
-        return self.populations(cond_dict, n_populations=1)[0]
+        return self.population_responses(cond_dict, n_populations=1)[0]
 
-    def populations(self, cond_dict: dict[str, torch.Tensor], n_populations: int) -> torch.Tensor:
+    def population_responses(self, cond_dict: dict[str, torch.Tensor], n_populations: int) -> torch.Tensor:
         """The responses of ``n_populations`` independently drawn populations.
 
         Each population draws its own generator per group, so the spread across populations is the
@@ -222,7 +222,7 @@ class SurrogatePotential(torch.nn.Module):
 
     :param response: The response the potential scores.
     :param ystar: The target response, of shape ``(D',)``.
-    :param potential: ``(y, ystar)``, the masked responses ``(N, D')`` and target ``(D',)`` -> ``(N,)``.
+    :param potential: ``(y, ystar)``, the masked responses ``(..., N, D')`` and target ``(D',)`` -> ``(..., N)``.
     :param mask: A boolean mask of shape ``(D',)`` selecting the response dimensions to score. Coerced to bool;
         index lists are not supported. ``None`` selects all of them.
     """
@@ -271,21 +271,16 @@ class SurrogatePotential(torch.nn.Module):
         :param cond_dict: A dictionary of input tensors, each of shape ``(N, D)``.
         :returns: Shape ``(n_populations, N)``.
         """
-        ys = self.response.populations(cond_dict, n_populations)
+        ys = self.response.population_responses(cond_dict, n_populations)
         if ys.shape[-1] != self.ystar.shape[-1]:
             raise ValueError(
                 f"The response has last dim {ys.shape[-1]}, but the target response has dim {self.ystar.shape[-1]}."
             )
-        n, ystar = ys.shape[-2], self.ystar[self.mask]
-        populations = []
-        for groups in ys:
-            potentials = []
-            for i, y in enumerate(groups):
-                pot = self.potential(y[..., self.mask], ystar)
-                if pot.shape != (n,):
-                    raise ValueError(
-                        f"Potential value for group {i} has the wrong shape -- got {pot.shape}, but expected {(n,)}."
-                    )
-                potentials.append(pot)
-            populations.append(torch.stack(potentials).mean(0))
-        return torch.stack(populations)
+        n_populations, n_groups, n = ys.shape[:3]
+        potentials = self.potential(ys[..., self.mask], self.ystar[self.mask])
+        if potentials.shape != (n_populations, n_groups, n):
+            raise ValueError(
+                f"The potential has the wrong shape -- got {potentials.shape}, but expected "
+                f"{(n_populations, n_groups, n)}. It must broadcast over leading axes, one value per row."
+            )
+        return potentials.mean(1)

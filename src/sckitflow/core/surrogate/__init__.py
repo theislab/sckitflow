@@ -1,8 +1,10 @@
 from sckitflow.core.surrogate._config import (
     CrossEntropyPotentialConfig,
+    Potential,
     PotentialConfig,
+    Readout,
     SquaredErrorPotentialConfig,
-    cross_entropy,
+    cross_entropy_probs,
     squared_error,
 )
 from sckitflow.core.surrogate._guidance import (
@@ -10,7 +12,9 @@ from sckitflow.core.surrogate._guidance import (
     LossGuidedVelocity,
     MapFn,
     PathFlowMap,
-    guidance_coefficients,
+    endpoint_coefficients,
+    guidance_strength,
+    posterior_coefficients,
 )
 from sckitflow.core.surrogate._potential import SurrogatePotential, SurrogateResponse
 
@@ -21,10 +25,14 @@ __all__ = [
     "FlowMap",
     "PathFlowMap",
     "MapFn",
-    "guidance_coefficients",
+    "endpoint_coefficients",
+    "posterior_coefficients",
+    "guidance_strength",
+    "Readout",
+    "Potential",
     "PotentialConfig",
     "SquaredErrorPotentialConfig",
     "CrossEntropyPotentialConfig",
     "squared_error",
-    "cross_entropy",
+    "cross_entropy_probs",
 ]

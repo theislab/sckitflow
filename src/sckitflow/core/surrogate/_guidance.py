@@ -9,7 +9,7 @@ import torch
 from sckitflow.core._types import VfFn
 from sckitflow.core._utils import broadcast_to_target_shape
 from sckitflow.core.nn.fields import NeuralVelocity
-from sckitflow.core.probability_paths import BasePath, OneSidedPath
+from sckitflow.core.probability_paths import BasePath
 
 __all__ = ["FlowMap", "LossGuidedVelocity", "MapFn", "PathFlowMap"]
 
@@ -26,80 +26,67 @@ class FlowMap(Protocol):
 
 
 class _Coefficients(NamedTuple):
-    r"""The coefficients of $x_t = a_t x_0 + \beta_t x_1$ and their derivatives, and where it is solvable.
+    r"""The coefficients of $x_t = \alpha_t x_0 + \beta_t x_1$ and their time derivatives.
 
-    $D_t = \dot a_t \beta_t - a_t \dot\beta_t$ is minus the determinant of the system for $x_0, x_1$.
+    $D_t = \dot\alpha_t \beta_t - \alpha_t \dot\beta_t$ is minus the determinant of the system for $x_0, x_1$.
     """
 
-    a: torch.Tensor
-    da: torch.Tensor
+    alpha: torch.Tensor
+    dalpha: torch.Tensor
     beta: torch.Tensor
     dbeta: torch.Tensor
     D: torch.Tensor
-    solvable: torch.Tensor
 
 
 def _coefficients(path: BasePath, t: torch.Tensor) -> _Coefficients:
-    r"""The interpolant's coefficients at ``t``; $a_t = \sigma_t$ on one-sided paths and $\alpha_t$ otherwise."""
-    a_fn = (
-        path.compute_sigma_t_and_dot_sigma_t if isinstance(path, OneSidedPath) else path.compute_alpha_t_and_dot_alpha_t
-    )
-    (a, da), (beta, dbeta) = a_fn(t), path.compute_beta_t_and_dot_beta_t(t)
-    D = da * beta - a * dbeta
-    solvable = D.abs() > torch.finfo(D.dtype).eps
-    for c in (a, da, beta, dbeta):
-        solvable &= torch.isfinite(c / D)
-    return _Coefficients(a, da, beta, dbeta, D, solvable)
+    (alpha, dalpha), (beta, dbeta) = path.compute_alpha_t_and_dot_alpha_t(t), path.compute_beta_t_and_dot_beta_t(t)
+    return _Coefficients(alpha, dalpha, beta, dbeta, dalpha * beta - alpha * dbeta)
 
 
 def _posterior_means(c: _Coefficients, x: torch.Tensor, v: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    r"""$(\hat x_0, \hat x_1)$, solving $x_t = a_t x_0 + \beta_t x_1$ and $v_t = \dot a_t x_0 + \dot\beta_t x_1$.
+    r"""$(\hat x_0, \hat x_1)$, solving $x_t = \alpha_t x_0 + \beta_t x_1$ and $v_t = \dot\alpha_t x_0 + \dot\beta_t x_1$."""
 
-    Where the system is not solvable, e.g. at an endpoint where a coefficient is infinite, $\hat x_1 = x_t$ and
-    $\hat x_0 = 0$.
-    """
+    def solved(numerator: torch.Tensor) -> torch.Tensor:
+        return broadcast_to_target_shape(numerator / c.D, x.shape)
 
-    def solved(numerator: torch.Tensor, fallback: float) -> torch.Tensor:
-        coef = torch.where(c.solvable, numerator / c.D, torch.full_like(c.D, fallback))
-        return broadcast_to_target_shape(coef, x.shape)
-
-    x0 = solved(-c.dbeta, 0.0) * x + solved(c.beta, 0.0) * v
-    x1 = solved(c.da, 1.0) * x + solved(-c.a, 0.0) * v
+    x0 = solved(-c.dbeta) * x + solved(c.beta) * v
+    x1 = solved(c.dalpha) * x + solved(-c.alpha) * v
     return x0, x1
 
 
 def _check_path(path: BasePath) -> None:
-    """Raises unless ``path`` determines $x_0, x_1$ from $x_t, v_t$ inside $(0, 1)$."""
-    if not isinstance(path, OneSidedPath) and path.sigma > 0:
-        raise ValueError("A two-sided path with sigma > 0 does not determine x_0 and x_1 from x_t and v_t.")
-    if not _coefficients(path, torch.linspace(0.01, 0.99, 99, dtype=torch.float64)).solvable.all():
+    r"""Raises unless ``path`` determines $x_0, x_1$ from $x_t, v_t$ at every $t$: noiseless, with $D_t \neq 0$."""
+    if path.sigma > 0:
+        raise ValueError("A path with sigma > 0 does not determine x_0 and x_1 from x_t and v_t.")
+    c = _coefficients(path, torch.linspace(0, 1, 101, dtype=torch.float64))
+    if not (torch.isfinite(torch.stack(c)).all() and (c.D.abs() > torch.finfo(c.D.dtype).eps).all()):
         raise ValueError(f"{type(path).__name__} does not determine x_0 and x_1 from x_t and v_t.")
 
 
 def _guidance_strength(path: BasePath, t: torch.Tensor) -> torch.Tensor:
-    r"""$\lambda_t = -a_t D_t / \beta_t$, the factor by which tilting $p_t$ with $e^{-\Psi_t}$ shifts the velocity.
+    r"""$\lambda_t = -\alpha_t D_t / \beta_t$, the factor by which tilting $p_t$ with $e^{-\Psi_t}$ shifts the velocity.
 
-    It is $(1 - t)/t$ on the linear paths and infinite where $\beta_t = 0$; callers clamp it. It assumes $x_0$
-    is Gaussian noise. It is ``0`` where the coefficients are not solvable and where $a_t$ is zero up to
-    rounding, the data end, where e.g. $\cos(\pi/2)$ would otherwise leave a positive $10^{-16}$ in float64.
+    It is $(1 - t)/t$ on the linear path and infinite where $\beta_t = 0$; callers clamp it. It assumes $x_0$
+    is Gaussian noise. It is ``0`` where $\alpha_t$ is zero up to rounding, the data end, where e.g.
+    $\cos(\pi/2)$ would otherwise leave a positive $10^{-16}$ in float64.
     """
     c = _coefficients(path, t)
-    active = c.solvable & (c.a.abs() > torch.finfo(c.a.dtype).eps)
-    return torch.where(active, -c.a * c.D / c.beta, torch.zeros_like(c.D))
+    active = c.alpha.abs() > torch.finfo(c.alpha.dtype).eps
+    return torch.where(active, -c.alpha * c.D / c.beta, torch.zeros_like(c.D))
 
 
 class PathFlowMap(torch.nn.Module):
     r"""The flow map of ``velocity``, approximated with ``n_steps`` steps along ``path`` from ``t`` to ``s``.
 
     Each step from $u$ to $u'$ estimates the posterior means $\hat x_0, \hat x_1$ from $x_u$ and $v_u$ and
-    re-blends them as $a_{u'} \hat x_0 + \beta_{u'} \hat x_1$. On linear paths this is an Euler step, so one step
+    re-blends them as $\alpha_{u'} \hat x_0 + \beta_{u'} \hat x_1$. On linear paths this is an Euler step, so one step
     to $s = 1$ gives $x + (1 - t) v_t(x)$, the linear one-step estimator. On curved schedules it follows the
     curve, where an Euler step would not. More steps approach the endpoint of the ODE, which a distilled flow
     map approximates in one network call.
 
     :param velocity: The velocity module, implementing ``get_vf_fn``.
     :param path: The probability path ``velocity`` was trained on. It must determine $x_0, x_1$ from
-        $x_t, v_t$ inside $(0, 1)$, which rules out :class:`EncDecTwoSidedPath` and noisy two-sided paths.
+        $x_t, v_t$ inside $(0, 1)$, which rules out :class:`EncDecPath` and noisy paths.
     :param n_steps: The number of steps, at least one.
     """
 
@@ -125,7 +112,7 @@ class PathFlowMap(torch.nn.Module):
                 x0, x1 = _posterior_means(_coefficients(self.path, u), x, vf(u, x))
                 after = _coefficients(self.path, torch.lerp(t, s, (k + 1) / self.n_steps))
                 x = (
-                    broadcast_to_target_shape(after.a, x.shape) * x0
+                    broadcast_to_target_shape(after.alpha, x.shape) * x0
                     + broadcast_to_target_shape(after.beta, x.shape) * x1
                 )
             return x
@@ -138,7 +125,7 @@ class LossGuidedVelocity(torch.nn.Module):
 
     Its ``get_vf_fn`` returns $v_t(x) - b_t \nabla_x \Psi(\hat x_1(x))$, where $\hat x_1 = \phi_{1 \mid t}(x)$ is
     the ``flow_map``'s estimate of the clean sample and $b_t = $ ``scale`` $\cdot \lambda_t$ clamped to
-    ``max_strength``, with $\lambda_t = -a_t D_t / \beta_t$ from the path, $(1 - t)/t$ on the linear paths.
+    ``max_strength``, with $\lambda_t = -\alpha_t D_t / \beta_t$ from the path, $(1 - t)/t$ on the linear path.
     Autograd differentiates through $\hat x_1$, so the gradient is $J_{\hat x_1}^\top \nabla \Psi$. Where
     $b_t = 0$ for every sample, the potential is not evaluated. Pass it to
     :class:`~sckitflow.core.solvers.ODESolver` like any velocity.

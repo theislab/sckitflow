@@ -227,9 +227,7 @@ def test_config_rejects_raw_callable_sampler():
 def test_config_rejects_live_probability_path():
     """Live ``BasePath`` instances are rejected; only configs are accepted."""
     with pytest.raises(pydantic.ValidationError):
-        CFMTrainingConfig(
-            probability_path=LinearPath(sigma=0.5, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
-        )
+        CFMTrainingConfig(probability_path=LinearPath(sigma=0.5, sampler_cfg=IsotropicGaussianNoiseSamplerConfig()))
 
 
 def test_config_rejects_swapped_samplers():

@@ -40,7 +40,7 @@ class PathConfig(Component):
     path_cls: ClassVar[type[BasePath]]
     """The path this member builds."""
 
-    sigma: float = Field(default=0.0, ge=0, allow_inf_nan=False)
+    sigma: float = Field(default=0.0, ge=0)
     sampler_cfg: NoiseSamplerConfig | None = None
 
     @model_validator(mode="after")
@@ -84,6 +84,6 @@ class EncDecPathConfig(PathConfig):
     encoder/decoder schedule with a :math:`\sigma \sin^2(\pi t)` noise profile. ``sigma`` must be positive.
     """
 
-    sigma: float = Field(gt=0, allow_inf_nan=False)
+    sigma: float = Field(gt=0)
 
     path_cls = EncDecPath

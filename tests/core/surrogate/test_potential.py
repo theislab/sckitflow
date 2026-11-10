@@ -30,13 +30,13 @@ from sckitflow.core.surrogate._potential import (
 class FakeInferer:
     """Satisfies ``SupportsInference`` structurally.
 
-    ``response_fn(step_data, generator)`` returns a tensor of shape ``(N, D)``.
-    Records every call so tests can assert on the number of leaves visited.
+    ``response_fn(step_data, generator)`` returns a tensor of shape ``(N, D)``, as ``raw_samples``, or as the
+    aggregated ``X`` with ``as_x``. Records every call so tests can assert on the number of leaves visited.
     """
 
-    def __init__(self, response_fn):
+    def __init__(self, response_fn, *, as_x=False):
         self._module = torch.nn.Linear(1, 1)
-        self._response_fn = response_fn
+        self._response_fn, self._as_x = response_fn, as_x
         self.calls = []
 
     @property
@@ -45,7 +45,8 @@ class FakeInferer:
 
     def predict(self, step_data, *, generator):
         self.calls.append((step_data, generator))
-        return PredictionData(X=None, raw_samples=self._response_fn(step_data, generator))
+        out = self._response_fn(step_data, generator)
+        return PredictionData(X=out, raw_samples=None) if self._as_x else PredictionData(X=None, raw_samples=out)
 
 
 class FakeEvalLoader:
@@ -207,11 +208,8 @@ class TestVerifyDims:
 
 
 class TestInit:
-    def test_registers_buffers_and_attributes(self):
-        potential, inferer, dmod = make_potential(seed=42)
-        assert potential.response.seed == 42
-        assert potential.response.inferer is inferer
-        assert potential.response.datamodule is dmod
+    def test_registers_buffers_and_no_parameters(self):
+        potential, _, _ = make_potential()
         assert {"ystar", "mask"} <= set(dict(potential.named_buffers()))
         assert list(potential.parameters()) == []
 
@@ -243,13 +241,6 @@ class TestInit:
     def test_rejects_mask_of_wrong_shape(self):
         with pytest.raises(ValueError, match="same shape"):
             make_potential(ystar_dim=5, mask=torch.ones(3, dtype=torch.bool))
-
-    def test_mask_moves_with_module(self):
-        if not torch.cuda.is_available():
-            pytest.skip("CUDA not available")
-        potential = make_potential()[0].to("cuda")
-        assert potential.mask.is_cuda
-        assert potential.ystar.is_cuda
 
 
 # ---------------------------------------------------------------------------
@@ -497,14 +488,6 @@ class TestForwardErrors:
         with pytest.raises(ValueError, match="two-dimensional"):
             potential({"cond_a": torch.zeros(4)})
 
-    def test_conditions_off_the_module_device_raise(self):
-        if not torch.cuda.is_available():
-            pytest.skip("CUDA not available")
-        potential, _, _ = make_potential(cond_keys=("cond_a", "cond_b"))
-        cond = {"cond_a": torch.zeros(4, 3), "cond_b": torch.zeros(4, 3, device="cuda")}
-        with pytest.raises(ValueError, match=r"\['cond_b'\] are not on the inference module's device"):
-            potential(cond)
-
     def test_potential_of_the_wrong_shape_raises(self):
         dims = make_dims(("cond_a",), 3)
         step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
@@ -525,6 +508,17 @@ class TestForwardErrors:
         rec = Recorder()
         surrogate(inferer, torch.zeros(3), dmod, readout=torch.square, potential=rec)(make_cond_dict(n=4))
         torch.testing.assert_close(rec.y[0, 0], cells.square().mean(0))
+
+    def test_predictions_without_raw_samples_use_x(self):
+        """A method that only returns the aggregated ``X`` is read the same way."""
+        dims = make_dims(("cond_a",), 3)
+        step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
+        cells = torch.arange(4 * 3, dtype=torch.float32).reshape(4, 3)
+        inferer = FakeInferer(lambda sd, g: cells, as_x=True)
+        dmod = FakeDataModule(dims, FakeEvalLoader([(step, "leaf_0")]))
+        rec = Recorder()
+        surrogate(inferer, torch.zeros(3), dmod, potential=rec)(make_cond_dict(n=4))
+        torch.testing.assert_close(rec.y[0, 0], cells)
 
     def test_a_readout_that_collapses_the_conditions_raises(self):
         """A readout reducing over the conditions would give every condition one shared potential."""

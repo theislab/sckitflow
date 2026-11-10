@@ -1,4 +1,4 @@
-"""The readout type and the potentials shared by surrogates, as components so a surrogate's spec can name them."""
+"""The readout type, and the potentials shared by surrogates as components so a surrogate's spec can name them."""
 
 from __future__ import annotations
 
@@ -34,9 +34,10 @@ def squared_error(y: torch.Tensor, ystar: torch.Tensor) -> torch.Tensor:
 def cross_entropy_probs(y: torch.Tensor, ystar: torch.Tensor) -> torch.Tensor:
     """``-Σ ystar log y`` for a response ``y`` of class probabilities, e.g. a mean cell-type composition.
 
-    Unlike :func:`torch.nn.functional.cross_entropy`, both arguments are probabilities, not logits and labels.
+    Unlike :func:`torch.nn.functional.cross_entropy`, ``y`` is probabilities, not logits. It is clamped at the
+    dtype's machine epsilon: a smaller floor makes the gradient ``ystar / y`` overflow near zero.
     """
-    return -(ystar * torch.log(y.clamp_min(torch.finfo(y.dtype).tiny))).sum(-1)
+    return -(ystar * torch.log(y.clamp_min(torch.finfo(y.dtype).eps))).sum(-1)
 
 
 class PotentialConfig(Component):

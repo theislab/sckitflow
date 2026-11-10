@@ -80,11 +80,12 @@ def _guidance_strength(path: BasePath, t: torch.Tensor) -> torch.Tensor:
     r"""$\lambda_t = -a_t D_t / \beta_t$, the factor by which tilting $p_t$ with $e^{-\Psi_t}$ shifts the velocity.
 
     It is $(1 - t)/t$ on the linear paths and infinite where $\beta_t = 0$; callers clamp it. It assumes $x_0$
-    is Gaussian noise, and two-sided paths ignore their $\sigma_t$, so there it is an approximation. It is
-    ``0`` where the coefficients are not solvable.
+    is Gaussian noise. It is ``0`` where the coefficients are not solvable and where $a_t$ is zero up to
+    rounding, the data end, where e.g. $\cos(\pi/2)$ would otherwise leave a positive $10^{-16}$ in float64.
     """
     c = _coefficients(path, t)
-    return torch.where(c.solvable, -c.a * c.D / c.beta, torch.zeros_like(c.D))
+    active = c.solvable & (c.a.abs() > torch.finfo(c.a.dtype).eps)
+    return torch.where(active, -c.a * c.D / c.beta, torch.zeros_like(c.D))
 
 
 class PathFlowMap(torch.nn.Module):
@@ -146,24 +147,22 @@ class LossGuidedVelocity(torch.nn.Module):
     ``PathFlowMap(velocity, path)`` and its default single step, $\hat x_1$ is the posterior mean, whose
     Jacobian $J \to 0$ as $t \to 0$, exactly where $\lambda_t$ is largest, so it is what stops the guidance
     over-steering while $\hat x_1$ is still a guess. More steps, or a distilled flow map, approach the ODE's own
-    endpoint, whose Jacobian does not vanish; then ``max_strength`` sets the early guidance. Benchmarked against exactly-tilted
-    Gaussian mixtures it reached a 2.5-4x lower energy distance to the true posterior, and stayed useful across
-    a ~10x range of ``scale`` against a narrow band outside which the Jacobian-free form is worse than not
-    guiding at all.
+    endpoint, whose Jacobian does not vanish; then ``max_strength`` sets the early guidance.
 
     Each step evaluates the prior twice, once for $v_t$ and once inside the flow map: the flow map is opaque, so
     its own evaluation cannot be reused.
 
-    Needs autograd, so it cannot run under ``torch.inference_mode``. The velocity it returns carries no graph.
+    Needs autograd, so it cannot run under ``torch.inference_mode``, which rules out ``predict_adata``; solve it
+    with :class:`~sckitflow.core.solvers.ODESolver` directly. The velocity it returns carries no graph.
 
     :param velocity: The prior's velocity module, implementing ``get_vf_fn``. $\lambda_t$ assumes the prior
         generates from Gaussian noise, so ``get_vf_fn`` rejects a ``source``.
-    :param path: The probability path the prior was trained on, under the same conditions as for
-        :class:`PathFlowMap`: $\lambda_t$ is identically ``0`` on :class:`EncDecTwoSidedPath`.
+    :param path: The probability path the prior was trained on. Paths :class:`PathFlowMap` rejects are rejected
+        here too.
     :param potential: Maps samples of shape ``(N, D)`` to potentials of shape ``(N,)``, row-wise
         independent, e.g. ``lambda x: surrogate({"dose": x})`` for a :class:`SurrogatePotential`.
-    :param flow_map: Estimates $\hat x_1$ as $\phi_{1 \mid t}(x)$, built with the same conditions as the velocity.
-    :param scale: Multiplies $\lambda_t$, finite and non-negative; ``0`` samples the prior without evaluating the potential.
+    :param flow_map: A flow map of the same prior, estimating $\hat x_1 = \phi_{1 \mid t}(x)$.
+    :param scale: Multiplies $\lambda_t$, finite and non-negative; ``0`` returns the prior's velocity unchanged.
     :param max_strength: Finite non-negative upper bound on $b_t$, which diverges as $\beta_t \to 0$.
     """
 

@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import pytest
 import torch
+from tests.core.surrogate.shared import Field
 
 from sckitflow.core._types import PredictionData
 from sckitflow.core.surrogate import SquaredErrorPotentialConfig, SurrogatePotential, SurrogateResponse
@@ -645,11 +646,6 @@ class TestRealInference:
 # ---------------------------------------------------------------------------
 
 
-class _Velocity(torch.nn.Module):
-    def get_vf_fn(self, condition_dict=None, source=None):
-        return lambda t, x: -x
-
-
 def test_loss_guidance_steers_through_the_potential(adata, ystar):
     """A guided step through a real context pipeline points downhill on the potential."""
     from sckitflow import IsotropicGaussianNoiseSamplerConfig
@@ -659,7 +655,7 @@ def test_loss_guidance_steers_through_the_potential(adata, ystar):
     potential, _ = build_potential(adata, {}, ystar + 1.0, continuous_conditions=(CONT_COV_1,))
     psi = lambda x: potential({CONT_COV_1: x})
     path = LinearOneSidedPath(sigma=1.0, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
-    velocity = _Velocity()
+    velocity = Field(lambda t, x: -x)
     guided = LossGuidedVelocity(velocity, path, psi, flow_map=PathFlowMap(velocity, path)).get_vf_fn()
     t, x = torch.tensor(0.5), torch.zeros(4, 1)
     step = guided(t, x) - velocity.get_vf_fn()(t, x)

@@ -3,16 +3,6 @@ from typing import Any, Literal
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 BackendId = Literal["torch", "jax"]
-ProbabilityPathId = Literal[
-    "constant-noise-linear-gaussian",
-    "cnlg-pp",
-    "schrodinger-bridge-gaussian",
-    "sbg-pp",
-    "variance-preserving-dirac",
-    "vpd-pp",
-    "linear-dirac",
-    "ld-pp",
-]
 
 ActivationId = Literal["relu", "leaky_relu", "elu", "gelu", "silu", "tanh", "sigmoid", "softplus"]
 

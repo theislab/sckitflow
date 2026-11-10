@@ -160,12 +160,13 @@ def test_gradient_matches_analytic(t, scale, max_strength, strength):
     torch.testing.assert_close(guided.get_vf_fn()(t, x), expected)
 
 
+@pytest.mark.parametrize(("dtype", "t"), [(torch.float64, 0.3), (torch.float32, 0.21)])
 @pytest.mark.parametrize("path_cls", SOLVABLE)
-def test_path_flow_map_follows_curved_paths(path_cls):
+def test_path_flow_map_follows_curved_paths(path_cls, dtype, t):
     # the path's own conditional velocity for one pair: several steps land on x1 however curved the schedule,
-    # where plain Euler steps would not on the trig and VP paths
-    path, t = _path(path_cls), torch.tensor(0.3, dtype=torch.float64)
-    x0, x1 = torch.randn(2, 8, 3, dtype=torch.float64)
+    # where plain Euler steps would not on the trig and VP paths, in float32 as in float64
+    path, t = _path(path_cls), torch.tensor(t, dtype=dtype)
+    x0, x1 = torch.randn(2, 8, 3, dtype=dtype)
     xt = path.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
     phi = PathFlowMap(Field(lambda u, x: path.compute_ut(u, x, x0, x1)), path, n_steps=3).get_map_fn()
     torch.testing.assert_close(phi(t, torch.ones_like(t), xt), x1)
@@ -192,7 +193,9 @@ def test_scale_zero_is_the_prior():
 
 
 def test_guidance_descends_toward_posterior():
-    # prior N(m, s^2), Psi = |x - y|^2 / 2 tilts it to N((m + s^2 y) / (1 + s^2), s^2 / (1 + s^2))
+    # prior N(m, s^2), Psi = |x - y|^2 / 2 tilts it to N((m + s^2 y) / (1 + s^2), s^2 / (1 + s^2)). Guidance only
+    # approximates the tilt: its mean is off by a fixed ~0.08 here, so the tolerance bounds that bias, and the
+    # analytic-gradient test pins the strength exactly.
     m, y, s = torch.tensor([2.0, -1.0]), torch.tensor([-1.0, 1.0]), 0.5
     prior = _gaussian_prior(m, s)
     potential = lambda x: 0.5 * ((x - y) ** 2).sum(-1)

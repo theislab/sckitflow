@@ -119,11 +119,11 @@ class PathFlowMap(torch.nn.Module):
 
         def phi(t: torch.Tensor, s: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
             t, s = t.to(x.dtype), s.to(x.dtype)
-            du = (s - t) / self.n_steps
             for k in range(self.n_steps):
-                u = t + k * du
+                # lerp is exact at weight 1, so the last step ends on s even in float32
+                u = torch.lerp(t, s, k / self.n_steps)
                 x0, x1 = _posterior_means(_coefficients(self.path, u), x, vf(u, x))
-                after = _coefficients(self.path, u + du)
+                after = _coefficients(self.path, torch.lerp(t, s, (k + 1) / self.n_steps))
                 x = (
                     broadcast_to_target_shape(after.a, x.shape) * x0
                     + broadcast_to_target_shape(after.beta, x.shape) * x1

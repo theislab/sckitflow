@@ -651,7 +651,7 @@ class _Velocity(torch.nn.Module):
 
 
 def test_loss_guidance_steers_through_the_potential(adata, ystar):
-    """A guided step through a real context pipeline moves the conditions downhill on the potential."""
+    """A guided step through a real context pipeline points downhill on the potential."""
     from sckitflow import IsotropicGaussianNoiseSamplerConfig
     from sckitflow.core.probability_paths import LinearOneSidedPath
     from sckitflow.core.surrogate import LossGuidedVelocity, PathFlowMap
@@ -664,5 +664,6 @@ def test_loss_guidance_steers_through_the_potential(adata, ystar):
     t, x = torch.tensor(0.5), torch.zeros(4, 1)
     step = guided(t, x) - velocity.get_vf_fn()(t, x)
     assert torch.isfinite(step).all() and step.abs().sum() > 0
-    with torch.no_grad():
-        assert (psi(x + 1e-4 * step) < psi(x)).all()
+    # the directional derivative of each row's potential along its own step is negative
+    _, slope = torch.func.jvp(psi, (x,), (step,))
+    assert (slope < 0).all()

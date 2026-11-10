@@ -638,3 +638,31 @@ class TestRealInference:
         out.sum().backward()
         assert out.shape == (3,)
         assert torch.isfinite(cond[CONT_COV_1].grad).all()
+
+
+# ---------------------------------------------------------------------------
+# Guidance through the potential
+# ---------------------------------------------------------------------------
+
+
+class _Velocity(torch.nn.Module):
+    def get_vf_fn(self, condition_dict=None, source=None):
+        return lambda t, x: -x
+
+
+def test_loss_guidance_steers_through_the_potential(adata, ystar):
+    """A guided step through a real context pipeline moves the conditions downhill on the potential."""
+    from sckitflow import IsotropicGaussianNoiseSamplerConfig
+    from sckitflow.core.probability_paths import LinearOneSidedPath
+    from sckitflow.core.surrogate import LossGuidedVelocity, PathFlowMap
+
+    potential, _ = build_potential(adata, {}, ystar + 1.0, continuous_conditions=(CONT_COV_1,))
+    psi = lambda x: potential({CONT_COV_1: x})
+    path = LinearOneSidedPath(sigma=1.0, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
+    velocity = _Velocity()
+    guided = LossGuidedVelocity(velocity, path, psi, flow_map=PathFlowMap(velocity, path)).get_vf_fn()
+    t, x = torch.tensor(0.5), torch.zeros(4, 1)
+    step = guided(t, x) - velocity.get_vf_fn()(t, x)
+    assert torch.isfinite(step).all() and step.abs().sum() > 0
+    with torch.no_grad():
+        assert (psi(x + 1e-4 * step) < psi(x)).all()

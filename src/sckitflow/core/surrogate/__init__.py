@@ -12,9 +12,6 @@ from sckitflow.core.surrogate._guidance import (
     LossGuidedVelocity,
     MapFn,
     PathFlowMap,
-    endpoint_coefficients,
-    guidance_strength,
-    posterior_coefficients,
 )
 from sckitflow.core.surrogate._potential import SurrogatePotential, SurrogateResponse
 
@@ -25,9 +22,6 @@ __all__ = [
     "FlowMap",
     "PathFlowMap",
     "MapFn",
-    "endpoint_coefficients",
-    "posterior_coefficients",
-    "guidance_strength",
     "Readout",
     "Potential",
     "PotentialConfig",

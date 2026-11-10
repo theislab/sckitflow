@@ -17,7 +17,7 @@ __all__ = ["SurrogatePotential", "SurrogateResponse"]
 def _pair_leaf(
     step_data: StepData,
     cond_dict: dict[str, torch.Tensor],
-) -> tuple[StepData, dict[str, torch.Tensor]]:
+) -> StepData:
     r"""Lays a leaf out against the condition dictionary for one prediction.
 
     A leaf has ``S`` source rows (when a source state is present) and ``T`` target rows (when it carries
@@ -50,7 +50,7 @@ def _pair_leaf(
 
     if S is None and T is None:
         conds = dict(cond_dict)
-        return {**kept, "target_condition_data": conds, "target_group_data": groups, "n_obs": n}, conds
+        return {**kept, "target_condition_data": conds, "target_group_data": groups, "n_obs": n}
 
     s = 1 if S is None else S
     t = 1 if T is None else T
@@ -78,7 +78,7 @@ def _pair_leaf(
         "target_condition_data": {**{k: lay_out(v, tgt_idx) for k, v in extra.items()}, **conds},
         "n_obs": n,
     }
-    return paired, conds
+    return paired
 
 
 def _verify_continuous_conditions_dims(
@@ -153,7 +153,7 @@ class SurrogateResponse(torch.nn.Module):
         super().__init__()
         self.inferer, self.datamodule, self.adata, self.readout, self.seed = inferer, datamodule, adata, readout, seed
         self._eval_kwargs = {"max_per_group": max_per_group, "require_target_state": require_target_state}
-        self._leaves: dict[str, list] = {}  # per device: the context's leaves, read once
+        self._leaves: dict[str, list[StepData]] = {}  # per device: the context's leaves, read once
 
     def forward(self, cond_dict: dict[str, torch.Tensor]) -> torch.Tensor:
         """The response of each condition in each context group.
@@ -191,10 +191,10 @@ class SurrogateResponse(torch.nn.Module):
         populations = []
         for population in range(n_populations):
             groups = []
-            for i, (step_data, _) in enumerate(leaves):
+            for i, step_data in enumerate(leaves):
                 # population 0 keeps the single-population stream, so `forward` draws what it always drew
                 generator = generators(self.seed, i, *((population,) if population else ()), device=device)
-                paired_step_data, _ = _pair_leaf(step_data, cond_dict)
+                paired_step_data = _pair_leaf(step_data, cond_dict)
                 pred = self.inferer.predict(paired_step_data, generator=generator)
                 cells = pred.raw_samples if pred.raw_samples is not None else pred.X
                 if self.readout is not None:
@@ -209,14 +209,14 @@ class SurrogateResponse(torch.nn.Module):
             populations.append(torch.stack(groups))
         return torch.stack(populations)
 
-    def context_leaves(self, device: torch.device) -> list:
-        """The context's ``(StepData, leaf)`` pairs on ``device``, read on first use and kept."""
+    def context_leaves(self, device: torch.device) -> list[StepData]:
+        """The context's leaves on ``device``, read on first use and kept."""
         key = str(device)
         if key not in self._leaves:
             loader = self.datamodule.dm.get_eval_loader(
                 self.adata, dtype=self.datamodule.dtype, device=key, **self._eval_kwargs
             )
-            self._leaves[key] = list(loader)
+            self._leaves[key] = [step_data for step_data, _ in loader]
         return self._leaves[key]
 
 

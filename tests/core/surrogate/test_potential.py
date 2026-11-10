@@ -559,7 +559,7 @@ class TestPairLeaf:
             "source_state": torch.tensor([[0.0], [1.0]]),
             "target_condition_data": {"other": torch.tensor([[10.0], [11.0]]), "opt": torch.zeros(2, 1)},
         }
-        paired, _ = _pair_leaf(step, {"opt": torch.zeros(1, 1)})
+        paired = _pair_leaf(step, {"opt": torch.zeros(1, 1)})
         pairs = list(
             zip(
                 paired["source_state"][:, 0, 0].tolist(),
@@ -571,20 +571,20 @@ class TestPairLeaf:
 
     def test_all_covariates_optimized_pairs_each_source_row(self):
         step = {"source_state": torch.randn(2, 4), "target_group_data": {"g": torch.ones(1, 2)}}
-        paired, conds = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
+        paired = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
         assert paired["source_state"].shape == (2, 3, 4)
         assert paired["target_group_data"]["g"].shape == (1, 2)  # one row for the leaf, broadcast by the model
-        assert conds["opt"].shape == (2, 3, 1)
+        assert paired["target_condition_data"]["opt"].shape == (2, 3, 1)
 
     def test_groups_only_generation_from_noise_has_one_row_per_condition(self):
         step = {"target_group_data": {"g": torch.ones(1, 2)}}
-        paired, conds = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
+        paired = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
         assert paired["target_group_data"]["g"].shape == (1, 2)
-        assert conds["opt"].shape == (3, 1) and paired["n_obs"] == 3
+        assert paired["target_condition_data"]["opt"].shape == (3, 1) and paired["n_obs"] == 3
 
     def test_other_keys_pass_through(self):
         step = {"source_state": torch.randn(2, 4), "target_condition_data": {}, "extra": "kept"}
-        paired, _ = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
+        paired = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
         assert paired["extra"] == "kept"
 
     def test_condition_covariates_disagreeing_on_rows_raise(self):
@@ -594,7 +594,7 @@ class TestPairLeaf:
 
     def test_target_states_are_not_passed_to_prediction(self):
         step = {"source_state": torch.randn(2, 4), "target_state": torch.randn(7, 4), "target_condition_data": {}}
-        paired, _ = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
+        paired = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
         assert paired["target_state"] is None
 
 

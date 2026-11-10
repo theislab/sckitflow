@@ -4,8 +4,9 @@ import pytest
 import torch
 
 from sckitflow._random import generators
+from sckitflow._samplers import IsotropicGaussianNoiseSamplerConfig
 from sckitflow.core.methods.training._cfm import CFMTraining, CFMTrainingConfig
-from sckitflow.core.probability_paths._config import LinearGaussianProbabilityPathConfig
+from sckitflow.core.probability_paths._config import LinearPathConfig
 from sckitflow.data._dims import DataDimensions
 
 
@@ -53,7 +54,9 @@ def _loss(method: CFMTraining, seed: int) -> torch.Tensor:
 def test_loss_depends_only_on_the_passed_generator(dims):
     method = CFMTraining(
         _Field(),
-        CFMTrainingConfig(probability_path=LinearGaussianProbabilityPathConfig(sigma=0.1)),
+        CFMTrainingConfig(
+            probability_path=LinearPathConfig(sigma=0.1, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
+        ),
         dims=dims,
     )
     first = _loss(method, seed=0)

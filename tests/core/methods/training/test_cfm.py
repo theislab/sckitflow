@@ -12,10 +12,10 @@ from sckitflow._samplers import (
 from sckitflow.core._data_utils import prepare_latent_train
 from sckitflow.core.methods.training._cfm import CFMTraining, CFMTrainingConfig
 from sckitflow.core.probability_paths import (
-    BaseProbabilityPath,
-    LinearGaussianProbabilityPathConfig,
+    BasePath,
+    LinearPathConfig,
+    PathConfig,
 )
-from sckitflow.core.probability_paths._config import ProbabilityPathConfig
 from sckitflow.data._dims import DataDimensions
 
 MODULE = "sckitflow.core.methods.training._cfm"
@@ -45,28 +45,28 @@ class LinearModule(torch.nn.Module):
 
 
 def dummy_probability_path() -> MagicMock:
-    """A live ``BaseProbabilityPath``-shaped mock with fixed compute_xt/ut."""
-    path = MagicMock(spec=BaseProbabilityPath)
+    """A live ``BasePath``-shaped mock with fixed compute_xt/ut."""
+    path = MagicMock(spec=BasePath)
     path.compute_xt.side_effect = lambda t, x0, x1, *, generator: torch.zeros_like(x0)
     path.compute_ut.side_effect = lambda t, xt, x0, x1: torch.ones_like(x0)
     return path
 
 
-def _to_path_config(mock: MagicMock) -> ProbabilityPathConfig:
+def _to_path_config(mock: MagicMock) -> PathConfig:
     """Wrap a live path mock in a config whose ``build()`` returns it.
 
-    Subclasses a *concrete* path config (``LinearGaussianProbabilityPathConfig``)
-    rather than the family base ``ProbabilityPathConfig``: the base runs a model
+    Subclasses a *concrete* path config (``LinearPathConfig``)
+    rather than the family base ``PathConfig``: the base runs a model
     validator that rejects non-member subclasses ("family base; give a spec with
     a 'type', or a member").  Subclassing the concrete member passes that check
     while still letting us override ``build()``.
     """
 
-    class _MockPathConfig(LinearGaussianProbabilityPathConfig):
+    class _MockPathConfig(LinearPathConfig):
         def build(self):
             return mock
 
-    return _MockPathConfig(sigma=1.0)
+    return _MockPathConfig(sigma=0.0)
 
 
 def _to_sampler_config(fn, *, concrete_cls):
@@ -129,8 +129,8 @@ def make_cfm(dummy_module, dims):
     def _make(module=None, probability_path=None, time_sampler=None, noise_sampler=None, **overrides):
         # Path: live mock or config or missing -> config
         if probability_path is None:
-            probability_path = LinearGaussianProbabilityPathConfig(sigma=1.0)
-        elif not isinstance(probability_path, ProbabilityPathConfig):
+            probability_path = LinearPathConfig(sigma=1.0, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
+        elif not isinstance(probability_path, PathConfig):
             probability_path = _to_path_config(probability_path)
 
         # Time sampler: raw callable or config or default
@@ -270,6 +270,40 @@ def test_loss_matches_mse_between_predicted_and_target_velocity(step_data, dims)
     assert loss.item() == pytest.approx(1.0)
 
 
+def test_default_path_from_noise_targets_x1_minus_noise(step_data, dims):
+    """With no path, generating from noise interpolates linearly from the noise sampler's draw to the target."""
+    noise = torch.arange(8, dtype=torch.float32).reshape(2, 4)
+    target = step_data["target_state"]
+    expected_ut = target - noise
+
+    class RecordingModule(DummyModule):
+        def forward(self, t, x, condition_dict=None, source=None):
+            super().forward(t, x, condition_dict, source)
+            return expected_ut
+
+    calls = []
+
+    def fixed_noise(shape, *, generator, device=None, dtype=None):
+        calls.append(shape)
+        return noise.to(device=device, dtype=dtype)
+
+    module = RecordingModule()
+    cfm = CFMTraining(
+        module,
+        CFMTrainingConfig(
+            generate_from_noise=True,
+            time_sampler=_to_sampler_config(dummy_time_sampler, concrete_cls=UniformTimeSamplerConfig),
+            noise_sampler=_to_sampler_config(fixed_noise, concrete_cls=IsotropicGaussianNoiseSamplerConfig),
+        ),
+        dims=dims,
+    )
+    loss, _ = cfm.compute_loss(step_data, generator=gen())
+
+    assert calls == [(2, 4)]
+    torch.testing.assert_close(module.last_call["x"], 0.5 * noise + 0.5 * target)
+    assert loss.item() == pytest.approx(0.0)  # ut == x1 - latent
+
+
 # -------------------- prepare_latent_train wiring --------------------
 def test_prepare_latent_train_called_with_dims_placement_and_flags(make_cfm, step_data, dims, dummy_module):
     cfm = make_cfm(generate_from_noise=True)
@@ -308,7 +342,7 @@ def test_compute_loss_depends_only_on_generator(step_data, dims, generate_from_n
     cfm = CFMTraining(
         LinearModule(),
         CFMTrainingConfig(
-            probability_path=LinearGaussianProbabilityPathConfig(sigma=0.1),
+            probability_path=LinearPathConfig(sigma=0.1, sampler_cfg=IsotropicGaussianNoiseSamplerConfig()),
             generate_from_noise=generate_from_noise,
         ),
         dims=dims,

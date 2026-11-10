@@ -6,7 +6,7 @@ from sckitflow import IsotropicGaussianNoiseSamplerConfig
 from sckitflow.core.probability_paths import EncDecPath, LinearPath, TrigPath
 from sckitflow.core.solvers import ODESolver
 from sckitflow.core.surrogate import LossGuidedVelocity, PathFlowMap
-from sckitflow.core.surrogate._guidance import _coefficients, _guidance_strength, _posterior_means
+from sckitflow.core.surrogate._guidance import _compute_guidance_strength, _compute_posterior_means
 
 SOLVABLE = [LinearPath, TrigPath]  # noiseless; EncDecPath needs sigma > 0, which guidance rejects
 _NOISE = IsotropicGaussianNoiseSamplerConfig()
@@ -29,7 +29,7 @@ def test_posterior_means_recover_the_pair(path_cls, t):
     t, generator = torch.tensor(t, dtype=torch.float64), torch.Generator().manual_seed(0)
     x0, x1 = torch.randn(2, 8, 3, dtype=torch.float64)
     xt = path.compute_xt(t, x0, x1, generator=generator)
-    x0_hat, x1_hat = _posterior_means(_coefficients(path, t), xt, path.compute_ut(t, xt, x0, x1))
+    x0_hat, x1_hat = _compute_posterior_means(path, t, xt, path.compute_ut(t, xt, x0, x1))
     torch.testing.assert_close(x1_hat, x1)
     torch.testing.assert_close(x0_hat, x0)
 
@@ -38,10 +38,12 @@ def test_closed_forms():
     t = torch.linspace(0.05, 0.95, 7, dtype=torch.float64)
     x, v = torch.ones_like(t), torch.full_like(t, 2.0)
     path = _path(LinearPath)
-    torch.testing.assert_close(_posterior_means(_coefficients(path, t), x, v)[1], x + (1 - t) * v)
-    torch.testing.assert_close(_guidance_strength(path, t), (1 - t) / t)
+    torch.testing.assert_close(_compute_posterior_means(path, t, x, v)[1], x + (1 - t) * v)
+    torch.testing.assert_close(_compute_guidance_strength(path, t), (1 - t) / t)
     # trig: alpha = cos, beta = sin, so D = -pi/2 and lambda = (pi/2) cot(pi t / 2)
-    torch.testing.assert_close(_guidance_strength(_path(TrigPath), t), (torch.pi / 2) / torch.tan(torch.pi * t / 2))
+    torch.testing.assert_close(
+        _compute_guidance_strength(_path(TrigPath), t), (torch.pi / 2) / torch.tan(torch.pi * t / 2)
+    )
 
 
 @pytest.mark.parametrize(

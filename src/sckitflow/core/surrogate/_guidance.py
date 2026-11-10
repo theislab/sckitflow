@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable
-from typing import NamedTuple, Protocol
+from typing import Protocol
 
 import torch
 
@@ -25,54 +25,35 @@ class FlowMap(Protocol):
     ) -> MapFn: ...
 
 
-class _Coefficients(NamedTuple):
-    r"""The coefficients of $x_t = \alpha_t x_0 + \beta_t x_1$ and their time derivatives.
-
-    $D_t = \dot\alpha_t \beta_t - \alpha_t \dot\beta_t$ is minus the determinant of the system for $x_0, x_1$.
-    """
-
-    alpha: torch.Tensor
-    dalpha: torch.Tensor
-    beta: torch.Tensor
-    dbeta: torch.Tensor
-    D: torch.Tensor
+def _compute_coefficients(path: BasePath, t: torch.Tensor) -> tuple[torch.Tensor, ...]:
+    """``(alpha, dalpha, beta, dbeta)`` at ``t``."""
+    return (*path.compute_alpha_t_and_dot_alpha_t(t), *path.compute_beta_t_and_dot_beta_t(t))
 
 
-def _coefficients(path: BasePath, t: torch.Tensor) -> _Coefficients:
-    (alpha, dalpha), (beta, dbeta) = path.compute_alpha_t_and_dot_alpha_t(t), path.compute_beta_t_and_dot_beta_t(t)
-    return _Coefficients(alpha, dalpha, beta, dbeta, dalpha * beta - alpha * dbeta)
+def _compute_posterior_means(
+    path: BasePath, t: torch.Tensor, x: torch.Tensor, v: torch.Tensor
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Posterior means ``(x0, x1)``, solving ``x = alpha x0 + beta x1`` and ``v = dalpha x0 + dbeta x1``."""
+    a, da, b, db = (broadcast_to_target_shape(c, x.shape) for c in _compute_coefficients(path, t))
+    det = a * db - b * da
+    return (db * x - b * v) / det, (a * v - da * x) / det
 
 
-def _posterior_means(c: _Coefficients, x: torch.Tensor, v: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
-    r"""$(\hat x_0, \hat x_1)$, solving $x_t = \alpha_t x_0 + \beta_t x_1$ and $v_t = \dot\alpha_t x_0 + \dot\beta_t x_1$."""
-
-    def solved(numerator: torch.Tensor) -> torch.Tensor:
-        return broadcast_to_target_shape(numerator / c.D, x.shape)
-
-    x0 = solved(-c.dbeta) * x + solved(c.beta) * v
-    x1 = solved(c.dalpha) * x + solved(-c.alpha) * v
-    return x0, x1
+def _compute_guidance_strength(path: BasePath, t: torch.Tensor) -> torch.Tensor:
+    """The guidance strength ``alpha * det / beta``; 0 where ``alpha`` rounds to 0, at the data end."""
+    a, da, b, db = _compute_coefficients(path, t)
+    strength = a * (a * db - b * da) / b
+    return torch.where(a.abs() > torch.finfo(a.dtype).eps, strength, torch.zeros_like(strength))
 
 
 def _check_path(path: BasePath) -> None:
-    r"""Raises unless ``path`` determines $x_0, x_1$ from $x_t, v_t$ at every $t$: noiseless, with $D_t \neq 0$."""
+    """Raises unless ``path`` is noiseless and its ``x_t, v_t`` determine ``x0, x1`` at every ``t``."""
     if path.sigma > 0:
         raise ValueError("A path with sigma > 0 does not determine x_0 and x_1 from x_t and v_t.")
-    c = _coefficients(path, torch.linspace(0, 1, 101, dtype=torch.float64))
-    if not (torch.isfinite(torch.stack(c)).all() and (c.D.abs() > torch.finfo(c.D.dtype).eps).all()):
+    a, da, b, db = _compute_coefficients(path, torch.linspace(0, 1, 101, dtype=torch.float64))
+    det = a * db - b * da
+    if not (torch.isfinite(det).all() and (det.abs() > torch.finfo(det.dtype).eps).all()):
         raise ValueError(f"{type(path).__name__} does not determine x_0 and x_1 from x_t and v_t.")
-
-
-def _guidance_strength(path: BasePath, t: torch.Tensor) -> torch.Tensor:
-    r"""$\lambda_t = -\alpha_t D_t / \beta_t$, the factor by which tilting $p_t$ with $e^{-\Psi_t}$ shifts the velocity.
-
-    It is $(1 - t)/t$ on the linear path and infinite where $\beta_t = 0$; callers clamp it. It assumes $x_0$
-    is Gaussian noise. It is ``0`` where $\alpha_t$ is zero up to rounding, the data end, where e.g.
-    $\cos(\pi/2)$ would otherwise leave a positive $10^{-16}$ in float64.
-    """
-    c = _coefficients(path, t)
-    active = c.alpha.abs() > torch.finfo(c.alpha.dtype).eps
-    return torch.where(active, -c.alpha * c.D / c.beta, torch.zeros_like(c.D))
 
 
 class PathFlowMap(torch.nn.Module):
@@ -109,12 +90,8 @@ class PathFlowMap(torch.nn.Module):
             for k in range(self.n_steps):
                 # lerp is exact at weight 1, so the last step ends on s even in float32
                 u = torch.lerp(t, s, k / self.n_steps)
-                x0, x1 = _posterior_means(_coefficients(self.path, u), x, vf(u, x))
-                after = _coefficients(self.path, torch.lerp(t, s, (k + 1) / self.n_steps))
-                x = (
-                    broadcast_to_target_shape(after.alpha, x.shape) * x0
-                    + broadcast_to_target_shape(after.beta, x.shape) * x1
-                )
+                x0, x1 = _compute_posterior_means(self.path, u, x, vf(u, x))
+                x = self.path.compute_xt(torch.lerp(t, s, (k + 1) / self.n_steps), x0, x1, generator=None)
             return x
 
         return phi
@@ -125,7 +102,8 @@ class LossGuidedVelocity(torch.nn.Module):
 
     Its ``get_vf_fn`` returns $v_t(x) - b_t \nabla_x \Psi(\hat x_1(x))$, where $\hat x_1 = \phi_{1 \mid t}(x)$ is
     the ``flow_map``'s estimate of the clean sample and $b_t = $ ``scale`` $\cdot \lambda_t$ clamped to
-    ``max_strength``, with $\lambda_t = -\alpha_t D_t / \beta_t$ from the path, $(1 - t)/t$ on the linear path.
+    ``max_strength``, with $\lambda_t = \alpha_t (\alpha_t \dot\beta_t - \beta_t \dot\alpha_t) / \beta_t$ from the path,
+    $(1 - t)/t$ on the linear path.
     Autograd differentiates through $\hat x_1$, so the gradient is $J_{\hat x_1}^\top \nabla \Psi$. Where
     $b_t = 0$ for every sample, the potential is not evaluated. Pass it to
     :class:`~sckitflow.core.solvers.ODESolver` like any velocity.
@@ -191,7 +169,7 @@ class LossGuidedVelocity(torch.nn.Module):
             t = t.to(xt.dtype)
             with torch.no_grad():
                 v = vf(t, xt)
-            strength = (self.scale * _guidance_strength(self.path, t)).clamp(0, self.max_strength)
+            strength = (self.scale * _compute_guidance_strength(self.path, t)).clamp(0, self.max_strength)
             strength = broadcast_to_target_shape(strength, xt.shape)
             if not (strength > 0).any():
                 return v

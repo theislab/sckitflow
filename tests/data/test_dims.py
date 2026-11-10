@@ -33,16 +33,16 @@ def test_the_dimensions_read_shapes_not_data():
     )
     dims = (
         DataManagerConfig(
-            target_sample_rep="X_pca",
+            target_sample_rep="obsm.X_pca",
             categorical_conditions={"drug": ("drug",)},
             categorical_reps={"drug": "drug"},
-            continuous_conditions=("dose",),
+            continuous_conditions=("obsm.dose",),
             control_values_dict={"drug": "control"},
             groups=("cell_line",),
             groups_encoding={"cell_line": OneHotEncoderConfig(categories=("x", "y"))},
-            rep_lin="X_pca",
-            source_rep_quad="X_quad",
-            target_rep_quad="X_quad",
+            rep_lin="obsm.X_pca",
+            source_rep_quad="obsm.X_quad",
+            target_rep_quad="obsm.X_quad",
         )
         .build()
         .get_data_dimensionalities(adata)
@@ -56,5 +56,5 @@ def test_the_dimensions_read_shapes_not_data():
 
 def test_a_missing_rep_names_the_file_and_the_field():
     adata = AnnData(np.zeros((4, 3)), obs=pd.DataFrame(index=[str(i) for i in range(4)]))
-    with pytest.raises(KeyError, match=r"AnnData 0 lacks obsm\['X_pca'\] \(`target_sample_rep`\)"):
-        DataManagerConfig(target_sample_rep="X_pca").build().get_data_dimensionalities(adata)
+    with pytest.raises(KeyError, match=r"AnnData 0 lacks A\.obsm\[.X_pca.\] \(`target_sample_rep`\)"):
+        DataManagerConfig(target_sample_rep="obsm.X_pca").build().get_data_dimensionalities(adata)

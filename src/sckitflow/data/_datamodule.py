@@ -30,7 +30,7 @@ class FlowDataModule(pl.LightningDataModule):
 
     .. code-block:: python
 
-        dm = DataManagerConfig(categorical_conditions=..., groups=..., split_by="split").build()
+        dm = DataManagerConfig(target_sample_rep="X", categorical_conditions=..., groups=..., split_by="split").build()
         dmod = FlowDataModule.from_adata(adata, dm)
         module = NeuralVelocityConfig().build(dmod.data_dims)
         plan = TrainingPlan(CFMTraining(module, dims=dmod.data_dims), torch.optim.Adam(module.parameters()))

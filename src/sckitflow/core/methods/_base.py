@@ -264,9 +264,8 @@ class Matcher(BaseMatcher):
     def match(self, step_data: StepData, *, generator: torch.Generator) -> tuple[StepData, dict[str, Any]]:
         """Matches the input state data using the underlying `match_fn`, drawing from ``generator``.
 
-        Returns `step_data` unchanged when neither `source_coupling_lin` nor
-        `source_coupling_quad` are present, or when `match_fn` returns either
-        `src_idxs` or `tgt_idxs` as `None`.
+        Returns `step_data` unchanged when the batch has no sources, or when `match_fn` returns either
+        `src_idxs` or `tgt_idxs` as `None`. Raises when the batch has sources but no coupling rep to match on.
         """
         source_lin = step_data["source_coupling_lin"]
         source_quad = step_data["source_coupling_quad"]
@@ -274,6 +273,12 @@ class Matcher(BaseMatcher):
         target_quad = step_data["target_coupling_quad"]
 
         if source_lin is None and source_quad is None:
+            if step_data["source_state"] is not None:
+                raise ValueError(
+                    "the method matches sources to targets, but the data manager streams no coupling rep to match "
+                    "on. Name one in `DataManagerConfig`: `rep_lin` (e.g. 'X' or 'obsm.X_pca'), and/or "
+                    "`source_rep_quad` and `target_rep_quad`."
+                )
             return step_data, {}
 
         kwargs = {"return_matrix": True} if self._returns_plan else {}

@@ -1,4 +1,5 @@
 import abc
+import math
 from collections.abc import Callable
 
 import torch
@@ -6,7 +7,7 @@ import torch
 from sckitflow._samplers import NoiseSamplerConfig
 from sckitflow.core._utils import broadcast_to_target_shape
 
-__all__ = ["BasePath", "OneSidedPath"]
+__all__ = ["BasePath"]
 
 
 class BasePath(abc.ABC):
@@ -46,24 +47,20 @@ class BasePath(abc.ABC):
         :param sigma: Non-negative scalar noise strength. It scales the
             time-dependent standard deviation :math:`\sigma_t` of the
             conditional probability path linearly; a value of :math:`0` yields a
-            deterministic path. One-sided paths fix it to :math:`1`.
+            deterministic path.
 
         :param sampler_cfg: Configuration used to build the noise sampler.
             Required when ``sigma > 0`` and ignored otherwise.
 
-        :raises ValueError: If ``sigma`` is negative, or if ``sigma > 0``
+        :raises ValueError: If ``sigma`` is negative or not finite, or if ``sigma > 0``
             is given without a ``sampler_cfg``.
         """
-        # sanity check for positive values
-        if not sigma >= 0:
-            msg = f"Argument sigma should be a positive float for non deterministic probability paths. Found {sigma=}"
-            raise ValueError(msg)
+        if not (math.isfinite(sigma) and sigma >= 0):
+            raise ValueError(f"sigma must be a finite non-negative float, found {sigma=}.")
         if sigma > 0 and sampler_cfg is None:
             raise ValueError("Positive sigma requires a sampler to be passed")
-
-        # setting the attributes
         self._sigma = sigma
-        self._sampler = None if sampler_cfg is None else sampler_cfg.build()
+        self._sampler = sampler_cfg.build() if sigma > 0 else None
 
     @abc.abstractmethod
     def compute_alpha_t(
@@ -220,75 +217,3 @@ class BasePath(abc.ABC):
     def sigma(self) -> float:
         r"""The scalar noise strength :math:`\sigma` of the path."""
         return self._sigma
-
-
-class OneSidedPath(BasePath):
-    r"""Base class for one-sided probability paths.
-
-    One-sided paths carry no separate noise term: the initial sample :math:`\boldsymbol{x}_0` is the noise
-    (drawn by the flow method's noise sampler, or the source when not generating from noise), so
-
-    .. math::
-
-        \boldsymbol{x}_t = \beta_t \, \boldsymbol{x}_1 + \sigma_t \, \boldsymbol{x}_0,
-        \qquad
-        \boldsymbol{u}_t = \dot{\beta}_t \, \boldsymbol{x}_1 + \dot{\sigma}_t \, \boldsymbol{x}_0.
-
-    The coefficient :math:`\alpha_t` of the mean is identically zero. Subclasses only need to supply
-    :math:`\beta_t` and :math:`\sigma_t`, with :math:`\sigma_0 = 1` so the path starts at :math:`\boldsymbol{x}_0`.
-    """
-
-    def __init__(self, sigma: float, sampler_cfg: NoiseSamplerConfig | None = None) -> None:
-        r"""Initializes the one-sided path.
-
-        :param sigma: Must be ``1``. Inference starts the flow from an unscaled latent, so a path starting from
-            :math:`\sigma \boldsymbol{x}_0` would train on a different start than it predicts from; scale the noise
-            through the noise sampler instead.
-
-        :param sampler_cfg: Must be ``None``: the noise is :math:`\boldsymbol{x}_0`, drawn by the flow method.
-
-        :raises ValueError: If ``sigma != 1`` or a ``sampler_cfg`` is given.
-        """
-        if sigma != 1:
-            raise ValueError(
-                f"A one-sided path starts from x0 itself, so it needs sigma == 1; found {sigma=}. "
-                "Scale the noise through the flow method's noise sampler instead."
-            )
-        if sampler_cfg is not None:
-            raise ValueError(
-                "A one-sided path uses x0 as its noise, drawn by the flow method's `noise_sampler`; "
-                "it takes no `sampler_cfg`."
-            )
-        self._sigma = sigma
-        self._sampler = None
-
-    def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\alpha_t \equiv 0` for every :math:`t`."""
-        return torch.zeros_like(t)
-
-    def compute_xt(
-        self,
-        t: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-        *,
-        generator: torch.Generator | None = None,
-    ) -> torch.Tensor:
-        r"""Returns :math:`\boldsymbol{x}_t = \beta_t \boldsymbol{x}_1 + \sigma_t \boldsymbol{x}_0`; ``generator`` is unused."""
-        beta_t = broadcast_to_target_shape(self.compute_beta_t(t), x0.shape)
-        sigma_t = broadcast_to_target_shape(self.compute_sigma_t(t), x0.shape)
-        return beta_t * x1 + sigma_t * x0
-
-    def compute_ut(
-        self,
-        t: torch.Tensor,
-        xt: torch.Tensor,
-        x0: torch.Tensor,
-        x1: torch.Tensor,
-    ) -> torch.Tensor:
-        r"""Returns :math:`\boldsymbol{u}_t = \dot{\beta}_t \boldsymbol{x}_1 + \dot{\sigma}_t \boldsymbol{x}_0`; ``xt`` is unused."""
-        _, dot_beta_t = self.compute_beta_t_and_dot_beta_t(t)
-        _, dot_sigma_t = self.compute_sigma_t_and_dot_sigma_t(t)
-        return (
-            broadcast_to_target_shape(dot_beta_t, x0.shape) * x1 + broadcast_to_target_shape(dot_sigma_t, x0.shape) * x0
-        )

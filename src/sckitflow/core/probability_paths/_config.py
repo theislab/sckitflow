@@ -8,9 +8,7 @@ from sckitflow._samplers import NoiseSamplerConfig
 from sckitflow.core.probability_paths._base import BasePath
 from sckitflow.core.probability_paths._probability_paths import (
     EncDecTwoSidedPath,
-    LinearOneSidedPath,
     LinearTwoSidedPath,
-    TrigOneSidedPath,
     TrigTwoSidedPath,
 )
 
@@ -19,8 +17,6 @@ __all__ = [
     "LinearTwoSidedPathConfig",
     "TrigTwoSidedPathConfig",
     "EncDecTwoSidedPathConfig",
-    "LinearOneSidedPathConfig",
-    "TrigOneSidedPathConfig",
 ]
 
 
@@ -83,26 +79,3 @@ class EncDecTwoSidedPathConfig(PathConfig):
     """
 
     path_cls = EncDecTwoSidedPath
-
-
-@component("paths.one_sided.linear", builds=LinearOneSidedPath)
-class LinearOneSidedPathConfig(PathConfig):
-    r"""Config for :class:`~LinearOneSidedPath`.
-
-    Registered under ``paths.one_sided.linear``. The built path has :math:`\alpha_t \equiv 0`, :math:`\beta_t = t`,
-    and :math:`\sigma_t = 1 - t`, so :math:`\boldsymbol{x}_t = t \boldsymbol{x}_1 + (1 - t) \boldsymbol{x}_0`.
-    """
-
-    path_cls = LinearOneSidedPath
-
-
-@component("paths.one_sided.trig", builds=TrigOneSidedPath)
-class TrigOneSidedPathConfig(PathConfig):
-    r"""Config for :class:`~TrigOneSidedPath`.
-
-    Registered under ``paths.one_sided.trig``. The built path has :math:`\alpha_t \equiv 0`,
-    :math:`\beta_t = \sin(\tfrac{\pi}{2} t)`, and a variance-preserving noise schedule
-    :math:`\sigma_t = \cos(\tfrac{\pi}{2} t)`.
-    """
-
-    path_cls = TrigOneSidedPath

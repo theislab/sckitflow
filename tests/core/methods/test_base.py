@@ -147,6 +147,12 @@ def test_flow_method_defaults(module, dims):
     assert method.generate_from_noise is False
 
 
+@pytest.mark.parametrize("generate_from_noise", [False, True])
+def test_flow_method_default_path_is_noiseless_linear(module, dims, generate_from_noise):
+    method = AbstractFlowMethod(module, CFMTrainingConfig(generate_from_noise=generate_from_noise), dims=dims)
+    assert type(method.probability_path) is LinearTwoSidedPath and method.probability_path.sigma == 0.0
+
+
 def test_flow_method_builds_path_config(module, dims):
     config = CFMTrainingConfig(
         probability_path=LinearTwoSidedPathConfig(sigma=0.5, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
@@ -218,7 +224,7 @@ def test_config_rejects_raw_callable_sampler():
 
 
 def test_config_rejects_live_probability_path():
-    """Live ``BaseProbabilityPath`` instances are rejected; only configs are accepted."""
+    """Live ``BasePath`` instances are rejected; only configs are accepted."""
     with pytest.raises(pydantic.ValidationError):
         CFMTrainingConfig(
             probability_path=LinearTwoSidedPath(sigma=0.5, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())

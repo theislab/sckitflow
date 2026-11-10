@@ -1,10 +1,10 @@
-"""Tests for BasePath and OneSidedPath on minimal analytic paths; the concrete paths are in test_probability_paths."""
+"""Tests for BasePath on a minimal analytic path; the concrete paths are in test_probability_paths."""
 
 import pytest
 import torch
 
 from sckitflow import IsotropicGaussianNoiseSamplerConfig
-from sckitflow.core.probability_paths._base import BasePath, OneSidedPath
+from sckitflow.core.probability_paths._base import BasePath
 
 
 class _LinearTestPath(BasePath):
@@ -21,16 +21,18 @@ class _LinearTestPath(BasePath):
 
 
 class TestBasePathInit:
-    def test_negative_sigma_raises(self) -> None:
-        with pytest.raises(ValueError, match="Argument sigma should be a positive float"):
-            _LinearTestPath(-1.0)
+    @pytest.mark.parametrize("sigma", [-1.0, float("inf"), float("nan")])
+    def test_invalid_sigma_raises(self, sigma) -> None:
+        with pytest.raises(ValueError, match="finite non-negative"):
+            _LinearTestPath(sigma)
 
     def test_positive_sigma_without_sampler_raises(self) -> None:
         with pytest.raises(ValueError, match="Positive sigma requires a sampler"):
             _LinearTestPath(1.0)
 
-    def test_zero_sigma_without_sampler_ok(self) -> None:
-        path = _LinearTestPath(0.0)
+    @pytest.mark.parametrize("sampler_cfg", [None, IsotropicGaussianNoiseSamplerConfig()])
+    def test_zero_sigma_builds_no_sampler(self, sampler_cfg) -> None:
+        path = _LinearTestPath(0.0, sampler_cfg=sampler_cfg)
         assert path.sigma == 0.0
         assert path._sampler is None
 
@@ -44,11 +46,6 @@ class TestAbstractness:
     def test_basepath_is_abstract(self) -> None:
         with pytest.raises(TypeError, match="abstract"):
             BasePath(0.0)
-
-    def test_one_sided_path_is_abstract(self) -> None:
-        # ``compute_beta_t`` and ``compute_sigma_t`` are still abstract.
-        with pytest.raises(TypeError, match="abstract"):
-            OneSidedPath(1.0)
 
 
 class TestComputeXt:

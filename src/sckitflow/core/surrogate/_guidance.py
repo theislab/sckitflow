@@ -26,8 +26,9 @@ class FlowMap(Protocol):
 
 
 class _Coefficients(NamedTuple):
-    r"""$x_t = a_t x_0 + \beta_t x_1$, the derivatives, $D_t = \dot a_t \beta_t - a_t \dot\beta_t$ (minus the
-    determinant of the system for $x_0, x_1$), and where it is solvable.
+    r"""The coefficients of $x_t = a_t x_0 + \beta_t x_1$ and their derivatives, and where it is solvable.
+
+    $D_t = \dot a_t \beta_t - a_t \dot\beta_t$ is minus the determinant of the system for $x_0, x_1$.
     """
 
     a: torch.Tensor

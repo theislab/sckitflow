@@ -20,4 +20,15 @@ class MatchedTrainingConfig(TrainingMethodConfig):
     """How source and target are paired, e.g. ``SinkhornCouplingConfig()``."""
 
     def build(self, module: torch.nn.Module, *, dims: DataDimensions) -> MatchedTrainingMethod:
-        return MatchedTrainingMethod(self.method.build(module, dims=dims), Matcher(self.coupling.build()))
+        present = {
+            "rep_lin": dims.source_lin_dim,
+            "source_rep_quad": dims.source_quad_dim,
+            "target_rep_quad": dims.target_quad_dim,
+        }
+        if missing := [f for f in self.coupling.reads if present[f] is None]:
+            raise ValueError(
+                f"{type(self.coupling).__name__} matches on {', '.join(self.coupling.reads)}, but the data manager "
+                f"names no {', '.join(missing)}. Set it in `DataManagerConfig`."
+            )
+        matcher = Matcher(self.coupling.build(), needs_reps=bool(self.coupling.reads))
+        return MatchedTrainingMethod(self.method.build(module, dims=dims), matcher)

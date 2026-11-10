@@ -39,7 +39,6 @@ def _manager():
         groups_encoding={"cell_line": LabelEncoderConfig(classes=("cell_line0", "cell_line1"))},
         source_rep_quad="obsm.X_src",
         target_rep_quad="obsm.X_tgt",
-        use_linear=False,
     ).build()
 
 
@@ -74,7 +73,6 @@ def test_the_linear_term_needs_one_width():
             **_manager().config.model_dump(),
             "source_rep_quad": None,
             "target_rep_quad": None,
-            "use_linear": True,
             "rep_lin": "obsm.K",
         }
     ).build()
@@ -124,7 +122,7 @@ def test_a_side_quad_needs_one_width_across_its_files():
 def test_the_same_width_with_other_genes_is_refused_not_read_as_another_space():
     ctrl, pert = _split_files()
     ctrl.var_names = list(reversed(ctrl.var_names))  # same genes, other order: misaligned, not another space
-    dm = DataManagerConfig(**{**_manager().config.model_dump(), "target_sample_rep": "X", "use_linear": False}).build()
+    dm = DataManagerConfig(**{**_manager().config.model_dump(), "target_sample_rep": "X"}).build()
     with pytest.raises(ValueError, match=r"the same width but different feature names.*`source_sample_rep`"):
         dm.get_data_dimensionalities([ctrl, pert])
 
@@ -133,6 +131,6 @@ def test_the_linear_term_width_is_checked_with_the_dimensions():
     ctrl, pert = _split_files()
     ctrl.obsm["K"] = np.ones((ctrl.n_obs, 4), "float32")
     pert.obsm["K"] = np.ones((pert.n_obs, 6), "float32")
-    dm = DataManagerConfig(**{**_manager().config.model_dump(), "rep_lin": "obsm.K", "use_linear": True}).build()
-    with pytest.raises(ValueError, match=r"`rep_lin` \(A\.obsm\[.K.\]\) has different widths.*`use_linear=False`"):
+    dm = DataManagerConfig(**{**_manager().config.model_dump(), "rep_lin": "obsm.K"}).build()
+    with pytest.raises(ValueError, match=r"`rep_lin` \(A\.obsm\[.K.\]\) has different widths.*quadratic terms alone"):
         dm.get_data_dimensionalities([ctrl, pert])

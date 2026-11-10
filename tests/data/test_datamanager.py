@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
+from scfit.data import open_adata
 from tests.data.shared import with_split
 
 from sckitflow.data._manager import DataManager, DataManagerConfig
@@ -336,7 +337,7 @@ class TestUnconditionalStreaming:
 
 
 class TestLinearFreeCoupling:
-    """DataManagerConfig(use_linear=False) flows through to linear-free couplings."""
+    """Quadratics without `rep_lin` (pure Gromov-Wasserstein) flow through to linear-free couplings."""
 
     def _with_quads(self, adata: AnnData) -> AnnData:
         rng = np.random.default_rng(0)
@@ -344,23 +345,13 @@ class TestLinearFreeCoupling:
         adata.obsm["X_tgt_quad"] = rng.standard_normal((adata.n_obs, 6)).astype("float32")
         return adata
 
-    def test_config_rejects_rep_lin(self):
-        with pytest.raises(ValueError, match="redundant"):
-            _make_manager(
-                use_linear=False,
-                rep_lin="obsm.X_repr",
-                source_rep_quad="obsm.X_src_quad",
-                target_rep_quad="obsm.X_tgt_quad",
-            )
-
     @pytest.mark.parametrize(
         "source_rep_quad, target_rep_quad",
         [(None, "obsm.X_tgt_quad"), ("obsm.X_src_quad", None)],
     )
     def test_config_requires_both_quads(self, source_rep_quad, target_rep_quad):
-        with pytest.raises(ValueError, match="requires both"):
+        with pytest.raises(ValueError, match="both `source_rep_quad` and `target_rep_quad`"):
             _make_manager(
-                use_linear=False,
                 source_rep_quad=source_rep_quad,
                 target_rep_quad=target_rep_quad,
             )
@@ -444,11 +435,10 @@ class TestTrainingOnlyCoupling:
             assert dm._training_loader_schema[key] is value
 
     def test_pure_gw_streams_only_quads(self, adata_small: AnnData):
-        """`use_linear=False` flows to the loader: linear coupling keys stay None even in training."""
+        """Without `rep_lin` the linear coupling keys stay None even in training."""
         self._with_coupling_reps(adata_small)
         dm = _make_manager(
             control_values_dict={"drug": "control"},
-            use_linear=False,
             source_rep_quad="obsm.X_src_quad",
             target_rep_quad="obsm.X_tgt_quad",
         )
@@ -528,21 +518,6 @@ class TestSeveralAnnData:
 class TestGetRequiredFields:
     """get_required_fields: exactly the parts of an AnnData the loaders read."""
 
-    def _reduced(self, adata: AnnData, refs: list, uns: list[str]) -> AnnData:
-        """``adata`` with only the referenced reps, obs columns and uns tables."""
-        from anndata.acc import AdRef, LayerAcc, MultiAcc
-
-        cols = [r.idx for r in refs if isinstance(r, AdRef)]
-        keep_x = any(isinstance(r, LayerAcc) and r.k is None for r in refs)
-        out = AnnData(X=adata.X if keep_x else None, obs=adata.obs[cols], var=adata.var if keep_x else None)
-        for ref in refs:
-            if isinstance(ref, MultiAcc):
-                out.obsm[ref.k] = adata.obsm[ref.k]
-            elif isinstance(ref, LayerAcc) and ref.k is not None:
-                out.layers[ref.k] = adata.layers[ref.k]
-        out.uns = {k: adata.uns[k] for k in uns}
-        return out
-
     def test_names_what_the_schema_reads(self):
         from anndata.acc import A
 
@@ -551,12 +526,14 @@ class TestGetRequiredFields:
         assert refs == [A.X, A.obsm["X_repr"], A.obs["cell_line"], A.obs["drug"], A.obs["split"]]
         assert uns == ["cell_line", "drug"]
 
-    def test_the_named_parts_are_enough_to_train(self, adata_small: AnnData):
+    def test_the_named_parts_are_enough_to_train(self, adata_small: AnnData, tmp_path):
         ad = _with_split(adata_small)
         ad.obsm["X_repr"] = np.ones((ad.n_obs, 2), dtype=np.float32)
         ad.obsm["unused"], ad.obs["unused"] = np.zeros((ad.n_obs, 3)), "x"
         dm = _make_manager_with_continuous(control_values_dict={"drug": "control"}, split_by="split")
-        reduced = self._reduced(ad, *dm.get_required_fields())
+        ad.write_zarr(tmp_path / "d.zarr")
+        refs, uns = dm.get_required_fields()
+        reduced = open_adata(tmp_path / "d.zarr", *refs, uns=uns)
         assert "unused" not in reduced.obsm and "unused" not in reduced.obs
         loaders = dm.get_dataloaders(reduced, batch_size=8)
         assert set(loaders) == {"train", "val"}
@@ -567,3 +544,26 @@ class TestGetRequiredFields:
 
         dm = DataManagerConfig(target_sample_rep="layers.counts").build()
         assert dm.get_required_fields() == ([A.layers["counts"]], [])
+
+    def test_every_rep_role_is_named(self):
+        from anndata.acc import A
+
+        dm = DataManagerConfig(
+            target_sample_rep="X",
+            source_sample_rep="obsm.src",
+            rep_lin="obsm.lin",
+            source_rep_quad="obsm.sq",
+            target_rep_quad="layers.tq",
+            continuous_conditions=("obsm.dose",),
+            target_continuous_covs=("layers.resp",),
+        ).build()
+        refs, _ = dm.get_required_fields()
+        assert refs == [
+            A.X,
+            A.obsm["src"],
+            A.obsm["lin"],
+            A.obsm["sq"],
+            A.layers["tq"],
+            A.obsm["dose"],
+            A.layers["resp"],
+        ]

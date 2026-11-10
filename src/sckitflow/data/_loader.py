@@ -140,31 +140,6 @@ def _group_row(encoding: torch.Tensor) -> torch.Tensor:
     return encoding.unsqueeze(0)
 
 
-def _get_coupling_locs(coupling_schema: CouplingDataSchema | None) -> tuple[dict[Rep, str], dict[Rep, str]]:
-    """The coupling reps of the sources and of the targets, each ``{reference: coupling term}``."""
-    # Return empty dictionaries
-    if coupling_schema is None:
-        return {}, {}
-
-    # Initialize dictionaries.
-    source_coupling_locs: dict[Rep, str] = {}
-    target_coupling_locs: dict[Rep, str] = {}
-
-    # Linear term, both source and target
-    if coupling_schema.rep_lin is not None:
-        source_coupling_locs[coupling_schema.rep_lin] = _SOURCE_LIN_TERM
-        target_coupling_locs[coupling_schema.rep_lin] = _TARGET_LIN_TERM
-
-    # Source quadratic term.
-    if coupling_schema.source_rep_quad is not None:
-        source_coupling_locs[coupling_schema.source_rep_quad] = _SOURCE_QUAD_TERM
-
-    # Target quadratic term.
-    if coupling_schema.target_rep_quad is not None:
-        target_coupling_locs[coupling_schema.target_rep_quad] = _TARGET_QUAD_TERM
-    return source_coupling_locs, target_coupling_locs
-
-
 # The schema field each coupling term is read from, for error messages.
 _COUPLING_FIELD = {
     _SOURCE_LIN_TERM: "rep_lin",
@@ -231,7 +206,9 @@ class _StepDataBridge:
 
         # Handle coupling terms and construct coupling locs dictionary
         self._coupling_schema = coupling_schema
-        self._source_coupling_locs, self._target_coupling_locs = _get_coupling_locs(self._coupling_schema)
+        # {StepData key: reference}; one reference may serve several terms
+        self._source_terms = coupling_schema.source_terms if coupling_schema is not None else {}
+        self._target_terms = coupling_schema.target_terms if coupling_schema is not None else {}
         # Which schema field asks for each rep, so a missing one is reported by the name the user set.
         self._rep_fields: dict[Rep, list[str]] = {}
         for loc, field in [
@@ -239,8 +216,8 @@ class _StepDataBridge:
             (self._source_state_loc, "source_sample_rep" if source_sample_rep is not None else "target_sample_rep"),
             *((loc, "continuous_conditions") for loc in self._cond_cont_locs),
             *((loc, "response covariates") for loc in self._resp_cont_locs),
-            *((loc, _COUPLING_FIELD[t]) for loc, t in self._source_coupling_locs.items()),
-            *((loc, _COUPLING_FIELD[t]) for loc, t in self._target_coupling_locs.items()),
+            *((loc, _COUPLING_FIELD[t]) for t, loc in self._source_terms.items()),
+            *((loc, _COUPLING_FIELD[t]) for t, loc in self._target_terms.items()),
         ]:
             if field not in self._rep_fields.setdefault(loc, []):
                 self._rep_fields[loc].append(field)
@@ -372,7 +349,7 @@ class _StepDataBridge:
             return {}
         return {
             coupling_term: _as_tensor(batch[_CONTROL][coupling_loc])
-            for coupling_loc, coupling_term in self._source_coupling_locs.items()
+            for coupling_term, coupling_loc in self._source_terms.items()
         }
 
     def _target_coupling_dict(self, batch: dict, has_state: bool) -> dict[str, torch.Tensor]:
@@ -381,7 +358,7 @@ class _StepDataBridge:
             return {}
         return {
             coupling_term: _as_tensor(batch[_PRIMARY][coupling_loc])
-            for coupling_loc, coupling_term in self._target_coupling_locs.items()
+            for coupling_term, coupling_loc in self._target_terms.items()
         }
 
     def _step_data_from_batch(self, batch: dict, gid: int, *, has_state: bool, n_rows: int) -> StepData:
@@ -439,7 +416,7 @@ class _StepDataBridge:
             return Stream(
                 _CONTROL,  # its own source: only the AnnData holding source cells (see `_sources_by_role`)
                 group_by=group_by,
-                reps=_merge_reps((self._source_state_loc,), self._source_coupling_locs),
+                reps=_merge_reps((self._source_state_loc,), self._source_terms.values()),
                 weights=control_weights,
                 match_on=list(match_cols),
                 in_memory=in_memory,
@@ -468,7 +445,7 @@ class _StepDataBridge:
         it must match depends on the method -- flowing from the sources needs one space, generating from noise
         conditioned on an encoded source (e.g. GENOT) does not -- so the method checks it, not the loader.
         """
-        shared = {loc for loc, t in self._source_coupling_locs.items() if t == _SOURCE_LIN_TERM}
+        shared = {loc for t, loc in self._source_terms.items() if t == _SOURCE_LIN_TERM}
         index = {id(a): i for i, a in enumerate(self._adatas)}
         for loc in shared:
             widths = {
@@ -483,7 +460,7 @@ class _StepDataBridge:
                     "term compares sources with targets directly, so it needs one width in every file; align the "
                     "files to it (one PCA fitted over all of them, or an embedding both sides share when their states "
                     "live in different spaces), or match across spaces with the quadratic terms alone "
-                    "(`use_linear=False`)."
+                    "(no `rep_lin`)."
                 )
 
     def _files_holding(self, stream: Stream, role: str) -> list[AnnData]:
@@ -651,7 +628,7 @@ class Loader(_StepDataBridge):
             (self._starget_state_loc,),
             self._cond_cont_locs,
             self._resp_cont_locs,
-            self._target_coupling_locs,
+            self._target_terms.values(),
         )
 
         # With a split column the leaf is ``(split, *group_cols)``, so a weight of 0 excludes the *observations*

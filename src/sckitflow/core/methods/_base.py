@@ -257,9 +257,16 @@ class Matcher(BaseMatcher):
     device tensor, so checking it costs no host sync.
     """
 
-    def __init__(self, match_fn: MatchFn) -> None:
+    def __init__(self, match_fn: MatchFn, *, needs_reps: bool = True) -> None:
+        """Initializes the matcher.
+
+        :param match_fn: Matches source and target populations from a batch.
+        :param needs_reps: ``False`` for a ``match_fn`` reading only row counts, like random pairing: without
+            coupling reps it gets the source and target states instead.
+        """
         super().__init__(match_fn)
         self._returns_plan = "return_matrix" in inspect.signature(match_fn).parameters
+        self._needs_reps = needs_reps
 
     def match(self, step_data: StepData, *, generator: torch.Generator) -> tuple[StepData, dict[str, Any]]:
         """Matches the input state data using the underlying `match_fn`, drawing from ``generator``.
@@ -272,6 +279,8 @@ class Matcher(BaseMatcher):
         target_lin = step_data["target_coupling_lin"]
         target_quad = step_data["target_coupling_quad"]
 
+        if source_lin is None and source_quad is None and not self._needs_reps:
+            source_lin, target_lin = step_data["source_state"], step_data["target_state"]
         if source_lin is None and source_quad is None:
             if step_data["source_state"] is not None:
                 raise ValueError(

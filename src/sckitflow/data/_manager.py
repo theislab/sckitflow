@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, Unpack
 import numpy as np
 import pandas as pd
 from anndata import AnnData
-from anndata.acc import A, MultiAcc
+from anndata.acc import A, AdRef, MultiAcc
 from pydantic import field_validator
 from scfit.data import obs_columns
 from scfit.registry import Component, component
@@ -151,7 +151,6 @@ class DataManager:
             rep_lin=config.rep_lin,
             source_rep_quad=config.source_rep_quad,
             target_rep_quad=config.target_rep_quad,
-            use_linear=config.use_linear,
         )
         self._target_data_schema = ResponseDataSchema(continuous_covs=config.target_continuous_covs)
         self._groups_data_schema = GroupsDataSchema(
@@ -257,7 +256,7 @@ class DataManager:
             if len(set(widths.values())) > 1:
                 hint = {
                     "rep_lin": " It compares sources with targets directly; use an embedding both sides share, or "
-                    "match across spaces with the quadratic terms alone (`use_linear=False`).",
+                    "match across spaces with the quadratic terms alone (no `rep_lin`).",
                     "target_sample_rep": " If the sources have their own state on purpose, name it with "
                     "`source_sample_rep`.",
                 }.get(field, "")
@@ -372,7 +371,7 @@ class DataManager:
             parts.append(local)
         return parts
 
-    def get_required_fields(self) -> tuple[list, list[str]]:
+    def get_required_fields(self) -> tuple[list[Rep | AdRef], list[str]]:
         """What this schema reads from an AnnData: :mod:`anndata.acc` references and ``uns`` keys.
 
         The references are the state reps (``A.X``, ``A.layers[k]`` or ``A.obsm[k]``) of the targets and sources,
@@ -381,13 +380,10 @@ class DataManager:
         dataset may hold only some tables (see :meth:`get_data_dimensionalities`), so a reader opens the ones a
         file has. Use it to open only what training reads, e.g. ``scfit.data.open_adata(path, *refs, uns=...)``.
         """
-        from sckitflow.data._loader import _get_coupling_locs
-
         state = self._state_data_schema.sample_rep
-        source = self.config.source_sample_rep
-        refs = dict.fromkeys((state, state if source is None else source))
-        for coupling_locs in _get_coupling_locs(self._coupling_data_schema):
-            refs.update(dict.fromkeys(coupling_locs))
+        coupling = self._coupling_data_schema
+        refs = dict.fromkeys((state, self.config.source_sample_rep or state))
+        refs.update(dict.fromkeys([*coupling.source_terms.values(), *coupling.target_terms.values()]))
         refs.update(dict.fromkeys(self._condition_data_schema.continuous_conditions))
         refs.update(dict.fromkeys(self._target_data_schema.continuous_covs))
         cols = {*self.group_cols, *([self._split_by] if self._split_by is not None else [])}
@@ -555,7 +551,7 @@ class DataManager:
             if key in loader_kwargs:
                 raise TypeError(
                     f"{key} is owned by the schema, not per call: it is built from "
-                    "`DataManagerConfig.rep_lin` / `source_rep_quad` / `target_rep_quad` / `use_linear`. "
+                    "`DataManagerConfig.rep_lin` / `source_rep_quad` / `target_rep_quad`. "
                     "Pass it there, not to `get_dataloaders`."
                 )
         from sckitflow.data._loader import Loader
@@ -810,12 +806,6 @@ class DataManagerConfig(Component):
     target_rep_quad: RepField | None = None
     """The quadratic coupling representation of the targets (a reference or config string), holding the features
     only the target space has; used when matching distributions over incomparable spaces."""
-
-    use_linear: bool = True
-    """Whether the coupling has a shared linear term. `False` selects pure Gromov-Wasserstein:
-    source and target are matched on their intra-domain geometry alone, with no shared axes.
-    Requires both `source_rep_quad` and `target_rep_quad`, and is mutually exclusive with
-    `rep_lin`. Defaults to `True`, under which quadratic terms need `rep_lin` too (fused)."""
 
     @field_validator("continuous_conditions", "target_continuous_covs")
     @classmethod

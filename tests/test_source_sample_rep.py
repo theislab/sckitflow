@@ -53,7 +53,6 @@ def _spec(*, generate_from_noise: bool = True, module: dict | None = None) -> Mo
             groups_encoding={"cell_line": LabelEncoderConfig(classes=("cell_line0", "cell_line1"))},
             source_rep_quad="obsm.X_atac",
             target_rep_quad="obsm.X_rna",
-            use_linear=False,
         ),
         module=NeuralVelocityConfig(**(ENCODER if module is None else module)),
         training=MatchedTrainingConfig(
@@ -154,7 +153,6 @@ def test_each_side_has_its_own_width_under_one_key():
         rep_lin="obsm.X_lin",
         source_rep_quad="obsm.X_quad",
         target_rep_quad="obsm.X_quad",
-        use_linear=True,
     ).build()
 
     step_data = next(iter(dm.get_dataloaders([adata0, adata1], batch_size=b)["train"]))

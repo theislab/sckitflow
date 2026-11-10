@@ -12,6 +12,8 @@ from anndata.acc import A
 from tests.data.shared import with_split
 
 from sckitflow import Model, ModelConfig, predict_adata
+from sckitflow.core.coupling import IndependentCouplingConfig
+from sckitflow.core.methods import MatchedTrainingMethod, Matcher
 from sckitflow.data import DataManagerConfig, FlowDataModule
 from sckitflow.data.sim import get_dummy_adata
 from sckitflow.trainer import TrainingPlan
@@ -44,6 +46,15 @@ class TestConfigStrings:
             DataManagerConfig(target_sample_rep="X", **{field: ("X",)})
         with pytest.raises(ValueError, match=r"keyed by their array key, and \['dose'\] name several"):
             DataManagerConfig(target_sample_rep="X", **{field: ("obsm.dose", "layers.dose")})
+
+    @pytest.mark.parametrize("bad", ["obsm.", "layers.", A.obsm["X_pca.v2"], A.layers["a.b"]])
+    def test_keys_that_would_not_read_back_are_rejected(self, bad):
+        with pytest.raises(ValueError, match="non-empty and hold no '.'"):
+            DataManagerConfig(target_sample_rep=bad)
+
+    def test_the_json_schema_types_reps_as_strings(self):
+        props = DataManagerConfig.model_json_schema()["properties"]
+        assert props["target_sample_rep"]["type"] == "string"
 
     @pytest.mark.parametrize("bad", ["obs.drug", "varm.PCs", A.var["gene"], 3])
     def test_only_whole_obs_arrays(self, bad):
@@ -113,12 +124,12 @@ def test_a_layer_is_the_state_and_the_coupling_rep(tmp_path, adata: AnnData):
         assert state.abs().sum() > 0  # not the zeroed .X
         assert all(np.any(np.all(np.isclose(layer, r), axis=1)) for r in state.numpy())
 
-    plan = TrainingPlan(
-        model.training_method, torch.optim.Adam(model.module.parameters(), lr=1e-4), val_names=datamodule.val_names
+    widths, match_fn = [], model.training_method.matcher.match_fn
+    method = MatchedTrainingMethod(
+        model.training_method.method,
+        Matcher(lambda **kw: widths.append(kw["source_lin"].shape[1]) or match_fn(**kw)),
     )
-    matcher, widths = plan.training_method.matcher, []
-    match_fn = matcher.match_fn
-    matcher._match_fn = lambda **kw: widths.append(kw["source_lin"].shape[1]) or match_fn(**kw)
+    plan = TrainingPlan(method, torch.optim.Adam(model.module.parameters(), lr=1e-4), val_names=datamodule.val_names)
     pl.Trainer(max_steps=3, accelerator="cpu", logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(
         plan, datamodule=datamodule
     )
@@ -133,10 +144,19 @@ def test_a_layer_is_the_state_and_the_coupling_rep(tmp_path, adata: AnnData):
     assert torch.isfinite(torch.as_tensor(np.asarray(pred.X))).all()
 
 
-def test_matching_without_a_coupling_rep_is_refused(adata: AnnData):
-    """No `rep_lin`, no quadratics: nothing to match on, and no silent fallback to .X."""
-    model = _cellflow(target_sample_rep="layers.lognorm", rep_lin=None).build(adata)
+def test_matching_without_a_coupling_rep_is_refused_at_build(adata: AnnData):
+    """No `rep_lin`, no quadratics: OT has nothing to match on, and there is no silent fallback to .X."""
+    with pytest.raises(ValueError, match="matches on rep_lin, but the data manager names no rep_lin"):
+        _cellflow(target_sample_rep="layers.lognorm", rep_lin=None).build(adata)
+
+
+def test_independent_coupling_needs_no_coupling_rep(adata: AnnData):
+    """Random pairs read only the row counts, so they pair the states without a coupling rep."""
+    spec = _cellflow(target_sample_rep="layers.lognorm", rep_lin=None).to_spec()
+    spec["training"]["coupling"] = IndependentCouplingConfig().to_spec()
+    model = ModelConfig.from_spec(spec).build(adata)
     datamodule = FlowDataModule(model.manager, model.dims, adata, batch_size=32, n_train_steps=1)
     batch = next(iter(datamodule.train_dataloader()))
-    with pytest.raises(ValueError, match="streams no coupling rep to match on"):
-        model.training_method.compute_loss(batch, generator=torch.Generator().manual_seed(0))
+    assert batch["source_coupling_lin"] is None
+    loss, _ = model.training_method.compute_loss(batch, generator=torch.Generator().manual_seed(0))
+    assert torch.isfinite(loss)

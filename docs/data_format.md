@@ -69,5 +69,5 @@ sources may even have their own state rep, e.g. ATAC controls flowing into RNA t
 `source_sample_rep` (it cannot be told from the data, since two reps may have the same width). The files holding
 sources then need only that rep, the files holding targets only `target_sample_rep`. A flow cannot start from it, so it
 needs `generate_from_noise=True` and a source encoder (`NeuralVelocityConfig.source_encoder`), as GENOT does; the matching
-needs a shared `rep_lin` or the quadratic terms alone (`use_linear=False`). A saved model reloads with data
+needs a shared `rep_lin` or the quadratic terms alone (no `rep_lin`). A saved model reloads with data
 holding target cells, which fix the targets' state.

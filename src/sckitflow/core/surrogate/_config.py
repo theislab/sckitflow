@@ -1,4 +1,4 @@
-"""Potentials used by more than one surrogate, as components so a surrogate's spec can name them."""
+"""The readout type and the potentials shared by surrogates, as components so a surrogate's spec can name them."""
 
 from __future__ import annotations
 

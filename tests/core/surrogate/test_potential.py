@@ -265,9 +265,11 @@ class TestForward:
         assert out.requires_grad
 
     def test_aggregates_over_leaves_as_mean(self):
-        potential, _, _ = make_potential(n=4, n_leaves=1)
-        out = potential(make_cond_dict(n=4))
-        assert out.shape == (4,)
+        potential, _, _ = make_potential(n=4, n_leaves=2)
+        cond = make_cond_dict(n=4, requires_grad=False)
+        per_leaf = potential.potential(potential.response(cond), potential.ystar)
+        assert per_leaf.shape == (2, 4) and not torch.allclose(per_leaf[0], per_leaf[1])
+        torch.testing.assert_close(potential(cond), per_leaf.mean(0))
 
     def test_gradient_flows_to_conditions(self):
         potential, _, _ = make_potential(n=3)

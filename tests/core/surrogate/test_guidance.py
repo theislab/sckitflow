@@ -78,28 +78,46 @@ def test_path_flow_map_rejects_unsolvable_paths(path):
         PathFlowMap(_Field(lambda t, x: -x), path)
 
 
-@pytest.mark.parametrize(
-    ("kwargs", "match"),
-    [({"scale": -1.0}, "non-negative"), ({"max_strength": -1.0}, "non-negative")],
-)
-def test_rejects_negative_strength(kwargs, match):
-    with pytest.raises(ValueError, match=match):
-        _guided(_Field(lambda t, x: -x), lambda x: x.sum(-1), **kwargs)
-
-
 def test_path_flow_map_rejects_no_steps():
     with pytest.raises(ValueError, match="at least 1"):
         PathFlowMap(_Field(lambda t, x: -x), _path(LinearOneSidedPath), n_steps=0)
 
 
 @pytest.mark.parametrize("path_cls", SOLVABLE)
-def test_data_end_finite_with_a_singular_potential(path_cls):
-    # at t = 1 the strength clamps to 0 on every path, so the NaN gradient of this potential must not leak in
-    potential = lambda x: torch.sqrt(-(x**2).sum(-1))
-    velocity = _guided(_Field(lambda t, x: -x), potential, _path(path_cls)).get_vf_fn()(
-        torch.tensor(1.0), torch.randn(4, 3)
-    )
+def test_zero_strength_rows_ignore_a_nan_gradient(path_cls):
+    # per-sample t: row 0 is guided, row 1 sits at t = 1 where the strength is 0 and its gradient is NaN
+    potential = lambda x: (x**2).sum(-1) + torch.sqrt(50 - x[:, 0])  # NaN, with a NaN gradient, where x_0 > 50
+    t, x = torch.tensor([0.5, 1.0]), torch.tensor([[1.0, 1.0, 1.0], [100.0, 1.0, 1.0]])
+    velocity = _guided(_Field(lambda t, x: -x), potential, _path(path_cls)).get_vf_fn()(t, x)
     assert torch.isfinite(velocity).all()
+    torch.testing.assert_close(velocity[1], -x[1])
+    assert not torch.allclose(velocity[0], -x[0])
+
+
+@pytest.mark.parametrize(
+    "bad", [{"scale": float("inf")}, {"max_strength": float("inf")}, {"scale": -1.0}, {"max_strength": -1.0}]
+)
+def test_rejects_non_finite_or_negative_strength(bad):
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        _guided(_Field(lambda t, x: -x), lambda x: x.sum(-1), **bad)
+
+
+def test_rejects_paths_without_guidance():
+    field = _Field(lambda t, x: -x)
+    with pytest.raises(ValueError, match="does not determine"):
+        LossGuidedVelocity(
+            field,
+            _path(EncDecTwoSidedPath),
+            lambda x: x.sum(-1),
+            flow_map=PathFlowMap(field, _path(LinearOneSidedPath)),
+        )
+
+
+def test_output_dtype_follows_samples():
+    v = _guided(_Field(lambda t, x: -x), lambda x: (x**2).sum(-1)).get_vf_fn()(
+        torch.tensor(0.5, dtype=torch.float64), torch.ones(2, 3)
+    )
+    assert v.dtype == torch.float32
 
 
 def test_zero_strength_skips_the_potential():

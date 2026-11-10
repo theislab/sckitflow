@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from collections.abc import Callable
 from typing import NamedTuple, Protocol
 
@@ -25,13 +26,15 @@ class FlowMap(Protocol):
 
 
 class _Coefficients(NamedTuple):
-    r"""$x_t = a_t x_0 + \beta_t x_1$, the derivatives, $D_t = \dot a_t \beta_t - a_t \dot\beta_t$, and where it is solvable."""
+    r"""$x_t = a_t x_0 + \beta_t x_1$, the derivatives, $D_t = \dot a_t \beta_t - a_t \dot\beta_t$ (minus the
+    determinant of the system for $x_0, x_1$), and where it is solvable.
+    """
 
     a: torch.Tensor
     da: torch.Tensor
     beta: torch.Tensor
     dbeta: torch.Tensor
-    det: torch.Tensor
+    D: torch.Tensor
     solvable: torch.Tensor
 
 
@@ -41,11 +44,11 @@ def _coefficients(path: BasePath, t: torch.Tensor) -> _Coefficients:
         path.compute_sigma_t_and_dot_sigma_t if isinstance(path, OneSidedPath) else path.compute_alpha_t_and_dot_alpha_t
     )
     (a, da), (beta, dbeta) = a_fn(t), path.compute_beta_t_and_dot_beta_t(t)
-    det = da * beta - a * dbeta
-    solvable = det.abs() > torch.finfo(det.dtype).eps
+    D = da * beta - a * dbeta
+    solvable = D.abs() > torch.finfo(D.dtype).eps
     for c in (a, da, beta, dbeta):
-        solvable &= torch.isfinite(c / det)
-    return _Coefficients(a, da, beta, dbeta, det, solvable)
+        solvable &= torch.isfinite(c / D)
+    return _Coefficients(a, da, beta, dbeta, D, solvable)
 
 
 def _posterior_means(c: _Coefficients, x: torch.Tensor, v: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
@@ -56,12 +59,20 @@ def _posterior_means(c: _Coefficients, x: torch.Tensor, v: torch.Tensor) -> tupl
     """
 
     def solved(numerator: torch.Tensor, fallback: float) -> torch.Tensor:
-        coef = torch.where(c.solvable, numerator / c.det, torch.full_like(c.det, fallback))
+        coef = torch.where(c.solvable, numerator / c.D, torch.full_like(c.D, fallback))
         return broadcast_to_target_shape(coef, x.shape)
 
     x0 = solved(-c.dbeta, 0.0) * x + solved(c.beta, 0.0) * v
     x1 = solved(c.da, 1.0) * x + solved(-c.a, 0.0) * v
     return x0, x1
+
+
+def _check_path(path: BasePath) -> None:
+    """Raises unless ``path`` determines $x_0, x_1$ from $x_t, v_t$ inside $(0, 1)$."""
+    if not isinstance(path, OneSidedPath) and path.sigma > 0:
+        raise ValueError("A two-sided path with sigma > 0 does not determine x_0 and x_1 from x_t and v_t.")
+    if not _coefficients(path, torch.linspace(0.01, 0.99, 99, dtype=torch.float64)).solvable.all():
+        raise ValueError(f"{type(path).__name__} does not determine x_0 and x_1 from x_t and v_t.")
 
 
 def _guidance_strength(path: BasePath, t: torch.Tensor) -> torch.Tensor:
@@ -72,8 +83,7 @@ def _guidance_strength(path: BasePath, t: torch.Tensor) -> torch.Tensor:
     ``0`` where the coefficients are not solvable.
     """
     c = _coefficients(path, t)
-    strength = (-c.a * c.det / c.beta).nan_to_num(nan=0.0, posinf=torch.inf)
-    return torch.where(c.solvable, strength, torch.zeros_like(c.det))
+    return torch.where(c.solvable, -c.a * c.D / c.beta, torch.zeros_like(c.D))
 
 
 class PathFlowMap(torch.nn.Module):
@@ -96,10 +106,7 @@ class PathFlowMap(torch.nn.Module):
     def __init__(self, velocity: NeuralVelocity, path: BasePath, n_steps: int = 1) -> None:
         if n_steps < 1:
             raise ValueError(f"n_steps must be at least 1, got {n_steps}.")
-        if not isinstance(path, OneSidedPath) and path.sigma > 0:
-            raise ValueError("A two-sided path with sigma > 0 does not determine x_0 and x_1 from x_t and v_t.")
-        if not _coefficients(path, torch.linspace(0.01, 0.99, 99, dtype=torch.float64)).solvable.all():
-            raise ValueError(f"{type(path).__name__} does not determine x_0 and x_1 from x_t and v_t.")
+        _check_path(path)
         super().__init__()
         self.velocity, self.path, self.n_steps = velocity, path, n_steps
 
@@ -109,6 +116,7 @@ class PathFlowMap(torch.nn.Module):
         vf = self.velocity.get_vf_fn(condition_dict=condition_dict, source=source)
 
         def phi(t: torch.Tensor, s: torch.Tensor, x: torch.Tensor) -> torch.Tensor:
+            t, s = t.to(x.dtype), s.to(x.dtype)
             du = (s - t) / self.n_steps
             for k in range(self.n_steps):
                 u = t + k * du
@@ -134,8 +142,10 @@ class LossGuidedVelocity(torch.nn.Module):
     :class:`~sckitflow.core.solvers.ODESolver` like any velocity.
 
     Keep the Jacobian: dropping it and using $\nabla \Psi(\hat x_1)$ alone is cheaper, but with
-    ``PathFlowMap(velocity, path)`` $J \to 0$ as $t \to 0$, exactly where $\lambda_t$ is largest, so it is what
-    stops the guidance over-steering while $\hat x_1$ is still a guess. Benchmarked against exactly-tilted
+    ``PathFlowMap(velocity, path)`` and its default single step, $\hat x_1$ is the posterior mean, whose
+    Jacobian $J \to 0$ as $t \to 0$, exactly where $\lambda_t$ is largest, so it is what stops the guidance
+    over-steering while $\hat x_1$ is still a guess. More steps, or a distilled flow map, approach the ODE's own
+    endpoint, whose Jacobian does not vanish; then ``max_strength`` sets the early guidance. Benchmarked against exactly-tilted
     Gaussian mixtures it reached a 2.5-4x lower energy distance to the true posterior, and stayed useful across
     a ~10x range of ``scale`` against a narrow band outside which the Jacobian-free form is worse than not
     guiding at all.
@@ -147,13 +157,13 @@ class LossGuidedVelocity(torch.nn.Module):
 
     :param velocity: The prior's velocity module, implementing ``get_vf_fn``. $\lambda_t$ assumes the prior
         generates from Gaussian noise, so ``get_vf_fn`` rejects a ``source``.
-    :param path: The probability path the prior was trained on.
+    :param path: The probability path the prior was trained on, under the same conditions as for
+        :class:`PathFlowMap`: $\lambda_t$ is identically ``0`` on :class:`EncDecTwoSidedPath`.
     :param potential: Maps samples of shape ``(N, D)`` to potentials of shape ``(N,)``, row-wise
         independent, e.g. ``lambda x: surrogate({"dose": x})`` for a :class:`SurrogatePotential`.
     :param flow_map: Estimates $\hat x_1$ as $\phi_{1 \mid t}(x)$, built with the same conditions as the velocity.
-    :param scale: Multiplies $\lambda_t$, non-negative; ``0`` samples the prior without evaluating the potential.
-    :param max_strength: Non-negative upper bound on $b_t$, which diverges as $\beta_t \to 0$. A flow map's
-        Jacobian does not vanish there, so with one this bound sets the early guidance.
+    :param scale: Multiplies $\lambda_t$, finite and non-negative; ``0`` samples the prior without evaluating the potential.
+    :param max_strength: Finite non-negative upper bound on $b_t$, which diverges as $\beta_t \to 0$.
     """
 
     velocity: NeuralVelocity
@@ -169,8 +179,9 @@ class LossGuidedVelocity(torch.nn.Module):
         scale: float = 1.0,
         max_strength: float = 10.0,
     ) -> None:
-        if scale < 0 or max_strength < 0:
-            raise ValueError(f"scale and max_strength must be non-negative, got {scale} and {max_strength}.")
+        if not (math.isfinite(scale) and math.isfinite(max_strength) and scale >= 0 and max_strength >= 0):
+            raise ValueError(f"scale and max_strength must be finite and non-negative, got {scale} and {max_strength}.")
+        _check_path(path)
         super().__init__()
         self.velocity, self.path, self.potential, self.flow_map = velocity, path, potential, flow_map
         self.scale, self.max_strength = scale, max_strength
@@ -190,6 +201,7 @@ class LossGuidedVelocity(torch.nn.Module):
         def guided(t: torch.Tensor, xt: torch.Tensor) -> torch.Tensor:
             if torch.is_inference_mode_enabled():
                 raise RuntimeError("Loss guidance needs autograd; call it outside `torch.inference_mode`.")
+            t = t.to(xt.dtype)
             with torch.no_grad():
                 v = vf(t, xt)
             strength = (self.scale * _guidance_strength(self.path, t)).clamp(0, self.max_strength)

@@ -367,6 +367,31 @@ class DataManager:
             parts.append(local)
         return parts
 
+    def get_required_fields(self) -> tuple[list, list[str]]:
+        """What this schema reads from an AnnData: :mod:`anndata.acc` references and ``uns`` keys.
+
+        The references are the state reps (``A.X`` or ``A.obsm[k]``) of the targets and sources, the coupling
+        reps, the continuous conditions and responses, and the obs columns a batch groups or splits on. The
+        ``uns`` keys are the embedding tables of the categorical conditions and groups. A file of a multi-file
+        dataset may hold only some tables (see :meth:`get_data_dimensionalities`), so a reader opens the ones a
+        file has. Use it to open only what training reads, e.g. ``scfit.data.open_adata(path, *refs, uns=...)``.
+        """
+        from anndata.acc import A
+
+        from sckitflow.data._loader import _get_coupling_locs, _get_loc
+
+        state = self._state_data_schema.sample_rep
+        locs = {_get_loc(state), _get_loc(self.config.source_sample_rep or state)}
+        for coupling_locs in _get_coupling_locs(self._coupling_data_schema):
+            locs.update(coupling_locs)
+        covs = (*self._condition_data_schema.continuous_conditions, *self._target_data_schema.continuous_covs)
+        locs.update(f"obsm/{c}" for c in covs)
+        cols = {*self.group_cols, *([self._split_by] if self._split_by is not None else [])}
+        refs = [A.resolve(loc.replace("/", ".", 1), vec=False) for loc in sorted(locs)]
+        refs += [A.obs[c] for c in sorted(cols)]
+        uns = sorted({*(self.config.categorical_reps or {}).values(), *(self.config.groups_reps or {}).values()})
+        return refs, uns
+
     def get_feature_names(self, adata: AnnDataLike) -> pd.Index:
         """Registers the feature names from the input data according to the current schema.
 

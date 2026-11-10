@@ -22,7 +22,7 @@ from sckitflow.core._data_utils import subscript_step_data
 from sckitflow.core._types import MatchFn, PredictionData, SamplerFn, StepData
 from sckitflow.core.coupling._coupling import degenerate_plan
 from sckitflow.core.probability_paths._base import BasePath
-from sckitflow.core.probability_paths._config import LinearOneSidedPathConfig, LinearTwoSidedPathConfig, PathConfig
+from sckitflow.core.probability_paths._config import LinearPathConfig, PathConfig
 from sckitflow.data._dims import DataDimensions
 
 __all__ = [
@@ -162,8 +162,8 @@ class FlowMethodConfig(Component):
     """
 
     probability_path: PathConfig | None = None
-    """A probability-path config. ``None`` uses ``LinearOneSidedPathConfig`` when generating from noise and a
-    noiseless ``LinearTwoSidedPathConfig`` from sources."""
+    """A probability-path config. ``None`` uses a noiseless ``LinearPathConfig``, which interpolates
+    linearly from the noise or the source to the target."""
 
     time_sampler: TimeSamplerConfig | None = None
     """A time-sampler config. ``None`` uses ``UniformTimeSamplerConfig``."""
@@ -193,17 +193,9 @@ class AbstractFlowMethod(AbstractMethod):
         :param dims: The shape spec of the data the module was built for.
         """
         super().__init__(module, dims=dims)
-        noise_cfg = config.noise_sampler or IsotropicGaussianNoiseSamplerConfig()
-        path_cfg = config.probability_path
-        if path_cfg is None:  # from noise the path draws its own; from sources it interpolates them
-            path_cfg = (
-                LinearOneSidedPathConfig(sigma=1.0, sampler_cfg=noise_cfg)
-                if config.generate_from_noise
-                else LinearTwoSidedPathConfig(sigma=0.0)
-            )
-        self._probability_path = path_cfg.build()
+        self._probability_path = (config.probability_path or LinearPathConfig()).build()
         self._time_sampler = (config.time_sampler or UniformTimeSamplerConfig()).build()
-        self._noise_sampler = noise_cfg.build()
+        self._noise_sampler = (config.noise_sampler or IsotropicGaussianNoiseSamplerConfig()).build()
         self._generate_from_noise = config.generate_from_noise
         if dims.source_state_dim is not None and not self._generate_from_noise:
             raise ValueError(

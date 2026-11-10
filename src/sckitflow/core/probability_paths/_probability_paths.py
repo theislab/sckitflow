@@ -1,57 +1,30 @@
 import torch
 
 from sckitflow._constants import PI
-from sckitflow.core.probability_paths._base import BasePath, OneSidedPath
+from sckitflow._samplers import NoiseSamplerConfig
+from sckitflow.core.probability_paths._base import BasePath
 
 __all__ = [
-    "LinearTwoSidedPath",
-    "TrigTwoSidedPath",
-    "EncDecTwoSidedPath",
-    "LinearOneSidedPath",
-    "TrigOneSidedPath",
-    "VPOneSidedPath",
+    "LinearPath",
+    "TrigPath",
+    "EncDecPath",
 ]
 
 
-class _LinearPathMixin:
-    r"""Mixin supplying a linear :math:`\beta_t = t` coefficient.
-
-    Combined with :class:`OneSidedPath` (where :math:`\alpha_t \equiv 0`)
-    this gives paths whose mean grows linearly from the origin at
-    :math:`t = 0` to :math:`\boldsymbol{x}_1` at :math:`t = 1`.
-    """
-
-    def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\beta_t = t`."""
-        return t
-
-
 class _BridgeNoiseMixin:
-    r"""Mixin supplying the Brownian-bridge noise schedule :math:`\sigma_t = \sqrt{\sigma \, t (1 - t)}`.
+    r"""Mixin supplying the Brownian-bridge noise schedule :math:`\sigma_t = \sigma \sqrt{t (1 - t)}`.
 
     The standard deviation vanishes at both endpoints and peaks at :math:`t = \tfrac{1}{2}`, so the path is
     anchored on :math:`\boldsymbol{x}_0` and :math:`\boldsymbol{x}_1` and noisiest in between.
     """
 
     def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \sqrt{\sigma \, t \, (1 - t)}`."""
-        return torch.sqrt(self.sigma * t * (1 - t))
+        r"""Returns :math:`\sigma_t = \sigma \sqrt{t \, (1 - t)}`."""
+        return self.sigma * torch.sqrt(t * (1 - t))
 
 
-class _TrigPathMixin:
-    r"""Mixin supplying a sinusoidal :math:`\beta_t = \sin\!\left(\tfrac{\pi}{2} t\right)` coefficient.
-
-    The derivative vanishes at both endpoints, which gives smoother path
-    endpoints than :class:`_LinearPathMixin`.
-    """
-
-    def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\beta_t = \sin\!\left(\tfrac{\pi}{2} t\right)`."""
-        return torch.sin(0.5 * PI * t)
-
-
-class LinearTwoSidedPath(_LinearPathMixin, _BridgeNoiseMixin, BasePath):
-    r"""Two-sided path with linear interpolation and :math:`\sqrt{\cdot}` noise schedule.
+class LinearPath(_BridgeNoiseMixin, BasePath):
+    r"""Path with linear interpolation and :math:`\sqrt{\cdot}` noise schedule.
 
     The interpolation coefficients are
 
@@ -61,7 +34,7 @@ class LinearTwoSidedPath(_LinearPathMixin, _BridgeNoiseMixin, BasePath):
         \qquad
         \beta_t = t,
         \qquad
-        \sigma_t = \sqrt{\sigma \, t \, (1 - t)}.
+        \sigma_t = \sigma \sqrt{t \, (1 - t)}.
 
     The path runs from :math:`\boldsymbol{x}_0` at :math:`t = 0` to
     :math:`\boldsymbol{x}_1` at :math:`t = 1`, and the standard deviation
@@ -72,9 +45,13 @@ class LinearTwoSidedPath(_LinearPathMixin, _BridgeNoiseMixin, BasePath):
         r"""Returns :math:`\alpha_t = 1 - t`."""
         return 1 - t
 
+    def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\beta_t = t`."""
+        return t
 
-class TrigTwoSidedPath(_TrigPathMixin, _BridgeNoiseMixin, BasePath):
-    r"""Two-sided path with cosine/sine interpolation and :math:`\sqrt{\cdot}` noise schedule.
+
+class TrigPath(_BridgeNoiseMixin, BasePath):
+    r"""Path with cosine/sine interpolation and :math:`\sqrt{\cdot}` noise schedule.
 
     The interpolation coefficients are
 
@@ -84,22 +61,26 @@ class TrigTwoSidedPath(_TrigPathMixin, _BridgeNoiseMixin, BasePath):
         \qquad
         \beta_t = \sin\!\left(\tfrac{\pi}{2} t\right),
         \qquad
-        \sigma_t = \sqrt{\sigma \, t \, (1 - t)}.
+        \sigma_t = \sigma \sqrt{t \, (1 - t)}.
 
     The path runs from :math:`\boldsymbol{x}_0` at :math:`t = 0` to
-    :math:`\boldsymbol{x}_1` at :math:`t = 1`, with vanishing derivatives
-    of :math:`\alpha_t` and :math:`\beta_t` at the endpoints.
+    :math:`\boldsymbol{x}_1` at :math:`t = 1`. With :math:`\sigma = 0` and :math:`\boldsymbol{x}_0` and :math:`\boldsymbol{x}_1` independent with unit
+    variance, :math:`\alpha_t^2 + \beta_t^2 = 1` keeps the variance constant along the path.
     """
 
     def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
         r"""Returns :math:`\alpha_t = \cos\!\left(\tfrac{\pi}{2} t\right)`."""
         return torch.cos(0.5 * PI * t)
 
+    def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
+        r"""Returns :math:`\beta_t = \sin\!\left(\tfrac{\pi}{2} t\right)`."""
+        return torch.sin(0.5 * PI * t)
 
-class EncDecTwoSidedPath(BasePath):
-    r"""Two-sided path with piecewise :math:`\cos^2(\pi t)` interpolation.
 
-    The path is built from two one-sided segments joined at
+class EncDecPath(BasePath):
+    r"""Path with piecewise :math:`\cos^2(\pi t)` interpolation.
+
+    The path is built from two half-paths joined at
     :math:`t = \tfrac{1}{2}`:
 
     .. math::
@@ -125,8 +106,14 @@ class EncDecTwoSidedPath(BasePath):
     which vanishes at both endpoints and peaks at :math:`t = \tfrac{1}{2}`.
     This path is the "encoder/decoder" schedule: the model first collapses
     :math:`\boldsymbol{x}_0` to the origin, then expands towards
-    :math:`\boldsymbol{x}_1`.
+    :math:`\boldsymbol{x}_1`. At :math:`t = \tfrac{1}{2}` both :math:`\alpha_t` and :math:`\beta_t` vanish,
+    so the path needs ``sigma > 0``.
     """
+
+    def __init__(self, sigma: float, sampler_cfg: NoiseSamplerConfig | None = None) -> None:
+        if sigma == 0:
+            raise ValueError("EncDecPath needs sigma > 0: with sigma == 0 every x_t is 0 at t = 0.5.")
+        super().__init__(sigma, sampler_cfg=sampler_cfg)
 
     def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
         r"""Returns :math:`\alpha_t = \cos^2(\pi t)` for :math:`t \le \tfrac{1}{2}`, and :math:`0` otherwise."""
@@ -147,66 +134,3 @@ class EncDecTwoSidedPath(BasePath):
     def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
         r"""Returns :math:`\sigma_t = \sigma \sin^2(\pi t)`."""
         return self.sigma * torch.sin(PI * t) ** 2
-
-
-class LinearOneSidedPath(_LinearPathMixin, OneSidedPath):
-    r"""One-sided path with linear interpolation and linearly decaying noise.
-
-    .. math::
-
-        \alpha_t = 0,
-        \qquad
-        \beta_t = t,
-        \qquad
-        \sigma_t = 1 - t.
-
-    Since :math:`\alpha_t \equiv 0`, the initial sample
-    :math:`\boldsymbol{x}_0` is unused; the path draws
-    :math:`\boldsymbol{x}_t` from :math:`t \boldsymbol{x}_1` plus noise that
-    decays linearly to zero at :math:`t = 1`.
-    """
-
-    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = 1 - t`."""
-        return 1 - t
-
-
-class TrigOneSidedPath(_TrigPathMixin, OneSidedPath):
-    r"""One-sided path with sinusoidal interpolation and cosine-decaying noise.
-
-    .. math::
-
-        \alpha_t = 0,
-        \qquad
-        \beta_t = \sin\!\left(\tfrac{\pi}{2} t\right),
-        \qquad
-        \sigma_t = \cos\!\left(\tfrac{\pi}{2} t\right).
-
-    The coefficients satisfy :math:`\beta_t^2 + \sigma_t^2 = 1`, so the
-    path preserves the variance of unit Gaussian noise.
-    """
-
-    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \cos\!\left(\tfrac{\pi}{2} t\right)`."""
-        return torch.cos(0.5 * PI * t)
-
-
-class VPOneSidedPath(_LinearPathMixin, OneSidedPath):
-    r"""One-sided variance-preserving path.
-
-    .. math::
-
-        \alpha_t = 0,
-        \qquad
-        \beta_t = t,
-        \qquad
-        \sigma_t = \sqrt{1 - t^2}.
-
-    The coefficients satisfy :math:`\beta_t^2 + \sigma_t^2 = 1`, so the
-    path preserves the variance of unit Gaussian noise; the standard
-    deviation vanishes at :math:`t = 1`.
-    """
-
-    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \sqrt{1 - t^2}`."""
-        return torch.sqrt(1 - t**2)

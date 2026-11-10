@@ -1,4 +1,5 @@
 import abc
+import math
 from collections.abc import Callable
 
 import torch
@@ -6,7 +7,7 @@ import torch
 from sckitflow._samplers import NoiseSamplerConfig
 from sckitflow.core._utils import broadcast_to_target_shape
 
-__all__ = ["BasePath", "OneSidedPath"]
+__all__ = ["BasePath"]
 
 
 class BasePath(abc.ABC):
@@ -28,7 +29,8 @@ class BasePath(abc.ABC):
 
         \boldsymbol{x}_t = \boldsymbol{\mu}_t
                          + \sigma_t \, \boldsymbol{\epsilon},
-        \qquad \boldsymbol{\epsilon} \sim \mathcal{N}(0, I).
+
+    where :math:`\boldsymbol{\epsilon}` is drawn from the path's noise sampler.
 
     Subclasses supply :math:`\alpha_t`, :math:`\beta_t` and
     :math:`\sigma_t` by implementing :meth:`compute_alpha_t`,
@@ -45,25 +47,21 @@ class BasePath(abc.ABC):
 
         :param sigma: Non-negative scalar noise strength. It scales the
             time-dependent standard deviation :math:`\sigma_t` of the
-            conditional probability path; a value of :math:`0` yields a
+            conditional probability path linearly; a value of :math:`0` yields a
             deterministic path.
 
         :param sampler_cfg: Configuration used to build the noise sampler.
             Required when ``sigma > 0`` and ignored otherwise.
 
-        :raises ValueError: If ``sigma`` is negative, or if ``sigma > 0``
+        :raises ValueError: If ``sigma`` is negative or not finite, or if ``sigma > 0``
             is given without a ``sampler_cfg``.
         """
-        # sanity check for positive values
-        if not sigma >= 0:
-            msg = f"Argument sigma should be a positive float for non deterministic probability paths. Found {sigma=}"
-            raise ValueError(msg)
+        if not (math.isfinite(sigma) and sigma >= 0):
+            raise ValueError(f"sigma must be a finite non-negative float, found {sigma=}.")
         if sigma > 0 and sampler_cfg is None:
             raise ValueError("Positive sigma requires a sampler to be passed")
-
-        # setting the attributes
         self._sigma = sigma
-        self._sampler = None if sampler_cfg is None else sampler_cfg.build()
+        self._sampler = sampler_cfg.build() if sigma > 0 else None
 
     @abc.abstractmethod
     def compute_alpha_t(
@@ -144,14 +142,12 @@ class BasePath(abc.ABC):
 
         :returns: The sample :math:`\boldsymbol{x}_t`.
         """
-
-        def bc(value: torch.Tensor) -> torch.Tensor:
-            return broadcast_to_target_shape(value, x0.shape)
-
-        mu_t = bc(self.compute_alpha_t(t)) * x0 + bc(self.compute_beta_t(t)) * x1
+        alpha_t = broadcast_to_target_shape(self.compute_alpha_t(t), x0.shape)
+        beta_t = broadcast_to_target_shape(self.compute_beta_t(t), x0.shape)
+        mu_t = alpha_t * x0 + beta_t * x1
         if self._sigma > 0:
             noise = self._sampler(x1.shape, generator=generator, device=x0.device, dtype=x0.dtype)
-            return mu_t + bc(self.compute_sigma_t(t)) * noise
+            return mu_t + broadcast_to_target_shape(self.compute_sigma_t(t), x0.shape) * noise
         return mu_t
 
     def compute_ut(
@@ -195,13 +191,8 @@ class BasePath(abc.ABC):
 
         :returns: The velocity :math:`\boldsymbol{u}_t`.
         """
-
-        def bc(pair: tuple[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-            value, dot_value = pair
-            return broadcast_to_target_shape(value, x0.shape), broadcast_to_target_shape(dot_value, x0.shape)
-
-        alpha_t, dot_alpha_t = bc(self.compute_alpha_t_and_dot_alpha_t(t))
-        beta_t, dot_beta_t = bc(self.compute_beta_t_and_dot_beta_t(t))
+        alpha_t, dot_alpha_t = (broadcast_to_target_shape(v, x0.shape) for v in self.compute_alpha_t_and_dot_alpha_t(t))
+        beta_t, dot_beta_t = (broadcast_to_target_shape(v, x0.shape) for v in self.compute_beta_t_and_dot_beta_t(t))
 
         # Compute mean and differential.
         mu_t = alpha_t * x0 + beta_t * x1
@@ -211,7 +202,7 @@ class BasePath(abc.ABC):
         if self._sigma <= 0:
             return dot_mu_t
 
-        sigma_t, dot_sigma_t = bc(self.compute_sigma_t_and_dot_sigma_t(t))
+        sigma_t, dot_sigma_t = (broadcast_to_target_shape(v, x0.shape) for v in self.compute_sigma_t_and_dot_sigma_t(t))
 
         # Guard for zero division
         eps = torch.finfo(sigma_t.dtype).eps
@@ -227,31 +218,3 @@ class BasePath(abc.ABC):
     def sigma(self) -> float:
         r"""The scalar noise strength :math:`\sigma` of the path."""
         return self._sigma
-
-
-class OneSidedPath(BasePath):
-    r"""Base class for one-sided probability paths.
-
-    One-sided paths interpolate only towards :math:`\boldsymbol{x}_1`; the
-    coefficient :math:`\alpha_t` is identically zero, so the initial sample
-    :math:`\boldsymbol{x}_0` is never used. Subclasses only need to supply
-    :math:`\beta_t` and :math:`\sigma_t`.
-    """
-
-    def __init__(self, sigma: float, sampler_cfg: NoiseSamplerConfig | None = None) -> None:
-        r"""Initializes the one-sided path.
-
-        :raises ValueError: If ``sigma`` is zero. With :math:`\alpha_t \equiv 0` the noise term is the only thing
-            standing in for :math:`\boldsymbol{x}_0`, so a deterministic one-sided path would collapse
-            :math:`\boldsymbol{x}_t` to :math:`\beta_t \boldsymbol{x}_1` and flow from the origin.
-        """
-        if sigma == 0:
-            raise ValueError(
-                f"A one-sided path interpolates noise into the data, so it needs sigma > 0; found {sigma=}. "
-                "Use a two-sided path for a deterministic interpolation between two samples."
-            )
-        super().__init__(sigma, sampler_cfg)
-
-    def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\alpha_t \equiv 0` for every :math:`t`."""
-        return torch.zeros_like(t)

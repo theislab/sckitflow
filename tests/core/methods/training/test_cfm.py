@@ -13,7 +13,7 @@ from sckitflow.core._data_utils import prepare_latent_train
 from sckitflow.core.methods.training._cfm import CFMTraining, CFMTrainingConfig
 from sckitflow.core.probability_paths import (
     BasePath,
-    LinearTwoSidedPathConfig,
+    LinearPathConfig,
     PathConfig,
 )
 from sckitflow.data._dims import DataDimensions
@@ -55,14 +55,14 @@ def dummy_probability_path() -> MagicMock:
 def _to_path_config(mock: MagicMock) -> PathConfig:
     """Wrap a live path mock in a config whose ``build()`` returns it.
 
-    Subclasses a *concrete* path config (``LinearTwoSidedPathConfig``)
+    Subclasses a *concrete* path config (``LinearPathConfig``)
     rather than the family base ``PathConfig``: the base runs a model
     validator that rejects non-member subclasses ("family base; give a spec with
     a 'type', or a member").  Subclassing the concrete member passes that check
     while still letting us override ``build()``.
     """
 
-    class _MockPathConfig(LinearTwoSidedPathConfig):
+    class _MockPathConfig(LinearPathConfig):
         def build(self):
             return mock
 
@@ -129,7 +129,7 @@ def make_cfm(dummy_module, dims):
     def _make(module=None, probability_path=None, time_sampler=None, noise_sampler=None, **overrides):
         # Path: live mock or config or missing -> config
         if probability_path is None:
-            probability_path = LinearTwoSidedPathConfig(sigma=1.0, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
+            probability_path = LinearPathConfig(sigma=1.0, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
         elif not isinstance(probability_path, PathConfig):
             probability_path = _to_path_config(probability_path)
 
@@ -270,6 +270,40 @@ def test_loss_matches_mse_between_predicted_and_target_velocity(step_data, dims)
     assert loss.item() == pytest.approx(1.0)
 
 
+def test_default_path_from_noise_targets_x1_minus_noise(step_data, dims):
+    """With no path, generating from noise interpolates linearly from the noise sampler's draw to the target."""
+    noise = torch.arange(8, dtype=torch.float32).reshape(2, 4)
+    target = step_data["target_state"]
+    expected_ut = target - noise
+
+    class RecordingModule(DummyModule):
+        def forward(self, t, x, condition_dict=None, source=None):
+            super().forward(t, x, condition_dict, source)
+            return expected_ut
+
+    calls = []
+
+    def fixed_noise(shape, *, generator, device=None, dtype=None):
+        calls.append(shape)
+        return noise.to(device=device, dtype=dtype)
+
+    module = RecordingModule()
+    cfm = CFMTraining(
+        module,
+        CFMTrainingConfig(
+            generate_from_noise=True,
+            time_sampler=_to_sampler_config(dummy_time_sampler, concrete_cls=UniformTimeSamplerConfig),
+            noise_sampler=_to_sampler_config(fixed_noise, concrete_cls=IsotropicGaussianNoiseSamplerConfig),
+        ),
+        dims=dims,
+    )
+    loss, _ = cfm.compute_loss(step_data, generator=gen())
+
+    assert calls == [(2, 4)]
+    torch.testing.assert_close(module.last_call["x"], 0.5 * noise + 0.5 * target)
+    assert loss.item() == pytest.approx(0.0)  # ut == x1 - latent
+
+
 # -------------------- prepare_latent_train wiring --------------------
 def test_prepare_latent_train_called_with_dims_placement_and_flags(make_cfm, step_data, dims, dummy_module):
     cfm = make_cfm(generate_from_noise=True)
@@ -308,7 +342,7 @@ def test_compute_loss_depends_only_on_generator(step_data, dims, generate_from_n
     cfm = CFMTraining(
         LinearModule(),
         CFMTrainingConfig(
-            probability_path=LinearTwoSidedPathConfig(sigma=0.1, sampler_cfg=IsotropicGaussianNoiseSamplerConfig()),
+            probability_path=LinearPathConfig(sigma=0.1, sampler_cfg=IsotropicGaussianNoiseSamplerConfig()),
             generate_from_noise=generate_from_noise,
         ),
         dims=dims,

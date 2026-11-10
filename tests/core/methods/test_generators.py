@@ -6,7 +6,7 @@ import torch
 from sckitflow._random import generators
 from sckitflow._samplers import IsotropicGaussianNoiseSamplerConfig
 from sckitflow.core.methods.training._cfm import CFMTraining, CFMTrainingConfig
-from sckitflow.core.probability_paths._config import LinearTwoSidedPathConfig
+from sckitflow.core.probability_paths._config import LinearPathConfig
 from sckitflow.data._dims import DataDimensions
 
 
@@ -55,7 +55,7 @@ def test_loss_depends_only_on_the_passed_generator(dims):
     method = CFMTraining(
         _Field(),
         CFMTrainingConfig(
-            probability_path=LinearTwoSidedPathConfig(sigma=0.1, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
+            probability_path=LinearPathConfig(sigma=0.1, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
         ),
         dims=dims,
     )

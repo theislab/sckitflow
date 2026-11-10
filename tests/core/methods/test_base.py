@@ -152,15 +152,6 @@ def test_flow_method_default_path_is_noiseless_linear(module, dims, generate_fro
     assert type(method.probability_path) is LinearPath and method.probability_path.sigma == 0.0
 
 
-def test_flow_method_builds_path_config(module, dims):
-    config = CFMTrainingConfig(
-        probability_path=LinearPathConfig(sigma=0.5, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
-    )
-    method = AbstractFlowMethod(module, config, dims=dims)
-    assert isinstance(method.probability_path, LinearPath)
-    assert method.probability_path.sigma == 0.5
-
-
 def test_flow_method_custom_values(module, dims):
     """Non-default configs are built; the method stores their live objects."""
     path_cfg = LinearPathConfig(sigma=0.5, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())

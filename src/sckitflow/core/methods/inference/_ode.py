@@ -32,7 +32,7 @@ class ODEInference(AbstractFlowMethod):
 
         inference = ODEInference(
             module,
-            ODEInferenceConfig(probability_path=..., n_steps=50),
+            ODEInferenceConfig(n_steps=50),
             dims=dm.get_data_dimensionalities(adata),
         )
     """

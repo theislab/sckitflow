@@ -20,7 +20,6 @@ def _path(cls, sigma: float = 1.0) -> BasePath:
 
 
 # alpha_t, beta_t and sigma_t at t = 0, 1/4, 1/2, 3/4, 1, for sigma = 2.
-# Trig at 1/4 and 3/4 is covered by test_trig_preserves_unit_norm.
 _COEFFS = {
     LinearPath: (
         [1.0, 0.75, 0.5, 0.25, 0.0],
@@ -28,8 +27,8 @@ _COEFFS = {
         [0.0, math.sqrt(3) / 2, 1.0, math.sqrt(3) / 2, 0.0],
     ),
     TrigPath: (
-        [1.0, None, _R, None, 0.0],
-        [0.0, None, _R, None, 1.0],
+        [1.0, math.cos(math.pi / 8), _R, math.sin(math.pi / 8), 0.0],
+        [0.0, math.sin(math.pi / 8), _R, math.cos(math.pi / 8), 1.0],
         [0.0, math.sqrt(3) / 2, 1.0, math.sqrt(3) / 2, 0.0],
     ),
     EncDecPath: (
@@ -45,8 +44,7 @@ def test_coefficients(cls) -> None:
     p = _path(cls, 2.0)
     t = torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0], dtype=torch.float64)
     for fn, expected in zip((p.compute_alpha_t, p.compute_beta_t, p.compute_sigma_t), _COEFFS[cls], strict=True):
-        known = [i for i, v in enumerate(expected) if v is not None]
-        torch.testing.assert_close(fn(t)[known], torch.tensor([expected[i] for i in known], dtype=torch.float64))
+        torch.testing.assert_close(fn(t), torch.tensor(expected, dtype=torch.float64))
 
 
 def test_trig_preserves_unit_norm() -> None:

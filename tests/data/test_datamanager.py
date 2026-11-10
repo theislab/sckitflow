@@ -522,3 +522,46 @@ class TestSeveralAnnData:
             match=r"AnnData 1 and AnnData 0 differ in their state \(`target_sample_rep`\): the same width but different feature names",
         ):
             _make_manager().get_data_dimensionalities(parts)
+
+
+class TestGetRequiredFields:
+    """get_required_fields: exactly the parts of an AnnData the loaders read."""
+
+    def _reduced(self, adata: AnnData, refs: list, uns: list[str]) -> AnnData:
+        """``adata`` with only the referenced reps, obs columns and uns tables."""
+        from anndata.acc import AdRef, LayerAcc, MultiAcc
+
+        cols = [r.idx for r in refs if isinstance(r, AdRef)]
+        keep_x = any(isinstance(r, LayerAcc) and r.k is None for r in refs)
+        out = AnnData(X=adata.X if keep_x else None, obs=adata.obs[cols], var=adata.var if keep_x else None)
+        for ref in refs:
+            if isinstance(ref, MultiAcc):
+                out.obsm[ref.k] = adata.obsm[ref.k]
+            elif isinstance(ref, LayerAcc) and ref.k is not None:
+                out.layers[ref.k] = adata.layers[ref.k]
+        out.uns = {k: adata.uns[k] for k in uns}
+        return out
+
+    def test_names_what_the_schema_reads(self):
+        from anndata.acc import A
+
+        dm = _make_manager_with_continuous(control_values_dict={"drug": "control"}, split_by="split")
+        refs, uns = dm.get_required_fields()
+        assert refs == [A.X, A.obsm["X_repr"], A.obs["cell_line"], A.obs["drug"], A.obs["split"]]
+        assert uns == ["cell_line", "drug"]
+
+    def test_the_named_parts_are_enough_to_train(self, adata_small: AnnData):
+        ad = _with_split(adata_small)
+        ad.obsm["X_repr"] = np.ones((ad.n_obs, 2), dtype=np.float32)
+        ad.obsm["unused"], ad.obs["unused"] = np.zeros((ad.n_obs, 3)), "x"
+        dm = _make_manager_with_continuous(control_values_dict={"drug": "control"}, split_by="split")
+        reduced = self._reduced(ad, *dm.get_required_fields())
+        assert "unused" not in reduced.obsm and "unused" not in reduced.obs
+        loaders = dm.get_dataloaders(reduced, batch_size=8)
+        assert set(loaders) == {"train", "val"}
+        assert next(iter(loaders["train"]))["target_state"] is not None
+
+    def test_a_noise_schema_reads_only_x(self):
+        from anndata.acc import A
+
+        assert DataManager().get_required_fields() == ([A.X], [])

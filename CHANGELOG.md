@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+- `DataManager.get_required_fields()`: the `anndata.acc` references (state, coupling and continuous reps, grouping and split columns) and `uns` tables the schema reads, so a caller can open only those parts of a file
 - `AdaLNZeroConditioning` (`nn.conditioning.adaln_zero`): adaLN-Zero as in DiT, the state layer-normed without a learned affine and modulated by `(1 + gamma)`, `beta` projected from the SiLU of time and condition, the projection starting at zero as in FiLM
 - `predict_adata` names the source cell behind each prediction in `obs["source_obs_name"]` when the batch has a source (one name per row, aligned as the source state is, repeated per sample under `aggregate="samples"`); `EvalLoader.source_obs_names` holds them per group
 - `predict_adata(batch_size=...)` caps the observations per `predict` call, splitting a larger group into batches whose predictions are concatenated back (replaces `chunk_size`; `progress_total` is removed, the bar counts groups again without reading the data twice). A split batch keeps its group's encoding and has its own `n_obs`, so predicting from noise without a source no longer fails. Requires scfit 0.0.12

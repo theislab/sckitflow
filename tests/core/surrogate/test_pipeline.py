@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import pytest
 import torch
+from tests.core.surrogate.shared import Field
 
 from sckitflow.core._types import PredictionData
-from sckitflow.core.surrogate import MeanSamplesReadoutConfig, SquaredErrorPotentialConfig, SurrogatePotential
+from sckitflow.core.surrogate import SquaredErrorPotentialConfig, SurrogatePotential, SurrogateResponse
 from sckitflow.data import DataManagerConfig, FlowDataModule
 from sckitflow.data._group_encoders import LabelEncoderConfig
 
@@ -63,7 +64,7 @@ class FakeInferer:
             raise RuntimeError("FakeInferer: no per-sample covariate")
 
         # The aligned layout is (B, N, D); its condition axis lives at
-        # position -2 and survives the readout's collapse. Prefer a 3D
+        # position -2 and survives the Monte Carlo mean. Prefer a 3D
         # tensor so the fake never accidentally uses the batch dim as N.
         three_d = [v for v in candidates if v.ndim == 3]
         if three_d:
@@ -92,17 +93,10 @@ class FakeInferer:
 # ---------------------------------------------------------------------------
 
 
-def mean_mse_surrogate(inferer, ystar, datamodule, adata, **kwargs):
+def mean_mse_surrogate(inferer, ystar, datamodule, adata, *, mask=None, **kwargs):
     """Averages the samples over every axis before the conditions', then a summed squared error."""
-    return SurrogatePotential(
-        inferer=inferer,
-        ystar=ystar,
-        datamodule=datamodule,
-        adata=adata,
-        readout=MeanSamplesReadoutConfig().build(),
-        potential=SquaredErrorPotentialConfig().build(),
-        **kwargs,
-    )
+    response = SurrogateResponse(inferer=inferer, datamodule=datamodule, adata=adata, **kwargs)
+    return SurrogatePotential(response, ystar=ystar, potential=SquaredErrorPotentialConfig().build(), mask=mask)
 
 
 # ---------------------------------------------------------------------------
@@ -506,7 +500,7 @@ class TestDeterminism:
     def test_context_read_once(self, adata, cond_dict_single, ystar):
         potential, _ = build_potential(adata, cond_dict_single, ystar, continuous_conditions=(CONT_COV_1,))
         cpu = torch.device("cpu")
-        assert potential.context_leaves(cpu) is potential.context_leaves(cpu)
+        assert potential.response.context_leaves(cpu) is potential.response.context_leaves(cpu)
 
 
 # ---------------------------------------------------------------------------
@@ -645,3 +639,26 @@ class TestRealInference:
         out.sum().backward()
         assert out.shape == (3,)
         assert torch.isfinite(cond[CONT_COV_1].grad).all()
+
+
+# ---------------------------------------------------------------------------
+# Guidance through the potential
+# ---------------------------------------------------------------------------
+
+
+def test_loss_guidance_steers_through_the_potential(adata, ystar):
+    """A guided step through a real context pipeline points downhill on the potential."""
+    from sckitflow.core.probability_paths import LinearPath
+    from sckitflow.core.surrogate import LossGuidedVelocity, PathFlowMap
+
+    potential, _ = build_potential(adata, {}, ystar + 1.0, continuous_conditions=(CONT_COV_1,))
+    psi = lambda x: potential({CONT_COV_1: x})
+    path = LinearPath(sigma=0.0)
+    velocity = Field(lambda t, x: -x)
+    guided = LossGuidedVelocity(velocity, path, psi, flow_map=PathFlowMap(velocity, path)).get_vf_fn()
+    t, x = torch.tensor(0.5), torch.zeros(4, 1)
+    step = guided(t, x) - velocity.get_vf_fn()(t, x)
+    assert torch.isfinite(step).all() and step.abs().sum() > 0
+    # the directional derivative of each row's potential along its own step is negative
+    _, slope = torch.func.jvp(psi, (x,), (step,))
+    assert (slope < 0).all()

@@ -4,7 +4,8 @@ Test suite for ``SurrogatePotential``.
 
 Uses minimal fakes for ``SupportsInference``, ``EvalLoader`` and ``FlowDataModule``
 so nothing here touches AnnData or Lightning. The fake inferer returns the response
-itself, so the readout is the identity and the potential a mean squared error.
+itself as the generated cells, so the default readout's mean over them is the response and the potential
+a mean squared error.
 """
 
 from types import SimpleNamespace
@@ -13,8 +14,10 @@ import pytest
 import torch
 
 from sckitflow._random import generators
+from sckitflow.core._types import PredictionData
 from sckitflow.core.surrogate._potential import (
     SurrogatePotential,
+    SurrogateResponse,
     _pair_leaf,
     _verify_continuous_conditions_dims,
 )
@@ -27,13 +30,13 @@ from sckitflow.core.surrogate._potential import (
 class FakeInferer:
     """Satisfies ``SupportsInference`` structurally.
 
-    ``response_fn(step_data, generator)`` returns a tensor of shape ``(N, D)``.
-    Records every call so tests can assert on the number of leaves visited.
+    ``response_fn(step_data, generator)`` returns a tensor of shape ``(N, D)``, as ``raw_samples``, or as the
+    aggregated ``X`` with ``as_x``. Records every call so tests can assert on the number of leaves visited.
     """
 
-    def __init__(self, response_fn):
+    def __init__(self, response_fn, *, as_x=False):
         self._module = torch.nn.Linear(1, 1)
-        self._response_fn = response_fn
+        self._response_fn, self._as_x = response_fn, as_x
         self.calls = []
 
     @property
@@ -42,7 +45,8 @@ class FakeInferer:
 
     def predict(self, step_data, *, generator):
         self.calls.append((step_data, generator))
-        return self._response_fn(step_data, generator)
+        out = self._response_fn(step_data, generator)
+        return PredictionData(X=out, raw_samples=None) if self._as_x else PredictionData(X=None, raw_samples=out)
 
 
 class FakeEvalLoader:
@@ -85,18 +89,13 @@ class FakeDataModule:
 # ---------------------------------------------------------------------------
 
 
-def _identity(pred_data):
-    return pred_data
-
-
 def _mse(y, ystar):
     return ((y - ystar) ** 2).mean(dim=-1)
 
 
-def surrogate(inferer, ystar, datamodule, *, readout=_identity, potential=_mse, **kwargs):
-    return SurrogatePotential(
-        inferer=inferer, ystar=ystar, datamodule=datamodule, adata=None, readout=readout, potential=potential, **kwargs
-    )
+def surrogate(inferer, ystar, datamodule, *, potential=_mse, mask=None, **kwargs):
+    response = SurrogateResponse(inferer=inferer, datamodule=datamodule, adata=None, **kwargs)
+    return SurrogatePotential(response, ystar=ystar, potential=potential, mask=mask)
 
 
 class Recorder:
@@ -129,9 +128,9 @@ def make_cond_dict(cond_keys=("cond_a",), n=4, dim=3, requires_grad=True, device
     return {k: torch.randn(n, dim, requires_grad=requires_grad, device=device) for k in cond_keys}
 
 
-def make_potential(cond_keys=("cond_a",), n=4, dim=3, n_leaves=3, ystar_dim=3, mask=None, seed=0, device="cpu"):
+def make_potential(cond_keys=("cond_a",), n=4, dim=3, n_leaves=3, ystar_dim=3, mask=None, seed=0):
     dims = make_dims(cond_keys, dim)
-    step_data = make_step_data(cond_keys, n=n, dims=dict.fromkeys(cond_keys, dim), device=device)
+    step_data = make_step_data(cond_keys, n=n, dims=dict.fromkeys(cond_keys, dim))
     batches = [(step_data, f"leaf_{i}") for i in range(n_leaves)]
 
     # Fixed projection so the response is a deterministic function of the
@@ -141,22 +140,19 @@ def make_potential(cond_keys=("cond_a",), n=4, dim=3, n_leaves=3, ystar_dim=3, m
         dim * len(cond_keys),
         ystar_dim,
         generator=torch.Generator().manual_seed(1234),
-        device=device,
     )
 
     def response_fn(step_data, generator):
         cond_cov = step_data["target_condition_data"]
         flat = torch.cat([cond_cov[k] for k in cond_keys], dim=-1)
-        noise = torch.randn(n, ystar_dim, generator=generator, device=device)
+        noise = torch.randn(n, ystar_dim, generator=generator)
         return flat @ projection + 0.1 * noise
 
     inferer = FakeInferer(response_fn)
     datamodule = FakeDataModule(dims, FakeEvalLoader(batches))
-    ystar = torch.zeros(ystar_dim, device=device)
+    ystar = torch.zeros(ystar_dim)
 
     potential = surrogate(inferer, ystar, datamodule, mask=mask, seed=seed)
-    if device != "cpu":
-        potential = potential.to(device)
     return potential, inferer, datamodule
 
 
@@ -212,15 +208,9 @@ class TestVerifyDims:
 
 
 class TestInit:
-    def test_registers_buffers_and_attributes(self):
-        potential, inferer, dmod = make_potential(seed=42)
-        assert potential.ystar is potential._ystar
-        assert potential.mask is potential._mask
-        assert potential.seed == 42
-        assert potential.inferer is inferer
-        assert potential.datamodule is dmod
-        assert "_ystar" in dict(potential.named_buffers())
-        assert "_mask" in dict(potential.named_buffers())
+    def test_registers_buffers_and_no_parameters(self):
+        potential, _, _ = make_potential()
+        assert {"ystar", "mask"} <= set(dict(potential.named_buffers()))
         assert list(potential.parameters()) == []
 
     def test_rejects_non_1d_ystar(self):
@@ -252,13 +242,6 @@ class TestInit:
         with pytest.raises(ValueError, match="same shape"):
             make_potential(ystar_dim=5, mask=torch.ones(3, dtype=torch.bool))
 
-    def test_mask_moves_with_module(self):
-        if not torch.cuda.is_available():
-            pytest.skip("CUDA not available")
-        potential, _, _ = make_potential(device="cuda")
-        assert potential.mask.is_cuda
-        assert potential.ystar.is_cuda
-
 
 # ---------------------------------------------------------------------------
 # forward -- happy paths
@@ -273,9 +256,11 @@ class TestForward:
         assert out.requires_grad
 
     def test_aggregates_over_leaves_as_mean(self):
-        potential, _, _ = make_potential(n=4, n_leaves=1)
-        out = potential(make_cond_dict(n=4))
-        assert out.shape == (4,)
+        potential, _, _ = make_potential(n=4, n_leaves=2)
+        cond = make_cond_dict(n=4, requires_grad=False)
+        per_leaf = potential.potential(potential.response(cond), potential.ystar)
+        assert per_leaf.shape == (2, 4) and not torch.allclose(per_leaf[0], per_leaf[1])
+        torch.testing.assert_close(potential(cond), per_leaf.mean(0))
 
     def test_gradient_flows_to_conditions(self):
         potential, _, _ = make_potential(n=3)
@@ -384,10 +369,10 @@ class TestMasking:
         rec = Recorder()
         surrogate(inferer, ystar, dmod, potential=rec, mask=mask)(make_cond_dict(n=4))
 
-        assert rec.y.shape == (4, 2)
+        assert rec.y.shape == (1, 1, 4, 2)  # (populations, groups, conditions, masked dims)
         assert rec.ystar.shape == (2,)
         assert torch.allclose(rec.ystar, torch.tensor([1.0, 3.0]))
-        assert torch.allclose(rec.y, torch.ones(4, 2))
+        assert torch.allclose(rec.y, torch.ones(1, 1, 4, 2))
 
     def test_all_true_mask_matches_no_mask_at_hook(self):
         dims = make_dims(("cond_a",), 3)
@@ -503,13 +488,6 @@ class TestForwardErrors:
         with pytest.raises(ValueError, match="two-dimensional"):
             potential({"cond_a": torch.zeros(4)})
 
-    def test_conditions_move_to_the_module_device(self):
-        if not torch.cuda.is_available():
-            pytest.skip("CUDA not available")
-        potential, _, _ = make_potential(cond_keys=("cond_a", "cond_b"))
-        cond = {"cond_a": torch.zeros(4, 3), "cond_b": torch.zeros(4, 3, device="cuda")}
-        assert potential(cond).device.type == "cpu"
-
     def test_potential_of_the_wrong_shape_raises(self):
         dims = make_dims(("cond_a",), 3)
         step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
@@ -520,13 +498,47 @@ class TestForwardErrors:
         with pytest.raises(ValueError, match="wrong shape"):
             p(make_cond_dict(n=4))
 
+    def test_readout_maps_each_cell_before_the_mean(self):
+        """The response is the mean of the mapped cells, not the map of the mean cell."""
+        dims = make_dims(("cond_a",), 3)
+        step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
+        cells = torch.arange(2 * 4 * 3, dtype=torch.float32).reshape(2, 4, 3)
+        inferer = FakeInferer(lambda sd, g: cells)
+        dmod = FakeDataModule(dims, FakeEvalLoader([(step, "leaf_0")]))
+        rec = Recorder()
+        surrogate(inferer, torch.zeros(3), dmod, readout=torch.square, potential=rec)(make_cond_dict(n=4))
+        torch.testing.assert_close(rec.y[0, 0], cells.square().mean(0))
+
+    def test_predictions_without_raw_samples_use_x(self):
+        """A method that only returns the aggregated ``X`` is read the same way."""
+        dims = make_dims(("cond_a",), 3)
+        step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
+        cells = torch.arange(4 * 3, dtype=torch.float32).reshape(4, 3)
+        inferer = FakeInferer(lambda sd, g: cells, as_x=True)
+        dmod = FakeDataModule(dims, FakeEvalLoader([(step, "leaf_0")]))
+        rec = Recorder()
+        surrogate(inferer, torch.zeros(3), dmod, potential=rec)(make_cond_dict(n=4))
+        torch.testing.assert_close(rec.y[0, 0], cells)
+
+    def test_a_readout_that_collapses_the_conditions_raises(self):
+        """A readout reducing over the conditions would give every condition one shared potential."""
+        dims = make_dims(("cond_a",), 3)
+        step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
+        inferer = FakeInferer(lambda sd, g: torch.zeros(4, 3))
+        dmod = FakeDataModule(dims, FakeEvalLoader([(step, "leaf_0")]))
+        readout = lambda cells: cells.softmax(-1).mean(-2, keepdim=True)
+        p = surrogate(inferer, torch.zeros(3), dmod, readout=readout)
+
+        with pytest.raises(ValueError, match="one row per condition"):
+            p(make_cond_dict(n=4))
+
     def test_a_readout_with_the_wrong_last_dim_raises(self):
         """The readout's last dim must match ``ystar``; caught with a ValueError, not an IndexError."""
         dims = make_dims(("cond_a",), 3)
         step = make_step_data(("cond_a",), n=4, dims={"cond_a": 3})
-        inferer = FakeInferer(lambda sd, g: None)
+        inferer = FakeInferer(lambda sd, g: torch.zeros(4, 3))
         dmod = FakeDataModule(dims, FakeEvalLoader([(step, "leaf_0")]))
-        p = surrogate(inferer, torch.zeros(3), dmod, readout=lambda pred: torch.zeros(4, 10))
+        p = surrogate(inferer, torch.zeros(3), dmod, readout=lambda cells: torch.zeros(*cells.shape[:-1], 10))
 
         with pytest.raises(ValueError, match="last dim"):
             p(make_cond_dict(n=4))
@@ -543,7 +555,7 @@ class TestPairLeaf:
             "source_state": torch.tensor([[0.0], [1.0]]),
             "target_condition_data": {"other": torch.tensor([[10.0], [11.0]]), "opt": torch.zeros(2, 1)},
         }
-        paired, _ = _pair_leaf(step, {"opt": torch.zeros(1, 1)})
+        paired = _pair_leaf(step, {"opt": torch.zeros(1, 1)})
         pairs = list(
             zip(
                 paired["source_state"][:, 0, 0].tolist(),
@@ -555,20 +567,20 @@ class TestPairLeaf:
 
     def test_all_covariates_optimized_pairs_each_source_row(self):
         step = {"source_state": torch.randn(2, 4), "target_group_data": {"g": torch.ones(1, 2)}}
-        paired, conds = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
+        paired = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
         assert paired["source_state"].shape == (2, 3, 4)
         assert paired["target_group_data"]["g"].shape == (1, 2)  # one row for the leaf, broadcast by the model
-        assert conds["opt"].shape == (2, 3, 1)
+        assert paired["target_condition_data"]["opt"].shape == (2, 3, 1)
 
     def test_groups_only_generation_from_noise_has_one_row_per_condition(self):
         step = {"target_group_data": {"g": torch.ones(1, 2)}}
-        paired, conds = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
+        paired = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
         assert paired["target_group_data"]["g"].shape == (1, 2)
-        assert conds["opt"].shape == (3, 1) and paired["n_obs"] == 3
+        assert paired["target_condition_data"]["opt"].shape == (3, 1) and paired["n_obs"] == 3
 
     def test_other_keys_pass_through(self):
         step = {"source_state": torch.randn(2, 4), "target_condition_data": {}, "extra": "kept"}
-        paired, _ = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
+        paired = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
         assert paired["extra"] == "kept"
 
     def test_condition_covariates_disagreeing_on_rows_raise(self):
@@ -578,11 +590,15 @@ class TestPairLeaf:
 
     def test_target_states_are_not_passed_to_prediction(self):
         step = {"source_state": torch.randn(2, 4), "target_state": torch.randn(7, 4), "target_condition_data": {}}
-        paired, _ = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
+        paired = _pair_leaf(step, {"opt": torch.zeros(3, 1)})
         assert paired["target_state"] is None
 
 
 class TestPopulations:
+    def test_response_has_one_row_per_group_and_condition(self):
+        potential, _, _ = make_potential(n=4, n_leaves=3, ystar_dim=5)
+        assert potential.response(make_cond_dict(n=4)).shape == (3, 4, 5)
+
     def test_shape_and_first_population_matches_forward(self):
         potential, _, _ = make_potential(n=3)
         cond = make_cond_dict(n=3)
@@ -594,7 +610,7 @@ class TestPopulations:
         potential, inferer, _ = make_potential(n_leaves=2)
         potential(make_cond_dict())
         seeds = [generator.initial_seed() for _, generator in inferer.calls]
-        assert seeds == [generators(potential.seed, i).initial_seed() for i in range(2)]
+        assert seeds == [generators(potential.response.seed, i).initial_seed() for i in range(2)]
 
     def test_populations_differ(self):
         potential, _, _ = make_potential(n=3)

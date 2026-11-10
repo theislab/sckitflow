@@ -11,13 +11,13 @@ from sckitflow.data._datamodule import FlowDataModule
 from sckitflow.data._dims import DataDimensions
 from sckitflow.data._utils import AnnDataLike
 
-__all__ = ["SurrogatePotential"]
+__all__ = ["SurrogatePotential", "SurrogateResponse"]
 
 
 def _pair_leaf(
     step_data: StepData,
     cond_dict: dict[str, torch.Tensor],
-) -> tuple[StepData, dict[str, torch.Tensor]]:
+) -> StepData:
     r"""Lays a leaf out against the condition dictionary for one prediction.
 
     A leaf has ``S`` source rows (when a source state is present) and ``T`` target rows (when it carries
@@ -50,7 +50,7 @@ def _pair_leaf(
 
     if S is None and T is None:
         conds = dict(cond_dict)
-        return {**kept, "target_condition_data": conds, "target_group_data": groups, "n_obs": n}, conds
+        return {**kept, "target_condition_data": conds, "target_group_data": groups, "n_obs": n}
 
     s = 1 if S is None else S
     t = 1 if T is None else T
@@ -78,7 +78,7 @@ def _pair_leaf(
         "target_condition_data": {**{k: lay_out(v, tgt_idx) for k, v in extra.items()}, **conds},
         "n_obs": n,
     }
-    return paired, conds
+    return paired
 
 
 def _verify_continuous_conditions_dims(
@@ -121,99 +121,60 @@ def _verify_continuous_conditions_dims(
             raise ValueError(f"Shape mismatch for condition key {cond_key} -- got {query_dim} but expected {ref_dim}.")
 
 
-class SurrogatePotential(torch.nn.Module):
-    """A differentiable potential of continuous condition covariates, through a trained inference method.
+class SurrogateResponse(torch.nn.Module):
+    """The response a trained inference method predicts for continuous condition covariates.
 
-    For a dictionary of conditions it
-    1. predicts each group of the context data under those conditions (``inferer.predict``),
-    2. reads one response per condition from the prediction (``readout``), and
-    3. scores the (masked) responses against the target ``ystar`` (``potential``),
-    averaged over the groups. The context is read once per device, onto the inference module's device.
-    ``MeanSamplesReadoutConfig`` / ``SquaredErrorPotentialConfig`` build the common readout and potential.
+    For a dictionary of conditions it predicts each group of the context data under those conditions
+    (``inferer.predict``), maps every generated cell through ``readout`` and averages them, one response per
+    condition and group. The context is read once per device, onto the inference module's device.
+
+    :param inferer: An instantiated object satisfying the `SupportsInference` protocol.
+    :param datamodule: The `FlowDataModule` whose schema reads ``adata``.
+    :param adata: The context data, one prediction per group.
+    :param readout: A per-cell map ``(..., D) -> (..., D')``, e.g. a cell-type classifier's probabilities. It is
+        applied before the mean because a nonlinear map does not commute with it. ``None`` is the identity: the
+        mean generated cell.
+    :param max_per_group: Per-group cap on the context observations; ``None`` reads them all.
+    :param require_target_state: Whether ``adata`` carries a target state to read.
+    :param seed: Seeds the generated cells.
     """
 
     def __init__(
         self,
         *,
         inferer: SupportsInference,
-        ystar: torch.Tensor,
         datamodule: FlowDataModule,
         adata: AnnDataLike,
-        readout: Readout,
-        potential: Potential,
+        readout: Readout | None = None,
         max_per_group: int | None = None,
         require_target_state: bool = True,
-        mask: torch.Tensor | None = None,
         seed: int = 0,
     ) -> None:
-        """Initializes the surrogate potential.
-
-        :param inferer: An instantiated object satisfying the `SupportsInference` protocol.
-        :param ystar: A `torch.Tensor` holding the target response for the potential evaluation.
-        :param datamodule: The `FlowDataModule` whose schema reads ``adata``.
-        :param adata: The context data the potential is averaged over, one prediction per group.
-        :param readout: A prediction -> ``(N, D)``: one response per condition, averaged over the axes before the
-            conditions' (the leaf's pairs and the inferer's samples). Average before the potential: a nonlinear
-            potential does not commute with the mean.
-        :param potential: ``(y, ystar)``, the masked responses ``(N, D')`` and target ``(D',)`` -> ``(N,)``.
-        :param max_per_group: Per-group cap on the context observations; ``None`` reads them all.
-        :param require_target_state: Whether ``adata`` carries a target state to read.
-        :param mask: A boolean mask of shape (D,) selecting the response dimensions to evaluate the potential on.
-            Coerced to bool; index lists are not supported. Defaults to None, in which case all dimensions are selected.
-        :param seed: Integer to seed random number generation. Defaults to `0`.
-        """
-        # We squeeze the target tensor and expect it to be a flat tensor.
-        ystar = torch.atleast_1d(torch.squeeze(ystar))
-        if ystar.ndim != 1:
-            raise ValueError(f"Invalid shape for target response, found {ystar.shape}")
-        # For the mask, we do the same. Squeeze when available, otherwise
-        # initialize it as ones from the target. Then check that the shape matches the
-        # one of the target response. Its shape needs to match the one of the target.
-        if mask is not None and mask.dtype not in (torch.bool, torch.uint8):
-            raise ValueError("mask must be a per-dimension boolean mask, not an index list.")
-        mask = torch.atleast_1d(torch.squeeze(mask)) if mask is not None else torch.ones_like(ystar)
-        mask = mask.bool()
-        if mask.shape != ystar.shape:
-            raise ValueError(
-                "The mask and the target tensor should have the same shape -- "
-                f"found mask of shape {mask.shape}, but target has shape {ystar.shape}."
-            )
-
-        # Initialize parent class and register tensor buffers.
         super().__init__()
-        self.register_buffer("_ystar", ystar)
-        self.register_buffer("_mask", mask)
-
-        # Set attributes.
-        self._datamodule = datamodule
-        self._adata = adata
+        self.inferer, self.datamodule, self.adata, self.readout, self.seed = inferer, datamodule, adata, readout, seed
         self._eval_kwargs = {"max_per_group": max_per_group, "require_target_state": require_target_state}
-        self._leaves: dict[str, list] = {}  # per device: the context's leaves, read once
-        self._inferer = inferer
-        self._readout = readout
-        self._potential = potential
-        self._seed = seed
+        self._leaves: dict[str, list[StepData]] = {}  # per device: the context's leaves, read once
 
     def forward(self, cond_dict: dict[str, torch.Tensor]) -> torch.Tensor:
-        """The potential of each condition, averaged over the leaves of the context data module.
+        """The response of each condition in each context group.
 
         :param cond_dict: A dictionary of input tensors, each of shape ``(N, D)``.
-        :returns: Shape ``(N,)``.
+        :returns: Shape ``(n_groups, N, D')``.
         """
-        return self.population_potentials(cond_dict, n_populations=1)[0]
+        return self.population_responses(cond_dict, n_populations=1)[0]
 
-    def population_potentials(self, cond_dict: dict[str, torch.Tensor], n_populations: int) -> torch.Tensor:
-        """The potential of each condition for ``n_populations`` independently drawn populations.
+    def population_responses(self, cond_dict: dict[str, torch.Tensor], n_populations: int) -> torch.Tensor:
+        """The responses of ``n_populations`` independently drawn populations.
 
-        Each population draws its own generator per leaf, so the spread across populations is the
-        forward model's predictive uncertainty: ``population_potentials(c, n).std(0)``.
+        Each population draws its own generator per group, so the spread across populations is the
+        forward model's predictive uncertainty.
 
         :param cond_dict: A dictionary of input tensors, each of shape ``(N, D)``.
-        :returns: Shape ``(n_populations, N)``.
+        :returns: Shape ``(n_populations, n_groups, N, D')``.
         """
-        _verify_continuous_conditions_dims(self._datamodule.data_dims, cond_dict)
+        _verify_continuous_conditions_dims(self.datamodule.data_dims, cond_dict)
         if len(cond_dict) == 0:
-            raise ValueError("Cannot compute the potential with an empty condition dictionary.")
+            raise ValueError("Cannot compute the response of an empty condition dictionary.")
         n = next(iter(cond_dict.values())).shape[0]
         for cond_key, cond_data in cond_dict.items():
             if cond_data.shape[0] != n:
@@ -229,57 +190,102 @@ class SurrogatePotential(torch.nn.Module):
             raise ValueError("The context data module has no prediction leaves.")
         populations = []
         for population in range(n_populations):
-            potentials = []
-            for i, (step_data, leaf) in enumerate(leaves):
+            groups = []
+            for i, step_data in enumerate(leaves):
                 # population 0 keeps the single-population stream, so `forward` draws what it always drew
-                generator = generators(self._seed, i, *((population,) if population else ()), device=device)
-                paired_step_data, _ = _pair_leaf(step_data, cond_dict)
-                y = self._readout(self.inferer.predict(paired_step_data, generator=generator))
-                if y.shape[-1] != self.ystar.shape[-1]:
-                    raise ValueError(
-                        f"The readout returned a tensor whose last dim is {y.shape[-1]}, "
-                        f"but the target response has dim {self.ystar.shape[-1]}."
-                    )
-                pot = self._potential(y[..., self._mask], self.ystar[self._mask])
-                if pot.shape != (n,):
-                    raise ValueError(
-                        f"Potential value for leaf {leaf} has the wrong shape -- got {pot.shape}, but expected {(n,)}."
-                    )
-                potentials.append(pot)
-            populations.append(torch.stack(potentials).mean(0))
+                generator = generators(self.seed, i, *((population,) if population else ()), device=device)
+                paired_step_data = _pair_leaf(step_data, cond_dict)
+                pred = self.inferer.predict(paired_step_data, generator=generator)
+                cells = pred.raw_samples if pred.raw_samples is not None else pred.X
+                if self.readout is not None:
+                    cells = self.readout(cells)
+                    if cells.shape[-2] != n:
+                        raise ValueError(
+                            f"The readout must keep one row per condition on axis -2: got {cells.shape[-2]}, "
+                            f"expected {n}."
+                        )
+                # average over every axis before the conditions' (samples, the leaf's pairs)
+                groups.append(cells.reshape(-1, *cells.shape[-2:]).mean(0))
+            populations.append(torch.stack(groups))
         return torch.stack(populations)
 
-    def context_leaves(self, device: torch.device) -> list:
-        """The context's ``(StepData, leaf)`` pairs on ``device``, read on first use and kept."""
+    def context_leaves(self, device: torch.device) -> list[StepData]:
+        """The context's leaves on ``device``, read on first use and kept."""
         key = str(device)
         if key not in self._leaves:
-            loader = self._datamodule.dm.get_eval_loader(
-                self._adata, dtype=self._datamodule.dtype, device=key, **self._eval_kwargs
+            loader = self.datamodule.dm.get_eval_loader(
+                self.adata, dtype=self.datamodule.dtype, device=key, **self._eval_kwargs
             )
-            self._leaves[key] = list(loader)
+            self._leaves[key] = [step_data for step_data, _ in loader]
         return self._leaves[key]
 
-    @property
-    def datamodule(self) -> FlowDataModule:
-        """Returns the underlying data module for the context."""
-        return self._datamodule
 
-    @property
-    def inferer(self) -> SupportsInference:
-        """Returns the underlying forward model used to compute the potential."""
-        return self._inferer
+class SurrogatePotential(torch.nn.Module):
+    """A differentiable potential of continuous condition covariates: ``potential(response(x), ystar)``.
 
-    @property
-    def mask(self) -> torch.Tensor:
-        """Returns the mask for the considered response axes."""
-        return self._mask
+    Scores the (masked) response of each context group against the target ``ystar`` and averages over the groups.
 
-    @property
-    def ystar(self) -> torch.Tensor:
-        """Returns the target response."""
-        return self._ystar
+    :param response: The response the potential scores.
+    :param ystar: The target response, of shape ``(D',)``.
+    :param potential: ``(y, ystar)``, the masked responses ``(..., N, D')`` and target ``(D',)`` -> ``(..., N)``.
+    :param mask: A boolean mask of shape ``(D',)`` selecting the response dimensions to score. Coerced to bool;
+        index lists are not supported. ``None`` selects all of them.
+    """
 
-    @property
-    def seed(self) -> int:
-        """Returns the seed to control random number generation."""
-        return self._seed
+    ystar: torch.Tensor
+    mask: torch.Tensor
+
+    def __init__(
+        self,
+        response: SurrogateResponse,
+        *,
+        ystar: torch.Tensor,
+        potential: Potential,
+        mask: torch.Tensor | None = None,
+    ) -> None:
+        ystar = torch.atleast_1d(torch.squeeze(ystar))
+        if ystar.ndim != 1:
+            raise ValueError(f"Invalid shape for target response, found {ystar.shape}")
+        if mask is not None and mask.dtype not in (torch.bool, torch.uint8):
+            raise ValueError("mask must be a per-dimension boolean mask, not an index list.")
+        mask = (torch.atleast_1d(torch.squeeze(mask)) if mask is not None else torch.ones_like(ystar)).bool()
+        if mask.shape != ystar.shape:
+            raise ValueError(
+                "The mask and the target tensor should have the same shape -- "
+                f"found mask of shape {mask.shape}, but target has shape {ystar.shape}."
+            )
+        super().__init__()
+        self.register_buffer("ystar", ystar)
+        self.register_buffer("mask", mask)
+        self.response, self.potential = response, potential
+
+    def forward(self, cond_dict: dict[str, torch.Tensor]) -> torch.Tensor:
+        """The potential of each condition, averaged over the context groups.
+
+        :param cond_dict: A dictionary of input tensors, each of shape ``(N, D)``.
+        :returns: Shape ``(N,)``.
+        """
+        return self.population_potentials(cond_dict, n_populations=1)[0]
+
+    def population_potentials(self, cond_dict: dict[str, torch.Tensor], n_populations: int) -> torch.Tensor:
+        """The potential of each condition for ``n_populations`` independently drawn populations.
+
+        The spread across populations is the forward model's predictive uncertainty:
+        ``population_potentials(c, n).std(0)``.
+
+        :param cond_dict: A dictionary of input tensors, each of shape ``(N, D)``.
+        :returns: Shape ``(n_populations, N)``.
+        """
+        ys = self.response.population_responses(cond_dict, n_populations)
+        if ys.shape[-1] != self.ystar.shape[-1]:
+            raise ValueError(
+                f"The response has last dim {ys.shape[-1]}, but the target response has dim {self.ystar.shape[-1]}."
+            )
+        n_populations, n_groups, n = ys.shape[:3]
+        potentials = self.potential(ys[..., self.mask], self.ystar[self.mask])
+        if potentials.shape != (n_populations, n_groups, n):
+            raise ValueError(
+                f"The potential has the wrong shape -- got {potentials.shape}, but expected "
+                f"{(n_populations, n_groups, n)}. It must broadcast over leading axes, one value per row."
+            )
+        return potentials.mean(1)

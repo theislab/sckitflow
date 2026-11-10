@@ -231,6 +231,8 @@ conflicts = [
 ]
 
 [tool.uv.sources]
+# Temporary: scfit's anndata.acc reference API (selmanozleyen/scfit#1), until scfit releases it.
+scfit = { git = "https://github.com/selmanozleyen/scfit", branch = "feat/open-adata" }
 torch = [
   { index = "pytorch-cpu", extra = "cpu" },
   { index = "pytorch-cu126", extra = "cu126" },

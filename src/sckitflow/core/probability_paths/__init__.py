@@ -1,23 +1,23 @@
 from sckitflow.core.probability_paths._base import BasePath
 from sckitflow.core.probability_paths._config import (
-    EncDecTwoSidedPathConfig,
-    LinearTwoSidedPathConfig,
+    EncDecPathConfig,
+    LinearPathConfig,
     PathConfig,
-    TrigTwoSidedPathConfig,
+    TrigPathConfig,
 )
 from sckitflow.core.probability_paths._probability_paths import (
-    EncDecTwoSidedPath,
-    LinearTwoSidedPath,
-    TrigTwoSidedPath,
+    EncDecPath,
+    LinearPath,
+    TrigPath,
 )
 
 __all__ = [
     "BasePath",
     "PathConfig",
-    "LinearTwoSidedPathConfig",
-    "TrigTwoSidedPathConfig",
-    "EncDecTwoSidedPathConfig",
-    "LinearTwoSidedPath",
-    "TrigTwoSidedPath",
-    "EncDecTwoSidedPath",
+    "LinearPathConfig",
+    "TrigPathConfig",
+    "EncDecPathConfig",
+    "LinearPath",
+    "TrigPath",
+    "EncDecPath",
 ]

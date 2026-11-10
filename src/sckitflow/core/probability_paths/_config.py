@@ -2,21 +2,22 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from pydantic import Field, model_validator
 from scfit.registry import Component, component
 
 from sckitflow._samplers import NoiseSamplerConfig
 from sckitflow.core.probability_paths._base import BasePath
 from sckitflow.core.probability_paths._probability_paths import (
-    EncDecTwoSidedPath,
-    LinearTwoSidedPath,
-    TrigTwoSidedPath,
+    EncDecPath,
+    LinearPath,
+    TrigPath,
 )
 
 __all__ = [
     "PathConfig",
-    "LinearTwoSidedPathConfig",
-    "TrigTwoSidedPathConfig",
-    "EncDecTwoSidedPathConfig",
+    "LinearPathConfig",
+    "TrigPathConfig",
+    "EncDecPathConfig",
 ]
 
 
@@ -26,56 +27,63 @@ class PathConfig(Component):
     Holds the parameters shared by every probability path — the noise strength :math:`\sigma` and an optional
     noise-sampler configuration — and builds the path its member names in :attr:`path_cls`.
 
-    Concrete members are registered under ``paths.*`` keys through :func:`scfit.registry.component`. A
+    Concrete members are registered under ``probability_path.*`` keys through :func:`scfit.registry.component`. A
     :class:`PathConfig` on its own is a *family base* and is rejected at construction time; instantiate a
     concrete member instead.
 
-    :param sigma: Non-negative scalar noise strength of the path, scaling its standard deviation :math:`\sigma_t`.
-        One-sided paths take ``1``.
+    :param sigma: Finite non-negative scalar noise strength of the path, scaling its standard deviation
+        :math:`\sigma_t`.
 
-    :param sampler_cfg: Optional noise-sampler configuration. Required by two-sided paths when ``sigma > 0``;
-        one-sided paths take none, their noise is the flow method's latent.
+    :param sampler_cfg: Noise-sampler configuration. Required when ``sigma > 0``.
     """
 
     path_cls: ClassVar[type[BasePath]]
     """The path this member builds."""
 
-    sigma: float
+    sigma: float = Field(default=0.0, ge=0, allow_inf_nan=False)
     sampler_cfg: NoiseSamplerConfig | None = None
+
+    @model_validator(mode="after")
+    def _noise_needs_sampler(self) -> PathConfig:
+        if self.sigma > 0 and self.sampler_cfg is None:
+            raise ValueError("Positive sigma requires a sampler_cfg.")
+        return self
 
     def build(self) -> BasePath:
         r"""Builds the probability path described by this config."""
         return type(self).path_cls(self.sigma, sampler_cfg=self.sampler_cfg)
 
 
-@component("paths.two_sided.linear", builds=LinearTwoSidedPath)
-class LinearTwoSidedPathConfig(PathConfig):
-    r"""Config for :class:`~LinearTwoSidedPath`.
+@component("probability_path.linear", builds=LinearPath)
+class LinearPathConfig(PathConfig):
+    r"""Config for :class:`~LinearPath`.
 
-    Registered under ``paths.two_sided.linear``. The built path interpolates linearly between
+    Registered under ``probability_path.linear``. The built path interpolates linearly between
     :math:`\boldsymbol{x}_0` and :math:`\boldsymbol{x}_1` with a :math:`\sigma \sqrt{t (1 - t)}` noise schedule.
     """
 
-    path_cls = LinearTwoSidedPath
+    path_cls = LinearPath
 
 
-@component("paths.two_sided.trig", builds=TrigTwoSidedPath)
-class TrigTwoSidedPathConfig(PathConfig):
-    r"""Config for :class:`~TrigTwoSidedPath`.
+@component("probability_path.trig", builds=TrigPath)
+class TrigPathConfig(PathConfig):
+    r"""Config for :class:`~TrigPath`.
 
-    Registered under ``paths.two_sided.trig``. The built path uses :math:`\cos`/:math:`\sin` interpolation with a
+    Registered under ``probability_path.trig``. The built path uses :math:`\cos`/:math:`\sin` interpolation with a
     :math:`\sigma \sqrt{t (1 - t)}` noise schedule.
     """
 
-    path_cls = TrigTwoSidedPath
+    path_cls = TrigPath
 
 
-@component("paths.two_sided.enc_dec", builds=EncDecTwoSidedPath)
-class EncDecTwoSidedPathConfig(PathConfig):
-    r"""Config for :class:`~EncDecTwoSidedPath`.
+@component("probability_path.enc_dec", builds=EncDecPath)
+class EncDecPathConfig(PathConfig):
+    r"""Config for :class:`~EncDecPath`.
 
-    Registered under ``paths.two_sided.enc_dec``. The built path uses the piecewise :math:`\cos^2(\pi t)`
-    encoder/decoder schedule with a :math:`\sigma \sin^2(\pi t)` noise profile.
+    Registered under ``probability_path.enc_dec``. The built path uses the piecewise :math:`\cos^2(\pi t)`
+    encoder/decoder schedule with a :math:`\sigma \sin^2(\pi t)` noise profile. ``sigma`` must be positive.
     """
 
-    path_cls = EncDecTwoSidedPath
+    sigma: float = Field(gt=0, allow_inf_nan=False)
+
+    path_cls = EncDecPath

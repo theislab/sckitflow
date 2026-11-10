@@ -22,7 +22,7 @@ from sckitflow.core._data_utils import subscript_step_data
 from sckitflow.core._types import MatchFn, PredictionData, SamplerFn, StepData
 from sckitflow.core.coupling._coupling import degenerate_plan
 from sckitflow.core.probability_paths._base import BasePath
-from sckitflow.core.probability_paths._config import LinearTwoSidedPathConfig, PathConfig
+from sckitflow.core.probability_paths._config import LinearPathConfig, PathConfig
 from sckitflow.data._dims import DataDimensions
 
 __all__ = [
@@ -162,7 +162,7 @@ class FlowMethodConfig(Component):
     """
 
     probability_path: PathConfig | None = None
-    """A probability-path config. ``None`` uses a noiseless ``LinearTwoSidedPathConfig``, which interpolates
+    """A probability-path config. ``None`` uses a noiseless ``LinearPathConfig``, which interpolates
     linearly from the noise or the source to the target."""
 
     time_sampler: TimeSamplerConfig | None = None
@@ -193,10 +193,9 @@ class AbstractFlowMethod(AbstractMethod):
         :param dims: The shape spec of the data the module was built for.
         """
         super().__init__(module, dims=dims)
-        noise_cfg = config.noise_sampler or IsotropicGaussianNoiseSamplerConfig()
-        self._probability_path = (config.probability_path or LinearTwoSidedPathConfig(sigma=0.0)).build()
+        self._probability_path = (config.probability_path or LinearPathConfig()).build()
         self._time_sampler = (config.time_sampler or UniformTimeSamplerConfig()).build()
-        self._noise_sampler = noise_cfg.build()
+        self._noise_sampler = (config.noise_sampler or IsotropicGaussianNoiseSamplerConfig()).build()
         self._generate_from_noise = config.generate_from_noise
         if dims.source_state_dim is not None and not self._generate_from_noise:
             raise ValueError(

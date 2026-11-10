@@ -29,7 +29,8 @@ class BasePath(abc.ABC):
 
         \boldsymbol{x}_t = \boldsymbol{\mu}_t
                          + \sigma_t \, \boldsymbol{\epsilon},
-        \qquad \boldsymbol{\epsilon} \sim \mathcal{N}(0, I).
+
+    where :math:`\boldsymbol{\epsilon}` is drawn from the path's noise sampler.
 
     Subclasses supply :math:`\alpha_t`, :math:`\beta_t` and
     :math:`\sigma_t` by implementing :meth:`compute_alpha_t`,

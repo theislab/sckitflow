@@ -41,7 +41,7 @@ training:
   method:
     type: training_method.cfm
     probability_path:               # CellFlow's default: no noise
-      type: paths.two_sided.linear
+      type: probability_path.linear
       sigma: 0.0
 
 inference:

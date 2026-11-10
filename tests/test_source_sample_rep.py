@@ -44,15 +44,15 @@ def _two_spaces(source_width: int = 4):
 def _spec(*, generate_from_noise: bool = True, module: dict | None = None) -> ModelConfig:
     return ModelConfig(
         data=DataManagerConfig(
-            target_sample_rep="X_rna",
-            source_sample_rep="X_atac",
+            target_sample_rep="obsm.X_rna",
+            source_sample_rep="obsm.X_atac",
             categorical_conditions={"drug": ("drug",)},
             categorical_reps={"drug": "drug"},
             control_values_dict={"drug": "control"},
             groups=("cell_line",),
             groups_encoding={"cell_line": LabelEncoderConfig(classes=("cell_line0", "cell_line1"))},
-            source_rep_quad="X_atac",
-            target_rep_quad="X_rna",
+            source_rep_quad="obsm.X_atac",
+            target_rep_quad="obsm.X_rna",
             use_linear=False,
         ),
         module=NeuralVelocityConfig(**(ENCODER if module is None else module)),
@@ -149,11 +149,11 @@ def test_each_side_has_its_own_width_under_one_key():
         categorical_conditions={"source": ["source"]},
         categorical_reps={"source": "source"},
         control_values_dict={"source": "control"},
-        target_sample_rep="X_rep",
-        source_sample_rep="X_rep",
-        rep_lin="X_lin",
-        source_rep_quad="X_quad",
-        target_rep_quad="X_quad",
+        target_sample_rep="obsm.X_rep",
+        source_sample_rep="obsm.X_rep",
+        rep_lin="obsm.X_lin",
+        source_rep_quad="obsm.X_quad",
+        target_rep_quad="obsm.X_quad",
         use_linear=True,
     ).build()
 

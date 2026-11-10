@@ -1,5 +1,6 @@
 from collections.abc import Collection
 
+from sckitflow.data._utils import Rep
 from sckitflow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["ResponseDataSchema"]
@@ -8,12 +9,12 @@ __all__ = ["ResponseDataSchema"]
 class ResponseDataSchema(StrictDataSchema):
     """Data Schema implementing the logic for response data."""
 
-    def __init__(self, continuous_covs: Collection[str] | None = None) -> None:
+    def __init__(self, continuous_covs: Collection[Rep] | None = None) -> None:
         """Initializes the data schema.
 
-        :param continuous_covs: Sequence of continuous response covariates. They should appear
-            as key in `.obsm`. Defaults to `None`.
-        :type continuous_covs: class: `Collection[str] | None`
+        :param continuous_covs: Sequence of continuous response covariates, as :mod:`anndata.acc` references
+            (``A.obsm[k]`` or ``A.layers[k]``). Defaults to `None`.
+        :type continuous_covs: class: `Collection[Rep] | None`
         """
         self._continuous_covs = [] if continuous_covs is None else continuous_covs
         super().__init__()
@@ -22,7 +23,7 @@ class ResponseDataSchema(StrictDataSchema):
         """Nothing to verify: the keys are checked when the dimensions are read."""
 
     @property
-    def continuous_covs(self) -> Collection[str]:
+    def continuous_covs(self) -> Collection[Rep]:
         """Exposes to `continuous_covs` parameter set at initialization."""
         return self._continuous_covs
 

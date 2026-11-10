@@ -10,6 +10,7 @@ from sckitflow.data._manager import DataManager, DataManagerConfig
 def _make_manager(**overrides) -> DataManager:
     """DataManager with cell_line as group and drug as condition."""
     defaults = {
+        "target_sample_rep": "X",
         "categorical_conditions": {"drug": ("drug",)},
         "categorical_reps": {"drug": "drug"},
         "groups": ("cell_line",),
@@ -23,7 +24,7 @@ def _make_manager(**overrides) -> DataManager:
 
 def _make_manager_with_continuous(**overrides) -> DataManager:
     """As :func:`_make_manager`, plus a continuous condition covariate (``X_repr``) from obsm."""
-    return _make_manager(continuous_conditions=["X_repr"], **overrides)
+    return _make_manager(continuous_conditions=["obsm.X_repr"], **overrides)
 
 
 def _with_split(adata: AnnData) -> AnnData:
@@ -212,7 +213,7 @@ class TestGetEvalLoader:
         """No state and no source: `n_obs` is the only row count, and per-observation responses match it."""
         ad = adata_small.copy()
         ad.obsm["resp"] = np.zeros((ad.n_obs, 2), dtype=np.float32)
-        el = _make_manager(target_continuous_covs=("resp",)).get_eval_loader(ad, require_target_state=False)
+        el = _make_manager(target_continuous_covs=("obsm.resp",)).get_eval_loader(ad, require_target_state=False)
         counts = {group: len(rows) for group, rows in ad.obs.groupby(["cell_line", "drug"], observed=True)}
         for step_data, leaf in el:
             assert step_data["source_state"] is None and step_data["target_state"] is None
@@ -321,7 +322,7 @@ class TestUnconditionalStreaming:
     def test_no_covariate_schema_trains_and_predicts(self, adata_small: AnnData):
         ad = adata_small.copy()
         ad.obs = ad.obs.iloc[:, :0]  # strip every covariate column
-        dm = DataManager()
+        dm = DataManagerConfig(target_sample_rep="X").build()
 
         loaders = dm.get_dataloaders(ad, batch_size=8)
         step_data = next(iter(loaders["train"]))
@@ -347,14 +348,14 @@ class TestLinearFreeCoupling:
         with pytest.raises(ValueError, match="redundant"):
             _make_manager(
                 use_linear=False,
-                rep_lin="X_repr",
-                source_rep_quad="X_src_quad",
-                target_rep_quad="X_tgt_quad",
+                rep_lin="obsm.X_repr",
+                source_rep_quad="obsm.X_src_quad",
+                target_rep_quad="obsm.X_tgt_quad",
             )
 
     @pytest.mark.parametrize(
         "source_rep_quad, target_rep_quad",
-        [(None, "X_tgt_quad"), ("X_src_quad", None)],
+        [(None, "obsm.X_tgt_quad"), ("obsm.X_src_quad", None)],
     )
     def test_config_requires_both_quads(self, source_rep_quad, target_rep_quad):
         with pytest.raises(ValueError, match="requires both"):
@@ -384,9 +385,9 @@ class TestTrainingOnlyCoupling:
         self._with_coupling_reps(adata_small)
         dm = _make_manager(
             control_values_dict={"drug": "control"},
-            rep_lin="X_lin",
-            source_rep_quad="X_src_quad",
-            target_rep_quad="X_tgt_quad",
+            rep_lin="obsm.X_lin",
+            source_rep_quad="obsm.X_src_quad",
+            target_rep_quad="obsm.X_tgt_quad",
         )
         loaders = dm.get_dataloaders(adata_small, batch_size=8)
         sd = next(iter(loaders["train"]))
@@ -406,9 +407,9 @@ class TestTrainingOnlyCoupling:
         dm = _make_manager(
             control_values_dict={"drug": "control"},
             split_by="split",
-            rep_lin="X_lin",
-            source_rep_quad="X_src_quad",
-            target_rep_quad="X_tgt_quad",
+            rep_lin="obsm.X_lin",
+            source_rep_quad="obsm.X_src_quad",
+            target_rep_quad="obsm.X_tgt_quad",
         )
         loaders = dm.get_dataloaders(ad, batch_size=8)
         assert set(loaders) == {"train", "val"}
@@ -422,9 +423,9 @@ class TestTrainingOnlyCoupling:
         self._with_coupling_reps(adata_small)
         dm = _make_manager(
             control_values_dict={"drug": "control"},
-            rep_lin="X_lin",
-            source_rep_quad="X_src_quad",
-            target_rep_quad="X_tgt_quad",
+            rep_lin="obsm.X_lin",
+            source_rep_quad="obsm.X_src_quad",
+            target_rep_quad="obsm.X_tgt_quad",
         )
         for sd, _leaf in dm.get_eval_loader(adata_small):
             assert sd["target_coupling_lin"] is None
@@ -434,7 +435,7 @@ class TestTrainingOnlyCoupling:
 
     def test_the_shared_schema_does_not_carry_coupling(self):
         """`_loader_schema` is coupling-free; only `_training_loader_schema` adds it, without replacement."""
-        dm = _make_manager(rep_lin="X_lin")
+        dm = _make_manager(rep_lin="obsm.X_lin")
         assert "coupling_schema" not in dm._loader_schema
         assert dm._training_loader_schema["coupling_schema"] is dm.coupling_data_schema
         # strict superset, and the shared keys survive identity-wise
@@ -448,8 +449,8 @@ class TestTrainingOnlyCoupling:
         dm = _make_manager(
             control_values_dict={"drug": "control"},
             use_linear=False,
-            source_rep_quad="X_src_quad",
-            target_rep_quad="X_tgt_quad",
+            source_rep_quad="obsm.X_src_quad",
+            target_rep_quad="obsm.X_tgt_quad",
         )
         loaders = dm.get_dataloaders(adata_small, batch_size=8)
         sd = next(iter(loaders["train"]))
@@ -460,7 +461,7 @@ class TestTrainingOnlyCoupling:
 
     def test_get_dataloaders_rejects_a_schema_owned_kwarg(self, adata_small: AnnData):
         """One owner per question: the schema owns `coupling_schema`, not the call."""
-        dm = _make_manager(rep_lin="X_lin")
+        dm = _make_manager(rep_lin="obsm.X_lin")
         with pytest.raises(TypeError, match="owned by the schema"):
             dm.get_dataloaders(adata_small, coupling_schema=dm.coupling_data_schema)
 
@@ -561,7 +562,8 @@ class TestGetRequiredFields:
         assert set(loaders) == {"train", "val"}
         assert next(iter(loaders["train"]))["target_state"] is not None
 
-    def test_a_noise_schema_reads_only_x(self):
+    def test_a_state_only_schema_reads_only_its_state(self):
         from anndata.acc import A
 
-        assert DataManager().get_required_fields() == ([A.X], [])
+        dm = DataManagerConfig(target_sample_rep="layers.counts").build()
+        assert dm.get_required_fields() == ([A.layers["counts"]], [])

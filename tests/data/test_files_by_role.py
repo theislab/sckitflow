@@ -31,14 +31,14 @@ def _split_files() -> tuple[AnnData, AnnData]:
 
 def _manager():
     return DataManagerConfig(
-        target_sample_rep="X_pca",
+        target_sample_rep="obsm.X_pca",
         categorical_conditions={"drug": ("drug",)},
         categorical_reps={"drug": "drug"},
         control_values_dict={"drug": "control"},
         groups=("cell_line",),
         groups_encoding={"cell_line": LabelEncoderConfig(classes=("cell_line0", "cell_line1"))},
-        source_rep_quad="X_src",
-        target_rep_quad="X_tgt",
+        source_rep_quad="obsm.X_src",
+        target_rep_quad="obsm.X_tgt",
         use_linear=False,
     ).build()
 
@@ -59,7 +59,9 @@ def test_eval_routes_by_role_too():
 def test_missing_rep_names_the_file_role_and_field():
     ctrl, pert = _split_files()
     del ctrl.obsm["X_src"]
-    with pytest.raises(ValueError, match=r"AnnData 0 of 2 holds source cells but lacks obsm/X_src \(source_rep_quad\)"):
+    with pytest.raises(
+        ValueError, match=r"AnnData 0 of 2 holds source cells but lacks A\.obsm\[.X_src.\] \(source_rep_quad\)"
+    ):
         _manager().get_dataloaders([ctrl, pert], batch_size=8)
 
 
@@ -73,10 +75,12 @@ def test_the_linear_term_needs_one_width():
             "source_rep_quad": None,
             "target_rep_quad": None,
             "use_linear": True,
-            "rep_lin": "K",
+            "rep_lin": "obsm.K",
         }
     ).build()
-    with pytest.raises(ValueError, match=r"obsm/K \(rep_lin\) is 4 wide in AnnData 0 \(sources\), 6 wide in AnnData 1"):
+    with pytest.raises(
+        ValueError, match=r"A\.obsm\[.K.\] \(rep_lin\) is 4 wide in AnnData 0 \(sources\), 6 wide in AnnData 1"
+    ):
         dm.get_dataloaders([ctrl, pert], batch_size=8)
 
 
@@ -86,7 +90,7 @@ def test_the_state_may_differ_in_width_across_sides():
     ctrl, pert = _split_files()
     ctrl.obsm["K"] = np.ones((ctrl.n_obs, 4), "float32")
     pert.obsm["K"] = np.ones((pert.n_obs, 6), "float32")
-    dm = DataManagerConfig(**{**_manager().config.model_dump(), "target_sample_rep": "K"}).build()
+    dm = DataManagerConfig(**{**_manager().config.model_dump(), "target_sample_rep": "obsm.K"}).build()
     batch = next(iter(dm.get_dataloaders([ctrl, pert], batch_size=8)["train"]))
     assert batch["source_state"].shape[-1] == 4 and batch["target_state"].shape[-1] == 6
 
@@ -112,7 +116,7 @@ def test_a_side_quad_needs_one_width_across_its_files():
     other.obsm["X_tgt"] = np.ones((other.n_obs, 5), "float32")
     with pytest.raises(
         ValueError,
-        match=r"`target_rep_quad` \(X_tgt\) has different widths across the AnnData reading it: AnnData 1: 3, AnnData 2: 5",
+        match=r"`target_rep_quad` \(A\.obsm\[.X_tgt.\]\) has different widths across the AnnData reading it: AnnData 1: 3, AnnData 2: 5",
     ):
         _manager().get_data_dimensionalities([ctrl, pert, other])
 
@@ -120,7 +124,7 @@ def test_a_side_quad_needs_one_width_across_its_files():
 def test_the_same_width_with_other_genes_is_refused_not_read_as_another_space():
     ctrl, pert = _split_files()
     ctrl.var_names = list(reversed(ctrl.var_names))  # same genes, other order: misaligned, not another space
-    dm = DataManagerConfig(**{**_manager().config.model_dump(), "target_sample_rep": None, "use_linear": False}).build()
+    dm = DataManagerConfig(**{**_manager().config.model_dump(), "target_sample_rep": "X", "use_linear": False}).build()
     with pytest.raises(ValueError, match=r"the same width but different feature names.*`source_sample_rep`"):
         dm.get_data_dimensionalities([ctrl, pert])
 
@@ -129,6 +133,6 @@ def test_the_linear_term_width_is_checked_with_the_dimensions():
     ctrl, pert = _split_files()
     ctrl.obsm["K"] = np.ones((ctrl.n_obs, 4), "float32")
     pert.obsm["K"] = np.ones((pert.n_obs, 6), "float32")
-    dm = DataManagerConfig(**{**_manager().config.model_dump(), "rep_lin": "K", "use_linear": True}).build()
-    with pytest.raises(ValueError, match=r"`rep_lin` \(K\) has different widths.*`use_linear=False`"):
+    dm = DataManagerConfig(**{**_manager().config.model_dump(), "rep_lin": "obsm.K", "use_linear": True}).build()
+    with pytest.raises(ValueError, match=r"`rep_lin` \(A\.obsm\[.K.\]\) has different widths.*`use_linear=False`"):
         dm.get_data_dimensionalities([ctrl, pert])

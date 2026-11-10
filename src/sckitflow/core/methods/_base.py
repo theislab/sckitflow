@@ -195,9 +195,9 @@ class AbstractFlowMethod(AbstractMethod):
         super().__init__(module, dims=dims)
         noise_cfg = config.noise_sampler or IsotropicGaussianNoiseSamplerConfig()
         path_cfg = config.probability_path
-        if path_cfg is None:  # from noise the path draws its own; from sources it interpolates them
+        if path_cfg is None:  # from noise the latent is the path's noise; from sources it interpolates them
             path_cfg = (
-                LinearOneSidedPathConfig(sigma=1.0, sampler_cfg=noise_cfg)
+                LinearOneSidedPathConfig(sigma=1.0)
                 if config.generate_from_noise
                 else LinearTwoSidedPathConfig(sigma=0.0)
             )

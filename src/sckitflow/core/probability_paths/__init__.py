@@ -6,7 +6,6 @@ from sckitflow.core.probability_paths._config import (
     PathConfig,
     TrigOneSidedPathConfig,
     TrigTwoSidedPathConfig,
-    VPOneSidedPathConfig,
 )
 from sckitflow.core.probability_paths._probability_paths import (
     EncDecTwoSidedPath,
@@ -14,7 +13,6 @@ from sckitflow.core.probability_paths._probability_paths import (
     LinearTwoSidedPath,
     TrigOneSidedPath,
     TrigTwoSidedPath,
-    VPOneSidedPath,
 )
 
 __all__ = [
@@ -26,11 +24,9 @@ __all__ = [
     "EncDecTwoSidedPathConfig",
     "LinearOneSidedPathConfig",
     "TrigOneSidedPathConfig",
-    "VPOneSidedPathConfig",
     "LinearTwoSidedPath",
     "TrigTwoSidedPath",
     "EncDecTwoSidedPath",
     "LinearOneSidedPath",
     "TrigOneSidedPath",
-    "VPOneSidedPath",
 ]

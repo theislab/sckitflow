@@ -12,7 +12,6 @@ from sckitflow.core.probability_paths._probability_paths import (
     LinearTwoSidedPath,
     TrigOneSidedPath,
     TrigTwoSidedPath,
-    VPOneSidedPath,
 )
 
 __all__ = [
@@ -22,7 +21,6 @@ __all__ = [
     "EncDecTwoSidedPathConfig",
     "LinearOneSidedPathConfig",
     "TrigOneSidedPathConfig",
-    "VPOneSidedPathConfig",
 ]
 
 
@@ -36,10 +34,11 @@ class PathConfig(Component):
     :class:`PathConfig` on its own is a *family base* and is rejected at construction time; instantiate a
     concrete member instead.
 
-    :param sigma: Non-negative scalar noise strength of the path.
+    :param sigma: Non-negative scalar noise strength of the path, scaling its standard deviation :math:`\sigma_t`.
+        One-sided paths take ``1``.
 
-    :param sampler_cfg: Optional noise-sampler configuration. Required when ``sigma > 0`` and ignored for
-        deterministic paths.
+    :param sampler_cfg: Optional noise-sampler configuration. Required by two-sided paths when ``sigma > 0``;
+        one-sided paths take none, their noise is the flow method's latent.
     """
 
     path_cls: ClassVar[type[BasePath]]
@@ -58,7 +57,7 @@ class LinearTwoSidedPathConfig(PathConfig):
     r"""Config for :class:`~LinearTwoSidedPath`.
 
     Registered under ``paths.two_sided.linear``. The built path interpolates linearly between
-    :math:`\boldsymbol{x}_0` and :math:`\boldsymbol{x}_1` with a :math:`\sqrt{\sigma \, t (1 - t)}` noise schedule.
+    :math:`\boldsymbol{x}_0` and :math:`\boldsymbol{x}_1` with a :math:`\sigma \sqrt{t (1 - t)}` noise schedule.
     """
 
     path_cls = LinearTwoSidedPath
@@ -69,7 +68,7 @@ class TrigTwoSidedPathConfig(PathConfig):
     r"""Config for :class:`~TrigTwoSidedPath`.
 
     Registered under ``paths.two_sided.trig``. The built path uses :math:`\cos`/:math:`\sin` interpolation with a
-    :math:`\sqrt{\sigma \, t (1 - t)}` noise schedule.
+    :math:`\sigma \sqrt{t (1 - t)}` noise schedule.
     """
 
     path_cls = TrigTwoSidedPath
@@ -91,7 +90,7 @@ class LinearOneSidedPathConfig(PathConfig):
     r"""Config for :class:`~LinearOneSidedPath`.
 
     Registered under ``paths.one_sided.linear``. The built path has :math:`\alpha_t \equiv 0`, :math:`\beta_t = t`,
-    and a linearly decaying noise schedule :math:`\sigma_t = 1 - t`.
+    and :math:`\sigma_t = 1 - t`, so :math:`\boldsymbol{x}_t = t \boldsymbol{x}_1 + (1 - t) \boldsymbol{x}_0`.
     """
 
     path_cls = LinearOneSidedPath
@@ -107,14 +106,3 @@ class TrigOneSidedPathConfig(PathConfig):
     """
 
     path_cls = TrigOneSidedPath
-
-
-@component("paths.one_sided.vp", builds=VPOneSidedPath)
-class VPOneSidedPathConfig(PathConfig):
-    r"""Config for :class:`~VPOneSidedPath`.
-
-    Registered under ``paths.one_sided.vp``. The built path has :math:`\alpha_t \equiv 0`, :math:`\beta_t = t`, and a
-    variance-preserving noise schedule :math:`\sigma_t = \sqrt{1 - t^2}`.
-    """
-
-    path_cls = VPOneSidedPath

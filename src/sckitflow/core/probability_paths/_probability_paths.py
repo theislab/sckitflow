@@ -9,17 +9,11 @@ __all__ = [
     "EncDecTwoSidedPath",
     "LinearOneSidedPath",
     "TrigOneSidedPath",
-    "VPOneSidedPath",
 ]
 
 
 class _LinearPathMixin:
-    r"""Mixin supplying a linear :math:`\beta_t = t` coefficient.
-
-    Combined with :class:`OneSidedPath` (where :math:`\alpha_t \equiv 0`)
-    this gives paths whose mean grows linearly from the origin at
-    :math:`t = 0` to :math:`\boldsymbol{x}_1` at :math:`t = 1`.
-    """
+    r"""Mixin supplying a linear :math:`\beta_t = t` coefficient, shared by the linear two-sided and one-sided paths."""
 
     def compute_beta_t(self, t: torch.Tensor) -> torch.Tensor:
         r"""Returns :math:`\beta_t = t`."""
@@ -27,15 +21,15 @@ class _LinearPathMixin:
 
 
 class _BridgeNoiseMixin:
-    r"""Mixin supplying the Brownian-bridge noise schedule :math:`\sigma_t = \sqrt{\sigma \, t (1 - t)}`.
+    r"""Mixin supplying the Brownian-bridge noise schedule :math:`\sigma_t = \sigma \sqrt{t (1 - t)}`.
 
     The standard deviation vanishes at both endpoints and peaks at :math:`t = \tfrac{1}{2}`, so the path is
     anchored on :math:`\boldsymbol{x}_0` and :math:`\boldsymbol{x}_1` and noisiest in between.
     """
 
     def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \sqrt{\sigma \, t \, (1 - t)}`."""
-        return torch.sqrt(self.sigma * t * (1 - t))
+        r"""Returns :math:`\sigma_t = \sigma \sqrt{t \, (1 - t)}`."""
+        return self.sigma * torch.sqrt(t * (1 - t))
 
 
 class _TrigPathMixin:
@@ -61,7 +55,7 @@ class LinearTwoSidedPath(_LinearPathMixin, _BridgeNoiseMixin, BasePath):
         \qquad
         \beta_t = t,
         \qquad
-        \sigma_t = \sqrt{\sigma \, t \, (1 - t)}.
+        \sigma_t = \sigma \sqrt{t \, (1 - t)}.
 
     The path runs from :math:`\boldsymbol{x}_0` at :math:`t = 0` to
     :math:`\boldsymbol{x}_1` at :math:`t = 1`, and the standard deviation
@@ -84,7 +78,7 @@ class TrigTwoSidedPath(_TrigPathMixin, _BridgeNoiseMixin, BasePath):
         \qquad
         \beta_t = \sin\!\left(\tfrac{\pi}{2} t\right),
         \qquad
-        \sigma_t = \sqrt{\sigma \, t \, (1 - t)}.
+        \sigma_t = \sigma \sqrt{t \, (1 - t)}.
 
     The path runs from :math:`\boldsymbol{x}_0` at :math:`t = 0` to
     :math:`\boldsymbol{x}_1` at :math:`t = 1`, with vanishing derivatives
@@ -160,10 +154,8 @@ class LinearOneSidedPath(_LinearPathMixin, OneSidedPath):
         \qquad
         \sigma_t = 1 - t.
 
-    Since :math:`\alpha_t \equiv 0`, the initial sample
-    :math:`\boldsymbol{x}_0` is unused; the path draws
-    :math:`\boldsymbol{x}_t` from :math:`t \boldsymbol{x}_1` plus noise that
-    decays linearly to zero at :math:`t = 1`.
+    The sample is :math:`\boldsymbol{x}_t = t \boldsymbol{x}_1 + (1 - t) \boldsymbol{x}_0`, with
+    :math:`\boldsymbol{x}_0` the noise (see :class:`OneSidedPath`).
     """
 
     def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
@@ -183,30 +175,9 @@ class TrigOneSidedPath(_TrigPathMixin, OneSidedPath):
         \sigma_t = \cos\!\left(\tfrac{\pi}{2} t\right).
 
     The coefficients satisfy :math:`\beta_t^2 + \sigma_t^2 = 1`, so the
-    path preserves the variance of unit Gaussian noise.
+    path preserves the variance of unit Gaussian noise, and the velocity stays bounded.
     """
 
     def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
         r"""Returns :math:`\sigma_t = \cos\!\left(\tfrac{\pi}{2} t\right)`."""
         return torch.cos(0.5 * PI * t)
-
-
-class VPOneSidedPath(_LinearPathMixin, OneSidedPath):
-    r"""One-sided variance-preserving path.
-
-    .. math::
-
-        \alpha_t = 0,
-        \qquad
-        \beta_t = t,
-        \qquad
-        \sigma_t = \sqrt{1 - t^2}.
-
-    The coefficients satisfy :math:`\beta_t^2 + \sigma_t^2 = 1`, so the
-    path preserves the variance of unit Gaussian noise; the standard
-    deviation vanishes at :math:`t = 1`.
-    """
-
-    def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        r"""Returns :math:`\sigma_t = \sqrt{1 - t^2}`."""
-        return torch.sqrt(1 - t**2)

@@ -45,8 +45,8 @@ class BasePath(abc.ABC):
 
         :param sigma: Non-negative scalar noise strength. It scales the
             time-dependent standard deviation :math:`\sigma_t` of the
-            conditional probability path; a value of :math:`0` yields a
-            deterministic path.
+            conditional probability path linearly; a value of :math:`0` yields a
+            deterministic path. One-sided paths fix it to :math:`1`.
 
         :param sampler_cfg: Configuration used to build the noise sampler.
             Required when ``sigma > 0`` and ignored otherwise.
@@ -144,14 +144,12 @@ class BasePath(abc.ABC):
 
         :returns: The sample :math:`\boldsymbol{x}_t`.
         """
-
-        def bc(value: torch.Tensor) -> torch.Tensor:
-            return broadcast_to_target_shape(value, x0.shape)
-
-        mu_t = bc(self.compute_alpha_t(t)) * x0 + bc(self.compute_beta_t(t)) * x1
+        alpha_t = broadcast_to_target_shape(self.compute_alpha_t(t), x0.shape)
+        beta_t = broadcast_to_target_shape(self.compute_beta_t(t), x0.shape)
+        mu_t = alpha_t * x0 + beta_t * x1
         if self._sigma > 0:
             noise = self._sampler(x1.shape, generator=generator, device=x0.device, dtype=x0.dtype)
-            return mu_t + bc(self.compute_sigma_t(t)) * noise
+            return mu_t + broadcast_to_target_shape(self.compute_sigma_t(t), x0.shape) * noise
         return mu_t
 
     def compute_ut(
@@ -195,13 +193,8 @@ class BasePath(abc.ABC):
 
         :returns: The velocity :math:`\boldsymbol{u}_t`.
         """
-
-        def bc(pair: tuple[torch.Tensor, torch.Tensor]) -> tuple[torch.Tensor, torch.Tensor]:
-            value, dot_value = pair
-            return broadcast_to_target_shape(value, x0.shape), broadcast_to_target_shape(dot_value, x0.shape)
-
-        alpha_t, dot_alpha_t = bc(self.compute_alpha_t_and_dot_alpha_t(t))
-        beta_t, dot_beta_t = bc(self.compute_beta_t_and_dot_beta_t(t))
+        alpha_t, dot_alpha_t = (broadcast_to_target_shape(v, x0.shape) for v in self.compute_alpha_t_and_dot_alpha_t(t))
+        beta_t, dot_beta_t = (broadcast_to_target_shape(v, x0.shape) for v in self.compute_beta_t_and_dot_beta_t(t))
 
         # Compute mean and differential.
         mu_t = alpha_t * x0 + beta_t * x1
@@ -211,7 +204,7 @@ class BasePath(abc.ABC):
         if self._sigma <= 0:
             return dot_mu_t
 
-        sigma_t, dot_sigma_t = bc(self.compute_sigma_t_and_dot_sigma_t(t))
+        sigma_t, dot_sigma_t = (broadcast_to_target_shape(v, x0.shape) for v in self.compute_sigma_t_and_dot_sigma_t(t))
 
         # Guard for zero division
         eps = torch.finfo(sigma_t.dtype).eps
@@ -232,26 +225,70 @@ class BasePath(abc.ABC):
 class OneSidedPath(BasePath):
     r"""Base class for one-sided probability paths.
 
-    One-sided paths interpolate only towards :math:`\boldsymbol{x}_1`; the
-    coefficient :math:`\alpha_t` is identically zero, so the initial sample
-    :math:`\boldsymbol{x}_0` is never used. Subclasses only need to supply
-    :math:`\beta_t` and :math:`\sigma_t`.
+    One-sided paths carry no separate noise term: the initial sample :math:`\boldsymbol{x}_0` is the noise
+    (drawn by the flow method's noise sampler, or the source when not generating from noise), so
+
+    .. math::
+
+        \boldsymbol{x}_t = \beta_t \, \boldsymbol{x}_1 + \sigma_t \, \boldsymbol{x}_0,
+        \qquad
+        \boldsymbol{u}_t = \dot{\beta}_t \, \boldsymbol{x}_1 + \dot{\sigma}_t \, \boldsymbol{x}_0.
+
+    The coefficient :math:`\alpha_t` of the mean is identically zero. Subclasses only need to supply
+    :math:`\beta_t` and :math:`\sigma_t`, with :math:`\sigma_0 = 1` so the path starts at :math:`\boldsymbol{x}_0`.
     """
 
     def __init__(self, sigma: float, sampler_cfg: NoiseSamplerConfig | None = None) -> None:
         r"""Initializes the one-sided path.
 
-        :raises ValueError: If ``sigma`` is zero. With :math:`\alpha_t \equiv 0` the noise term is the only thing
-            standing in for :math:`\boldsymbol{x}_0`, so a deterministic one-sided path would collapse
-            :math:`\boldsymbol{x}_t` to :math:`\beta_t \boldsymbol{x}_1` and flow from the origin.
+        :param sigma: Must be ``1``. Inference starts the flow from an unscaled latent, so a path starting from
+            :math:`\sigma \boldsymbol{x}_0` would train on a different start than it predicts from; scale the noise
+            through the noise sampler instead.
+
+        :param sampler_cfg: Must be ``None``: the noise is :math:`\boldsymbol{x}_0`, drawn by the flow method.
+
+        :raises ValueError: If ``sigma != 1`` or a ``sampler_cfg`` is given.
         """
-        if sigma == 0:
+        if sigma != 1:
             raise ValueError(
-                f"A one-sided path interpolates noise into the data, so it needs sigma > 0; found {sigma=}. "
-                "Use a two-sided path for a deterministic interpolation between two samples."
+                f"A one-sided path starts from x0 itself, so it needs sigma == 1; found {sigma=}. "
+                "Scale the noise through the flow method's noise sampler instead."
             )
-        super().__init__(sigma, sampler_cfg)
+        if sampler_cfg is not None:
+            raise ValueError(
+                "A one-sided path uses x0 as its noise, drawn by the flow method's `noise_sampler`; "
+                "it takes no `sampler_cfg`."
+            )
+        self._sigma = sigma
+        self._sampler = None
 
     def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
         r"""Returns :math:`\alpha_t \equiv 0` for every :math:`t`."""
         return torch.zeros_like(t)
+
+    def compute_xt(
+        self,
+        t: torch.Tensor,
+        x0: torch.Tensor,
+        x1: torch.Tensor,
+        *,
+        generator: torch.Generator | None = None,
+    ) -> torch.Tensor:
+        r"""Returns :math:`\boldsymbol{x}_t = \beta_t \boldsymbol{x}_1 + \sigma_t \boldsymbol{x}_0`; ``generator`` is unused."""
+        beta_t = broadcast_to_target_shape(self.compute_beta_t(t), x0.shape)
+        sigma_t = broadcast_to_target_shape(self.compute_sigma_t(t), x0.shape)
+        return beta_t * x1 + sigma_t * x0
+
+    def compute_ut(
+        self,
+        t: torch.Tensor,
+        xt: torch.Tensor,
+        x0: torch.Tensor,
+        x1: torch.Tensor,
+    ) -> torch.Tensor:
+        r"""Returns :math:`\boldsymbol{u}_t = \dot{\beta}_t \boldsymbol{x}_1 + \dot{\sigma}_t \boldsymbol{x}_0`; ``xt`` is unused."""
+        _, dot_beta_t = self.compute_beta_t_and_dot_beta_t(t)
+        _, dot_sigma_t = self.compute_sigma_t_and_dot_sigma_t(t)
+        return (
+            broadcast_to_target_shape(dot_beta_t, x0.shape) * x1 + broadcast_to_target_shape(dot_sigma_t, x0.shape) * x0
+        )

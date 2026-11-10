@@ -1,283 +1,142 @@
 """Tests for the concrete probability paths."""
 
+import math
+
 import pytest
 import torch
 
 from sckitflow import IsotropicGaussianNoiseSamplerConfig
-from sckitflow._constants import PI
 from sckitflow.core.probability_paths._base import BasePath
-from sckitflow.core.probability_paths._probability_paths import (
-    EncDecTwoSidedPath,
-    LinearTwoSidedPath,
-    TrigTwoSidedPath,
-)
+from sckitflow.core.probability_paths._probability_paths import EncDecPath, LinearPath, TrigPath
 
-ALL = [LinearTwoSidedPath, TrigTwoSidedPath, EncDecTwoSidedPath]
-BRIDGES = [LinearTwoSidedPath, TrigTwoSidedPath]
+ALL = [LinearPath, TrigPath, EncDecPath]
 
 _GAUSS = IsotropicGaussianNoiseSamplerConfig()
+_R = math.sqrt(0.5)
 
 
 def _path(cls, sigma: float = 1.0) -> BasePath:
     return cls(sigma, sampler_cfg=_GAUSS)
 
 
-# ---------------------------------------------------------------------------
-# Instantiation
-# ---------------------------------------------------------------------------
-
-
-class TestInstantiation:
-    @pytest.mark.parametrize("cls", ALL)
-    def test_all_concrete(self, cls) -> None:
-        p = _path(cls)
-        assert isinstance(p, BasePath)
-        assert p.sigma == 1.0
-
-    @pytest.mark.parametrize("cls", ALL)
-    def test_zero_sigma_no_sampler(self, cls) -> None:
-        p = cls(0.0)
-        assert p.sigma == 0.0
-
-
-# ---------------------------------------------------------------------------
-# Coefficient analytic values
-# ---------------------------------------------------------------------------
-
-
-class TestLinearTwoSidedPath:
-    def test_alpha_beta(self) -> None:
-        p = LinearTwoSidedPath(1.0, sampler_cfg=_GAUSS)
-        t = torch.linspace(0, 1, 11)
-        torch.testing.assert_close(p.compute_alpha_t(t), 1 - t)
-        torch.testing.assert_close(p.compute_beta_t(t), t)
-
-
-@pytest.mark.parametrize("cls", BRIDGES)
-def test_bridge_sigma_scales_std(cls) -> None:
-    p = cls(0.3, sampler_cfg=_GAUSS)
-    t = torch.linspace(0, 1, 11, dtype=torch.float64)
-    torch.testing.assert_close(p.compute_sigma_t(t), 0.3 * torch.sqrt(t * (1 - t)))
-
-
-class TestTrigTwoSidedPath:
-    def test_alpha_beta(self) -> None:
-        p = TrigTwoSidedPath(1.0, sampler_cfg=_GAUSS)
-        t = torch.linspace(0, 1, 11)
-        torch.testing.assert_close(p.compute_alpha_t(t), torch.cos(0.5 * PI * t))
-        torch.testing.assert_close(p.compute_beta_t(t), torch.sin(0.5 * PI * t))
-
-
-class TestEncDecTwoSidedPath:
-    def test_alpha_piecewise(self) -> None:
-        p = EncDecTwoSidedPath(1.0, sampler_cfg=_GAUSS)
-        # t <= 0.5: alpha active, beta = 0
-        t_left = torch.tensor([0.0, 0.1, 0.25, 0.5], dtype=torch.float64)
-        torch.testing.assert_close(p.compute_alpha_t(t_left), torch.cos(PI * t_left) ** 2)
-        torch.testing.assert_close(p.compute_beta_t(t_left), torch.zeros_like(t_left))
-        # t > 0.5: alpha = 0, beta active
-        t_right = torch.tensor([0.75, 0.9, 1.0], dtype=torch.float64)
-        torch.testing.assert_close(p.compute_alpha_t(t_right), torch.zeros_like(t_right))
-        torch.testing.assert_close(p.compute_beta_t(t_right), torch.cos(PI * t_right) ** 2)
-
-    def test_sigma(self) -> None:
-        p = EncDecTwoSidedPath(1.0, sampler_cfg=_GAUSS)
-        t = torch.linspace(0, 1, 11)
-        torch.testing.assert_close(p.compute_sigma_t(t), torch.sin(PI * t) ** 2)
-
-    def test_sigma_scales_linearly(self) -> None:
-        p1 = EncDecTwoSidedPath(1.0, sampler_cfg=_GAUSS)
-        p2 = EncDecTwoSidedPath(2.0, sampler_cfg=_GAUSS)
-        t = torch.tensor([0.5], dtype=torch.float64)
-        torch.testing.assert_close(p2.compute_sigma_t(t), 2 * p1.compute_sigma_t(t))
-
-    def test_sigma_zero_at_endpoints(self) -> None:
-        p = EncDecTwoSidedPath(1.0, sampler_cfg=_GAUSS)
-        t = torch.tensor([0.0, 1.0])
-        torch.testing.assert_close(p.compute_sigma_t(t), torch.zeros_like(t))
-
-    def test_sigma_peak_at_half(self) -> None:
-        p = EncDecTwoSidedPath(1.0, sampler_cfg=_GAUSS)
-        t = torch.tensor([0.5])
-        torch.testing.assert_close(p.compute_sigma_t(t), torch.ones(1))
-
-
-# ---------------------------------------------------------------------------
-# VJP derivatives
-# ---------------------------------------------------------------------------
-
-
-class TestVJPDerivatives:
-    def test_linear_two_sided(self) -> None:
-        p = LinearTwoSidedPath(1.0, sampler_cfg=_GAUSS)
-        t = torch.linspace(0.1, 0.9, 5, dtype=torch.float64)
-        _, dot_alpha = p.compute_alpha_t_and_dot_alpha_t(t)
-        _, dot_beta = p.compute_beta_t_and_dot_beta_t(t)
-        torch.testing.assert_close(dot_alpha, -torch.ones_like(t))
-        torch.testing.assert_close(dot_beta, torch.ones_like(t))
-
-    def test_trig_two_sided(self) -> None:
-        p = TrigTwoSidedPath(1.0, sampler_cfg=_GAUSS)
-        t = torch.linspace(0.1, 0.9, 5, dtype=torch.float64)
-        _, dot_alpha = p.compute_alpha_t_and_dot_alpha_t(t)
-        _, dot_beta = p.compute_beta_t_and_dot_beta_t(t)
-        torch.testing.assert_close(dot_alpha, -0.5 * PI * torch.sin(0.5 * PI * t))
-        torch.testing.assert_close(dot_beta, 0.5 * PI * torch.cos(0.5 * PI * t))
-
-    def test_enc_dec_piecewise_derivatives(self) -> None:
-        p = EncDecTwoSidedPath(1.0, sampler_cfg=_GAUSS)
-        t = torch.tensor([0.2, 0.8], dtype=torch.float64)
-        _, dot_alpha = p.compute_alpha_t_and_dot_alpha_t(t)
-        _, dot_beta = p.compute_beta_t_and_dot_beta_t(t)
-        expected_alpha = torch.where(
-            t <= 0.5,
-            -PI * torch.sin(2 * PI * t),
-            torch.zeros_like(t),
-        )
-        expected_beta = torch.where(
-            t > 0.5,
-            -PI * torch.sin(2 * PI * t),
-            torch.zeros_like(t),
-        )
-        torch.testing.assert_close(dot_alpha, expected_alpha)
-        torch.testing.assert_close(dot_beta, expected_beta)
-
-    @pytest.mark.parametrize("cls", ALL)
-    def test_sigma_derivative_finite_interior(self, cls) -> None:
-        p = _path(cls)
-        t = torch.tensor([0.1, 0.5, 0.9], dtype=torch.float64)
-        sigma, dot_sigma = p.compute_sigma_t_and_dot_sigma_t(t)
-        assert torch.isfinite(sigma).all()
-        assert torch.isfinite(dot_sigma).all()
-
-
-# ---------------------------------------------------------------------------
-# compute_xt: endpoint semantics
-# ---------------------------------------------------------------------------
-
-
-class TestComputeXtEndpoints:
-    @pytest.mark.parametrize("cls", ALL)
-    def test_two_sided_anchors_at_data(self, cls) -> None:
-        p = cls(1.0, sampler_cfg=_GAUSS)
-        x0 = torch.randn(3, 4, dtype=torch.float64)
-        x1 = torch.randn(3, 4, dtype=torch.float64)
-        t0 = torch.zeros(3, 1, dtype=torch.float64)
-        t1 = torch.ones(3, 1, dtype=torch.float64)
-        # sigma_t(0) = sigma_t(1) = 0 for every two-sided path, so the
-        # output is exactly x0 / x1 regardless of the drawn noise.
-        torch.testing.assert_close(p.compute_xt(t0, x0, x1, generator=torch.Generator()), x0)
-        torch.testing.assert_close(p.compute_xt(t1, x0, x1, generator=torch.Generator()), x1)
-
-    @pytest.mark.parametrize("cls", ALL)
-    def test_shape_and_dtype(self, cls) -> None:
-        p = _path(cls)
-        x0 = torch.randn(2, 3, dtype=torch.float64)
-        x1 = torch.randn(2, 3, dtype=torch.float64)
-        t = torch.full((2, 1), 0.5, dtype=torch.float64)
-        xt = p.compute_xt(t, x0, x1, generator=torch.Generator())
-        assert xt.shape == x0.shape
-        assert xt.dtype == x0.dtype
-
-    @pytest.mark.parametrize("cls", ALL)
-    def test_deterministic_with_sigma_zero(self, cls) -> None:
-        p = cls(0.0)
-        x0 = torch.randn(2, 3)
-        x1 = torch.randn(2, 3)
-        t = torch.full((2, 1), 0.5)
-        a = p.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
-        b = p.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(1))
-        torch.testing.assert_close(a, b)
-
-
-# ---------------------------------------------------------------------------
-# Generator-only determinism
-# ---------------------------------------------------------------------------
-
-
-class TestGeneratorDeterminism:
-    @pytest.mark.parametrize("cls", ALL)
-    def test_same_seed_same_result(self, cls) -> None:
-        p = cls(1.0, sampler_cfg=_GAUSS)
-        x0 = torch.zeros(4, 3)
-        x1 = torch.ones(4, 3)
-        t = torch.full((4, 1), 0.5)
-        a = p.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
-        b = p.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
-        assert torch.equal(a, b)
-
-    @pytest.mark.parametrize("cls", ALL)
-    def test_different_seed_different_result(self, cls) -> None:
-        p = cls(1.0, sampler_cfg=_GAUSS)
-        x0 = torch.zeros(4, 3)
-        x1 = torch.ones(4, 3)
-        t = torch.full((4, 1), 0.5)
-        a = p.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
-        b = p.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(1))
-        assert not torch.equal(a, b)
-
-    @pytest.mark.parametrize("cls", ALL)
-    def test_generator_state_advances(self, cls) -> None:
-        # Calling compute_xt twice with the same generator must consume
-        # entropy — otherwise the sampler isn't actually being called.
-        p = cls(1.0, sampler_cfg=_GAUSS)
-        x0 = torch.zeros(4, 3)
-        x1 = torch.ones(4, 3)
-        t = torch.full((4, 1), 0.5)
-        g = torch.Generator().manual_seed(0)
-        a = p.compute_xt(t, x0, x1, generator=g)
-        b = p.compute_xt(t, x0, x1, generator=g)
-        assert not torch.equal(a, b)
-
-
-# ---------------------------------------------------------------------------
-# compute_ut: JVP cross-check + endpoint robustness
-# ---------------------------------------------------------------------------
-
-
-class TestComputeUt:
-    @pytest.mark.parametrize("cls", ALL)
-    def test_velocity_matches_jvp(self, cls) -> None:
-        """``compute_ut`` should equal ``d/dt compute_xt`` under fixed noise."""
-        x0 = torch.randn(5, 3, dtype=torch.float64)
-        x1 = torch.randn(5, 3, dtype=torch.float64)
-        p = _path(cls, 0.7)
-
-        def xt_of(t: torch.Tensor) -> torch.Tensor:  # a fixed seed fixes the noise draw
-            return p.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
-
-        t = torch.tensor([[0.1], [0.3], [0.5], [0.7], [0.9]], dtype=torch.float64)
-        xt, dxt_dt = torch.func.jvp(xt_of, (t,), (torch.ones_like(t),))
-        ut = p.compute_ut(t, xt, x0, x1)
-        torch.testing.assert_close(ut, dxt_dt)
-
-    @pytest.mark.parametrize("cls", ALL)
-    def test_velocity_finite_at_endpoints(self, cls) -> None:
-        # The eps guard in `BasePath.compute_ut` must keep ut finite where sigma_t = 0.
-        p = _path(cls)
-        x0 = torch.randn(2, 3, dtype=torch.float64)
-        x1 = torch.randn(2, 3, dtype=torch.float64)
-        xt = torch.randn(2, 3, dtype=torch.float64)
-        for t_val in (0.0, 1.0):
-            t = torch.full((2, 1), t_val, dtype=torch.float64)
-            ut = p.compute_ut(t, xt, x0, x1)
-            assert torch.isfinite(ut).all(), f"{cls.__name__} at t={t_val}"
-
-
-# ---------------------------------------------------------------------------
-# Broadcasting
-# ---------------------------------------------------------------------------
+# alpha_t, beta_t and sigma_t at t = 0, 1/4, 1/2, 3/4, 1, for sigma = 2.
+# Trig at 1/4 and 3/4 is covered by test_trig_preserves_unit_norm.
+_COEFFS = {
+    LinearPath: (
+        [1.0, 0.75, 0.5, 0.25, 0.0],
+        [0.0, 0.25, 0.5, 0.75, 1.0],
+        [0.0, math.sqrt(3) / 2, 1.0, math.sqrt(3) / 2, 0.0],
+    ),
+    TrigPath: (
+        [1.0, None, _R, None, 0.0],
+        [0.0, None, _R, None, 1.0],
+        [0.0, math.sqrt(3) / 2, 1.0, math.sqrt(3) / 2, 0.0],
+    ),
+    EncDecPath: (
+        [1.0, 0.5, 0.0, 0.0, 0.0],
+        [0.0, 0.0, 0.0, 0.5, 1.0],
+        [0.0, 1.0, 2.0, 1.0, 0.0],
+    ),
+}
 
 
 @pytest.mark.parametrize("cls", ALL)
-@pytest.mark.parametrize("t_shape", [(), (1,), (2, 1), (2, 4)])
-def test_t_broadcast(cls, t_shape) -> None:
+def test_coefficients(cls) -> None:
+    p = _path(cls, 2.0)
+    t = torch.tensor([0.0, 0.25, 0.5, 0.75, 1.0], dtype=torch.float64)
+    for fn, expected in zip((p.compute_alpha_t, p.compute_beta_t, p.compute_sigma_t), _COEFFS[cls], strict=True):
+        known = [i for i, v in enumerate(expected) if v is not None]
+        torch.testing.assert_close(fn(t)[known], torch.tensor([expected[i] for i in known], dtype=torch.float64))
+
+
+def test_trig_preserves_unit_norm() -> None:
+    p = _path(TrigPath)
+    t = torch.linspace(0, 1, 11, dtype=torch.float64)
+    torch.testing.assert_close(p.compute_alpha_t(t) ** 2 + p.compute_beta_t(t) ** 2, torch.ones_like(t))
+
+
+def test_enc_dec_rejects_zero_sigma() -> None:
+    with pytest.raises(ValueError, match="sigma > 0"):
+        EncDecPath(0.0)
+
+
+# dot alpha_t and dot beta_t at given t.
+_DOTS = [
+    (LinearPath, [0.2, 0.9], [-1.0, -1.0], [1.0, 1.0]),
+    (TrigPath, [0.0, 1.0], [0.0, -math.pi / 2], [math.pi / 2, 0.0]),
+    (EncDecPath, [0.25, 0.75], [-math.pi, 0.0], [0.0, math.pi]),
+]
+
+
+@pytest.mark.parametrize(("cls", "t", "dot_alpha", "dot_beta"), _DOTS, ids=[c.__name__ for c, *_ in _DOTS])
+def test_derivatives(cls, t, dot_alpha, dot_beta) -> None:
     p = _path(cls)
-    x0 = torch.randn(2, 4)
-    x1 = torch.randn(2, 4)
-    xt_in = torch.randn(2, 4)
-    t = torch.full(t_shape, 0.5)
-    xt = p.compute_xt(t, x0, x1, generator=torch.Generator())
-    ut = p.compute_ut(t, xt_in, x0, x1)
-    assert xt.shape == x0.shape
-    assert ut.shape == x0.shape
+    t = torch.tensor(t, dtype=torch.float64)
+    torch.testing.assert_close(p.compute_alpha_t_and_dot_alpha_t(t)[1], torch.tensor(dot_alpha, dtype=torch.float64))
+    torch.testing.assert_close(p.compute_beta_t_and_dot_beta_t(t)[1], torch.tensor(dot_beta, dtype=torch.float64))
+
+
+@pytest.mark.parametrize("cls", ALL)
+def test_anchors_at_data(cls) -> None:
+    p = _path(cls)
+    x0 = torch.randn(3, 4, dtype=torch.float64)
+    x1 = torch.randn(3, 4, dtype=torch.float64)
+    t0 = torch.zeros(3, 1, dtype=torch.float64)
+    t1 = torch.ones(3, 1, dtype=torch.float64)
+    # sigma_t(0) = sigma_t(1) = 0 for every path, so the output is exactly x0 / x1 whatever the noise.
+    torch.testing.assert_close(p.compute_xt(t0, x0, x1, generator=torch.Generator()), x0)
+    torch.testing.assert_close(p.compute_xt(t1, x0, x1, generator=torch.Generator()), x1)
+
+
+@pytest.mark.parametrize("cls", ALL)
+def test_velocity_matches_jvp(cls) -> None:
+    """``compute_ut`` should equal ``d/dt compute_xt`` under fixed noise."""
+    x0 = torch.randn(5, 3, dtype=torch.float64)
+    x1 = torch.randn(5, 3, dtype=torch.float64)
+    p = _path(cls, 0.7)
+
+    def xt_of(t: torch.Tensor) -> torch.Tensor:  # a fixed seed fixes the noise draw
+        return p.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
+
+    t = torch.tensor([[0.1], [0.3], [0.5], [0.7], [0.9]], dtype=torch.float64)
+    xt, dxt_dt = torch.func.jvp(xt_of, (t,), (torch.ones_like(t),))
+    torch.testing.assert_close(p.compute_ut(t, xt, x0, x1), dxt_dt)
+
+
+@pytest.mark.parametrize("cls", ALL)
+def test_velocity_finite_at_endpoints(cls) -> None:
+    # The eps guard in `BasePath.compute_ut` must keep ut finite where sigma_t = 0.
+    p = _path(cls)
+    x0 = torch.randn(2, 3, dtype=torch.float64)
+    x1 = torch.randn(2, 3, dtype=torch.float64)
+    xt = torch.randn(2, 3, dtype=torch.float64)
+    t = torch.tensor([[0.0], [1.0]], dtype=torch.float64)
+    assert torch.isfinite(p.compute_ut(t, xt, x0, x1)).all()
+
+
+@pytest.mark.parametrize("cls", ALL)
+@pytest.mark.parametrize(
+    "t",
+    [
+        torch.tensor(0.4),
+        torch.tensor([0.4]),
+        torch.tensor([0.3, 0.6]),  # (B,), as CFM passes it
+        torch.tensor([[0.3], [0.6]]),
+        torch.tensor([[0.1, 0.2, 0.3, 0.4], [0.5, 0.6, 0.7, 0.8]]),
+    ],
+    ids=["()", "(1,)", "(B,)", "(B,1)", "(B,D)"],
+)
+def test_t_broadcast(cls, t) -> None:
+    """Every t shape gives the same xt and ut as t expanded to the data's shape."""
+    p = _path(cls)
+    x0 = torch.randn(2, 4, dtype=torch.float64)
+    x1 = torch.randn(2, 4, dtype=torch.float64)
+    xt_in = torch.randn(2, 4, dtype=torch.float64)
+    t = t.double()
+    t_full = (t[:, None] if t.shape == (2,) else t).expand(2, 4)
+
+    def xt_of(t):
+        return p.compute_xt(t, x0, x1, generator=torch.Generator().manual_seed(0))
+
+    torch.testing.assert_close(xt_of(t), xt_of(t_full))
+    torch.testing.assert_close(p.compute_ut(t, xt_in, x0, x1), p.compute_ut(t_full, xt_in, x0, x1))

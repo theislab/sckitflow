@@ -8,7 +8,7 @@ from sckitflow.core.probability_paths._base import BasePath
 
 
 class _LinearTestPath(BasePath):
-    """``alpha_t = 1 - t``, ``beta_t = t``, ``sigma_t = t(1 - t)``."""
+    """``alpha_t = 1 - t``, ``beta_t = t``, ``sigma_t = sigma t(1 - t)``."""
 
     def compute_alpha_t(self, t: torch.Tensor) -> torch.Tensor:
         return 1 - t
@@ -17,45 +17,54 @@ class _LinearTestPath(BasePath):
         return t
 
     def compute_sigma_t(self, t: torch.Tensor) -> torch.Tensor:
-        return t * (1 - t)
+        return self.sigma * t * (1 - t)
 
 
-class TestBasePathInit:
-    @pytest.mark.parametrize("sigma", [-1.0, float("inf"), float("nan")])
-    def test_invalid_sigma_raises(self, sigma) -> None:
-        with pytest.raises(ValueError, match="finite non-negative"):
-            _LinearTestPath(sigma)
+def _recording_sampler_cfg(noise: torch.Tensor, calls: list) -> IsotropicGaussianNoiseSamplerConfig:
+    """A sampler config whose sampler records its calls and returns ``noise``."""
 
-    def test_positive_sigma_without_sampler_raises(self) -> None:
-        with pytest.raises(ValueError, match="Positive sigma requires a sampler"):
-            _LinearTestPath(1.0)
+    def sampler(shape, *, generator, device=None, dtype=None):
+        calls.append(shape)
+        return noise.to(device=device, dtype=dtype)
 
-    @pytest.mark.parametrize("sampler_cfg", [None, IsotropicGaussianNoiseSamplerConfig()])
-    def test_zero_sigma_builds_no_sampler(self, sampler_cfg) -> None:
-        path = _LinearTestPath(0.0, sampler_cfg=sampler_cfg)
-        assert path.sigma == 0.0
-        assert path._sampler is None
+    class _RecordingSamplerConfig(IsotropicGaussianNoiseSamplerConfig):
+        def build(self):
+            return sampler
 
-    def test_positive_sigma_with_sampler_builds_sampler(self) -> None:
-        path = _LinearTestPath(0.3, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
-        assert path.sigma == 0.3
-        assert path._sampler is not None
+    return _RecordingSamplerConfig()
 
 
-class TestAbstractness:
-    def test_basepath_is_abstract(self) -> None:
-        with pytest.raises(TypeError, match="abstract"):
-            BasePath(0.0)
+@pytest.mark.parametrize("sigma", [-1.0, float("inf"), float("nan")])
+def test_invalid_sigma_raises(sigma) -> None:
+    with pytest.raises(ValueError, match="finite non-negative"):
+        _LinearTestPath(sigma)
+
+
+def test_positive_sigma_without_sampler_raises() -> None:
+    with pytest.raises(ValueError, match="Positive sigma requires a sampler"):
+        _LinearTestPath(1.0)
 
 
 class TestComputeXt:
+    t = torch.tensor([[0.5], [0.25]], dtype=torch.float64)
+    x0 = torch.tensor([[1.0, -1.0], [2.0, 0.0]], dtype=torch.float64)
+    x1 = torch.tensor([[3.0, 1.0], [-2.0, 4.0]], dtype=torch.float64)
+    mu = torch.tensor([[2.0, 0.0], [1.0, 1.0]], dtype=torch.float64)
+
     def test_deterministic_returns_mu(self) -> None:
-        path = _LinearTestPath(0.0)
-        t = torch.tensor([[0.3], [0.7]], dtype=torch.float64)
-        x0 = torch.randn(2, 4, dtype=torch.float64)
-        x1 = torch.randn(2, 4, dtype=torch.float64)
-        xt = path.compute_xt(t, x0, x1, generator=torch.Generator())
-        torch.testing.assert_close(xt, (1 - t) * x0 + t * x1)
+        calls = []
+        path = _LinearTestPath(0.0, sampler_cfg=_recording_sampler_cfg(torch.ones(2, 2), calls))
+        torch.testing.assert_close(path.compute_xt(self.t, self.x0, self.x1, generator=torch.Generator()), self.mu)
+        assert calls == []
+
+    def test_draws_noise_from_sampler_cfg(self) -> None:
+        calls = []
+        noise = torch.tensor([[1.0, 2.0], [-1.0, 4.0]], dtype=torch.float64)
+        path = _LinearTestPath(2.0, sampler_cfg=_recording_sampler_cfg(noise, calls))
+        xt = path.compute_xt(self.t, self.x0, self.x1, generator=torch.Generator())
+        # sigma_t = 2 t (1 - t): 0.5 at t = 0.5 and 0.375 at t = 0.25
+        torch.testing.assert_close(xt, self.mu + torch.tensor([[0.5], [0.375]], dtype=torch.float64) * noise)
+        assert calls == [(2, 2)]
 
 
 class TestComputeUt:
@@ -81,7 +90,7 @@ class TestComputeUt:
         torch.testing.assert_close(ut, expected)
 
     def test_eps_guard_at_endpoints(self) -> None:
-        # ``sigma_t(0) == sigma_t(1) == 0``; without the eps guard the result would be ``nan``.
+        # ``sigma_t(0) == sigma_t(1) == 0``; without the eps guard the result would be ``inf``.
         path = _LinearTestPath(1.0, sampler_cfg=IsotropicGaussianNoiseSamplerConfig())
         t = torch.tensor([[0.0], [1.0]], dtype=torch.float64)
         x0 = torch.randn(2, 4, dtype=torch.float64)

@@ -109,7 +109,7 @@ class TestSDESolverInitialization:
         dynamics = (drift_vf, diffusion)
 
         solver = SDESolver(dynamics=dynamics, device_id="cuda")
-        assert solver.device.type == "cuda"
+        assert solver.device_id.type == "cuda"
 
 
 class TestSDESolverBasicFunctionality:

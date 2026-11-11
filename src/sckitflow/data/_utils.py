@@ -1,10 +1,12 @@
 import copy
 from collections.abc import Callable, Collection, Mapping, Sequence
-from typing import Any
+from typing import Annotated, Any
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
+from anndata.acc import A, LayerAcc, MultiAcc
+from pydantic_core import core_schema
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sckitflow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
@@ -19,7 +21,75 @@ __all__ = [
     "AnnDataLike",
     "as_adatas",
     "with_derived_obs_stacked",
+    "Rep",
+    "RepField",
+    "CovField",
+    "parse_rep",
+    "rep_str",
 ]
+
+type Rep = LayerAcc | MultiAcc
+"""A whole array of an AnnData as an :mod:`anndata.acc` reference: ``A.X``, ``A.layers[k]`` or ``A.obsm[k]``."""
+
+
+def parse_rep(value: Any, *, allow_x: bool = True) -> Rep:
+    """A rep reference, from one or from its config string ``"X"``, ``"obsm.<k>"`` or ``"layers.<k>"``.
+
+    A bare name such as ``"X_pca"`` is rejected: the string names where the array lives.
+    """
+    if isinstance(value, str):
+        if value != "X" and "." not in value:
+            raise ValueError(
+                f"{value!r} does not say where the array lives: write 'obsm.{value}' or 'layers.{value}'"
+                + (" ('X' for .X)." if allow_x else ".")
+            )
+        value = A.resolve(value, vec=False)
+    match value:
+        case LayerAcc(k=None) if not allow_x:
+            raise ValueError(
+                "A.X is not allowed here: name an array keyed per observation, 'obsm.<k>' or 'layers.<k>'."
+            )
+        case LayerAcc(k=k) | MultiAcc(dim="obs", k=k) if k is not None and (k == "" or "." in k):
+            # a saved config writes the key after a dot, so a dotted key would read back as something else
+            raise ValueError(f"{value!r}: a rep key must be non-empty and hold no '.', so it reads back from a config.")
+        case LayerAcc() | MultiAcc(dim="obs"):
+            return value
+    raise ValueError(f"a rep is A.X, A.layers[k] or A.obsm[k] (or 'X', 'layers.<k>', 'obsm.<k>'), got {value!r}.")
+
+
+def rep_str(ref: Rep) -> str:
+    """The config string of rep ``ref``, which :func:`parse_rep` reads back: ``"X"``, ``"layers.<k>"``, ``"obsm.<k>"``."""
+    match ref:
+        case LayerAcc(k=None):
+            return "X"
+        case LayerAcc(k=k):
+            return f"layers.{k}"
+        case MultiAcc(dim="obs", k=k):
+            return f"obsm.{k}"
+    raise ValueError(f"{ref!r} is not A.X, A.layers[k] or A.obsm[k].")
+
+
+class _RepSchema:
+    """Pydantic schema of a rep field: validated by :func:`parse_rep`, written by :func:`rep_str`."""
+
+    def __init__(self, *, allow_x: bool) -> None:
+        self.allow_x = allow_x
+
+    def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            lambda v: parse_rep(v, allow_x=self.allow_x),
+            serialization=core_schema.plain_serializer_function_ser_schema(rep_str),
+        )
+
+    def __get_pydantic_json_schema__(self, schema: Any, handler: Any) -> dict[str, str]:
+        return {"type": "string"}
+
+
+RepField = Annotated[Rep, _RepSchema(allow_x=True)]
+"""A config field holding a rep: validated from a reference or its config string, written as the string."""
+
+CovField = Annotated[Rep, _RepSchema(allow_x=False)]
+"""As :data:`RepField`, for a per-observation covariate: ``A.obsm[k]`` or ``A.layers[k]``, never ``A.X``."""
 
 AnnDataLike = AnnData | Sequence[AnnData]
 """One ``AnnData``, or several read as one dataset: their observations stacked in list order."""

@@ -63,7 +63,10 @@ def dims() -> DataDimensions:
 
 def _datamodule(adata: AnnData, **dm_kwargs) -> FlowDataModule:
     dm = DataManagerConfig(
-        categorical_conditions={"drug": ("drug",)}, categorical_reps={"drug": "drug"}, **dm_kwargs
+        target_sample_rep="X",
+        categorical_conditions={"drug": ("drug",)},
+        categorical_reps={"drug": "drug"},
+        **dm_kwargs,
     ).build()
     return FlowDataModule.from_adata(adata, dm, n_train_steps=10, batch_size=8)
 
@@ -184,7 +187,7 @@ def paired(dims):
 def test_predict_adata_unconditional():
     """No groups or conditions: one group of every cell, generated from noise, one row per sample."""
     adata = AnnData(np.random.default_rng(0).standard_normal((20, 2)).astype(np.float32))
-    dmod = FlowDataModule.from_adata(adata, DataManagerConfig().build(), batch_size=8)
+    dmod = FlowDataModule.from_adata(adata, DataManagerConfig(target_sample_rep="X").build(), batch_size=8)
     inference = ODEInference(
         _module(), ODEInferenceConfig(generate_from_noise=True, n_samples=10, n_steps=2), dims=dmod.data_dims
     )

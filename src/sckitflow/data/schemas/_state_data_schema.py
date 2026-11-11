@@ -1,3 +1,4 @@
+from sckitflow.data._utils import Rep
 from sckitflow.data.schemas._base_schema import StrictDataSchema
 
 __all__ = ["StateDataSchema"]
@@ -8,13 +9,13 @@ class StateDataSchema(StrictDataSchema):
 
     def __init__(
         self,
-        sample_rep: str | None = None,
+        sample_rep: Rep,
     ) -> None:
         """Initializes the state data schema
 
-        :param sample_rep: The representation to extract. When provided, it should appear as
-            key in `.obsm`, otherwise the `.X` attribute will be used. Defaults to `None`.
-        :type sample_rep: `str | None`
+        :param sample_rep: The representation to extract, as an :mod:`anndata.acc` reference (``A.X``,
+            ``A.layers[k]`` or ``A.obsm[k]``).
+        :type sample_rep: `Rep`
         """
         self._sample_rep = sample_rep
         super().__init__()
@@ -24,6 +25,6 @@ class StateDataSchema(StrictDataSchema):
         pass
 
     @property
-    def sample_rep(self) -> str:
+    def sample_rep(self) -> Rep:
         """Exposes to `sample_rep` parameter set at initialization."""
         return self._sample_rep

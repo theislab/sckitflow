@@ -7,15 +7,40 @@ everything lives; nothing is inferred from the data.
 
 | What | Where | Schema field | Requirement |
 | --- | --- | --- | --- |
-| State | `.X`, or `.obsm[target_sample_rep]` | `target_sample_rep` | One float matrix, the same width for every cell. |
+| State | `.X`, `.layers[key]` or `.obsm[key]` | `target_sample_rep` (required) | One float matrix, the same width for every cell. |
 | Condition | `.obs[col]` | `categorical_conditions` | Per condition level, one or more columns. Several columns form a set, e.g. `drug: [drug1, drug2]` for combinations. |
 | Condition embeddings | `.uns[rep]` | `categorical_reps` | A dict from every value in those columns to a vector, `(d,)` or `(1, d)`, all of one width. Include the control value when it fills an unused slot, e.g. `drug2 == "control"` for a single drug. |
-| Continuous condition covariates | `.obsm[key]` | `continuous_conditions` | Per-cell arrays. |
+| Continuous condition covariates | `.obsm[key]` or `.layers[key]` | `continuous_conditions` | Per-cell arrays, keyed by `key` in the batch and in the condition encoder's `continuous_input_layers`. |
 | Groups | `.obs[col]` | `groups` | Columns controls are matched within, e.g. `cell_line`. |
 | Group embeddings | `.uns[rep]`, or an encoder | `groups_reps`, `groups_encoding` | Like condition embeddings, or an encoder with an explicit vocabulary. |
-| Response covariates | `.obsm[key]` | `target_continuous_covs` | Continuous, streamed per observation alongside the target. |
-| Coupling representations | `.obsm[key]` | `rep_lin`, `source_rep_quad`, `target_rep_quad` | Only for Gromov-Wasserstein style couplings. |
+| Response covariates | `.obsm[key]` or `.layers[key]` | `target_continuous_covs` | Continuous, streamed per observation alongside the target, keyed by `key`. |
+| Coupling representations | `.X`, `.layers[key]` or `.obsm[key]` | `rep_lin`, `source_rep_quad`, `target_rep_quad` | What an OT-matched method matches on. Nothing is streamed unless named; a matched method with none raises. |
 | Split | `.obs[split_by]` | `split_by` | Written before the data reaches a run, e.g. by [flowrun](https://github.com/selmanozleyen/flowrun)'s split step: the split is the experiment's choice, not the model's. A `"split"` column the schema does not declare is an error. |
+
+## Naming arrays
+
+The fields that name an array take an [`anndata.acc`](https://anndata.readthedocs.io/en/latest/generated/anndata.acc.html)
+reference in Python (`A.X`, `A.layers["counts"]`, `A.obsm["X_pca"]`) and, in a YAML or JSON config, its dotted string,
+the form `A.resolve(text, vec=False)` reads:
+
+| Config string | Reference | Where |
+| --- | --- | --- |
+| `X` | `A.X` | `.X` |
+| `layers.counts` | `A.layers["counts"]` | `.layers["counts"]` |
+| `obsm.X_pca` | `A.obsm["X_pca"]` | `.obsm["X_pca"]` |
+
+A bare name such as `X_pca` is rejected: write where the array lives. Nothing defaults to `.X`, so `target_sample_rep`
+is required and `rep_lin` names the linear coupling rep whenever there is one (`rep_lin: X` for `.X`). The continuous
+covariates (`continuous_conditions`, `target_continuous_covs`) take `obsm.<key>` or `layers.<key>`, never `X`, and are
+keyed by `key`. A saved spec writes every reference back as its string.
+
+```yaml
+data:
+  type: data_manager
+  target_sample_rep: layers.lognorm
+  rep_lin: obsm.X_pca
+  continuous_conditions: [obsm.dose]
+```
 
 ## Controls
 
@@ -36,12 +61,13 @@ order with categories unioned, and the controls of any of them can serve the tar
 file reading the state (`target_sample_rep`) must agree on its width and feature names, and a split column (`split_by`) must be in each. Each
 `.uns` table the schema reads must be in at least one of them: its entries are merged, an entry in several
 must be the same in each, and every value looked up must have one. A list of zarr stores is opened lazily with `scfit.data.open_source(paths,
-keys=..., cols=..., uns=...)`, listing every store explicitly. A store holding only controls is just one more
+*refs, uns=uns)`, listing every store explicitly; `refs, uns = manager.get_required_fields()` names exactly what the
+schema reads. A store holding only controls is just one more
 entry. A store only needs the representations of the cells it holds: the target side reads the stores holding
 targets and the source side the stores holding sources, so e.g. `source_rep_quad` can live only with the controls. The
 sources may even have their own state rep, e.g. ATAC controls flowing into RNA targets: name it with
 `source_sample_rep` (it cannot be told from the data, since two reps may have the same width). The files holding
 sources then need only that rep, the files holding targets only `target_sample_rep`. A flow cannot start from it, so it
 needs `generate_from_noise=True` and a source encoder (`NeuralVelocityConfig.source_encoder`), as GENOT does; the matching
-needs a shared `rep_lin` or the quadratic terms alone (`use_linear=False`). A saved model reloads with data
+needs a shared `rep_lin` or the quadratic terms alone (no `rep_lin`). A saved model reloads with data
 holding target cells, which fix the targets' state.

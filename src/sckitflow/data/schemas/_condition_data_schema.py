@@ -4,6 +4,7 @@ from typing import Any
 import pandas as pd
 
 from sckitflow._utils import check_sequence_query_against_reference
+from sckitflow.data._utils import Rep
 from sckitflow.data.containers._categorical import CategoricalData
 from sckitflow.data.schemas._base_schema import StrictDataSchema
 
@@ -17,7 +18,7 @@ class ConditionDataSchema(StrictDataSchema):
         self,
         categorical_conditions: dict[str, Collection[str]] | None = None,
         categorical_reps: dict[str, str] | None = None,
-        continuous_conditions: Collection[str] | None = None,
+        continuous_conditions: Collection[Rep] | None = None,
     ) -> None:
         """Initializes the condition data schema.
 
@@ -72,6 +73,7 @@ class ConditionDataSchema(StrictDataSchema):
             .. code-block:: python
                 >>> # importing libraries
                 >>> import numpy as np
+                >>> from anndata.acc import A
                 >>> from sckitflow.data import schemas, sim
                 >>> # annotated data
                 >>> adata = sim.get_dummy_adata(rng=np.random.default_rng(0))
@@ -111,13 +113,14 @@ class ConditionDataSchema(StrictDataSchema):
 
             ## Storage Strategies.
             We cannot avoid in this case to store the full array as a lookup table, as there will be no duplicate
-            conditions. For this reason, continuous conditioning covariates are assumed to be stored as arrays in `.obsm`.
+            conditions. For this reason, continuous conditioning covariates are arrays keyed per observation, named by
+            :mod:`anndata.acc` references (``A.obsm[k]`` or ``A.layers[k]``). Their key ``k`` names them in a batch.
 
             ## Practical Examples.
-            We will continue from the example above and use the data stored in the `"paired_condition"` key of `adata.obsm`
+            We will continue from the example above and use the data stored at ``A.obsm["paired_condition"]``
             as dense condition covariates.
             In order to model this type of conditioning is necessary to add the :param: `continuous_conditions` argument
-            at initialization, specifying the sequence of key identifier to be used as condition.
+            at initialization, specifying the sequence of references to be used as condition.
 
             .. code-block:: python
                 >>> condition_schema = schemas.ConditionDataSchema(
@@ -129,7 +132,7 @@ class ConditionDataSchema(StrictDataSchema):
                 ...         "drug_perturbation": "drug",
                 ...         "genetic_ko": "ko",
                 ...     },
-                ...     continuous_conditions=["paired_condition"],
+                ...     continuous_conditions=[A.obsm["paired_condition"]],
                 ... )
                 >>> condition_data = condition_schema.get_data(adata)
                 >>> type(condition_data)
@@ -141,7 +144,7 @@ class ConditionDataSchema(StrictDataSchema):
 
             .. code-block:: python
                 >>> condition_schema = schemas.ConditionDataSchema(
-                ...     continuous_conditions=["paired_condition"],
+                ...     continuous_conditions=[A.obsm["paired_condition"]],
                 ... )
                 >>> condition_data = condition_schema.get_data(adata)
                 >>> type(condition_data)
@@ -155,9 +158,9 @@ class ConditionDataSchema(StrictDataSchema):
             the dedicated section above. Defaults to `None`.
         :type categorical_reps: class: `dict[str, str] | None`
 
-        :param continuous_conditions: Sequence of continuous condition covariates, as described in the
-            dedicated section above. Defaulst to `None`.
-        :type continuous_conditions: class: `Collection[str] | None`
+        :param continuous_conditions: Sequence of continuous condition covariates, as :mod:`anndata.acc`
+            references described in the dedicated section above. Defaults to `None`.
+        :type continuous_conditions: class: `Collection[Rep] | None`
         """
         self._categorical_conditions = {} if categorical_conditions is None else categorical_conditions
         self._categorical_reps = {} if categorical_reps is None else categorical_reps
@@ -221,7 +224,7 @@ class ConditionDataSchema(StrictDataSchema):
         return self._categorical_reps
 
     @property
-    def continuous_conditions(self) -> Collection[str]:
+    def continuous_conditions(self) -> Collection[Rep]:
         """Exposes to `continuous_conditions` parameter set at initialization."""
         return self._continuous_conditions
 

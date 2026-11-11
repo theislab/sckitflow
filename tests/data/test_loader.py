@@ -10,6 +10,7 @@ import pandas as pd
 import pytest
 import torch
 from anndata import AnnData
+from anndata.acc import A
 from scipy import sparse
 
 from sckitflow.data._group_encoders import LabelEncoderConfig, OneHotEncoderConfig
@@ -49,13 +50,14 @@ def loader_adata() -> AnnData:
 
 def _dm(**overrides) -> DataManager:
     base = {
+        "target_sample_rep": "X",
         "categorical_conditions": {"drug": ("drugA",)},
         "categorical_reps": {"drug": "drug"},
-        "continuous_conditions": ["Xcond"],
+        "continuous_conditions": ["obsm.Xcond"],
         "groups": ("source_split",),
         "groups_reps": {"source_split": "source_split"},
         "control_values_dict": {"drug": "control"},
-        "target_continuous_covs": ["ytgt"],
+        "target_continuous_covs": ["obsm.ytgt"],
     }
     base.update(overrides)
     return DataManager(DataManagerConfig(**base))
@@ -108,8 +110,28 @@ class TestLoaderStepDataMapping:
     def test_sample_rep_reads_state_from_obsm(self, loader_adata):
         """With target_sample_rep set, target_state comes from that obsm key instead of .X."""
         ad = loader_adata
-        sd = next(iter(_loader(ad, _dm(target_sample_rep="Xrep"))))
+        sd = next(iter(_loader(ad, _dm(target_sample_rep="obsm.Xrep"))))
         assert sd["target_state"].shape[1] == REP_DIM
+
+    def test_sample_rep_reads_state_from_a_layer(self, loader_adata):
+        """A layer is a state rep too: target and source states are rows of that layer, not of .X."""
+        ad = loader_adata
+        ad.layers["counts"] = ad.X + 100.0  # same width as X, values .X never has
+        sd = next(iter(_loader(ad, _dm(target_sample_rep="layers.counts"))))
+        assert sd["target_state"].shape[1] == ad.n_vars
+        for state in (sd["target_state"], sd["source_state"]):
+            assert state.min() > 50.0
+            rows = state.numpy()
+            assert all(np.any(np.all(np.isclose(ad.layers["counts"], r), axis=1)) for r in rows)
+
+    def test_continuous_covariates_from_layers(self, loader_adata):
+        """A continuous covariate in a layer streams per cell, keyed by its layer name."""
+        ad = loader_adata
+        ad.layers["dose"] = ad.X * 2.0
+        sd = next(iter(_loader(ad, _dm(continuous_conditions=["layers.dose"]))))
+        dose = sd["target_condition_data"]["dose"]
+        assert dose.shape == (sd["target_state"].shape[0], ad.n_vars)
+        assert all(np.any(np.all(np.isclose(ad.layers["dose"], r), axis=1)) for r in dose.numpy())
 
     def test_control_link_populates_source_state(self, loader_adata):
         """A control link (same-adata weights) fills source_state with the matched control population."""
@@ -147,7 +169,7 @@ class TestLoaderIterationContract:
         """An unconditional schema still streams: every cell is in the one group ``()``."""
         ad = loader_adata
         before = list(ad.obs.columns)
-        loader = Loader(ad, **DataManager()._loader_schema, batch_size=8)
+        loader = Loader(ad, **DataManagerConfig(target_sample_rep="X").build()._loader_schema, batch_size=8)
         sd = next(iter(loader))
 
         assert sd["target_state"].shape == (8, ad.n_vars)
@@ -343,56 +365,8 @@ class TestLoaderDtypeAndDevice:
         assert loader._conform(torch.zeros(2, 2), streamed=False).device.type == "cpu"
 
 
-class TestCouplingLocs:
-    """`_get_coupling_locs` derives rep locs from the schema, one per configured term."""
-
-    def test_none_schema_yields_empty_locs(self):
-        from sckitflow.data._loader import _get_coupling_locs
-
-        assert _get_coupling_locs(None) == ({}, {})
-
-    def test_linear_only_default_rep_lin_aliases_x(self):
-        """`rep_lin=None` means `.X`, so both sides point at `"X"`."""
-        from sckitflow.data._loader import _get_coupling_locs
-
-        src, tgt = _get_coupling_locs(CouplingDataSchema())
-        assert src == {"X": "source_coupling_lin"}
-        assert tgt == {"X": "target_coupling_lin"}
-
-    def test_linear_only_with_obsm_rep(self):
-        from sckitflow.data._loader import _get_coupling_locs
-
-        src, tgt = _get_coupling_locs(CouplingDataSchema(rep_lin="X_lin"))
-        assert src == {"obsm/X_lin": "source_coupling_lin"}
-        assert tgt == {"obsm/X_lin": "target_coupling_lin"}
-
-    def test_fused_carries_shared_lin_and_per_side_quads(self):
-        from sckitflow.data._loader import _get_coupling_locs
-
-        schema = CouplingDataSchema(
-            rep_lin="X_lin",
-            source_rep_quad="X_src_quad",
-            target_rep_quad="X_tgt_quad",
-        )
-        src, tgt = _get_coupling_locs(schema)
-        assert src == {"obsm/X_lin": "source_coupling_lin", "obsm/X_src_quad": "source_coupling_quad"}
-        assert tgt == {"obsm/X_lin": "target_coupling_lin", "obsm/X_tgt_quad": "target_coupling_quad"}
-
-    def test_pure_gw_has_no_linear_locs(self):
-        from sckitflow.data._loader import _get_coupling_locs
-
-        schema = CouplingDataSchema(
-            use_linear=False,
-            source_rep_quad="X_src_quad",
-            target_rep_quad="X_tgt_quad",
-        )
-        src, tgt = _get_coupling_locs(schema)
-        assert src == {"obsm/X_src_quad": "source_coupling_quad"}
-        assert tgt == {"obsm/X_tgt_quad": "target_coupling_quad"}
-
-
 class TestMergeReps:
-    """`_merge_reps` dedupes rep locs -- the shared linear term aliases the state by default."""
+    """`_merge_reps` dedupes reps -- e.g. a linear term named as the state rep itself."""
 
     def test_dedupe_preserves_first_occurrence_order(self):
         from sckitflow.data._loader import _merge_reps
@@ -433,9 +407,9 @@ class TestLoaderCouplingStreaming:
         assert sd["source_coupling_lin"] is None
         assert sd["source_coupling_quad"] is None
 
-    def test_linear_only_default_aliases_state(self, loader_adata):
-        """`rep_lin=None`: the linear coupling term *is* the state, on both sides."""
-        sd = next(iter(self._coupling_loader(loader_adata, CouplingDataSchema())))
+    def test_rep_lin_naming_the_state_aliases_it(self, loader_adata):
+        """`rep_lin=A.X` with an `.X` state: the linear coupling term *is* the state, on both sides."""
+        sd = next(iter(self._coupling_loader(loader_adata, CouplingDataSchema(rep_lin=A.X))))
         assert sd["target_coupling_lin"] is not None
         assert sd["source_coupling_lin"] is not None
         assert sd["target_coupling_quad"] is None
@@ -443,8 +417,20 @@ class TestLoaderCouplingStreaming:
         torch.testing.assert_close(sd["target_coupling_lin"], sd["target_state"])
         torch.testing.assert_close(sd["source_coupling_lin"], sd["source_state"])
 
+    def test_layer_coupling_reps(self, loader_adata):
+        """Layers are coupling reps too, each side read from its own layer."""
+        ad = loader_adata
+        ad.layers["lin"], ad.layers["quad"] = ad.X + 10.0, ad.X - 10.0
+        schema = CouplingDataSchema(
+            rep_lin=A.layers["lin"], source_rep_quad=A.layers["quad"], target_rep_quad=A.layers["quad"]
+        )
+        sd = next(iter(self._coupling_loader(ad, schema)))
+        assert sd["target_coupling_lin"].min() > 5.0 and sd["source_coupling_lin"].min() > 5.0
+        assert sd["target_coupling_quad"].max() < -5.0 and sd["source_coupling_quad"].max() < -5.0
+        torch.testing.assert_close(sd["target_coupling_lin"] - 20.0, sd["target_coupling_quad"])
+
     def test_linear_only_with_obsm_rep_has_lin_width(self, loader_adata):
-        sd = next(iter(self._coupling_loader(loader_adata, CouplingDataSchema(rep_lin="X_lin"))))
+        sd = next(iter(self._coupling_loader(loader_adata, CouplingDataSchema(rep_lin=A.obsm["X_lin"]))))
         b = sd["target_state"].shape[0]
         assert sd["target_coupling_lin"].shape == (b, 5)
         assert sd["source_coupling_lin"].shape == (b, 5)
@@ -454,9 +440,9 @@ class TestLoaderCouplingStreaming:
     def test_fused_streams_shared_lin_and_per_side_quads(self, loader_adata):
         """Each side reads its own quadratic -- source 3-wide, target 4-wide -- over a shared 5-wide lin."""
         schema = CouplingDataSchema(
-            rep_lin="X_lin",
-            source_rep_quad="X_src_quad",
-            target_rep_quad="X_tgt_quad",
+            rep_lin=A.obsm["X_lin"],
+            source_rep_quad=A.obsm["X_src_quad"],
+            target_rep_quad=A.obsm["X_tgt_quad"],
         )
         sd = next(iter(self._coupling_loader(loader_adata, schema)))
         b = sd["target_state"].shape[0]
@@ -467,9 +453,8 @@ class TestLoaderCouplingStreaming:
 
     def test_pure_gw_omits_linear_on_both_sides(self, loader_adata):
         schema = CouplingDataSchema(
-            use_linear=False,
-            source_rep_quad="X_src_quad",
-            target_rep_quad="X_tgt_quad",
+            source_rep_quad=A.obsm["X_src_quad"],
+            target_rep_quad=A.obsm["X_tgt_quad"],
         )
         sd = next(iter(self._coupling_loader(loader_adata, schema)))
         assert sd["target_coupling_lin"] is None
@@ -481,9 +466,9 @@ class TestLoaderCouplingStreaming:
         """The `_target_coupling_dict` iterating the source dicts bug would `KeyError` here: with a
         fused schema the source and target quad locs are disjoint, and the widths differ on purpose."""
         schema = CouplingDataSchema(
-            rep_lin="X_lin",
-            source_rep_quad="X_src_quad",
-            target_rep_quad="X_tgt_quad",
+            rep_lin=A.obsm["X_lin"],
+            source_rep_quad=A.obsm["X_src_quad"],
+            target_rep_quad=A.obsm["X_tgt_quad"],
         )
         sd = next(iter(self._coupling_loader(loader_adata, schema)))
         assert sd["source_coupling_quad"].shape[1] == 3
@@ -491,7 +476,7 @@ class TestLoaderCouplingStreaming:
 
     def test_unpaired_with_a_coupling_schema_still_streams_target(self, loader_adata):
         """No control link ⇒ source coupling is None; target coupling still streams (from the primary)."""
-        schema = CouplingDataSchema(rep_lin="X_lin", target_rep_quad="X_tgt_quad")
+        schema = CouplingDataSchema(rep_lin=A.obsm["X_lin"], target_rep_quad=A.obsm["X_tgt_quad"])
         sd = next(
             iter(
                 _loader(

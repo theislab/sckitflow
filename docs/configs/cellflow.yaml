@@ -5,8 +5,8 @@ type: model
 
 data:
   type: data_manager
-  target_sample_rep: X_pca
-  rep_lin: X_pca                  # OT cost on the PCA space; unset, it falls back to X
+  target_sample_rep: obsm.X_pca   # where the state lives: X, obsm.<key> or layers.<key>
+  rep_lin: obsm.X_pca             # OT cost on the PCA space; required for the matched training below
   categorical_conditions:
     drug: [drug1, drug2]          # a combination is a set of drugs
   categorical_reps:

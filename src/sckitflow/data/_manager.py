@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, Unpack
 import numpy as np
 import pandas as pd
 from anndata import AnnData
+from anndata.acc import A, AdRef, MultiAcc
+from pydantic import field_validator
 from scfit.data import obs_columns
 from scfit.registry import Component, component
 
@@ -17,7 +19,7 @@ if TYPE_CHECKING:
 
 from sckitflow.data._dims import DataDimensions
 from sckitflow.data._group_encoders import GroupEncoderConfig
-from sckitflow.data._utils import AnnDataLike, as_adatas, with_derived_obs_stacked
+from sckitflow.data._utils import AnnDataLike, CovField, Rep, RepField, as_adatas, with_derived_obs_stacked
 from sckitflow.data.schemas import (
     ConditionDataSchema,
     CouplingDataSchema,
@@ -128,12 +130,12 @@ class DataManager:
     Built from a :class:`DataManagerConfig`; see it for the individual options.
     """
 
-    def __init__(self, config: DataManagerConfig | None = None) -> None:
+    def __init__(self, config: DataManagerConfig) -> None:
         """Initializes the object.
 
-        :param config: The schema; ``None`` declares nothing beyond ``.X`` as the state.
+        :param config: The schema; it names at least the state rep (``target_sample_rep``).
         """
-        self.config = config = DataManagerConfig() if config is None else config
+        self.config = config
         self._control_values_dict = config.control_values_dict
         self._matched_keys = dict(config.matched_pairs) if config.matched_pairs else None
 
@@ -149,7 +151,6 @@ class DataManager:
             rep_lin=config.rep_lin,
             source_rep_quad=config.source_rep_quad,
             target_rep_quad=config.target_rep_quad,
-            use_linear=config.use_linear,
         )
         self._target_data_schema = ResponseDataSchema(continuous_covs=config.target_continuous_covs)
         self._groups_data_schema = GroupsDataSchema(
@@ -199,11 +200,11 @@ class DataManager:
         """Determines feature names based on the state representation used."""
         sample_rep = self._state_data_schema.sample_rep
 
-        # If we have a valid base name, build feature names as "base_0", "base_1", ...
-        if sample_rep is not None:
-            return pd.Index([f"{sample_rep}_{i}" for i in range(n_features)])
+        # An obsm rep has no var names of its own: "<key>_0", "<key>_1", ...
+        if isinstance(sample_rep, MultiAcc):
+            return pd.Index([f"{sample_rep.k}_{i}" for i in range(n_features)])
 
-        # Fallback: use original var_names only if the number of features matches.
+        # X or a layer: the original var_names, if the number of features matches.
         if n_features == adata.shape[-1]:
             return adata.var_names
 
@@ -246,22 +247,21 @@ class DataManager:
                 "Pass data holding target cells as well."
             )
 
-        def width(key: str | None, files: str, field: str) -> int | None:
+        def width(ref: Rep, files: str, field: str) -> int | None:
             widths = {}
             for i in holding[files]:
-                rep = parts[i].X if key is None else parts[i].obsm.get(key)
-                if rep is None:
-                    raise KeyError(f"AnnData {i} lacks obsm[{key!r}] (`{field}`), which its cells read.")
-                widths[i] = int(rep.shape[1])
+                if not ref.isin(parts[i]):
+                    raise KeyError(f"AnnData {i} lacks {ref} (`{field}`), which its cells read.")
+                widths[i] = int(parts[i][ref].shape[1])
             if len(set(widths.values())) > 1:
                 hint = {
                     "rep_lin": " It compares sources with targets directly; use an embedding both sides share, or "
-                    "match across spaces with the quadratic terms alone (`use_linear=False`).",
+                    "match across spaces with the quadratic terms alone (no `rep_lin`).",
                     "target_sample_rep": " If the sources have their own state on purpose, name it with "
                     "`source_sample_rep`.",
                 }.get(field, "")
                 raise ValueError(
-                    f"`{field}` ({key or 'X'}) has different widths across the AnnData reading it: "
+                    f"`{field}` ({ref}) has different widths across the AnnData reading it: "
                     + ", ".join(f"AnnData {i}: {w}" for i, w in widths.items())
                     + f". It needs one width in every file that reads it; align the files to it.{hint}"
                 )
@@ -279,25 +279,29 @@ class DataManager:
                     "their own state on purpose, name it with `source_sample_rep`."
                 )
 
-        lin = width(cfg.rep_lin, "all", "rep_lin") if cfg.use_linear else None
+        lin = width(cfg.rep_lin, "all", "rep_lin") if cfg.rep_lin is not None else None
         reps = self._encoding_widths(parts, roles)
         return DataDimensions(
             state_dim=state_dim,
             feature_names=names[first],
             condition_reps_dims=reps["conditions"],
             condition_continuous_dims={
-                c: width(c, "targets", "continuous_conditions")
+                c.k: width(c, "targets", "continuous_conditions")
                 for c in self._condition_data_schema.continuous_conditions
             },
             response_reps_dims={},
             response_continuous_dims={
-                c: width(c, "targets", "target_continuous_covs") for c in (cfg.target_continuous_covs or ())
+                c.k: width(c, "targets", "target_continuous_covs") for c in (cfg.target_continuous_covs or ())
             },
             groups_reps_dims=reps["groups"],
             source_lin_dim=lin,
-            source_quad_dim=width(cfg.source_rep_quad, "sources", "source_rep_quad") if cfg.source_rep_quad else None,
+            source_quad_dim=width(cfg.source_rep_quad, "sources", "source_rep_quad")
+            if cfg.source_rep_quad is not None
+            else None,
             target_lin_dim=lin,
-            target_quad_dim=width(cfg.target_rep_quad, "targets", "target_rep_quad") if cfg.target_rep_quad else None,
+            target_quad_dim=width(cfg.target_rep_quad, "targets", "target_rep_quad")
+            if cfg.target_rep_quad is not None
+            else None,
             source_state_dim=width(cfg.source_sample_rep, "sources", "source_sample_rep") if own_space else None,
         )
 
@@ -366,6 +370,26 @@ class DataManager:
             local.uns = {**part.uns, **tables}
             parts.append(local)
         return parts
+
+    def get_required_fields(self) -> tuple[list[Rep | AdRef], list[str]]:
+        """What this schema reads from an AnnData: :mod:`anndata.acc` references and ``uns`` keys.
+
+        The references are the state reps (``A.X``, ``A.layers[k]`` or ``A.obsm[k]``) of the targets and sources,
+        the coupling reps, the continuous conditions and responses, and the obs columns a batch groups or splits on. The
+        ``uns`` keys are the embedding tables of the categorical conditions and groups. A file of a multi-file
+        dataset may hold only some tables (see :meth:`get_data_dimensionalities`), so a reader opens the ones a
+        file has. Use it to open only what training reads, e.g. ``scfit.data.open_adata(path, *refs, uns=...)``.
+        """
+        state = self._state_data_schema.sample_rep
+        coupling = self._coupling_data_schema
+        refs = dict.fromkeys((state, self.config.source_sample_rep or state))
+        refs.update(dict.fromkeys([*coupling.source_terms.values(), *coupling.target_terms.values()]))
+        refs.update(dict.fromkeys(self._condition_data_schema.continuous_conditions))
+        refs.update(dict.fromkeys(self._target_data_schema.continuous_covs))
+        cols = {*self.group_cols, *([self._split_by] if self._split_by is not None else [])}
+        refs = [*refs, *(A.obs[c] for c in sorted(cols))]
+        uns = sorted({*(self.config.categorical_reps or {}).values(), *(self.config.groups_reps or {}).values()})
+        return refs, uns
 
     def get_feature_names(self, adata: AnnDataLike) -> pd.Index:
         """Registers the feature names from the input data according to the current schema.
@@ -527,7 +551,7 @@ class DataManager:
             if key in loader_kwargs:
                 raise TypeError(
                     f"{key} is owned by the schema, not per call: it is built from "
-                    "`DataManagerConfig.rep_lin` / `source_rep_quad` / `target_rep_quad` / `use_linear`. "
+                    "`DataManagerConfig.rep_lin` / `source_rep_quad` / `target_rep_quad`. "
                     "Pass it there, not to `get_dataloaders`."
                 )
         from sckitflow.data._loader import Loader
@@ -707,15 +731,18 @@ class DataManagerConfig(Component):
     What it expects of the ``AnnData``, and how controls are held, is described in ``docs/data_format.md``.
     """
 
-    target_sample_rep: str | None = None
-    """The ``obsm`` key of the targets' state representation, the space the flow lives in; ``None`` uses ``.X``.
-    The sources read it too unless they have their own (``source_sample_rep``)."""
+    target_sample_rep: RepField
+    """Required. The targets' state representation, the space the flow lives in: an :mod:`anndata.acc` reference
+    ``A.X``, ``A.layers[k]`` or ``A.obsm[k]``, or its config string ``"X"``, ``"layers.<k>"`` or ``"obsm.<k>"``
+    (written back as that string in a spec). A bare name such as ``"X_pca"`` is rejected. The sources read it too
+    unless they have their own (``source_sample_rep``)."""
 
-    source_sample_rep: str | None = None
-    """The ``obsm`` key of the sources' own state rep, e.g. ATAC controls flowing into RNA targets. The files holding
-    sources need only it, the files holding targets only ``target_sample_rep``; any width. A flow cannot start from it, so
-    it needs ``generate_from_noise=True`` and a source encoder (as GENOT). ``None``: the sources' state is
-    ``target_sample_rep`` too."""
+    source_sample_rep: RepField | None = None
+    """The sources' own state rep (a reference or config string, as ``target_sample_rep``), e.g. ATAC controls
+    flowing into RNA targets. The files holding sources need only it, the files holding targets only
+    ``target_sample_rep``; any width. A flow cannot start from it, so it needs ``generate_from_noise=True`` and a
+    source encoder (as GENOT). ``None`` (the default) declares that the sources share the targets' state space and
+    are read from ``target_sample_rep``."""
 
     categorical_conditions: dict[str, tuple[str, ...]] | None = None
     """Mapping from each condition level to the corresponding columns, used to initialize the
@@ -725,9 +752,11 @@ class DataManagerConfig(Component):
     """Mapping from each condition level to the corresponding representation, used to initialize the
     conditioning data schema."""
 
-    continuous_conditions: tuple[str, ...] | None = None
-    """Collection of continuous condition covariates, used to initialize the conditioning data
-    schema."""
+    continuous_conditions: tuple[CovField, ...] | None = None
+    """Continuous condition covariates, per-observation arrays named by :mod:`anndata.acc` references
+    (``A.obsm[k]`` or ``A.layers[k]``) or their config strings (``"obsm.<k>"``, ``"layers.<k>"``). Each is keyed
+    by its array key ``k`` in a batch's condition dict and in the condition encoder's ``continuous_input_layers``,
+    so two covariates may not share a key."""
 
     control_values_dict: dict[str, str] | None = None
     """Dictionary mapping each condition level to the corresponding value used to indicate control
@@ -746,9 +775,9 @@ class DataManagerConfig(Component):
     pipeline step). Its presence is checked when loaders are built. ``None``
     means there is no split and every non-control group trains."""
 
-    target_continuous_covs: tuple[str, ...] | None = None
-    """Collection of string identifiers for the continuous target covariates, used to initialize the
-    target data schema."""
+    target_continuous_covs: tuple[CovField, ...] | None = None
+    """Continuous target (response) covariates, references or config strings as ``continuous_conditions``, and
+    keyed the same way by their array key ``k``."""
 
     groups: tuple[str, ...] | None = None
     """Collection of string identifiers for grouping columns, used to initialize the grouping data
@@ -764,29 +793,27 @@ class DataManagerConfig(Component):
     initialize the grouping data schema. Encoders are frozen configs that build their fitted transformer on
     demand, and the categorical ones list their categories explicitly."""
 
-    rep_lin: str | None = None
-    """String identifier for the linear representation of the states, used when matching
-    distributions over partially incomparable states; this key will hold the optionally-shared features
-    and will be used to initialize the coupling data schema"""
+    rep_lin: RepField | None = None
+    """The linear coupling representation (a reference or config string, as ``target_sample_rep``), holding the
+    features source and target share; used when matching distributions over partially incomparable states.
+    There is no default location: a linear coupling term is streamed only when this names one (``"X"`` for
+    ``.X``). ``None``: no linear term."""
 
-    source_rep_quad: str | None = None
-    """String identifier for the state quadratic representation of source states, used when matching
-    distributions over incomparable spaces. Used to initialize the coupling data schema.
-    This key will hold the features exclusively present in the source distribution.
-    """
+    source_rep_quad: RepField | None = None
+    """The quadratic coupling representation of the sources (a reference or config string), holding the features
+    only the source space has; used when matching distributions over incomparable spaces."""
 
-    target_rep_quad: str | None = None
-    """String identifier for the state quadratic representation of target states, used when matching
-    distributions over incomparable spaces. Used to initialize the coupling data schema.
-    This key will hold the features exclusively present in the target distribution.
-    """
+    target_rep_quad: RepField | None = None
+    """The quadratic coupling representation of the targets (a reference or config string), holding the features
+    only the target space has; used when matching distributions over incomparable spaces."""
 
-    use_linear: bool = True
-    """Whether the coupling has a shared linear term. `False` selects pure Gromov-Wasserstein:
-    source and target are matched on their intra-domain geometry alone, with no shared axes.
-    Requires both `source_rep_quad` and `target_rep_quad`, and is mutually exclusive with
-    `rep_lin`. Defaults to `True` (a shared linear term, optionally fused with per-side
-    quadratics)."""
+    @field_validator("continuous_conditions", "target_continuous_covs")
+    @classmethod
+    def _unique_keys(cls, refs: tuple[Rep, ...] | None) -> tuple[Rep, ...] | None:
+        keys = [r.k for r in refs or ()]
+        if dups := sorted({k for k in keys if keys.count(k) > 1}):
+            raise ValueError(f"continuous covariates are keyed by their array key, and {dups} name several.")
+        return refs
 
     def build(self) -> DataManager:
         """The data manager."""

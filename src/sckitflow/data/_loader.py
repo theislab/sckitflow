@@ -7,7 +7,7 @@ materializes only the selected observations). No Python-side masking or copying 
 * the **primary** stream is the target/perturbed population -- controls get weight 0;
 * the **control** link is the source population -- the *same* adata weighted so only controls are nonzero,
   held in memory by scfit;
-* **continuous** covariates ride as *aligned reps* (per-obs, straight from ``obsm``);
+* **continuous** covariates ride as *aligned reps* (per-obs arrays, ``A.obsm[k]`` or ``A.layers[k]``);
 * **categorical** condition/group encodings are computed per group at batch time (cached), keyed off the
   group the batch belongs to, as one row ``(1, c, d)``.
 
@@ -30,7 +30,7 @@ from scfit.data import EvalLoader as ScfitEvalLoader
 from scfit.data import Loader as ScfitLoader
 from scfit.data import SamplerParams, Stream, obs_columns
 
-from sckitflow.data._utils import AnnDataLike, as_adatas
+from sckitflow.data._utils import AnnDataLike, Rep, as_adatas
 
 
 @runtime_checkable
@@ -92,11 +92,6 @@ def _tile_index(n_source: int, batch_size: int) -> np.ndarray:
     return np.arange(batch_size) % n_source
 
 
-def _get_loc(sample_rep: str | None) -> str:
-    """The scfit rep loc for the state representation: ``.X`` (``None``) or an ``obsm`` key."""
-    return "X" if sample_rep is None else f"obsm/{sample_rep}"
-
-
 def _as_tensor(array: SupportsDLPack) -> torch.Tensor:
     """Any streamed array -> ``torch.Tensor`` sharing its buffer, on the device it already lives."""
     import torch
@@ -145,32 +140,6 @@ def _group_row(encoding: torch.Tensor) -> torch.Tensor:
     return encoding.unsqueeze(0)
 
 
-def _get_coupling_locs(coupling_schema: CouplingDataSchema | None) -> tuple[dict[str, str], dict[str, str]]:
-    """Retrieves the locations from the input coupling schema."""
-    # Return empty dictionaries
-    if coupling_schema is None:
-        return {}, {}
-
-    # Initialize dictionaries.
-    source_coupling_locs: dict[str, str] = {}
-    target_coupling_locs: dict[str, str] = {}
-
-    # Linear term, both source and target
-    if coupling_schema.use_linear:
-        loc_lin = _get_loc(coupling_schema.rep_lin)
-        source_coupling_locs[loc_lin] = _SOURCE_LIN_TERM
-        target_coupling_locs[loc_lin] = _TARGET_LIN_TERM
-
-    # Source quadratic term.
-    if coupling_schema.source_rep_quad:
-        source_coupling_locs[f"obsm/{coupling_schema.source_rep_quad}"] = _SOURCE_QUAD_TERM
-
-    # Target quadratic term.
-    if coupling_schema.target_rep_quad:
-        target_coupling_locs[f"obsm/{coupling_schema.target_rep_quad}"] = _TARGET_QUAD_TERM
-    return source_coupling_locs, target_coupling_locs
-
-
 # The schema field each coupling term is read from, for error messages.
 _COUPLING_FIELD = {
     _SOURCE_LIN_TERM: "rep_lin",
@@ -180,24 +149,8 @@ _COUPLING_FIELD = {
 }
 
 
-def get_rep(adata: AnnData, loc: str) -> Any:
-    """Rep ``loc`` (``"X"`` | ``"obsm/<k>"`` | ``"layers/<k>"``) of ``adata``."""
-    if loc == "X":
-        return adata.X
-    field, key = loc.split("/", 1)
-    return getattr(adata, field)[key]
-
-
-def _has_rep(adata: AnnData, loc: str) -> bool:
-    """Whether ``adata`` carries rep ``loc`` (``"X"`` | ``"obsm/<k>"`` | ``"layers/<k>"``)."""
-    if loc == "X":
-        return adata.X is not None
-    field, key = loc.split("/", 1)
-    return key in getattr(adata, field)
-
-
-def _merge_reps(*groups: Iterable[str]) -> tuple[str, ...]:
-    seen: dict[str, None] = {}
+def _merge_reps(*groups: Iterable[Rep]) -> tuple[Rep, ...]:
+    seen: dict[Rep, None] = {}
     for g in groups:
         for loc in g:
             seen.setdefault(loc, None)
@@ -219,9 +172,9 @@ class _StepDataBridge:
         condition_schema: ConditionDataSchema,
         groups_schema: GroupsDataSchema,
         coupling_schema: CouplingDataSchema | None = None,
-        target_sample_rep: str | None = None,
-        source_sample_rep: str | None = None,
-        response_covs: Collection[str] = (),
+        target_sample_rep: Rep,
+        source_sample_rep: Rep | None = None,
+        response_covs: Collection[Rep] = (),
         pair_key: str | None = None,
         dtype: torch.dtype | None = None,
         device: str | None = None,
@@ -237,11 +190,9 @@ class _StepDataBridge:
         self._device = device
         self._device_type = device.split(":")[0] if device is not None else None
         self._assert_device = assert_device
-        self._starget_state_loc = _get_loc(target_sample_rep)
+        self._starget_state_loc = target_sample_rep
         # The sources' state: their own rep when the schema gives them one, else the targets'.
-        self._source_state_loc = (
-            _get_loc(source_sample_rep) if source_sample_rep is not None else self._starget_state_loc
-        )
+        self._source_state_loc = source_sample_rep if source_sample_rep is not None else target_sample_rep
         # group_by = group columns + categorical condition columns (continuous covs are streamed reps).
         self._group_cols: tuple[str, ...] = (*groups_schema.groups, *condition_schema.all_condition_cols)
         # Fixed matching (`matched_keys`) rides as one derived column shared by a target group and the source
@@ -249,22 +200,24 @@ class _StepDataBridge:
         # before a leaf is used as a group identity (see `_strip`).
         self._pair_cols: tuple[str, ...] = (pair_key,) if pair_key is not None else ()
         adatas = as_adatas(adata)
-        # Continuous covariates ride as aligned reps: {rep loc -> StepData dict key}.
-        self._cond_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in condition_schema.continuous_conditions}
-        self._resp_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in response_covs}
+        # Continuous covariates ride as aligned reps: {reference -> StepData dict key, the reference's array key}.
+        self._cond_cont_locs: dict[Rep, str] = {r: r.k for r in condition_schema.continuous_conditions}
+        self._resp_cont_locs: dict[Rep, str] = {r: r.k for r in response_covs}
 
         # Handle coupling terms and construct coupling locs dictionary
         self._coupling_schema = coupling_schema
-        self._source_coupling_locs, self._target_coupling_locs = _get_coupling_locs(self._coupling_schema)
+        # {StepData key: reference}; one reference may serve several terms
+        self._source_terms = coupling_schema.source_terms if coupling_schema is not None else {}
+        self._target_terms = coupling_schema.target_terms if coupling_schema is not None else {}
         # Which schema field asks for each rep, so a missing one is reported by the name the user set.
-        self._rep_fields: dict[str, list[str]] = {}
+        self._rep_fields: dict[Rep, list[str]] = {}
         for loc, field in [
             (self._starget_state_loc, "target_sample_rep"),
             (self._source_state_loc, "source_sample_rep" if source_sample_rep is not None else "target_sample_rep"),
             *((loc, "continuous_conditions") for loc in self._cond_cont_locs),
             *((loc, "response covariates") for loc in self._resp_cont_locs),
-            *((loc, _COUPLING_FIELD[t]) for loc, t in self._source_coupling_locs.items()),
-            *((loc, _COUPLING_FIELD[t]) for loc, t in self._target_coupling_locs.items()),
+            *((loc, _COUPLING_FIELD[t]) for t, loc in self._source_terms.items()),
+            *((loc, _COUPLING_FIELD[t]) for t, loc in self._target_terms.items()),
         ]:
             if field not in self._rep_fields.setdefault(loc, []):
                 self._rep_fields[loc].append(field)
@@ -396,7 +349,7 @@ class _StepDataBridge:
             return {}
         return {
             coupling_term: _as_tensor(batch[_CONTROL][coupling_loc])
-            for coupling_loc, coupling_term in self._source_coupling_locs.items()
+            for coupling_term, coupling_loc in self._source_terms.items()
         }
 
     def _target_coupling_dict(self, batch: dict, has_state: bool) -> dict[str, torch.Tensor]:
@@ -405,7 +358,7 @@ class _StepDataBridge:
             return {}
         return {
             coupling_term: _as_tensor(batch[_PRIMARY][coupling_loc])
-            for coupling_loc, coupling_term in self._target_coupling_locs.items()
+            for coupling_term, coupling_loc in self._target_terms.items()
         }
 
     def _step_data_from_batch(self, batch: dict, gid: int, *, has_state: bool, n_rows: int) -> StepData:
@@ -463,7 +416,7 @@ class _StepDataBridge:
             return Stream(
                 _CONTROL,  # its own source: only the AnnData holding source cells (see `_sources_by_role`)
                 group_by=group_by,
-                reps=_merge_reps((self._source_state_loc,), self._source_coupling_locs),
+                reps=_merge_reps((self._source_state_loc,), self._source_terms.values()),
                 weights=control_weights,
                 match_on=list(match_cols),
                 in_memory=in_memory,
@@ -492,11 +445,11 @@ class _StepDataBridge:
         it must match depends on the method -- flowing from the sources needs one space, generating from noise
         conditioned on an encoded source (e.g. GENOT) does not -- so the method checks it, not the loader.
         """
-        shared = {loc for loc, t in self._source_coupling_locs.items() if t == _SOURCE_LIN_TERM}
+        shared = {loc for t, loc in self._source_terms.items() if t == _SOURCE_LIN_TERM}
         index = {id(a): i for i, a in enumerate(self._adatas)}
         for loc in shared:
             widths = {
-                (role, index[id(a)]): int(get_rep(a, loc).shape[1])
+                (role, index[id(a)]): int(a[loc].shape[1])
                 for role, files in (("source", sources[_CONTROL]), ("target", sources[_PRIMARY]))
                 for a in files
             }
@@ -507,7 +460,7 @@ class _StepDataBridge:
                     "term compares sources with targets directly, so it needs one width in every file; align the "
                     "files to it (one PCA fitted over all of them, or an embedding both sides share when their states "
                     "live in different spaces), or match across spaces with the quadratic terms alone "
-                    "(`use_linear=False`)."
+                    "(no `rep_lin`)."
                 )
 
     def _files_holding(self, stream: Stream, role: str) -> list[AnnData]:
@@ -530,7 +483,7 @@ class _StepDataBridge:
                 f"schema (e.g. `control_values_dict`) match the data's obs."
             )
         for i in held:
-            missing = [loc for loc in stream.reps if not _has_rep(self._adatas[i], loc)]
+            missing = [loc for loc in stream.reps if not loc.isin(self._adatas[i])]
             if missing:
                 described = ", ".join(f"{loc} ({' / '.join(self._rep_fields.get(loc, ['rep']))})" for loc in missing)
                 raise ValueError(
@@ -577,16 +530,17 @@ class Loader(_StepDataBridge):
         Defaults to `None`, in which case no coupling data is streamed.
     :type coupling_schema: class: `CouplingDataSchema | None`
 
-    :param target_sample_rep: The ``obsm`` key holding the targets' state representation, or ``None`` for ``.X``.
-    :type target_sample_rep: class: `str | None`
+    :param target_sample_rep: The reference (``A.X``, ``A.layers[k]`` or ``A.obsm[k]``) to the targets' state
+        representation.
+    :type target_sample_rep: class: `Rep`
 
-    :param source_sample_rep: The ``obsm`` key holding the sources' own state rep; ``None`` reads them from
+    :param source_sample_rep: The reference to the sources' own state rep; ``None`` reads them from
         ``target_sample_rep`` too.
-    :type source_sample_rep: class: `str | None`
+    :type source_sample_rep: class: `Rep | None`
 
-    :param response_covs: Continuous response covariate ``obsm`` keys, streamed per-obs into
-        ``target_response_data``.
-    :type response_covs: class: `Collection[str]`
+    :param response_covs: Continuous response covariate references, streamed per-obs into
+        ``target_response_data`` under their array key.
+    :type response_covs: class: `Collection[Rep]`
 
     :param split_by: An ``.obs`` column prepended to the primary's ``group_by``, so a leaf is
         ``(split, *group_cols)`` and ``primary_weights`` select observations rather than whole groups. ``None``
@@ -633,9 +587,9 @@ class Loader(_StepDataBridge):
         condition_schema: ConditionDataSchema,
         groups_schema: GroupsDataSchema,
         coupling_schema: CouplingDataSchema | None = None,
-        target_sample_rep: str | None = None,
-        source_sample_rep: str | None = None,
-        response_covs: Collection[str] = (),
+        target_sample_rep: Rep,
+        source_sample_rep: Rep | None = None,
+        response_covs: Collection[Rep] = (),
         split_by: str | None = None,
         primary_weights: dict[tuple, float] | None = None,
         control_weights: dict[tuple, float] | None = None,
@@ -674,7 +628,7 @@ class Loader(_StepDataBridge):
             (self._starget_state_loc,),
             self._cond_cont_locs,
             self._resp_cont_locs,
-            self._target_coupling_locs,
+            self._target_terms.values(),
         )
 
         # With a split column the leaf is ``(split, *group_cols)``, so a weight of 0 excludes the *observations*
@@ -757,15 +711,15 @@ class EvalLoader(_StepDataBridge):
     :param groups_schema: The groups schema; see :class:`Loader`.
     :type groups_schema: class: `GroupsDataSchema`
 
-    :param target_sample_rep: The ``obsm`` key holding the targets' state representation, or ``None`` for ``.X``.
-    :type target_sample_rep: class: `str | None`
+    :param target_sample_rep: The reference to the targets' state representation.
+    :type target_sample_rep: class: `Rep`
 
-    :param source_sample_rep: The ``obsm`` key holding the sources' own state rep; ``None`` reads them from
+    :param source_sample_rep: The reference to the sources' own state rep; ``None`` reads them from
         ``target_sample_rep`` too.
-    :type source_sample_rep: class: `str | None`
+    :type source_sample_rep: class: `Rep | None`
 
-    :param response_covs: Continuous response covariate ``obsm`` keys; see :class:`Loader`.
-    :type response_covs: class: `Collection[str]`
+    :param response_covs: Continuous response covariate references; see :class:`Loader`.
+    :type response_covs: class: `Collection[Rep]`
 
     :param require_target_state: When ``False``, the target state is not read (metadata-only prediction);
         ``StepData["target_state"]`` is ``None`` and batches carry only conditioning.
@@ -794,9 +748,9 @@ class EvalLoader(_StepDataBridge):
         *,
         condition_schema: ConditionDataSchema,
         groups_schema: GroupsDataSchema,
-        target_sample_rep: str | None = None,
-        source_sample_rep: str | None = None,
-        response_covs: Collection[str] = (),
+        target_sample_rep: Rep,
+        source_sample_rep: Rep | None = None,
+        response_covs: Collection[Rep] = (),
         primary_weights: dict[tuple, float] | None = None,
         control_weights: dict[tuple, float] | None = None,
         pair_key: str | None = None,

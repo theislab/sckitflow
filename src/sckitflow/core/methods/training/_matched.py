@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow.core.coupling._config import CouplingConfig
 from sckitflow.core.methods._base import MatchedTrainingMethod, Matcher, TrainingMethodConfig

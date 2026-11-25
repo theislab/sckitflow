@@ -2,7 +2,7 @@
 
 import pydantic
 import pytest
-from scfit.registry import config_of, parse, to_spec
+from modelbinder.registry import config_of, parse, to_spec
 
 from sckitflow import IsotropicGaussianNoiseSamplerConfig
 from sckitflow.core.probability_paths._config import EncDecPathConfig, LinearPathConfig, TrigPathConfig

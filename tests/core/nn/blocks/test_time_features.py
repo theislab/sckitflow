@@ -211,7 +211,7 @@ class TestTorchCFMTimeFeatures:
 
 class TestTimeFeaturesConfigBase:
     def test_base_is_abstract(self) -> None:
-        """scfit's ``Component`` treats ``TimeFeaturesConfig`` as a *family
+        """modelbinder's ``Component`` treats ``TimeFeaturesConfig`` as a *family
         base* and refuses direct instantiation — the user must pick a
         subclass with a registered ``type``. This documents the constraint
         rather than attempting to instantiate it.
@@ -220,7 +220,7 @@ class TestTimeFeaturesConfigBase:
             TimeFeaturesConfig(n_time_features=4)
 
     def test_base_is_a_component_subclass(self) -> None:
-        from scfit.registry import Component
+        from modelbinder.registry import Component
 
         assert issubclass(TimeFeaturesConfig, Component)
 

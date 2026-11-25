@@ -582,6 +582,6 @@ class TestFreeVersusBound:
 
     def test_encoder_config_is_a_component(self) -> None:
         """The wrapper must be registrable alongside the rest of the tree."""
-        from scfit.registry import Component
+        from modelbinder.registry import Component
 
         assert issubclass(MLPEncoderConfig, Component)

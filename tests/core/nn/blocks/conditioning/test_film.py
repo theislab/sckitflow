@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import torch
-from scfit.registry import parse
+from modelbinder.registry import parse
 
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayerConfig
 from sckitflow.core.nn.blocks.conditioning._film import (

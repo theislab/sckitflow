@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import torch
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow.core._data_utils import (
     get_tensor_dict_from_data,

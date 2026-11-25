@@ -4,7 +4,7 @@ from typing import Any
 
 import torch
 from pydantic import Field, PositiveInt, model_validator
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow.core._data_utils import (
     expand_conditioning,

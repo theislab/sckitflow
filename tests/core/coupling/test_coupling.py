@@ -3,7 +3,7 @@ import ot as pot
 import pytest
 import torch
 from pydantic import ValidationError
-from scfit.registry import parse
+from modelbinder.registry import parse
 
 from sckitflow.core.coupling import FusedGromovWassersteinCouplingConfig, GromovWassersteinCouplingConfig
 

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
-from scfit.data import open_adata
+from boundannbatch import open_adata
 from tests.data.shared import with_split
 
 from sckitflow.data._manager import DataManager, DataManagerConfig
@@ -533,7 +533,7 @@ class TestGetRequiredFields:
         dm = _make_manager_with_continuous(control_values_dict={"drug": "control"}, split_by="split")
         ad.write_zarr(tmp_path / "d.zarr")
         refs, uns = dm.get_required_fields()
-        reduced = open_adata(tmp_path / "d.zarr", *refs, uns=uns)
+        reduced = open_adata(tmp_path / "d.zarr", *refs, uns_keys=uns)
         assert "unused" not in reduced.obsm and "unused" not in reduced.obs
         loaders = dm.get_dataloaders(reduced, batch_size=8)
         assert set(loaders) == {"train", "val"}

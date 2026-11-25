@@ -60,8 +60,8 @@ Wherever an `AnnData` is taken, a list of them is too, read as one dataset: thei
 order with categories unioned, and the controls of any of them can serve the targets of any other. Every
 file reading the state (`target_sample_rep`) must agree on its width and feature names, and a split column (`split_by`) must be in each. Each
 `.uns` table the schema reads must be in at least one of them: its entries are merged, an entry in several
-must be the same in each, and every value looked up must have one. A list of zarr stores is opened lazily with `scfit.data.open_source(paths,
-*refs, uns=uns)`, listing every store explicitly; `refs, uns = manager.get_required_fields()` names exactly what the
+must be the same in each, and every value looked up must have one. A list of zarr stores is opened lazily with `boundannbatch.open_source(paths,
+*refs, uns_keys=uns)`, listing every store explicitly; `refs, uns = manager.get_required_fields()` names exactly what the
 schema reads. A store holding only controls is just one more
 entry. A store only needs the representations of the cells it holds: the target side reads the stores holding
 targets and the source side the stores holding sources, so e.g. `source_rep_quad` can live only with the controls. The

@@ -4,7 +4,7 @@ from collections.abc import Callable
 from functools import partial
 
 import torch
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow.core.nn.fields._base import FIELD_DECODER_KEY, BaseNeuralFieldConfig, NeuralFieldMixin
 from sckitflow.data._dims import DataDimensions

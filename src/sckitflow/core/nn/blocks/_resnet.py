@@ -2,7 +2,7 @@ from collections import OrderedDict
 from typing import Any
 
 import torch
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 
 from sckitflow._constants import DEFAULT_NUM_RESNET_LAYERS
 from sckitflow._types import ActivationId

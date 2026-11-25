@@ -724,7 +724,7 @@ class TestSetEncoderGradients:
 
 class TestSetEncoderConfigRegistry:
     def test_is_a_component(self) -> None:
-        from scfit.registry import Component
+        from modelbinder.registry import Component
 
         assert issubclass(SetEncoderConfig, Component)
 

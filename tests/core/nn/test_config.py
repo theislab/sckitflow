@@ -30,7 +30,7 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-from scfit.registry import component, parse
+from modelbinder.registry import component, parse
 
 from sckitflow.core.nn._config import ModuleConfig
 
@@ -67,7 +67,7 @@ class TestModuleConfigBase:
         ``@component`` decorator won't recognise descendants and pydantic
         field declaration (``output_dim: int``, ...) won't apply.
         """
-        from scfit.registry import Component
+        from modelbinder.registry import Component
 
         assert issubclass(ModuleConfig, Component)
 

@@ -1,4 +1,4 @@
-"""Serializable group encoders built on :class:`scfit.registry.Component`.
+"""Serializable group encoders built on :class:`modelbinder.registry.Component`.
 
 Each encoder is a frozen model of plain scalars -- no callables -- so it pickles trivially, compares by
 value, AND exports a portable ``{type, version, **fields}`` spec via ``.to_spec()`` (round-tripped with
@@ -21,7 +21,7 @@ from typing import Annotated
 
 import numpy as np
 from pydantic import AfterValidator, Field
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sckitflow._types import TargetCovariatesEncoderCls

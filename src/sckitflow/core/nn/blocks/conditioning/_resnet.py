@@ -1,5 +1,5 @@
 import torch
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow.core.nn.blocks._resnet import ResNet, ResNetConfig
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayer, BaseConditioningLayerConfig

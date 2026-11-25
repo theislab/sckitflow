@@ -3,7 +3,7 @@ from collections.abc import Callable
 from typing import ClassVar
 
 import torch
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 
 from sckitflow.core.nn.blocks._functional import FunctionalModule
 

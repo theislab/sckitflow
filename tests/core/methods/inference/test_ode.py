@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 import torch
 from pydantic import ValidationError
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow._samplers import (
     NoiseSamplerConfig,

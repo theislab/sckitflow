@@ -101,7 +101,7 @@ class TestBaseConditioningLayer:
 
 class TestBaseConditioningLayerConfig:
     def test_is_a_component(self) -> None:
-        from scfit.registry import Component
+        from modelbinder.registry import Component
 
         assert issubclass(BaseConditioningLayerConfig, Component)
 
@@ -109,7 +109,7 @@ class TestBaseConditioningLayerConfig:
         assert callable(BaseConditioningLayerConfig.build)
 
     def test_base_config_not_directly_instantiable(self) -> None:
-        """scfit's ``Component`` refuses to instantiate non-decorated
+        """modelbinder's ``Component`` refuses to instantiate non-decorated
         subclasses ("family base"). Documented behaviour; not a bug in this
         module — it just means ``build`` cannot be called on the base itself.
         """

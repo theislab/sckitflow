@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import ClassVar
 
 from pydantic import Field, model_validator
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 
 from sckitflow._samplers import NoiseSamplerConfig
 from sckitflow.core.probability_paths._base import BasePath
@@ -27,7 +27,7 @@ class PathConfig(Component):
     Holds the parameters shared by every probability path — the noise strength :math:`\sigma` and an optional
     noise-sampler configuration — and builds the path its member names in :attr:`path_cls`.
 
-    Concrete members are registered under ``probability_path.*`` keys through :func:`scfit.registry.component`. A
+    Concrete members are registered under ``probability_path.*`` keys through :func:`modelbinder.registry.component`. A
     :class:`PathConfig` on its own is a *family base* and is rejected at construction time; instantiate a
     concrete member instead.
 

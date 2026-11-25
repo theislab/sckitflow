@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import torch
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 
 from sckitflow.core._types import MappedTensor
 from sckitflow.core._utils import make_concatenation_possible

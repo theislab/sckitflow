@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from typing import Any
 
 import torch
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 
 from sckitflow._types import ActivationId
 

@@ -21,7 +21,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Changed
 
-- Breaking: the array fields of `DataManagerConfig` (`target_sample_rep`, `source_sample_rep`, `rep_lin`, `source_rep_quad`, `target_rep_quad`, `continuous_conditions`, `target_continuous_covs`) take `anndata.acc` references, written in configs as `"X"`, `"layers.<k>"` or `"obsm.<k>"`. Bare names like `X_pca` are rejected, and covariates cannot be `X`
+- Breaking: the array fields of `DataManagerConfig` (`target_sample_rep`, `source_sample_rep`, `rep_lin`, `source_rep_quad`, `target_rep_quad`, `continuous_conditions`, `target_continuous_covs`) take `anndata.acc` references, written in configs as `"X"`, `"layers.<k>"` or `"obsm.<k>"`. Bare names like `X_pca` are rejected
 - Breaking: nothing defaults to `.X`: `target_sample_rep` is required, `DataManager()` without a config is removed, and a linear coupling term is read only when `rep_lin` is set. A matched method missing its coupling rep raises at build
 - Breaking for Python callers: the loaders (`Loader`, `EvalLoader`) and the schemas (`StateDataSchema`, `CouplingDataSchema`, `ConditionDataSchema`, `ResponseDataSchema`) take references instead of `obsm` keys, `target_sample_rep` is required by the loaders, and `sckitflow.data._loader.get_rep` and `_get_loc` are removed (`adata[ref]` and `ref.isin(adata)` replace them)
 - Breaking: `use_linear` is removed; leave `rep_lin` unset for pure Gromov-Wasserstein. One rep may serve several coupling terms

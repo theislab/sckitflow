@@ -42,8 +42,7 @@ class TestConfigStrings:
         assert getattr(config, field) == (A.obsm["dose"], A.layers["time"])
         with pytest.raises(ValueError, match="dose"):
             DataManagerConfig(target_sample_rep="X", **{field: ("dose",)})
-        with pytest.raises(ValueError, match="A.X is not allowed here"):
-            DataManagerConfig(target_sample_rep="X", **{field: ("X",)})
+        assert getattr(DataManagerConfig(target_sample_rep="X", **{field: ("X",)}), field) == (A.X,)
         with pytest.raises(ValueError, match=r"keyed by their array key, and \['dose'\] name several"):
             DataManagerConfig(target_sample_rep="X", **{field: ("obsm.dose", "layers.dose")})
 

@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 from sckitflow.data._dims import DataDimensions
 from sckitflow.data._group_encoders import GroupEncoderConfig
-from sckitflow.data._utils import AnnDataLike, CovField, Rep, RepField, as_adatas, with_derived_obs_stacked
+from sckitflow.data._utils import AnnDataLike, Rep, RepField, as_adatas, rep_key, with_derived_obs_stacked
 from sckitflow.data.schemas import (
     ConditionDataSchema,
     CouplingDataSchema,
@@ -286,12 +286,12 @@ class DataManager:
             feature_names=names[first],
             condition_reps_dims=reps["conditions"],
             condition_continuous_dims={
-                c.k: width(c, "targets", "continuous_conditions")
+                rep_key(c): width(c, "targets", "continuous_conditions")
                 for c in self._condition_data_schema.continuous_conditions
             },
             response_reps_dims={},
             response_continuous_dims={
-                c.k: width(c, "targets", "target_continuous_covs") for c in (cfg.target_continuous_covs or ())
+                rep_key(c): width(c, "targets", "target_continuous_covs") for c in (cfg.target_continuous_covs or ())
             },
             groups_reps_dims=reps["groups"],
             source_lin_dim=lin,
@@ -742,7 +742,7 @@ class DataManagerConfig(Component):
     """Mapping from each condition level to the corresponding representation, used to initialize the
     conditioning data schema."""
 
-    continuous_conditions: tuple[CovField, ...] | None = None
+    continuous_conditions: tuple[RepField, ...] | None = None
     """Continuous condition covariates, per-observation arrays named by :mod:`anndata.acc` references
     (``A.obsm[k]`` or ``A.layers[k]``) or their config strings (``"obsm.<k>"``, ``"layers.<k>"``). Each is keyed
     by its array key ``k`` in a batch's condition dict and in the condition encoder's ``continuous_input_layers``,
@@ -765,7 +765,7 @@ class DataManagerConfig(Component):
     pipeline step). Its presence is checked when loaders are built. ``None``
     means there is no split and every non-control group trains."""
 
-    target_continuous_covs: tuple[CovField, ...] | None = None
+    target_continuous_covs: tuple[RepField, ...] | None = None
     """Continuous target (response) covariates, references or config strings as ``continuous_conditions``, and
     keyed the same way by their array key ``k``."""
 
@@ -799,7 +799,7 @@ class DataManagerConfig(Component):
     @field_validator("continuous_conditions", "target_continuous_covs")
     @classmethod
     def _unique_keys(cls, refs: tuple[Rep, ...] | None) -> tuple[Rep, ...] | None:
-        keys = [r.k for r in refs or ()]
+        keys = [rep_key(r) for r in refs or ()]
         if dups := sorted({k for k in keys if keys.count(k) > 1}):
             raise ValueError(f"continuous covariates are keyed by their array key, and {dups} name several.")
         return refs

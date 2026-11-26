@@ -10,10 +10,10 @@ everything lives; nothing is inferred from the data.
 | State | `A.X`, `A.layers[key]` or `A.obsm[key]` | `target_sample_rep` | One float matrix, the same width for every cell. |
 | Condition | `A.obs[col]` | `categorical_conditions` | Per condition level, one or more columns. Several columns form a set, e.g. `drug: [drug1, drug2]` for combinations. |
 | Condition embeddings | `.uns[rep]` | `categorical_reps` | A dict from every value in those columns to a vector, `(d,)` or `(1, d)`, all of one width. Include the control value when it fills an unused slot, e.g. `drug2 == "control"` for a single drug. |
-| Continuous condition covariates | `A.obsm[key]` or `A.layers[key]` | `continuous_conditions` | Per-cell arrays, keyed by `key` in the batch and in the condition encoder's `continuous_input_layers`. |
+| Continuous condition covariates | `A.X`, `A.layers[key]` or `A.obsm[key]` | `continuous_conditions` | Per-cell arrays, keyed by `key` in the batch and in the condition encoder's `continuous_input_layers`. |
 | Groups | `A.obs[col]` | `groups` | Columns controls are matched within, e.g. `cell_line`. |
 | Group embeddings | `.uns[rep]`, or an encoder | `groups_reps`, `groups_encoding` | Like condition embeddings, or an encoder with an explicit vocabulary. |
-| Response covariates | `A.obsm[key]` or `A.layers[key]` | `target_continuous_covs` | Continuous, streamed per observation alongside the target, keyed by `key`. |
+| Response covariates | `A.X`, `A.layers[key]` or `A.obsm[key]` | `target_continuous_covs` | Continuous, streamed per observation alongside the target, keyed by `key`. |
 | Coupling representations | `A.X`, `A.layers[key]` or `A.obsm[key]` | `rep_lin`, `source_rep_quad`, `target_rep_quad` | What an OT-matched method matches on. Nothing is streamed unless named; a matched method with none raises. |
 | Split | `A.obs[split_by]` | `split_by` | Written before the data reaches a run, e.g. by [flowrun](https://github.com/selmanozleyen/flowrun)'s split step: the split is the experiment's choice, not the model's. A `"split"` column the schema does not declare is an error. |
 
@@ -28,7 +28,7 @@ reference in Python and, in a YAML or JSON config, its dotted string:
 | `layers.counts` | `A.layers["counts"]` |
 | `obsm.X_pca` | `A.obsm["X_pca"]` |
 
-A bare name such as `X_pca` is rejected. Covariates take `obsm.<key>` or `layers.<key>`, never `X`.
+A bare name such as `X_pca` is rejected. Covariates are keyed by their array key, `A.X` by `X`.
 
 ```yaml
 data:

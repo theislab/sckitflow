@@ -23,7 +23,7 @@ __all__ = [
     "with_derived_obs_stacked",
     "Rep",
     "RepField",
-    "CovField",
+    "rep_key",
 ]
 
 type Rep = LayerAcc | MultiAcc
@@ -33,23 +33,18 @@ type Rep = LayerAcc | MultiAcc
 class _RepSchema:
     """Pydantic schema of a rep field: read from a reference or its config string, written as that string."""
 
-    def __init__(self, *, allow_x: bool) -> None:
-        self.allow_x = allow_x
-
     def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> core_schema.CoreSchema:
         return core_schema.no_info_plain_validator_function(
             self._parse, serialization=core_schema.plain_serializer_function_ser_schema(self._str)
         )
 
-    def _parse(self, value: Any) -> Rep:
+    @staticmethod
+    def _parse(value: Any) -> Rep:
         # resolved as scanpy resolves `use=` (scanpy.get._use._get_arr), limited to whole obs arrays
         if isinstance(value, str):
             value = A.resolve(value, vec=False)
-        match value:
-            case LayerAcc(k=None) if not self.allow_x:
-                raise ValueError("A.X is not allowed here: use 'obsm.<k>' or 'layers.<k>'.")
-            case LayerAcc() | MultiAcc(dim="obs"):
-                return value
+        if isinstance(value, LayerAcc) or (isinstance(value, MultiAcc) and value.dim == "obs"):
+            return value
         raise ValueError(f"a rep is A.X, A.layers[k] or A.obsm[k], got {value!r}.")
 
     @staticmethod
@@ -62,11 +57,14 @@ class _RepSchema:
         return f"obsm.{ref.k}"
 
 
-RepField = Annotated[Rep, _RepSchema(allow_x=True)]
+RepField = Annotated[Rep, _RepSchema()]
 """A config field holding a rep: validated from a reference or its config string, written as the string."""
 
-CovField = Annotated[Rep, _RepSchema(allow_x=False)]
-"""As :data:`RepField`, for a per-observation covariate: ``A.obsm[k]`` or ``A.layers[k]``, never ``A.X``."""
+
+def rep_key(ref: Rep) -> str:
+    """The key a covariate rep goes by in a batch: its array key, ``"X"`` for ``A.X``."""
+    return ref.k or "X"
+
 
 AnnDataLike = AnnData | Sequence[AnnData]
 """One ``AnnData``, or several read as one dataset: their observations stacked in list order."""

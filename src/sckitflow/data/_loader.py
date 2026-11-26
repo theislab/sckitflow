@@ -30,7 +30,7 @@ from boundannbatch import EvalLoader as BoundEvalLoader
 from boundannbatch import Loader as BoundLoader
 from boundannbatch import SamplerParams, Stream, obs_columns
 
-from sckitflow.data._utils import AnnDataLike, Rep, as_adatas
+from sckitflow.data._utils import AnnDataLike, Rep, as_adatas, rep_key
 
 
 @runtime_checkable
@@ -201,8 +201,8 @@ class _StepDataBridge:
         self._pair_cols: tuple[str, ...] = (pair_key,) if pair_key is not None else ()
         adatas = as_adatas(adata)
         # Continuous covariates ride as aligned reps: {reference -> StepData dict key, the reference's array key}.
-        self._cond_cont_locs: dict[Rep, str] = {r: r.k for r in condition_schema.continuous_conditions}
-        self._resp_cont_locs: dict[Rep, str] = {r: r.k for r in response_covs}
+        self._cond_cont_locs: dict[Rep, str] = {r: rep_key(r) for r in condition_schema.continuous_conditions}
+        self._resp_cont_locs: dict[Rep, str] = {r: rep_key(r) for r in response_covs}
 
         # Handle coupling terms and construct coupling locs dictionary
         self._coupling_schema = coupling_schema

@@ -1,12 +1,12 @@
-r"""scfit-batch to ``StepData`` adapters: :class:`Loader` (training) and :class:`EvalLoader` (prediction).
+r"""boundannbatch-batch to ``StepData`` adapters: :class:`Loader` (training) and :class:`EvalLoader` (prediction).
 
-Selection is entirely scfit-native: one AnnData is streamed and the split + perturbed/control choice is
-expressed as scfit **weights** over scfit's own leaf factorization (weight 0 == excluded, ``in_memory``
+Selection is entirely boundannbatch-native: one AnnData is streamed and the split + perturbed/control choice is
+expressed as boundannbatch **weights** over boundannbatch's own leaf factorization (weight 0 == excluded, ``in_memory``
 materializes only the selected observations). No Python-side masking or copying of subsets.
 
 * the **primary** stream is the target/perturbed population -- controls get weight 0;
 * the **control** link is the source population -- the *same* adata weighted so only controls are nonzero,
-  held in memory by scfit;
+  held in memory by boundannbatch;
 * **continuous** covariates ride as *aligned reps* (per-obs arrays, ``A.obsm[k]`` or ``A.layers[k]``);
 * **categorical** condition/group encodings are computed per group at batch time (cached), keyed off the
   group the batch belongs to, as one row ``(1, c, d)``.
@@ -26,9 +26,9 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 import numpy as np
 import pandas as pd
 from anndata import AnnData
-from scfit.data import EvalLoader as ScfitEvalLoader
-from scfit.data import Loader as ScfitLoader
-from scfit.data import SamplerParams, Stream, obs_columns
+from boundannbatch import EvalLoader as BoundEvalLoader
+from boundannbatch import Loader as BoundLoader
+from boundannbatch import SamplerParams, Stream, obs_columns
 
 from sckitflow.data._utils import AnnDataLike, Rep, as_adatas
 
@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
 # The kwargs contract for these loaders is :class:`~sckitflow.data._manager.LoaderKwargs` -- declared
 # there, next to its only consumer (``DataManager.get_dataloaders``), so typing a call site does not
-# drag in the scfit/annbatch stack this module imports.
+# drag in the boundannbatch/annbatch stack this module imports.
 __all__ = ["Loader", "EvalLoader"]
 
 
@@ -183,11 +183,11 @@ def _merge_reps(*groups: Iterable[Rep]) -> tuple[Rep, ...]:
 
 
 class _StepDataBridge:
-    """Shared scfit-batch -> ``StepData`` machinery for :class:`Loader` and :class:`EvalLoader`.
+    """Shared boundannbatch-batch -> ``StepData`` machinery for :class:`Loader` and :class:`EvalLoader`.
 
     Owns the schema-derived rep locations, the ordered group leaves + a representative row per group, the
-    per-group categorical encoding (cached), and the assembly of one scfit batch into a ``StepData``.
-    Subclasses build the concrete scfit loader (sampling vs deterministic) and drive iteration.
+    per-group categorical encoding (cached), and the assembly of one boundannbatch batch into a ``StepData``.
+    Subclasses build the concrete boundannbatch loader (sampling vs deterministic) and drive iteration.
     """
 
     def __init__(
@@ -221,7 +221,7 @@ class _StepDataBridge:
         # group_by = group columns + categorical condition columns (continuous covs are streamed reps).
         self._group_cols: tuple[str, ...] = (*groups_schema.groups, *condition_schema.all_condition_cols)
         # Fixed matching (`matched_keys`) rides as one derived column shared by a target group and the source
-        # group it flows from -- appended to `group_by` so scfit can `match_on` it, and stripped back off
+        # group it flows from -- appended to `group_by` so boundannbatch can `match_on` it, and stripped back off
         # before a leaf is used as a group identity (see `_strip`).
         self._pair_cols: tuple[str, ...] = (pair_key,) if pair_key is not None else ()
         adatas = as_adatas(adata)
@@ -247,7 +247,7 @@ class _StepDataBridge:
 
         # One O(N) drop_duplicates gives the group combos (no per-obs logic). Encoding a group needs only its values
         # and the `.uns` tables, so it is deferred to batch time (cached), keyed by the group's id. An unconditional
-        # schema (no groups, no conditions) has one group of every cell, ``()``, which scfit streams as is.
+        # schema (no groups, no conditions) has one group of every cell, ``()``, which boundannbatch streams as is.
         uniq = obs_columns(adatas, self._group_cols).drop_duplicates()
         self._leaves: list[tuple] = list(map(tuple, uniq.to_numpy())) if self._group_cols else [()]
         self._leaf_to_gid: dict[tuple, int] = {leaf: i for i, leaf in enumerate(self._leaves)}
@@ -276,10 +276,10 @@ class _StepDataBridge:
         """Cast one tensor to the configured ``dtype`` and assert its ``device`` -- the single place both apply.
 
         ``device`` is checked, never fixed, for a ``streamed`` tensor *when the loader asserts it*: those come
-        straight off scfit, which already reads on the streaming device, so a mismatch means the read window is
+        straight off boundannbatch, which already reads on the streaming device, so a mismatch means the read window is
         on the wrong device and *every* training batch would be copied. That is a real problem and it fails
-        here rather than being silently paid for -- the fix is ``preload_to_gpu=True``, scfit's GPU-resident
-        read window. :class:`EvalLoader` passes ``assert_device=False``: scfit's eval path reads rows directly,
+        here rather than being silently paid for -- the fix is ``preload_to_gpu=True``, boundannbatch's GPU-resident
+        read window. :class:`EvalLoader` passes ``assert_device=False``: boundannbatch's eval path reads rows directly,
         so there is no read window to place on the device, its one copy per group is the only option, and
         raising would just make GPU prediction impossible. The per-group ``uns`` encodings are not streamed --
         they are host arrays by construction, so they are moved once, when their cache entry is first filled.
@@ -291,7 +291,7 @@ class _StepDataBridge:
                 raise RuntimeError(
                     f"batches stream on {tensor.device.type!r} but the method runs on {self._device!r}; "
                     "every batch would be copied across devices. Stream on the compute device instead "
-                    "(`preload_to_gpu=True`, scfit's GPU-resident read window), or run the method where the "
+                    "(`preload_to_gpu=True`, boundannbatch's GPU-resident read window), or run the method where the "
                     "data is."
                 )
             tensor = tensor.to(self._device)
@@ -385,7 +385,7 @@ class _StepDataBridge:
         }
 
     def _step_data_from_batch(self, batch: dict, gid: int, *, has_state: bool, n_rows: int) -> StepData:
-        """Assemble one scfit batch (+ its group id) into a ``StepData``.
+        """Assemble one boundannbatch batch (+ its group id) into a ``StepData``.
 
         The categorical encodings (groups and categorical conditions) are cached per group, one row
         ``(1, c, d)``, in ``target_group_data``; continuous covariates are the per-obs aligned reps already in the
@@ -429,7 +429,7 @@ class _StepDataBridge:
         in_memory: bool = False,
     ) -> Stream | None:
         # Under fixed matching the pair column *is* the match: one id shared by a target group and the source
-        # group it flows from, which is the only thing scfit's value-equality matching can key on. Otherwise a
+        # group it flows from, which is the only thing boundannbatch's value-equality matching can key on. Otherwise a
         # target is matched to whatever shares its group columns.
         match_cols = self._pair_cols or tuple(self._groups_schema.groups)
         # The control stream carries the pair column so `match_on` can reach it; without one it groups on the
@@ -463,7 +463,7 @@ class _StepDataBridge:
     def _check_shared_widths(self, sources: dict[str, list[AnnData]]) -> None:
         """The linear coupling term compares sources with targets directly, so one width across every file.
 
-        Within a side scfit already requires it; this compares across the sides, which read separate sources.
+        Within a side boundannbatch already requires it; this compares across the sides, which read separate sources.
         The quadratic terms are exempt (each side's is only compared within itself), and so is the state: whether
         it must match depends on the method -- flowing from the sources needs one space, generating from noise
         conditioned on an encoded source (e.g. GENOT) does not -- so the method checks it, not the loader.
@@ -533,7 +533,7 @@ class _StepDataBridge:
 
 
 class Loader(_StepDataBridge):
-    """Yields ``StepData`` batches for one population, backed by :class:`scfit.data.Loader`.
+    """Yields ``StepData`` batches for one population, backed by :class:`boundannbatch.Loader`.
 
     :param adata: The annotated data object to stream (the whole thing -- selection is by weights).
     :type adata: class: `AnnData | Sequence[AnnData]`
@@ -570,12 +570,12 @@ class Loader(_StepDataBridge):
         (the default) groups on the group columns alone.
     :type split_by: class: `str | None`
 
-    :param primary_weights: scfit ``{leaf tuple: weight}`` selecting the target (perturbed) groups for
+    :param primary_weights: boundannbatch ``{leaf tuple: weight}`` selecting the target (perturbed) groups for
         this loader; ``None`` streams every group uniformly. Controls should be given weight 0 here. The
         tuples are ``(split, *group_cols)`` when ``split_by`` is set, ``group_cols`` otherwise.
     :type primary_weights: class: `dict | None`
 
-    :param control_weights: scfit ``{group tuple: weight}`` selecting controls out of ``adata`` itself.
+    :param control_weights: boundannbatch ``{group tuple: weight}`` selecting controls out of ``adata`` itself.
         ``None`` => unpaired.
     :type control_weights: class: `dict | None`
 
@@ -594,8 +594,8 @@ class Loader(_StepDataBridge):
         ``preload_to_gpu=True`` to actually stream on a GPU.
     :type device: class: `str | None`
 
-    :param preload_to_gpu: Hand scfit/annbatch a GPU-resident read window, so batches arrive on the device
-        instead of being copied there (requires ``sckitflow[gpu]``). Defaults to ``False``.
+    :param preload_to_gpu: Hand boundannbatch/annbatch a GPU-resident read window, so batches arrive on the device
+        instead of being copied there (requires ``sckitflow[cupy-cuda12]`` or ``[cupy-cuda13]``). Defaults to ``False``.
     :type preload_to_gpu: class: `bool`
 
     :param n_iters: Number of batches one pass yields. ``None`` = one epoch over the primary. The trainer
@@ -674,22 +674,22 @@ class Loader(_StepDataBridge):
         # implicit all-observations group column (see `with_derived_obs`).
         sources = self._sources_by_role(primary, control_stream)
 
-        # Make the scfit loader finite (one epoch by default) so a plain pass terminates and is
+        # Make the boundannbatch loader finite (one epoch by default) so a plain pass terminates and is
         # re-iterable; the caller (e.g. the trainer) sets the training length via `set_n_iters`.
-        self._loader = ScfitLoader(
+        self._loader = BoundLoader(
             sources, primary=primary, links=links, seed=seed, to=to, preload_to_gpu=preload_to_gpu, sampler=sampler
         )
         self._loader.set_n_iters(n_iters if n_iters is not None else self._loader.n_batches)
 
     def set_n_iters(self, n_iters: int) -> Loader:
-        """Set how many batches one pass yields (delegates to scfit ``set_n_iters``); returns ``self``."""
+        """Set how many batches one pass yields (delegates to boundannbatch ``set_n_iters``); returns ``self``."""
         if n_iters is None:
             raise ValueError("n_iters must be a positive integer; this loader is always a finite pass.")
         self._loader.set_n_iters(n_iters)
         return self
 
     def _to_step_data(self, batch: dict) -> StepData:
-        """Assemble one sampled scfit batch into a ``StepData``.
+        """Assemble one sampled boundannbatch batch into a ``StepData``.
 
         ``batch["leaves"][primary]`` is the group this batch was drawn from; past any ``split_by`` prefix and
         pair-id suffix it is a plain group leaf, which keys the cached categorical encoding.
@@ -704,12 +704,12 @@ class Loader(_StepDataBridge):
             yield self._to_step_data(batch)
 
     def __len__(self) -> int:
-        """Number of batches one pass yields (scfit's ``n_iters``, set finite in ``__init__``)."""
+        """Number of batches one pass yields (boundannbatch's ``n_iters``, set finite in ``__init__``)."""
         return int(self._loader.n_iters)
 
 
 class EvalLoader(_StepDataBridge):
-    """Deterministic, per-group ``(StepData, leaf)`` for prediction, backed by :class:`scfit.data.EvalLoader`.
+    """Deterministic, per-group ``(StepData, leaf)`` for prediction, backed by :class:`boundannbatch.EvalLoader`.
 
     .. note::
         Unlike :class:`Loader`, this loader does **not** stream coupling terms.
@@ -749,7 +749,7 @@ class EvalLoader(_StepDataBridge):
     :type require_target_state: class: `bool`
 
     :param max_per_group: Per-group cap (``None`` = all observations, ``N`` = at most N, ``1`` = one representative
-        per group / dedup). See :class:`scfit.data.EvalLoader`.
+        per group / dedup). See :class:`boundannbatch.EvalLoader`.
     :type max_per_group: class: `int | None`
 
     :param pair_key: An ``.obs`` column tying a target group to its source group -- fixed matching; see
@@ -760,7 +760,7 @@ class EvalLoader(_StepDataBridge):
     :type dtype: class: `torch.dtype | None`
 
     :param device: Device every emitted tensor is moved to (``None`` = leave as streamed). Unlike
-        :class:`Loader` this *moves* rather than asserts: scfit's eval path reads rows directly, so there is no
+        :class:`Loader` this *moves* rather than asserts: boundannbatch's eval path reads rows directly, so there is no
         read window to place on the device and the one copy per group is unavoidable.
     :type device: class: `str | None`
     """
@@ -820,7 +820,7 @@ class EvalLoader(_StepDataBridge):
         self._control_files = sources.get(_CONTROL, [])
         self.source_obs_names: dict[tuple, np.ndarray] = {}
 
-        self._loader = ScfitEvalLoader(
+        self._loader = BoundEvalLoader(
             sources, primary=primary, links=links, to=to, max_per_group=max_per_group, subsample=subsample, seed=seed
         )
 
@@ -829,7 +829,7 @@ class EvalLoader(_StepDataBridge):
         self.source_obs_names = {}
         for batch in self._loader:
             leaf = self._strip(batch["leaf"])
-            # the group's cell count, capped the same way scfit caps the rows it reads
+            # the group's cell count, capped the same way boundannbatch caps the rows it reads
             n_rows = self._leaf_size[leaf]
             if self._max_per_group is not None:
                 n_rows = min(n_rows, self._max_per_group)
@@ -844,7 +844,7 @@ class EvalLoader(_StepDataBridge):
 
     @cached_property
     def _control_names(self) -> np.ndarray:
-        """The obs names of the control source, indexed by scfit's global rows (its files in list order)."""
+        """The obs names of the control source, indexed by boundannbatch's global rows (its files in list order)."""
         return np.concatenate([a.obs_names.to_numpy(dtype=str) for a in self._control_files])
 
     def __len__(self) -> int:

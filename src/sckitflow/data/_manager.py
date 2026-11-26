@@ -8,9 +8,9 @@ import numpy as np
 import pandas as pd
 from anndata import AnnData
 from anndata.acc import A, AdRef, MultiAcc
-from pydantic import field_validator
 from boundannbatch import obs_columns
 from modelbinder.registry import Component, component
+from pydantic import field_validator
 
 if TYPE_CHECKING:
     import torch

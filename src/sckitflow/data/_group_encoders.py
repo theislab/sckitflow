@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import numpy as np
-from pydantic import AfterValidator, Field
 from modelbinder.registry import Component, component
+from pydantic import AfterValidator, Field
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sckitflow._types import TargetCovariatesEncoderCls

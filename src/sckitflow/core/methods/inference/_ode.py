@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import torch
-from pydantic import Field, PositiveInt, model_validator
 from modelbinder.registry import component
+from pydantic import Field, PositiveInt, model_validator
 
 from sckitflow.core._data_utils import (
     expand_conditioning,

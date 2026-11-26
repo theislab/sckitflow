@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from pydantic import Field, model_validator
 from modelbinder.registry import Component, component
+from pydantic import Field, model_validator
 
 from sckitflow._samplers import NoiseSamplerConfig
 from sckitflow.core.probability_paths._base import BasePath

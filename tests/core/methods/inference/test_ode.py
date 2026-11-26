@@ -3,8 +3,8 @@ from unittest.mock import patch
 import pandas as pd
 import pytest
 import torch
-from pydantic import ValidationError
 from modelbinder.registry import component
+from pydantic import ValidationError
 
 from sckitflow._samplers import (
     NoiseSamplerConfig,

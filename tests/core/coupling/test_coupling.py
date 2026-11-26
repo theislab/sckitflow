@@ -2,8 +2,8 @@ import numpy as np
 import ot as pot
 import pytest
 import torch
-from pydantic import ValidationError
 from modelbinder.registry import parse
+from pydantic import ValidationError
 
 from sckitflow.core.coupling import FusedGromovWassersteinCouplingConfig, GromovWassersteinCouplingConfig
 

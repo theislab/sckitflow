@@ -18,6 +18,7 @@ from sckitflow.data._manager import DataManagerConfig
 from .conftest import CELL_LINES
 
 SCHEMA = DataManagerConfig(
+    target_sample_rep="X",
     categorical_conditions={"drug": ("drug",)},
     categorical_reps={"drug": "drug"},
     groups=("cell_line",),

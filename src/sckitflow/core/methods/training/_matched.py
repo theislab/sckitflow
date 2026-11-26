@@ -3,7 +3,12 @@ from __future__ import annotations
 import torch
 from modelbinder.registry import component
 
-from sckitflow.core.coupling._config import CouplingConfig
+from sckitflow.core.coupling._config import (
+    CouplingConfig,
+    FusedGromovWassersteinCouplingConfig,
+    _LinearCouplingConfig,
+    _QuadraticCouplingConfig,
+)
 from sckitflow.core.methods._base import MatchedTrainingMethod, Matcher, TrainingMethodConfig
 from sckitflow.data._dims import DataDimensions
 
@@ -20,4 +25,23 @@ class MatchedTrainingConfig(TrainingMethodConfig):
     """How source and target are paired, e.g. ``SinkhornCouplingConfig()``."""
 
     def build(self, module: torch.nn.Module, *, dims: DataDimensions) -> MatchedTrainingMethod:
-        return MatchedTrainingMethod(self.method.build(module, dims=dims), Matcher(self.coupling.build()))
+        _check_coupling_reps(self.coupling, dims)
+        matcher = Matcher(self.coupling.build())
+        return MatchedTrainingMethod(self.method.build(module, dims=dims), matcher)
+
+
+def _check_coupling_reps(coupling: CouplingConfig, dims: DataDimensions) -> None:
+    """Raise if the data manager does not name the reps ``coupling`` matches on.
+
+    Temporary until couplings name their own reps (theislab/sckitflow#237).
+    """
+    present = {}  # the independent coupling reads only the row counts, so needs none
+    if isinstance(coupling, _LinearCouplingConfig | FusedGromovWassersteinCouplingConfig):
+        present["rep_lin"] = dims.source_lin_dim
+    if isinstance(coupling, _QuadraticCouplingConfig):
+        present |= {"source_rep_quad": dims.source_quad_dim, "target_rep_quad": dims.target_quad_dim}
+    if missing := [field for field, dim in present.items() if dim is None]:
+        raise ValueError(
+            f"{type(coupling).__name__} matches on {', '.join(present)}, but the data manager names no "
+            f"{', '.join(missing)}. Set it in `DataManagerConfig`."
+        )

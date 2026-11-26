@@ -1,10 +1,12 @@
 import copy
 from collections.abc import Callable, Collection, Mapping, Sequence
-from typing import Any
+from typing import Annotated, Any
 
 import numpy as np
 import pandas as pd
 from anndata import AnnData
+from anndata.acc import A, LayerAcc, MultiAcc
+from pydantic_core import core_schema
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sckitflow._types import TargetCovariatesEncoderCls, TargetCovariatesEncodingId
@@ -19,7 +21,50 @@ __all__ = [
     "AnnDataLike",
     "as_adatas",
     "with_derived_obs_stacked",
+    "Rep",
+    "RepField",
+    "rep_key",
 ]
+
+type Rep = LayerAcc | MultiAcc
+"""A whole array of an AnnData as an :mod:`anndata.acc` reference: ``A.X``, ``A.layers[k]`` or ``A.obsm[k]``."""
+
+
+class _RepSchema:
+    """Pydantic schema of a rep field: read from a reference or its config string, written as that string."""
+
+    def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> core_schema.CoreSchema:
+        return core_schema.no_info_plain_validator_function(
+            self._parse, serialization=core_schema.plain_serializer_function_ser_schema(self._str)
+        )
+
+    @staticmethod
+    def _parse(value: Any) -> Rep:
+        # resolved as scanpy resolves `use=` (scanpy.get._use._get_arr), limited to whole obs arrays
+        if isinstance(value, str):
+            value = A.resolve(value, vec=False)
+        if isinstance(value, LayerAcc) or (isinstance(value, MultiAcc) and value.dim == "obs"):
+            return value
+        raise ValueError(f"a rep is A.X, A.layers[k] or A.obsm[k], got {value!r}.")
+
+    @staticmethod
+    def _str(ref: Rep) -> str:
+        match ref:
+            case LayerAcc(k=None):
+                return "X"
+            case LayerAcc(k=k):
+                return f"layers.{k}"
+        return f"obsm.{ref.k}"
+
+
+RepField = Annotated[Rep, _RepSchema()]
+"""A config field holding a rep: validated from a reference or its config string, written as the string."""
+
+
+def rep_key(ref: Rep) -> str:
+    """The key a covariate rep goes by in a batch: its array key, ``"X"`` for ``A.X``."""
+    return ref.k or "X"
+
 
 AnnDataLike = AnnData | Sequence[AnnData]
 """One ``AnnData``, or several read as one dataset: their observations stacked in list order."""
@@ -47,7 +92,7 @@ def with_derived_obs(adata: AnnData, cols: Mapping[str, Any]) -> AnnData:
     """A shallow AnnData sharing ``adata``'s arrays but carrying extra ``.obs`` columns.
 
     For a column sckitflow derives -- a split label, the implicit all-cells group, the pair id behind fixed
-    matching. Such a column has to be in the obs the consumer reads (scfit reads grouping only from ``.obs``),
+    matching. Such a column has to be in the obs the consumer reads (annbatch reads grouping only from ``.obs``),
     but it has no business being in the caller's object: writing one there mutates their AnnData, and on a
     **view** it materializes the whole thing (anndata's "initializing view as actual") -- the copy an
     out-of-core path exists to avoid. ``adata.copy()`` is worse still: a deep copy of ``X`` to add one column.

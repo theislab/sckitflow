@@ -12,14 +12,20 @@ and this project adheres to [Semantic Versioning][].
 
 ### Added
 
+- `DataManager.get_required_fields()`: the `anndata.acc` references and `uns` tables the schema reads, so a caller can open only those parts of a file
 - `AdaLNZeroConditioning` (`nn.conditioning.adaln_zero`): adaLN-Zero as in DiT, the state layer-normed without a learned affine and modulated by `(1 + gamma)`, `beta` projected from the SiLU of time and condition, the projection starting at zero as in FiLM
 - `predict_adata` names the source cell behind each prediction in `obs["source_obs_name"]` when the batch has a source (one name per row, aligned as the source state is, repeated per sample under `aggregate="samples"`); `EvalLoader.source_obs_names` holds them per group
 - `predict_adata(batch_size=...)` caps the observations per `predict` call, splitting a larger group into batches whose predictions are concatenated back (replaces `chunk_size`; `progress_total` is removed, the bar counts groups again without reading the data twice). A split batch keeps its group's encoding and has its own `n_obs`, so predicting from noise without a source no longer fails. Requires scfit 0.0.12
+- Layers can be reps: the state (`target_sample_rep`, `source_sample_rep`), the coupling reps and the continuous covariates may each be `A.layers[k]`
 - `EnergyDistance(max_samples=...)` and `MaximumMeanDiscrepancy(max_samples=...)` score a fixed random subset of at most that many rows per update: validation scores every sample, and the cost is quadratic in the rows
 
 ### Changed
 
-- The component registry and save/load come from `modelbinder` instead of `scfit`; scfit is capped below 0.0.14
+- Breaking: the array fields of `DataManagerConfig` (`target_sample_rep`, `source_sample_rep`, `rep_lin`, `source_rep_quad`, `target_rep_quad`, `continuous_conditions`, `target_continuous_covs`) take `anndata.acc` references, written in configs as `"X"`, `"layers.<k>"` or `"obsm.<k>"`. Bare names like `X_pca` are rejected
+- Breaking: nothing defaults to `.X`: `target_sample_rep` is required, `DataManager()` without a config is removed, and a linear coupling term is read only when `rep_lin` is set. A matched method missing its coupling rep raises at build
+- Breaking for Python callers: the loaders (`Loader`, `EvalLoader`) and the schemas (`StateDataSchema`, `CouplingDataSchema`, `ConditionDataSchema`, `ResponseDataSchema`) take references instead of `obsm` keys, `target_sample_rep` is required by the loaders, and `sckitflow.data._loader.get_rep` and `_get_loc` are removed (`adata[ref]` and `ref.isin(adata)` replace them)
+- Breaking: `use_linear` is removed; leave `rep_lin` unset for pure Gromov-Wasserstein. One rep may serve several coupling terms
+- scfit is replaced by its two successors: `modelbinder>=0.1` (the component registry, `save_pretrained` / `load_pretrained`) and `boundannbatch>=0.1` (the streaming data layer, with the `anndata.acc` reference API). The `cupy-cuda12` / `cupy-cuda13` extras install boundannbatch's
 - The velocity field is rebuilt from nested configs: `MLPVelocity` / `MLPVelocityConfig` (`velocity_field.mlp`) are replaced by `NeuralVelocity` / `NeuralVelocityConfig` (`nn.models.velocity`), whose `state_encoder`, `time_features`, `time_encoder`, `condition_encoder`, `source_encoder`, `conditioning` and `field_decoder` are configs of their own instead of flat `*_kwargs` and `*_id` arguments. The blocks move to `sckitflow.core.nn.blocks` and `sckitflow.core.nn.composite` with `nn.*` type ids (`mlp` is `nn.mlp`), and `Resnet1d`, `BaseVelocityField`, `get_time_features_fn`, `make_custom_time_features`, `ott_jax_time_features` and `torch_cfm_time_features` are removed. Specs and models saved before do not load; `docs/configs/cellflow.yaml` shows the new form
 - `SetEncoder` is built from a `SetEncoderConfig` and the per-covariate input widths (`categorical_dims`, `continuous_dims`), which come from the data
 - `FiLMConditioning`: `gamma` and `beta` are a linear map of the SiLU of time and condition, no longer passed through a SiLU themselves (that bounded both below about -0.28), and the state becomes `(1 + gamma) * x + beta`, so `gamma` is an offset from 1 as in the FiLM paper. The projection starts at zero, as DiT's, so the layer starts as the identity

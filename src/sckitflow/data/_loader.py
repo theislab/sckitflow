@@ -1,13 +1,13 @@
-r"""scfit-batch to ``StepData`` adapters: :class:`Loader` (training) and :class:`EvalLoader` (prediction).
+r"""annbatch batch to ``StepData`` adapters: :class:`Loader` (training) and :class:`EvalLoader` (prediction).
 
-Selection is entirely scfit-native: one AnnData is streamed and the split + perturbed/control choice is
-expressed as scfit **weights** over scfit's own leaf factorization (weight 0 == excluded, ``in_memory``
+Selection is entirely annbatch-native: one AnnData is streamed and the split + perturbed/control choice is
+expressed as annbatch **weights** over annbatch's own leaf factorization (weight 0 == excluded, ``in_memory``
 materializes only the selected observations). No Python-side masking or copying of subsets.
 
 * the **primary** stream is the target/perturbed population -- controls get weight 0;
 * the **control** link is the source population -- the *same* adata weighted so only controls are nonzero,
-  held in memory by scfit;
-* **continuous** covariates ride as *aligned reps* (per-obs, straight from ``obsm``);
+  held in memory by annbatch;
+* **continuous** covariates ride as *aligned reps* (per-obs arrays, ``A.obsm[k]`` or ``A.layers[k]``);
 * **categorical** condition/group encodings are computed per group at batch time (cached), keyed off the
   group the batch belongs to, as one row ``(1, c, d)``.
 
@@ -26,11 +26,11 @@ from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 import numpy as np
 import pandas as pd
 from anndata import AnnData
-from scfit.data import EvalLoader as ScfitEvalLoader
-from scfit.data import Loader as ScfitLoader
-from scfit.data import SamplerParams, Stream, obs_columns
+from boundannbatch import EvalLoader as BoundEvalLoader
+from boundannbatch import Loader as BoundLoader
+from boundannbatch import SamplerParams, Stream, obs_columns
 
-from sckitflow.data._utils import AnnDataLike, as_adatas
+from sckitflow.data._utils import AnnDataLike, Rep, as_adatas, rep_key
 
 
 @runtime_checkable
@@ -50,7 +50,7 @@ if TYPE_CHECKING:
 
 # The kwargs contract for these loaders is :class:`~sckitflow.data._manager.LoaderKwargs` -- declared
 # there, next to its only consumer (``DataManager.get_dataloaders``), so typing a call site does not
-# drag in the scfit/annbatch stack this module imports.
+# drag in the annbatch stack this module imports.
 __all__ = ["Loader", "EvalLoader"]
 
 
@@ -90,11 +90,6 @@ def _tile_index(n_source: int, batch_size: int) -> np.ndarray:
             "`control_values_dict={}`."
         )
     return np.arange(batch_size) % n_source
-
-
-def _get_loc(sample_rep: str | None) -> str:
-    """The scfit rep loc for the state representation: ``.X`` (``None``) or an ``obsm`` key."""
-    return "X" if sample_rep is None else f"obsm/{sample_rep}"
 
 
 def _as_tensor(array: SupportsDLPack) -> torch.Tensor:
@@ -145,32 +140,6 @@ def _group_row(encoding: torch.Tensor) -> torch.Tensor:
     return encoding.unsqueeze(0)
 
 
-def _get_coupling_locs(coupling_schema: CouplingDataSchema | None) -> tuple[dict[str, str], dict[str, str]]:
-    """Retrieves the locations from the input coupling schema."""
-    # Return empty dictionaries
-    if coupling_schema is None:
-        return {}, {}
-
-    # Initialize dictionaries.
-    source_coupling_locs: dict[str, str] = {}
-    target_coupling_locs: dict[str, str] = {}
-
-    # Linear term, both source and target
-    if coupling_schema.use_linear:
-        loc_lin = _get_loc(coupling_schema.rep_lin)
-        source_coupling_locs[loc_lin] = _SOURCE_LIN_TERM
-        target_coupling_locs[loc_lin] = _TARGET_LIN_TERM
-
-    # Source quadratic term.
-    if coupling_schema.source_rep_quad:
-        source_coupling_locs[f"obsm/{coupling_schema.source_rep_quad}"] = _SOURCE_QUAD_TERM
-
-    # Target quadratic term.
-    if coupling_schema.target_rep_quad:
-        target_coupling_locs[f"obsm/{coupling_schema.target_rep_quad}"] = _TARGET_QUAD_TERM
-    return source_coupling_locs, target_coupling_locs
-
-
 # The schema field each coupling term is read from, for error messages.
 _COUPLING_FIELD = {
     _SOURCE_LIN_TERM: "rep_lin",
@@ -180,24 +149,8 @@ _COUPLING_FIELD = {
 }
 
 
-def get_rep(adata: AnnData, loc: str) -> Any:
-    """Rep ``loc`` (``"X"`` | ``"obsm/<k>"`` | ``"layers/<k>"``) of ``adata``."""
-    if loc == "X":
-        return adata.X
-    field, key = loc.split("/", 1)
-    return getattr(adata, field)[key]
-
-
-def _has_rep(adata: AnnData, loc: str) -> bool:
-    """Whether ``adata`` carries rep ``loc`` (``"X"`` | ``"obsm/<k>"`` | ``"layers/<k>"``)."""
-    if loc == "X":
-        return adata.X is not None
-    field, key = loc.split("/", 1)
-    return key in getattr(adata, field)
-
-
-def _merge_reps(*groups: Iterable[str]) -> tuple[str, ...]:
-    seen: dict[str, None] = {}
+def _merge_reps(*groups: Iterable[Rep]) -> tuple[Rep, ...]:
+    seen: dict[Rep, None] = {}
     for g in groups:
         for loc in g:
             seen.setdefault(loc, None)
@@ -205,11 +158,11 @@ def _merge_reps(*groups: Iterable[str]) -> tuple[str, ...]:
 
 
 class _StepDataBridge:
-    """Shared scfit-batch -> ``StepData`` machinery for :class:`Loader` and :class:`EvalLoader`.
+    """Shared annbatch batch -> ``StepData`` machinery for :class:`Loader` and :class:`EvalLoader`.
 
     Owns the schema-derived rep locations, the ordered group leaves + a representative row per group, the
-    per-group categorical encoding (cached), and the assembly of one scfit batch into a ``StepData``.
-    Subclasses build the concrete scfit loader (sampling vs deterministic) and drive iteration.
+    per-group categorical encoding (cached), and the assembly of one annbatch batch into a ``StepData``.
+    Subclasses build the concrete annbatch loader (sampling vs deterministic) and drive iteration.
     """
 
     def __init__(
@@ -219,9 +172,9 @@ class _StepDataBridge:
         condition_schema: ConditionDataSchema,
         groups_schema: GroupsDataSchema,
         coupling_schema: CouplingDataSchema | None = None,
-        target_sample_rep: str | None = None,
-        source_sample_rep: str | None = None,
-        response_covs: Collection[str] = (),
+        target_sample_rep: Rep,
+        source_sample_rep: Rep | None = None,
+        response_covs: Collection[Rep] = (),
         pair_key: str | None = None,
         dtype: torch.dtype | None = None,
         device: str | None = None,
@@ -237,41 +190,41 @@ class _StepDataBridge:
         self._device = device
         self._device_type = device.split(":")[0] if device is not None else None
         self._assert_device = assert_device
-        self._starget_state_loc = _get_loc(target_sample_rep)
+        self._starget_state_loc = target_sample_rep
         # The sources' state: their own rep when the schema gives them one, else the targets'.
-        self._source_state_loc = (
-            _get_loc(source_sample_rep) if source_sample_rep is not None else self._starget_state_loc
-        )
+        self._source_state_loc = source_sample_rep if source_sample_rep is not None else target_sample_rep
         # group_by = group columns + categorical condition columns (continuous covs are streamed reps).
         self._group_cols: tuple[str, ...] = (*groups_schema.groups, *condition_schema.all_condition_cols)
         # Fixed matching (`matched_keys`) rides as one derived column shared by a target group and the source
-        # group it flows from -- appended to `group_by` so scfit can `match_on` it, and stripped back off
+        # group it flows from -- appended to `group_by` so annbatch can `match_on` it, and stripped back off
         # before a leaf is used as a group identity (see `_strip`).
         self._pair_cols: tuple[str, ...] = (pair_key,) if pair_key is not None else ()
         adatas = as_adatas(adata)
-        # Continuous covariates ride as aligned reps: {rep loc -> StepData dict key}.
-        self._cond_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in condition_schema.continuous_conditions}
-        self._resp_cont_locs: dict[str, str] = {f"obsm/{c}": c for c in response_covs}
+        # Continuous covariates ride as aligned reps: {reference -> StepData dict key, the reference's array key}.
+        self._cond_cont_locs: dict[Rep, str] = {r: rep_key(r) for r in condition_schema.continuous_conditions}
+        self._resp_cont_locs: dict[Rep, str] = {r: rep_key(r) for r in response_covs}
 
         # Handle coupling terms and construct coupling locs dictionary
         self._coupling_schema = coupling_schema
-        self._source_coupling_locs, self._target_coupling_locs = _get_coupling_locs(self._coupling_schema)
+        # {StepData key: reference}; one reference may serve several terms
+        self._source_terms = coupling_schema.source_terms if coupling_schema is not None else {}
+        self._target_terms = coupling_schema.target_terms if coupling_schema is not None else {}
         # Which schema field asks for each rep, so a missing one is reported by the name the user set.
-        self._rep_fields: dict[str, list[str]] = {}
+        self._rep_fields: dict[Rep, list[str]] = {}
         for loc, field in [
             (self._starget_state_loc, "target_sample_rep"),
             (self._source_state_loc, "source_sample_rep" if source_sample_rep is not None else "target_sample_rep"),
             *((loc, "continuous_conditions") for loc in self._cond_cont_locs),
             *((loc, "response covariates") for loc in self._resp_cont_locs),
-            *((loc, _COUPLING_FIELD[t]) for loc, t in self._source_coupling_locs.items()),
-            *((loc, _COUPLING_FIELD[t]) for loc, t in self._target_coupling_locs.items()),
+            *((loc, _COUPLING_FIELD[t]) for t, loc in self._source_terms.items()),
+            *((loc, _COUPLING_FIELD[t]) for t, loc in self._target_terms.items()),
         ]:
             if field not in self._rep_fields.setdefault(loc, []):
                 self._rep_fields[loc].append(field)
 
         # One O(N) drop_duplicates gives the group combos (no per-obs logic). Encoding a group needs only its values
         # and the `.uns` tables, so it is deferred to batch time (cached), keyed by the group's id. An unconditional
-        # schema (no groups, no conditions) has one group of every cell, ``()``, which scfit streams as is.
+        # schema (no groups, no conditions) has one group of every cell, ``()``, which annbatch streams as is.
         uniq = obs_columns(adatas, self._group_cols).drop_duplicates()
         self._leaves: list[tuple] = list(map(tuple, uniq.to_numpy())) if self._group_cols else [()]
         self._leaf_to_gid: dict[tuple, int] = {leaf: i for i, leaf in enumerate(self._leaves)}
@@ -300,10 +253,10 @@ class _StepDataBridge:
         """Cast one tensor to the configured ``dtype`` and assert its ``device`` -- the single place both apply.
 
         ``device`` is checked, never fixed, for a ``streamed`` tensor *when the loader asserts it*: those come
-        straight off scfit, which already reads on the streaming device, so a mismatch means the read window is
+        straight off annbatch, which already reads on the streaming device, so a mismatch means the read window is
         on the wrong device and *every* training batch would be copied. That is a real problem and it fails
-        here rather than being silently paid for -- the fix is ``preload_to_gpu=True``, scfit's GPU-resident
-        read window. :class:`EvalLoader` passes ``assert_device=False``: scfit's eval path reads rows directly,
+        here rather than being silently paid for -- the fix is ``preload_to_gpu=True``, annbatch's GPU-resident
+        read window. :class:`EvalLoader` passes ``assert_device=False``: annbatch's eval path reads rows directly,
         so there is no read window to place on the device, its one copy per group is the only option, and
         raising would just make GPU prediction impossible. The per-group ``uns`` encodings are not streamed --
         they are host arrays by construction, so they are moved once, when their cache entry is first filled.
@@ -315,7 +268,7 @@ class _StepDataBridge:
                 raise RuntimeError(
                     f"batches stream on {tensor.device.type!r} but the method runs on {self._device!r}; "
                     "every batch would be copied across devices. Stream on the compute device instead "
-                    "(`preload_to_gpu=True`, scfit's GPU-resident read window), or run the method where the "
+                    "(`preload_to_gpu=True`, annbatch's GPU-resident read window), or run the method where the "
                     "data is."
                 )
             tensor = tensor.to(self._device)
@@ -396,7 +349,7 @@ class _StepDataBridge:
             return {}
         return {
             coupling_term: _as_tensor(batch[_CONTROL][coupling_loc])
-            for coupling_loc, coupling_term in self._source_coupling_locs.items()
+            for coupling_term, coupling_loc in self._source_terms.items()
         }
 
     def _target_coupling_dict(self, batch: dict, has_state: bool) -> dict[str, torch.Tensor]:
@@ -405,11 +358,11 @@ class _StepDataBridge:
             return {}
         return {
             coupling_term: _as_tensor(batch[_PRIMARY][coupling_loc])
-            for coupling_loc, coupling_term in self._target_coupling_locs.items()
+            for coupling_term, coupling_loc in self._target_terms.items()
         }
 
     def _step_data_from_batch(self, batch: dict, gid: int, *, has_state: bool, n_rows: int) -> StepData:
-        """Assemble one scfit batch (+ its group id) into a ``StepData``.
+        """Assemble one annbatch batch (+ its group id) into a ``StepData``.
 
         The categorical encodings (groups and categorical conditions) are cached per group, one row
         ``(1, c, d)``, in ``target_group_data``; continuous covariates are the per-obs aligned reps already in the
@@ -453,7 +406,7 @@ class _StepDataBridge:
         in_memory: bool = False,
     ) -> Stream | None:
         # Under fixed matching the pair column *is* the match: one id shared by a target group and the source
-        # group it flows from, which is the only thing scfit's value-equality matching can key on. Otherwise a
+        # group it flows from, which is the only thing annbatch's value-equality matching can key on. Otherwise a
         # target is matched to whatever shares its group columns.
         match_cols = self._pair_cols or tuple(self._groups_schema.groups)
         # The control stream carries the pair column so `match_on` can reach it; without one it groups on the
@@ -463,7 +416,7 @@ class _StepDataBridge:
             return Stream(
                 _CONTROL,  # its own source: only the AnnData holding source cells (see `_sources_by_role`)
                 group_by=group_by,
-                reps=_merge_reps((self._source_state_loc,), self._source_coupling_locs),
+                reps=_merge_reps((self._source_state_loc,), self._source_terms.values()),
                 weights=control_weights,
                 match_on=list(match_cols),
                 in_memory=in_memory,
@@ -487,16 +440,16 @@ class _StepDataBridge:
     def _check_shared_widths(self, sources: dict[str, list[AnnData]]) -> None:
         """The linear coupling term compares sources with targets directly, so one width across every file.
 
-        Within a side scfit already requires it; this compares across the sides, which read separate sources.
+        Within a side annbatch already requires it; this compares across the sides, which read separate sources.
         The quadratic terms are exempt (each side's is only compared within itself), and so is the state: whether
         it must match depends on the method -- flowing from the sources needs one space, generating from noise
         conditioned on an encoded source (e.g. GENOT) does not -- so the method checks it, not the loader.
         """
-        shared = {loc for loc, t in self._source_coupling_locs.items() if t == _SOURCE_LIN_TERM}
+        shared = {loc for t, loc in self._source_terms.items() if t == _SOURCE_LIN_TERM}
         index = {id(a): i for i, a in enumerate(self._adatas)}
         for loc in shared:
             widths = {
-                (role, index[id(a)]): int(get_rep(a, loc).shape[1])
+                (role, index[id(a)]): int(a[loc].shape[1])
                 for role, files in (("source", sources[_CONTROL]), ("target", sources[_PRIMARY]))
                 for a in files
             }
@@ -506,8 +459,7 @@ class _StepDataBridge:
                     f"{loc} ({' / '.join(self._rep_fields.get(loc, ['rep']))}) is {where}. The linear coupling "
                     "term compares sources with targets directly, so it needs one width in every file; align the "
                     "files to it (one PCA fitted over all of them, or an embedding both sides share when their states "
-                    "live in different spaces), or match across spaces with the quadratic terms alone "
-                    "(`use_linear=False`)."
+                    "live in different spaces), or match across spaces with the quadratic terms alone."
                 )
 
     def _files_holding(self, stream: Stream, role: str) -> list[AnnData]:
@@ -530,7 +482,7 @@ class _StepDataBridge:
                 f"schema (e.g. `control_values_dict`) match the data's obs."
             )
         for i in held:
-            missing = [loc for loc in stream.reps if not _has_rep(self._adatas[i], loc)]
+            missing = [loc for loc in stream.reps if not loc.isin(self._adatas[i])]
             if missing:
                 described = ", ".join(f"{loc} ({' / '.join(self._rep_fields.get(loc, ['rep']))})" for loc in missing)
                 raise ValueError(
@@ -557,7 +509,7 @@ class _StepDataBridge:
 
 
 class Loader(_StepDataBridge):
-    """Yields ``StepData`` batches for one population, backed by :class:`scfit.data.Loader`.
+    """Yields ``StepData`` batches for one population, backed by :class:`boundannbatch.Loader`.
 
     :param adata: The annotated data object to stream (the whole thing -- selection is by weights).
     :type adata: class: `AnnData | Sequence[AnnData]`
@@ -577,28 +529,29 @@ class Loader(_StepDataBridge):
         Defaults to `None`, in which case no coupling data is streamed.
     :type coupling_schema: class: `CouplingDataSchema | None`
 
-    :param target_sample_rep: The ``obsm`` key holding the targets' state representation, or ``None`` for ``.X``.
-    :type target_sample_rep: class: `str | None`
+    :param target_sample_rep: The reference (``A.X``, ``A.layers[k]`` or ``A.obsm[k]``) to the targets' state
+        representation.
+    :type target_sample_rep: class: `Rep`
 
-    :param source_sample_rep: The ``obsm`` key holding the sources' own state rep; ``None`` reads them from
+    :param source_sample_rep: The reference to the sources' own state rep; ``None`` reads them from
         ``target_sample_rep`` too.
-    :type source_sample_rep: class: `str | None`
+    :type source_sample_rep: class: `Rep | None`
 
-    :param response_covs: Continuous response covariate ``obsm`` keys, streamed per-obs into
-        ``target_response_data``.
-    :type response_covs: class: `Collection[str]`
+    :param response_covs: Continuous response covariate references, streamed per-obs into
+        ``target_response_data`` under their array key.
+    :type response_covs: class: `Collection[Rep]`
 
     :param split_by: An ``.obs`` column prepended to the primary's ``group_by``, so a leaf is
         ``(split, *group_cols)`` and ``primary_weights`` select observations rather than whole groups. ``None``
         (the default) groups on the group columns alone.
     :type split_by: class: `str | None`
 
-    :param primary_weights: scfit ``{leaf tuple: weight}`` selecting the target (perturbed) groups for
+    :param primary_weights: annbatch ``{leaf tuple: weight}`` selecting the target (perturbed) groups for
         this loader; ``None`` streams every group uniformly. Controls should be given weight 0 here. The
         tuples are ``(split, *group_cols)`` when ``split_by`` is set, ``group_cols`` otherwise.
     :type primary_weights: class: `dict | None`
 
-    :param control_weights: scfit ``{group tuple: weight}`` selecting controls out of ``adata`` itself.
+    :param control_weights: annbatch ``{group tuple: weight}`` selecting controls out of ``adata`` itself.
         ``None`` => unpaired.
     :type control_weights: class: `dict | None`
 
@@ -617,8 +570,8 @@ class Loader(_StepDataBridge):
         ``preload_to_gpu=True`` to actually stream on a GPU.
     :type device: class: `str | None`
 
-    :param preload_to_gpu: Hand scfit/annbatch a GPU-resident read window, so batches arrive on the device
-        instead of being copied there (requires ``sckitflow[gpu]``). Defaults to ``False``.
+    :param preload_to_gpu: Hand annbatch a GPU-resident read window, so batches arrive on the device
+        instead of being copied there (requires ``sckitflow[cupy-cuda12]`` or ``[cupy-cuda13]``). Defaults to ``False``.
     :type preload_to_gpu: class: `bool`
 
     :param n_iters: Number of batches one pass yields. ``None`` = one epoch over the primary. The trainer
@@ -633,9 +586,9 @@ class Loader(_StepDataBridge):
         condition_schema: ConditionDataSchema,
         groups_schema: GroupsDataSchema,
         coupling_schema: CouplingDataSchema | None = None,
-        target_sample_rep: str | None = None,
-        source_sample_rep: str | None = None,
-        response_covs: Collection[str] = (),
+        target_sample_rep: Rep,
+        source_sample_rep: Rep | None = None,
+        response_covs: Collection[Rep] = (),
         split_by: str | None = None,
         primary_weights: dict[tuple, float] | None = None,
         control_weights: dict[tuple, float] | None = None,
@@ -674,7 +627,7 @@ class Loader(_StepDataBridge):
             (self._starget_state_loc,),
             self._cond_cont_locs,
             self._resp_cont_locs,
-            self._target_coupling_locs,
+            self._target_terms.values(),
         )
 
         # With a split column the leaf is ``(split, *group_cols)``, so a weight of 0 excludes the *observations*
@@ -697,22 +650,22 @@ class Loader(_StepDataBridge):
         # implicit all-observations group column (see `with_derived_obs`).
         sources = self._sources_by_role(primary, control_stream)
 
-        # Make the scfit loader finite (one epoch by default) so a plain pass terminates and is
+        # Make the annbatch loader finite (one epoch by default) so a plain pass terminates and is
         # re-iterable; the caller (e.g. the trainer) sets the training length via `set_n_iters`.
-        self._loader = ScfitLoader(
+        self._loader = BoundLoader(
             sources, primary=primary, links=links, seed=seed, to=to, preload_to_gpu=preload_to_gpu, sampler=sampler
         )
         self._loader.set_n_iters(n_iters if n_iters is not None else self._loader.n_batches)
 
     def set_n_iters(self, n_iters: int) -> Loader:
-        """Set how many batches one pass yields (delegates to scfit ``set_n_iters``); returns ``self``."""
+        """Set how many batches one pass yields (delegates to annbatch ``set_n_iters``); returns ``self``."""
         if n_iters is None:
             raise ValueError("n_iters must be a positive integer; this loader is always a finite pass.")
         self._loader.set_n_iters(n_iters)
         return self
 
     def _to_step_data(self, batch: dict) -> StepData:
-        """Assemble one sampled scfit batch into a ``StepData``.
+        """Assemble one sampled annbatch batch into a ``StepData``.
 
         ``batch["leaves"][primary]`` is the group this batch was drawn from; past any ``split_by`` prefix and
         pair-id suffix it is a plain group leaf, which keys the cached categorical encoding.
@@ -727,12 +680,12 @@ class Loader(_StepDataBridge):
             yield self._to_step_data(batch)
 
     def __len__(self) -> int:
-        """Number of batches one pass yields (scfit's ``n_iters``, set finite in ``__init__``)."""
+        """Number of batches one pass yields (annbatch's ``n_iters``, set finite in ``__init__``)."""
         return int(self._loader.n_iters)
 
 
 class EvalLoader(_StepDataBridge):
-    """Deterministic, per-group ``(StepData, leaf)`` for prediction, backed by :class:`scfit.data.EvalLoader`.
+    """Deterministic, per-group ``(StepData, leaf)`` for prediction, backed by :class:`boundannbatch.EvalLoader`.
 
     .. note::
         Unlike :class:`Loader`, this loader does **not** stream coupling terms.
@@ -757,22 +710,22 @@ class EvalLoader(_StepDataBridge):
     :param groups_schema: The groups schema; see :class:`Loader`.
     :type groups_schema: class: `GroupsDataSchema`
 
-    :param target_sample_rep: The ``obsm`` key holding the targets' state representation, or ``None`` for ``.X``.
-    :type target_sample_rep: class: `str | None`
+    :param target_sample_rep: The reference to the targets' state representation.
+    :type target_sample_rep: class: `Rep`
 
-    :param source_sample_rep: The ``obsm`` key holding the sources' own state rep; ``None`` reads them from
+    :param source_sample_rep: The reference to the sources' own state rep; ``None`` reads them from
         ``target_sample_rep`` too.
-    :type source_sample_rep: class: `str | None`
+    :type source_sample_rep: class: `Rep | None`
 
-    :param response_covs: Continuous response covariate ``obsm`` keys; see :class:`Loader`.
-    :type response_covs: class: `Collection[str]`
+    :param response_covs: Continuous response covariate references; see :class:`Loader`.
+    :type response_covs: class: `Collection[Rep]`
 
     :param require_target_state: When ``False``, the target state is not read (metadata-only prediction);
         ``StepData["target_state"]`` is ``None`` and batches carry only conditioning.
     :type require_target_state: class: `bool`
 
     :param max_per_group: Per-group cap (``None`` = all observations, ``N`` = at most N, ``1`` = one representative
-        per group / dedup). See :class:`scfit.data.EvalLoader`.
+        per group / dedup). See :class:`boundannbatch.EvalLoader`.
     :type max_per_group: class: `int | None`
 
     :param pair_key: An ``.obs`` column tying a target group to its source group -- fixed matching; see
@@ -783,7 +736,7 @@ class EvalLoader(_StepDataBridge):
     :type dtype: class: `torch.dtype | None`
 
     :param device: Device every emitted tensor is moved to (``None`` = leave as streamed). Unlike
-        :class:`Loader` this *moves* rather than asserts: scfit's eval path reads rows directly, so there is no
+        :class:`Loader` this *moves* rather than asserts: annbatch's eval path reads rows directly, so there is no
         read window to place on the device and the one copy per group is unavoidable.
     :type device: class: `str | None`
     """
@@ -794,9 +747,9 @@ class EvalLoader(_StepDataBridge):
         *,
         condition_schema: ConditionDataSchema,
         groups_schema: GroupsDataSchema,
-        target_sample_rep: str | None = None,
-        source_sample_rep: str | None = None,
-        response_covs: Collection[str] = (),
+        target_sample_rep: Rep,
+        source_sample_rep: Rep | None = None,
+        response_covs: Collection[Rep] = (),
         primary_weights: dict[tuple, float] | None = None,
         control_weights: dict[tuple, float] | None = None,
         pair_key: str | None = None,
@@ -843,7 +796,7 @@ class EvalLoader(_StepDataBridge):
         self._control_files = sources.get(_CONTROL, [])
         self.source_obs_names: dict[tuple, np.ndarray] = {}
 
-        self._loader = ScfitEvalLoader(
+        self._loader = BoundEvalLoader(
             sources, primary=primary, links=links, to=to, max_per_group=max_per_group, subsample=subsample, seed=seed
         )
 
@@ -852,7 +805,7 @@ class EvalLoader(_StepDataBridge):
         self.source_obs_names = {}
         for batch in self._loader:
             leaf = self._strip(batch["leaf"])
-            # the group's cell count, capped the same way scfit caps the rows it reads
+            # the group's cell count, capped the same way annbatch caps the rows it reads
             n_rows = self._leaf_size[leaf]
             if self._max_per_group is not None:
                 n_rows = min(n_rows, self._max_per_group)
@@ -867,7 +820,7 @@ class EvalLoader(_StepDataBridge):
 
     @cached_property
     def _control_names(self) -> np.ndarray:
-        """The obs names of the control source, indexed by scfit's global rows (its files in list order)."""
+        """The obs names of the control source, indexed by annbatch's global rows (its files in list order)."""
         return np.concatenate([a.obs_names.to_numpy(dtype=str) for a in self._control_files])
 
     def __len__(self) -> int:

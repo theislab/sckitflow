@@ -1,6 +1,7 @@
 from collections.abc import Collection
 
 import pytest
+from anndata.acc import A
 
 from sckitflow.data.schemas import ConditionDataSchema
 
@@ -48,7 +49,7 @@ class TestConditionDataSchema:
         "continuous_conditions",
         [
             None,
-            ["drugA_time", "drugA_dose"],
+            [A.obsm["drugA_time"], A.obsm["drugA_dose"]],
         ],
     )
     def test_init(

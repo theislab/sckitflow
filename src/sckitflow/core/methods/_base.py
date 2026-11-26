@@ -258,14 +258,18 @@ class Matcher(BaseMatcher):
     """
 
     def __init__(self, match_fn: MatchFn) -> None:
+        """Initializes the matcher.
+
+        :param match_fn: Matches source and target populations from a batch. Without coupling reps it gets the
+            source and target states, for a ``match_fn`` reading only row counts, like random pairing.
+        """
         super().__init__(match_fn)
         self._returns_plan = "return_matrix" in inspect.signature(match_fn).parameters
 
     def match(self, step_data: StepData, *, generator: torch.Generator) -> tuple[StepData, dict[str, Any]]:
         """Matches the input state data using the underlying `match_fn`, drawing from ``generator``.
 
-        Returns `step_data` unchanged when neither `source_coupling_lin` nor
-        `source_coupling_quad` are present, or when `match_fn` returns either
+        Returns `step_data` unchanged when the batch has no sources, or when `match_fn` returns either
         `src_idxs` or `tgt_idxs` as `None`.
         """
         source_lin = step_data["source_coupling_lin"]
@@ -274,7 +278,10 @@ class Matcher(BaseMatcher):
         target_quad = step_data["target_coupling_quad"]
 
         if source_lin is None and source_quad is None:
-            return step_data, {}
+            if step_data["source_state"] is None:
+                return step_data, {}
+            # no coupling rep: a coupling that needs one is refused at build, so this one reads only the row counts
+            source_lin, target_lin = step_data["source_state"], step_data["target_state"]
 
         kwargs = {"return_matrix": True} if self._returns_plan else {}
         src_idxs, tgt_idxs, *plan = self.match_fn(

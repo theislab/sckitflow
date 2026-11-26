@@ -30,11 +30,7 @@ _LAZY = frozenset({"Loader", "EvalLoader"})
 
 
 def __getattr__(name: str) -> Any:
-    """Resolve the scfit-backed loaders on first access (PEP 562).
-
-    Importing them costs ~2s of scfit/annbatch/zarr, which nothing that only configures a
-    :class:`DataManager` should pay. :class:`LoaderKwargs` stays eager -- it is a plain TypedDict.
-    """
+    """The loaders take a while to import, so they are loaded on first access."""
     if name in _LAZY:
         from sckitflow.data import _loader
 

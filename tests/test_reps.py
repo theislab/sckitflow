@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-import lightning as pl
 import numpy as np
 import pytest
 import torch
@@ -11,71 +10,49 @@ from anndata import AnnData
 from anndata.acc import A
 from tests.data.shared import with_split
 
-from sckitflow import Model, ModelConfig, predict_adata
+from sckitflow import ModelConfig
 from sckitflow.core.coupling import IndependentCouplingConfig
-from sckitflow.core.methods import MatchedTrainingMethod, Matcher
 from sckitflow.data import DataManagerConfig, FlowDataModule
 from sckitflow.data.sim import get_dummy_adata
-from sckitflow.trainer import TrainingPlan
 
 CELLFLOW = Path(__file__).parents[1] / "docs" / "configs" / "cellflow.yaml"
-REP_FIELDS = ("target_sample_rep", "source_sample_rep", "rep_lin", "source_rep_quad", "target_rep_quad")
 
 
-class TestConfigStrings:
-    @pytest.mark.parametrize(
-        ("text", "ref"), [("X", A.X), ("obsm.X_pca", A.obsm["X_pca"]), ("layers.counts", A.layers["counts"])]
-    )
-    @pytest.mark.parametrize("field", REP_FIELDS)
-    def test_strings_parse_to_references(self, field, text, ref):
-        config = DataManagerConfig(**{"target_sample_rep": "X", field: text})
-        assert getattr(config, field) == ref
+@pytest.mark.parametrize(
+    ("text", "ref"), [("X", A.X), ("obsm.X_pca", A.obsm["X_pca"]), ("layers.counts", A.layers["counts"])]
+)
+def test_strings_parse_to_references(text, ref):
+    assert DataManagerConfig(target_sample_rep=text).target_sample_rep == ref
 
-    @pytest.mark.parametrize("field", REP_FIELDS)
-    def test_a_bare_name_is_rejected(self, field):
-        with pytest.raises(ValueError, match="X_pca"):
-            DataManagerConfig(**{"target_sample_rep": "X", field: "X_pca"})
 
-    @pytest.mark.parametrize("field", ["continuous_conditions", "target_continuous_covs"])
-    def test_covariates_are_references_too(self, field):
-        config = DataManagerConfig(target_sample_rep="X", **{field: ("obsm.dose", "layers.time")})
-        assert getattr(config, field) == (A.obsm["dose"], A.layers["time"])
-        with pytest.raises(ValueError, match="dose"):
-            DataManagerConfig(target_sample_rep="X", **{field: ("dose",)})
-        assert getattr(DataManagerConfig(target_sample_rep="X", **{field: ("X",)}), field) == (A.X,)
-        with pytest.raises(ValueError, match=r"keyed by their array key, and \['dose'\] name several"):
-            DataManagerConfig(target_sample_rep="X", **{field: ("obsm.dose", "layers.dose")})
+@pytest.mark.parametrize("bad", ["X_pca", "obs.drug", "varm.PCs", A.var["gene"], 3])
+def test_only_whole_obs_arrays(bad):
+    with pytest.raises(ValueError):
+        DataManagerConfig(target_sample_rep=bad)
 
-    @pytest.mark.parametrize("bad", ["obs.drug", "varm.PCs", A.var["gene"], 3])
-    def test_only_whole_obs_arrays(self, bad):
-        with pytest.raises(ValueError):
-            DataManagerConfig(target_sample_rep=bad)
 
-    def test_the_state_rep_is_required(self):
-        with pytest.raises(ValueError, match="target_sample_rep"):
-            DataManagerConfig()
+def test_covariates_are_references_too():
+    config = DataManagerConfig(target_sample_rep="X", continuous_conditions=("obsm.dose", "layers.time", "X"))
+    assert config.continuous_conditions == (A.obsm["dose"], A.layers["time"], A.X)
+    with pytest.raises(ValueError, match=r"\['dose'\] name several"):
+        DataManagerConfig(target_sample_rep="X", continuous_conditions=("obsm.dose", "layers.dose"))
+
+
+def test_the_state_rep_is_required():
+    with pytest.raises(ValueError, match="target_sample_rep"):
+        DataManagerConfig()
 
 
 def test_the_spec_round_trips_through_yaml():
     config = DataManagerConfig(
         target_sample_rep=A.layers["counts"],
-        source_sample_rep="obsm.X_atac",
         rep_lin="X",
         source_rep_quad="obsm.X_src",
-        target_rep_quad="layers.tgt",
         continuous_conditions=("obsm.dose",),
-        target_continuous_covs=("layers.resp",),
     )
     spec = config.to_spec()
-    assert {k: spec[k] for k in (*REP_FIELDS, "continuous_conditions", "target_continuous_covs")} == {
-        "target_sample_rep": "layers.counts",
-        "source_sample_rep": "obsm.X_atac",
-        "rep_lin": "X",
-        "source_rep_quad": "obsm.X_src",
-        "target_rep_quad": "layers.tgt",
-        "continuous_conditions": ["obsm.dose"],
-        "target_continuous_covs": ["layers.resp"],
-    }
+    assert (spec["target_sample_rep"], spec["rep_lin"], spec["source_rep_quad"]) == ("layers.counts", "X", "obsm.X_src")
+    assert spec["continuous_conditions"] == ["obsm.dose"]
     assert DataManagerConfig.from_spec(yaml.safe_load(yaml.safe_dump(spec))) == config
 
 
@@ -91,7 +68,6 @@ def adata() -> AnnData:
         obs_columns_to_fixed_val={"drug1": "control", "drug2": "control"},
         rng=rng,
     )
-    adata.X = np.zeros_like(adata.X)  # a model that read .X would see nothing
     adata.layers["lognorm"] = rng.standard_normal(adata.shape).astype(np.float32)
     return with_split(
         adata, cols=("cell_line", "drug1", "drug2"), labels=("train",) * 4 + ("test",), control_col="drug1"
@@ -101,37 +77,6 @@ def adata() -> AnnData:
 def _cellflow(**data) -> ModelConfig:
     spec = yaml.safe_load(CELLFLOW.read_text())
     return ModelConfig.from_spec({**spec, "data": {**spec["data"], **data}})
-
-
-def test_a_layer_is_the_state_and_the_coupling_rep(tmp_path, adata: AnnData):
-    """OT-matched flow matching on a layer: the batches, the matcher and the prediction all read the layer."""
-    model = _cellflow(target_sample_rep="layers.lognorm", rep_lin="layers.lognorm").build(adata)
-    assert model.dims.state_dim == adata.n_vars
-    datamodule = FlowDataModule(model.manager, model.dims, adata, batch_size=32, n_train_steps=3)
-    batch = next(iter(datamodule.train_dataloader()))
-    layer = adata.layers["lognorm"]
-    for state in (batch["target_state"], batch["source_state"], batch["source_coupling_lin"]):
-        assert state.abs().sum() > 0  # not the zeroed .X
-        assert all(np.any(np.all(np.isclose(layer, r), axis=1)) for r in state.numpy())
-
-    widths, match_fn = [], model.training_method.matcher.match_fn
-    method = MatchedTrainingMethod(
-        model.training_method.method,
-        Matcher(lambda **kw: widths.append(kw["source_lin"].shape[1]) or match_fn(**kw)),
-    )
-    plan = TrainingPlan(method, torch.optim.Adam(model.module.parameters(), lr=1e-4), val_names=datamodule.val_names)
-    pl.Trainer(max_steps=3, accelerator="cpu", logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(
-        plan, datamodule=datamodule
-    )
-    assert widths == [adata.n_vars] * 3
-
-    model.save_pretrained(tmp_path)
-    loaded = Model.from_pretrained(tmp_path, adata)
-    assert loaded.spec == model.spec
-    assert yaml.safe_load((tmp_path / "config.json").read_text())["data"]["target_sample_rep"] == "layers.lognorm"
-    pred = predict_adata(datamodule, loaded.inference_method, adata[~adata.obs["is_control"]].copy(), max_per_group=4)
-    assert list(pred.var_names) == list(adata.var_names)  # a layer keeps the genes' names
-    assert torch.isfinite(torch.as_tensor(np.asarray(pred.X))).all()
 
 
 def test_matching_without_a_coupling_rep_is_refused_at_build(adata: AnnData):

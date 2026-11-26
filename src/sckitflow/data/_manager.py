@@ -636,7 +636,7 @@ class DataManager:
             Defaults to ``None`` (use the instance's).
         :type matched_keys: class: `Mapping[tuple, tuple] | None`
 
-        :param subsample: How ``max_per_group`` picks observations: ``"head"``, ``"random"``, or a callable.
+        :param subsample: How ``max_per_group`` picks observations: ``"head"`` or ``"random"``.
         :type subsample: class: `str`
 
         :param dtype: Torch dtype every emitted tensor is cast to; ``None`` leaves them as streamed.

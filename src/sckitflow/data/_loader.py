@@ -19,7 +19,7 @@ without any ``ann_df`` / container round-trip.
 
 from __future__ import annotations
 
-from collections.abc import Callable, Collection, Iterable, Iterator
+from collections.abc import Collection, Iterable, Iterator
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
@@ -755,7 +755,7 @@ class EvalLoader(_StepDataBridge):
         pair_key: str | None = None,
         require_target_state: bool = True,
         max_per_group: int | None = None,
-        subsample: str | Callable = "head",
+        subsample: str = "head",
         to: str | None = None,
         dtype: torch.dtype | None = None,
         device: str | None = None,

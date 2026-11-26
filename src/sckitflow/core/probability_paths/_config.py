@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from typing import ClassVar
+from abc import abstractmethod
 
+from modelbinder.registry import Component, component
 from pydantic import Field, model_validator
-from scfit.registry import Component, component
 
 from sckitflow._samplers import NoiseSamplerConfig
 from sckitflow.core.probability_paths._base import BasePath
@@ -25,9 +25,9 @@ class PathConfig(Component):
     r"""Family base for probability path configurations.
 
     Holds the parameters shared by every probability path — the noise strength :math:`\sigma` and an optional
-    noise-sampler configuration — and builds the path its member names in :attr:`path_cls`.
+    noise-sampler configuration. Each member builds its own path.
 
-    Concrete members are registered under ``probability_path.*`` keys through :func:`scfit.registry.component`. A
+    Concrete members are registered under ``probability_path.*`` keys through :func:`modelbinder.registry.component`. A
     :class:`PathConfig` on its own is a *family base* and is rejected at construction time; instantiate a
     concrete member instead.
 
@@ -36,9 +36,6 @@ class PathConfig(Component):
 
     :param sampler_cfg: Noise-sampler configuration. Required when ``sigma > 0``.
     """
-
-    path_cls: ClassVar[type[BasePath]]
-    """The path this member builds."""
 
     sigma: float = Field(default=0.0, ge=0)
     sampler_cfg: NoiseSamplerConfig | None = None
@@ -49,12 +46,12 @@ class PathConfig(Component):
             raise ValueError("Positive sigma requires a sampler_cfg.")
         return self
 
+    @abstractmethod
     def build(self) -> BasePath:
         r"""Builds the probability path described by this config."""
-        return type(self).path_cls(self.sigma, sampler_cfg=self.sampler_cfg)
 
 
-@component("probability_path.linear", builds=LinearPath)
+@component("probability_path.linear")
 class LinearPathConfig(PathConfig):
     r"""Config for :class:`~LinearPath`.
 
@@ -62,10 +59,11 @@ class LinearPathConfig(PathConfig):
     :math:`\boldsymbol{x}_0` and :math:`\boldsymbol{x}_1` with a :math:`\sigma \sqrt{t (1 - t)}` noise schedule.
     """
 
-    path_cls = LinearPath
+    def build(self) -> LinearPath:
+        return LinearPath(self.sigma, sampler_cfg=self.sampler_cfg)
 
 
-@component("probability_path.trig", builds=TrigPath)
+@component("probability_path.trig")
 class TrigPathConfig(PathConfig):
     r"""Config for :class:`~TrigPath`.
 
@@ -73,10 +71,11 @@ class TrigPathConfig(PathConfig):
     :math:`\sigma \sqrt{t (1 - t)}` noise schedule.
     """
 
-    path_cls = TrigPath
+    def build(self) -> TrigPath:
+        return TrigPath(self.sigma, sampler_cfg=self.sampler_cfg)
 
 
-@component("probability_path.enc_dec", builds=EncDecPath)
+@component("probability_path.enc_dec")
 class EncDecPathConfig(PathConfig):
     r"""Config for :class:`~EncDecPath`.
 
@@ -86,4 +85,5 @@ class EncDecPathConfig(PathConfig):
 
     sigma: float = Field(gt=0)
 
-    path_cls = EncDecPath
+    def build(self) -> EncDecPath:
+        return EncDecPath(self.sigma, sampler_cfg=self.sampler_cfg)

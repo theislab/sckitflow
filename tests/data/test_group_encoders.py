@@ -40,7 +40,7 @@ class TestVocabularyIsExplicit:
 
 
 class TestPortableSpec:
-    """Every encoder round-trips through the scfit component registry."""
+    """Every encoder round-trips through the modelbinder component registry."""
 
     @pytest.mark.parametrize("encoder", ALL_ENCODERS)
     def test_spec_round_trip(self, encoder: GroupEncoderConfig) -> None:

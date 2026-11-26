@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 
 import torch
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow.core._data_utils import (
     get_tensor_dict_from_data,
@@ -88,7 +88,7 @@ class CFMTraining(AbstractFlowMethod):
         return loss, {"loss": loss.detach()}  # a tensor: Lightning reads it back per logging interval, not per step
 
 
-@component("training_method.cfm", builds=CFMTraining)
+@component("training_method.cfm")
 class CFMTrainingConfig(FlowMethodConfig, TrainingMethodConfig):
     """Conditional Flow Matching training."""
 

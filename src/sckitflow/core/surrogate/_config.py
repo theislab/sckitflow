@@ -7,7 +7,7 @@ from functools import partial
 from typing import ClassVar
 
 import torch
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 
 from sckitflow.core._types import PredictionData
 

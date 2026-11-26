@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 import torch
 from anndata import AnnData
-from scfit.pretrained import save_pretrained
+from modelbinder.pretrained import save_pretrained
 from tests.data.shared import with_split
 
 from sckitflow import Model, ModelConfig

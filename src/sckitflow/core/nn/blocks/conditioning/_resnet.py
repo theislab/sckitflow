@@ -1,5 +1,5 @@
 import torch
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow.core.nn.blocks._resnet import ResNet, ResNetConfig
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayer, BaseConditioningLayerConfig
@@ -80,7 +80,7 @@ class ResNetConditioning(BaseConditioningLayer):
         return self._resnet.output_dim
 
 
-@component("nn.conditioning.resnet", builds=ResNetConditioning)
+@component("nn.conditioning.resnet")
 class ResNetConditioningConfig(BaseConditioningLayerConfig):
     resnet: ResNetConfig | None = None
 

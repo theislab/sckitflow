@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning][].
 
 ### Changed
 
+- The component registry and `save_pretrained` / `load_pretrained` come from `modelbinder>=0.1` instead of `scfit.registry` / `scfit.pretrained`. scfit is capped below 0.0.14, whose data layer takes `anndata.acc` references
 - The velocity field is rebuilt from nested configs: `MLPVelocity` / `MLPVelocityConfig` (`velocity_field.mlp`) are replaced by `NeuralVelocity` / `NeuralVelocityConfig` (`nn.models.velocity`), whose `state_encoder`, `time_features`, `time_encoder`, `condition_encoder`, `source_encoder`, `conditioning` and `field_decoder` are configs of their own instead of flat `*_kwargs` and `*_id` arguments. The blocks move to `sckitflow.core.nn.blocks` and `sckitflow.core.nn.composite` with `nn.*` type ids (`mlp` is `nn.mlp`), and `Resnet1d`, `BaseVelocityField`, `get_time_features_fn`, `make_custom_time_features`, `ott_jax_time_features` and `torch_cfm_time_features` are removed. Specs and models saved before do not load; `docs/configs/cellflow.yaml` shows the new form
 - `SetEncoder` is built from a `SetEncoderConfig` and the per-covariate input widths (`categorical_dims`, `continuous_dims`), which come from the data
 - `FiLMConditioning`: `gamma` and `beta` are a linear map of the SiLU of time and condition, no longer passed through a SiLU themselves (that bounded both below about -0.28), and the state becomes `(1 + gamma) * x + beta`, so `gamma` is an offset from 1 as in the FiLM paper. The projection starts at zero, as DiT's, so the layer starts as the identity

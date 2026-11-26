@@ -14,7 +14,7 @@ from collections.abc import Callable
 from functools import partial
 from typing import ClassVar
 
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 
 from sckitflow.core._types import MatchFn, MatchFnOut, ScaleMethod
 from sckitflow.core.coupling._coupling import independent_coupling, ot_linear_coupling, ot_quadratic_coupling

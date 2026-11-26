@@ -1,7 +1,7 @@
 """Tests for :mod:`sckitflow._samplers`.
 
 ``SamplerConfig`` mirrors ``CouplingConfig``: ``fn`` is a ``ClassVar`` so the
-class itself is what the scfit registry serializes, and ``build`` returns the
+class itself is what the modelbinder registry serializes, and ``build`` returns the
 raw callable (or a ``partial`` when a subclass adds fields). These tests lock
 in that contract — portable round-trip, deterministic draws via the passed
 generator, device / dtype forwarding, and the partial-with-fields pattern.
@@ -11,7 +11,7 @@ import json
 
 import pytest
 import torch
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow._samplers import (
     IsotropicGaussianNoiseSamplerConfig,

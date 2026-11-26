@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import pytest
 import torch
-from scfit.registry import parse
 
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayerConfig
 from sckitflow.core.nn.blocks.conditioning._film import (
@@ -203,5 +202,7 @@ class TestAdaLNZeroConditioningConfig:
         [("nn.conditioning.film", FiLMConditioning), ("nn.conditioning.adaln_zero", AdaLNZeroConditioning)],
     )
     def test_registered(self, type_, cls) -> None:
-        layer = parse({"type": type_}).build(latent_state_dim=_STATE, latent_time_dim=_TIME)
+        layer = BaseConditioningLayerConfig.from_spec({"type": type_}).build(
+            latent_state_dim=_STATE, latent_time_dim=_TIME
+        )
         assert type(layer) is cls

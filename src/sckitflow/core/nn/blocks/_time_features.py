@@ -4,7 +4,7 @@ from functools import partial
 from typing import ClassVar, Protocol, overload
 
 import torch
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 
 from sckitflow._constants import PI
 from sckitflow.core._utils import ensure_2d_tensor_with_singleton_trailing_dim

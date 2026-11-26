@@ -2,7 +2,7 @@ from collections import OrderedDict
 from typing import Any
 
 import torch
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 
 from sckitflow._constants import DEFAULT_NUM_RESNET_LAYERS
 from sckitflow._types import ActivationId
@@ -224,7 +224,7 @@ class ResNet(torch.nn.Module):
         return self._output_dim
 
 
-@component("nn.resnet", builds=ResNet)
+@component("nn.resnet")
 class ResNetConfig(Component):
     num_resnet_layers: int | None = None
     output_dim: int | None = None

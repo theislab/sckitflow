@@ -4,7 +4,7 @@
 predicts. How one training run goes (optimizer, seeds, batch size, steps, the split, where the data lives) is
 the experiment's business and stays out, so a saved model loads with sckitflow alone.
 
-A saved model is :mod:`scfit.pretrained`'s folder: ``config.json`` holds ``ModelConfig.to_spec()`` and
+A saved model is :mod:`modelbinder.pretrained`'s folder: ``config.json`` holds ``ModelConfig.to_spec()`` and
 ``module/model.safetensors`` the module's ``state_dict``. Nothing is pickled. Share it with
 ``huggingface_hub.HfApi().upload_folder(repo_id=..., folder_path=path)`` and load it back by its repo id. A
 model reads back under the package versions that saved it.
@@ -26,8 +26,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
-from scfit.pretrained import load_pretrained, save_pretrained
-from scfit.registry import Component, component
+from modelbinder.pretrained import load_pretrained, save_pretrained
+from modelbinder.registry import Component, component
 
 from sckitflow.core.methods._base import (
     InferenceMethodConfig,
@@ -61,7 +61,7 @@ class Model(NamedTuple):
         """Writes the spec and the module's weights to the folder ``path``.
 
         :raises FileExistsError: If ``path`` holds a model and ``overwrite`` is `False`.
-        :raises scfit.registry.PortabilityError: If the spec holds a live object, before anything is written.
+        :raises modelbinder.registry.PortabilityError: If the spec holds a live object, before anything is written.
         """
         save_pretrained(path, self.spec, {"module": self.module.state_dict()}, overwrite=overwrite)
 
@@ -81,7 +81,7 @@ class Model(NamedTuple):
         return model
 
 
-@component("model", builds=Model)
+@component("model")
 class ModelConfig(Component):
     """Everything portable about a model: what ``config.json`` holds."""
 

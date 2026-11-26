@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 
 import torch
-from scfit.registry import Component, component
+from modelbinder.registry import Component, component
 
 from sckitflow.core._types import MappedTensor
 from sckitflow.core._utils import make_concatenation_possible
@@ -211,7 +211,7 @@ class SetEncoder(torch.nn.Module):
         return self._set_encoder[_OUTPUT_LAYER_KEY](torch.concatenate(parts, dim=-1))
 
 
-@component("nn.composite.set_encoder", builds=SetEncoder)
+@component("nn.composite.set_encoder")
 class SetEncoderConfig(Component):
     """Configuration class for set encoders."""
 

@@ -7,8 +7,8 @@ from typing import TYPE_CHECKING, Any, NamedTuple, TypedDict, Unpack
 import numpy as np
 import pandas as pd
 from anndata import AnnData
+from modelbinder.registry import Component, component
 from scfit.data import obs_columns
-from scfit.registry import Component, component
 
 if TYPE_CHECKING:
     import torch
@@ -700,7 +700,7 @@ class DataManager:
         return self._target_data_schema
 
 
-@component("data_manager", builds=DataManager)
+@component("data_manager")
 class DataManagerConfig(Component):
     """The schema :class:`DataManager` is built from; portable, so it travels inside a run's spec.
 

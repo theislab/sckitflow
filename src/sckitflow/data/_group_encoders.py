@@ -1,4 +1,4 @@
-"""Serializable group encoders built on :class:`scfit.registry.Component`.
+"""Serializable group encoders built on :class:`modelbinder.registry.Component`.
 
 Each encoder is a frozen model of plain scalars -- no callables -- so it pickles trivially, compares by
 value, AND exports a portable ``{type, version, **fields}`` spec via ``.to_spec()`` (round-tripped with
@@ -6,7 +6,7 @@ value, AND exports a portable ``{type, version, **fields}`` spec via ``.to_spec(
 functional encoders, ``inverse_transform``).
 
 ``GroupEncoderConfig`` is the family base; each config subclasses it, is registered with
-``@component(type_id, builds=X)`` and named ``XConfig`` after the transformer ``X`` it builds. Add a new encoder the same way.
+``@component(type_id)`` and named ``XConfig`` after the transformer ``X`` it builds. Add a new encoder the same way.
 
 The categorical encoders (:class:`LabelEncoderConfig`, :class:`OneHotEncoderConfig`) take their vocabulary
 explicitly, so a config maps the same way whatever data it is built on: one cell per group in the loaders,
@@ -20,8 +20,8 @@ from dataclasses import dataclass
 from typing import Annotated
 
 import numpy as np
+from modelbinder.registry import Component, component
 from pydantic import AfterValidator, Field
-from scfit.registry import Component, component
 from sklearn.preprocessing import FunctionTransformer, LabelEncoder, OneHotEncoder
 
 from sckitflow._types import TargetCovariatesEncoderCls
@@ -67,7 +67,7 @@ class GroupEncoderConfig(Component):
         raise NotImplementedError
 
 
-@component("group_encoder.label", builds=LabelEncoder)
+@component("group_encoder.label")
 class LabelEncoderConfig(GroupEncoderConfig):
     """Integer-codes a categorical column.
 
@@ -85,7 +85,7 @@ class LabelEncoderConfig(GroupEncoderConfig):
         return encoder
 
 
-@component("group_encoder.one_hot", builds=OneHotEncoder)
+@component("group_encoder.one_hot")
 class OneHotEncoderConfig(GroupEncoderConfig):
     """One-hot encodes a categorical column.
 
@@ -130,7 +130,7 @@ class AffineTransformer(FunctionTransformer):
         return (x - self.shift) / self.scale
 
 
-@component("group_encoder.identity", builds=IdentityTransformer)
+@component("group_encoder.identity")
 class IdentityTransformerConfig(GroupEncoderConfig):
     """Passes the column through unchanged."""
 
@@ -138,7 +138,7 @@ class IdentityTransformerConfig(GroupEncoderConfig):
         return IdentityTransformer().fit(context.data)
 
 
-@component("group_encoder.log1p", builds=Log1pTransformer)
+@component("group_encoder.log1p")
 class Log1pTransformerConfig(GroupEncoderConfig):
     """Applies ``log1p`` (inverse ``expm1``) to a continuous column."""
 
@@ -146,7 +146,7 @@ class Log1pTransformerConfig(GroupEncoderConfig):
         return Log1pTransformer().fit(context.data)
 
 
-@component("group_encoder.affine", builds=AffineTransformer)
+@component("group_encoder.affine")
 class AffineTransformerConfig(GroupEncoderConfig):
     """Scales and shifts a continuous column (``x * scale + shift``).
 

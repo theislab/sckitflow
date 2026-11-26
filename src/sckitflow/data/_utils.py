@@ -30,44 +30,36 @@ type Rep = LayerAcc | MultiAcc
 """A whole array of an AnnData as an :mod:`anndata.acc` reference: ``A.X``, ``A.layers[k]`` or ``A.obsm[k]``."""
 
 
-def parse_rep(value: Any, *, allow_x: bool = True) -> Rep:
-    """A rep reference, from one or from its config string ``"X"``, ``"obsm.<k>"`` or ``"layers.<k>"``.
-
-    Resolved as scanpy resolves ``use=`` (``scanpy.get._use._get_arr``), limited to whole obs arrays.
-    """
-    if isinstance(value, str):
-        value = A.resolve(value, vec=False)
-    match value:
-        case LayerAcc(k=None) if not allow_x:
-            raise ValueError("A.X is not allowed here: use 'obsm.<k>' or 'layers.<k>'.")
-        case LayerAcc() | MultiAcc(dim="obs"):
-            return value
-    raise ValueError(f"a rep is A.X, A.layers[k] or A.obsm[k], got {value!r}.")
-
-
-def rep_str(ref: Rep) -> str:
-    """The config string of rep ``ref``, which :func:`parse_rep` reads back: ``"X"``, ``"layers.<k>"``, ``"obsm.<k>"``."""
-    match ref:
-        case LayerAcc(k=None):
-            return "X"
-        case LayerAcc(k=k):
-            return f"layers.{k}"
-        case MultiAcc(dim="obs", k=k):
-            return f"obsm.{k}"
-    raise ValueError(f"{ref!r} is not A.X, A.layers[k] or A.obsm[k].")
-
-
 class _RepSchema:
-    """Pydantic schema of a rep field: validated by :func:`parse_rep`, written by :func:`rep_str`."""
+    """Pydantic schema of a rep field: read from a reference or its config string, written as that string."""
 
     def __init__(self, *, allow_x: bool) -> None:
         self.allow_x = allow_x
 
     def __get_pydantic_core_schema__(self, source: Any, handler: Any) -> core_schema.CoreSchema:
         return core_schema.no_info_plain_validator_function(
-            lambda v: parse_rep(v, allow_x=self.allow_x),
-            serialization=core_schema.plain_serializer_function_ser_schema(rep_str),
+            self._parse, serialization=core_schema.plain_serializer_function_ser_schema(self._str)
         )
+
+    def _parse(self, value: Any) -> Rep:
+        # resolved as scanpy resolves `use=` (scanpy.get._use._get_arr), limited to whole obs arrays
+        if isinstance(value, str):
+            value = A.resolve(value, vec=False)
+        match value:
+            case LayerAcc(k=None) if not self.allow_x:
+                raise ValueError("A.X is not allowed here: use 'obsm.<k>' or 'layers.<k>'.")
+            case LayerAcc() | MultiAcc(dim="obs"):
+                return value
+        raise ValueError(f"a rep is A.X, A.layers[k] or A.obsm[k], got {value!r}.")
+
+    @staticmethod
+    def _str(ref: Rep) -> str:
+        match ref:
+            case LayerAcc(k=None):
+                return "X"
+            case LayerAcc(k=k):
+                return f"layers.{k}"
+        return f"obsm.{ref.k}"
 
 
 RepField = Annotated[Rep, _RepSchema(allow_x=True)]

@@ -22,7 +22,7 @@ classifiers = [
 dynamic = [ "version" ]
 dependencies = [
   "anndata>=0.13",      # annbatch streams via the anndata>=0.13 acc reference system
-  "boundannbatch>=0.1", # annbatch-native streaming data layer
+  "boundannbatch>=0.2", # annbatch-native streaming data layer
   "lightning>=2.2",     # the training loop, optimizer stepping and logging
   "modelbinder>=0.1",   # the component registry and Hub save/load
   "numpy>=1.26",
@@ -57,10 +57,10 @@ optional-dependencies.cu130 = [
 # GPU-resident streaming (`preload_to_gpu`): annbatch keeps the read window on-device via cupy. Pick the CUDA
 # major of your torch build; cupy brings its CUDA toolkit wheels, so only a driver is needed.
 optional-dependencies.cupy-cuda12 = [
-  "boundannbatch[cupy-cuda12]>=0.1",
+  "boundannbatch[cupy-cuda12]>=0.2",
 ]
 optional-dependencies.cupy-cuda13 = [
-  "boundannbatch[cupy-cuda13]>=0.1",
+  "boundannbatch[cupy-cuda13]>=0.2",
 ]
 
 optional-dependencies.dev = [

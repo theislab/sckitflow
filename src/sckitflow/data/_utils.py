@@ -117,7 +117,7 @@ def with_derived_obs(adata: AnnData, cols: Mapping[str, Any]) -> AnnData:
     """A shallow AnnData sharing ``adata``'s arrays but carrying extra ``.obs`` columns.
 
     For a column sckitflow derives -- a split label, the implicit all-cells group, the pair id behind fixed
-    matching. Such a column has to be in the obs the consumer reads (boundannbatch reads grouping only from ``.obs``),
+    matching. Such a column has to be in the obs the consumer reads (annbatch reads grouping only from ``.obs``),
     but it has no business being in the caller's object: writing one there mutates their AnnData, and on a
     **view** it materializes the whole thing (anndata's "initializing view as actual") -- the copy an
     out-of-core path exists to avoid. ``adata.copy()`` is worse still: a deep copy of ``X`` to add one column.

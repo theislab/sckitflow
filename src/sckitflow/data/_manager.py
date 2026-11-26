@@ -35,10 +35,10 @@ __all__ = ["DataManagerConfig", "LoaderKwargs", "DataManager"]
 # schema never declared (see `DataManager._resolve_split`).
 _DEFAULT_SPLIT_KEY = "split"
 
-# ponytail: the derived `.obs` column carrying the pair id behind `matched_keys` -- a shim. boundannbatch matches a
+# ponytail: the derived `.obs` column carrying the pair id behind `matched_keys` -- a shim. annbatch matches a
 # linked stream to the primary by value equality on a shared column, so an explicit {source: target} mapping
 # is only expressible once both members of a pair carry one shared value. It is written to a *shallow copy*
-# of the caller's AnnData (`with_derived_obs`), never their object. Delete this and `_pair_*` once boundannbatch
+# of the caller's AnnData (`with_derived_obs`), never their object. Delete this and `_pair_*` once annbatch
 # grows explicit leaf->leaf pairing (a code-level remap of the factorization it already owns, no column).
 _PAIR_KEY = "_sckitflow_pair"
 
@@ -46,7 +46,7 @@ _PAIR_KEY = "_sckitflow_pair"
 class _Selection(NamedTuple):
     """What to stream and how to weight it, per unique group combination. See :meth:`DataManager._selection`.
 
-    ``keys[i]`` is combination ``i``'s boundannbatch weight key -- its group values, plus the pair id under fixed
+    ``keys[i]`` is combination ``i``'s annbatch weight key -- its group values, plus the pair id under fixed
     matching -- and ``extras[i]`` the ``extra_cols`` values (e.g. the split) that prefix it on the primary.
     """
 
@@ -62,7 +62,7 @@ class LoaderKwargs(TypedDict, total=False):
     """The :class:`~sckitflow.data._loader.Loader` options :meth:`DataManager.get_dataloaders` forwards.
 
     Declared here rather than beside :class:`~sckitflow.data._loader.Loader` so that typing a call site
-    does not import the boundannbatch/annbatch stack (~2s) that the loader module pulls in.
+    does not import the annbatch stack (~2s) that the loader module pulls in.
 
     Everything describing *which* observations a loader streams (``primary_weights``,
     ``control_weights``) is derived by :meth:`DataManager.get_dataloaders` and so is deliberately absent:
@@ -70,7 +70,7 @@ class LoaderKwargs(TypedDict, total=False):
     """
 
     to: str | None
-    """boundannbatch's batch backend. ``None`` (the default) keeps annbatch's native arrays -- numpy on the host,
+    """annbatch's batch backend. ``None`` (the default) keeps annbatch's native arrays -- numpy on the host,
     cupy on a GPU-resident read window -- which the loader then maps onto torch without copying."""
 
     dtype: torch.dtype | None
@@ -81,7 +81,7 @@ class LoaderKwargs(TypedDict, total=False):
     rather than copying every batch). ``None`` skips the check."""
 
     seed: int
-    """Seed for boundannbatch's sampling schedule."""
+    """Seed for annbatch's sampling schedule."""
 
     n_iters: int | None
     """Batches one pass yields. ``None`` = one epoch over the primary."""
@@ -96,7 +96,7 @@ class LoaderKwargs(TypedDict, total=False):
     """Chunks per annbatch read window. ``None`` = ``batch_size // chunk_size``."""
 
     preload_to_gpu: bool
-    """Hand boundannbatch/annbatch a GPU-resident read window, so batches arrive on the device rather than being
+    """Hand annbatch a GPU-resident read window, so batches arrive on the device rather than being
     copied there -- what ``device`` asserts, and on a GPU the only way to satisfy it (requires
     ``sckitflow[cupy-cuda12]`` or ``[cupy-cuda13]``: cupy, Linux/CUDA only)."""
 
@@ -122,7 +122,7 @@ class DataManager:
     different controls than were registered is the point of them.
 
     **Derived columns never touch the caller's object.** The ``matched_keys`` pair id is sckitflow's own
-    bookkeeping, but they have to live in ``.obs`` because that is where boundannbatch reads
+    bookkeeping, but they have to live in ``.obs`` because that is where annbatch reads
     grouping from. It is written to a shallow copy that shares ``X`` / ``obsm`` / ``uns``
     (:func:`~sckitflow.data._utils.with_derived_obs`), so nothing is duplicated and the caller's AnnData
     gains no columns it did not ask for -- which also keeps a *view* from being silently materialized.
@@ -455,7 +455,7 @@ class DataManager:
         control_values_dict: dict[str, str] | None = None,
         matched_keys: Mapping[tuple, tuple] | None = None,
     ) -> _Selection:
-        """Which unique combinations boundannbatch streams as targets, which as sources, and under what weight key.
+        """Which unique combinations annbatch streams as targets, which as sources, and under what weight key.
 
         Two matching modes, one shape. ``control_values_dict`` marks sources by their condition value, and a
         target's source is whatever shares its group columns. ``matched_keys`` names the pairs outright; each
@@ -525,7 +525,7 @@ class DataManager:
         Which observations are held out is the schema's business, not this call's: the declared ``split_by``
         column is read (and required). Without one, everything trains under a single ``"train"`` loader.
 
-        Selection is by boundannbatch weights over boundannbatch's own leaf factorization -- no subset copying. The whole
+        Selection is by annbatch weights over annbatch's own leaf factorization -- no subset copying. The whole
         ``adata`` is streamed; each split's primary weights pick out that split's perturbed groups
         (controls get weight 0). Controls are shared across splits and drawn from ``adata`` itself by weight;
         the loader holds just them in memory.
@@ -621,7 +621,7 @@ class DataManager:
         yielding ``(StepData, leaf)``. Controls are identified from ``control_values_dict``, or the pairs are
         named outright by ``matched_keys``; both arguments override the instance's, so inference is not bound
         to the controls or the pairs registered for training. With neither (``control_values_dict={}``) every
-        group is predicted unpaired, with no source. Selection is by boundannbatch weights over the whole ``adata``
+        group is predicted unpaired, with no source. Selection is by annbatch weights over the whole ``adata``
         -- no subset copying.
 
         :param adata: The annotated data object to predict over, or several read as one dataset.

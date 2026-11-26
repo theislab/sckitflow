@@ -1,6 +1,6 @@
 """Unit tests for :class:`sckitflow.data._loader.Loader`.
 
-Covers the boundannbatch-batch -> ``StepData`` bridge: weight-based group selection, the label-gid ->
+Covers the annbatch batch -> ``StepData`` bridge: weight-based group selection, the label-gid ->
 cached categorical encoding (one row per group), continuous covariates riding as per-cell reps,
 and the finite/cycling iteration contract the trainer relies on.
 """
@@ -150,7 +150,7 @@ class TestLoaderStepDataMapping:
 
 class TestLoaderIterationContract:
     def test_iter_is_finite_and_reiterable(self, loader_adata):
-        """__iter__ yields exactly one epoch (len) and can be iterated again -- boundannbatch's is infinite."""
+        """__iter__ yields exactly one epoch (len) and can be iterated again -- annbatch's is infinite."""
         loader = _loader(loader_adata, _dm())
         n = len(loader)
         assert n >= 1
@@ -160,7 +160,7 @@ class TestLoaderIterationContract:
         assert len(second) == n
 
     def test_n_iters_sets_pass_length(self, loader_adata):
-        """n_iters bounds one pass to that many batches (forwarded to boundannbatch); the trainer iterates it."""
+        """n_iters bounds one pass to that many batches (forwarded to annbatch); the trainer iterates it."""
         loader = _loader(loader_adata, _dm(), n_iters=3)
         assert len(loader) == 3
         assert sum(1 for _ in loader) == 3

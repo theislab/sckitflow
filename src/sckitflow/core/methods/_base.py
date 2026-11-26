@@ -257,38 +257,31 @@ class Matcher(BaseMatcher):
     device tensor, so checking it costs no host sync.
     """
 
-    def __init__(self, match_fn: MatchFn, *, needs_reps: bool) -> None:
+    def __init__(self, match_fn: MatchFn) -> None:
         """Initializes the matcher.
 
-        :param match_fn: Matches source and target populations from a batch.
-        :param needs_reps: ``False`` for a ``match_fn`` reading only row counts, like random pairing: without
-            coupling reps it gets the source and target states instead.
+        :param match_fn: Matches source and target populations from a batch. Without coupling reps it gets the
+            source and target states, for a ``match_fn`` reading only row counts, like random pairing.
         """
         super().__init__(match_fn)
         self._returns_plan = "return_matrix" in inspect.signature(match_fn).parameters
-        self._needs_reps = needs_reps
 
     def match(self, step_data: StepData, *, generator: torch.Generator) -> tuple[StepData, dict[str, Any]]:
         """Matches the input state data using the underlying `match_fn`, drawing from ``generator``.
 
         Returns `step_data` unchanged when the batch has no sources, or when `match_fn` returns either
-        `src_idxs` or `tgt_idxs` as `None`. Raises when the batch has sources but no coupling rep to match on.
+        `src_idxs` or `tgt_idxs` as `None`.
         """
         source_lin = step_data["source_coupling_lin"]
         source_quad = step_data["source_coupling_quad"]
         target_lin = step_data["target_coupling_lin"]
         target_quad = step_data["target_coupling_quad"]
 
-        if source_lin is None and source_quad is None and not self._needs_reps:
-            source_lin, target_lin = step_data["source_state"], step_data["target_state"]
         if source_lin is None and source_quad is None:
-            if step_data["source_state"] is not None:
-                raise ValueError(
-                    "the method matches sources to targets, but the data manager streams no coupling rep to match "
-                    "on. Name one in `DataManagerConfig`: `rep_lin` (e.g. 'X' or 'obsm.X_pca'), and/or "
-                    "`source_rep_quad` and `target_rep_quad`."
-                )
-            return step_data, {}
+            if step_data["source_state"] is None:
+                return step_data, {}
+            # no coupling rep: a coupling that needs one is refused at build, so this one reads only the row counts
+            source_lin, target_lin = step_data["source_state"], step_data["target_state"]
 
         kwargs = {"return_matrix": True} if self._returns_plan else {}
         src_idxs, tgt_idxs, *plan = self.match_fn(
@@ -319,7 +312,7 @@ class MatchedTrainingMethod:
 
         :param method: The training method to wrap around.
         :param matcher: The matcher pairing source and target, e.g.
-            ``Matcher(match_fn, needs_reps=True)``. Taken rather than built, so a `BaseMatcher`
+            ``Matcher(match_fn)``. Taken rather than built, so a `BaseMatcher`
             subclass can be used in its place.
         """
         self._method = method

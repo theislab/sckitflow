@@ -115,7 +115,7 @@ class AttentionPoolingConfig(Component):
     dropout_rate: float = 0.0
 
 
-@component("nn.pooling.token_attention", builds=TokenAttentionPooling)
+@component("nn.pooling.token_attention")
 class TokenAttentionPoolingConfig(AttentionPoolingConfig):
     qkv_dim: int = 64
 
@@ -123,7 +123,7 @@ class TokenAttentionPoolingConfig(AttentionPoolingConfig):
         return TokenAttentionPooling(input_dim, **dict(self))
 
 
-@component("nn.pooling.seed_attention", builds=SeedAttentionPooling)
+@component("nn.pooling.seed_attention")
 class SeedAttentionPoolingConfig(AttentionPoolingConfig):
     v_dim: int = 64
     seed_dim: int = 64

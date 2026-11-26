@@ -724,7 +724,7 @@ class DataManager:
         return self._target_data_schema
 
 
-@component("data_manager", builds=DataManager)
+@component("data_manager")
 class DataManagerConfig(Component):
     """The schema :class:`DataManager` is built from; portable, so it travels inside a run's spec.
 

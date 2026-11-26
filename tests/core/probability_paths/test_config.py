@@ -2,10 +2,9 @@
 
 import pydantic
 import pytest
-from modelbinder.registry import config_of, parse, to_spec
 
 from sckitflow import IsotropicGaussianNoiseSamplerConfig
-from sckitflow.core.probability_paths._config import EncDecPathConfig, LinearPathConfig, TrigPathConfig
+from sckitflow.core.probability_paths._config import EncDecPathConfig, LinearPathConfig, PathConfig, TrigPathConfig
 from sckitflow.core.probability_paths._probability_paths import EncDecPath, LinearPath, TrigPath
 
 PAIRS = [
@@ -50,8 +49,8 @@ def test_enc_dec_needs_positive_sigma(kwargs) -> None:
 
 @pytest.mark.parametrize(("cfg_cls", "key", "path_cls"), PAIRS, ids=_IDS)
 def test_registry(cfg_cls, key, path_cls) -> None:
-    assert config_of(path_cls) is cfg_cls
     cfg = cfg_cls(sigma=1.0, sampler_cfg=_GAUSS)
-    spec = to_spec(cfg)
+    spec = cfg.to_spec()
     assert spec["type"] == key
-    assert parse(spec) == cfg
+    assert PathConfig.from_spec(spec) == cfg
+    assert type(cfg.build()) is path_cls

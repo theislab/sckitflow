@@ -224,7 +224,7 @@ class ResNet(torch.nn.Module):
         return self._output_dim
 
 
-@component("nn.resnet", builds=ResNet)
+@component("nn.resnet")
 class ResNetConfig(Component):
     num_resnet_layers: int | None = None
     output_dim: int | None = None

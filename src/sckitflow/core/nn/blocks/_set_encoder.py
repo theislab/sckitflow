@@ -211,7 +211,7 @@ class SetEncoder(torch.nn.Module):
         return self._set_encoder[_OUTPUT_LAYER_KEY](torch.concatenate(parts, dim=-1))
 
 
-@component("nn.composite.set_encoder", builds=SetEncoder)
+@component("nn.composite.set_encoder")
 class SetEncoderConfig(Component):
     """Configuration class for set encoders."""
 

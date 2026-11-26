@@ -176,7 +176,7 @@ _ACTIVATIONS: dict[ActivationId, type[torch.nn.Module]] = {
 }
 
 
-@component("nn.mlp", builds=MLP)
+@component("nn.mlp")
 class MLPConfig(Component):
     hidden_dims: tuple[int, ...] | None = None
     activation_cls: ActivationId | None = None

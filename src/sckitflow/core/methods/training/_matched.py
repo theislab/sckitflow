@@ -10,7 +10,7 @@ from sckitflow.data._dims import DataDimensions
 __all__ = ["MatchedTrainingConfig"]
 
 
-@component("training_method.matched", builds=MatchedTrainingMethod)
+@component("training_method.matched")
 class MatchedTrainingConfig(TrainingMethodConfig):
     """Pairs each batch with ``coupling``, then trains ``method`` on the pairs."""
 

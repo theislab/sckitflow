@@ -88,7 +88,7 @@ class CFMTraining(AbstractFlowMethod):
         return loss, {"loss": loss.detach()}  # a tensor: Lightning reads it back per logging interval, not per step
 
 
-@component("training_method.cfm", builds=CFMTraining)
+@component("training_method.cfm")
 class CFMTrainingConfig(FlowMethodConfig, TrainingMethodConfig):
     """Conditional Flow Matching training."""
 

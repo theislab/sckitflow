@@ -2,10 +2,13 @@ import numpy as np
 import ot as pot
 import pytest
 import torch
-from modelbinder.registry import parse
 from pydantic import ValidationError
 
-from sckitflow.core.coupling import FusedGromovWassersteinCouplingConfig, GromovWassersteinCouplingConfig
+from sckitflow.core.coupling import (
+    CouplingConfig,
+    FusedGromovWassersteinCouplingConfig,
+    GromovWassersteinCouplingConfig,
+)
 
 pytest.importorskip("ot")
 
@@ -193,7 +196,7 @@ def test_ot_quadratic_coupling_invalid_method_raises(quadratic_inputs):
 )
 def test_coupling_config_builds_a_match_fn(spec, small_tensors):
     source, target = small_tensors
-    match_fn = parse(spec).build()
+    match_fn = CouplingConfig.from_spec(spec).build()
     src_idx, tgt_idx = match_fn(
         source_lin=source,
         target_lin=target,
@@ -215,7 +218,7 @@ def test_coupling_config_builds_a_match_fn(spec, small_tensors):
 )
 def test_coupling_config_rejects_settings_its_solver_ignores(spec):
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-        parse(spec)
+        CouplingConfig.from_spec(spec)
 
 
 def test_independent_coupling_uses_quad_reps_and_the_smaller_side():

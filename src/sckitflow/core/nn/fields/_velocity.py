@@ -34,7 +34,7 @@ class NeuralVelocity(NeuralFieldMixin):
         return partial(self.forward, condition_dict=condition_dict, source=source)
 
 
-@component("nn.models.velocity", builds=NeuralVelocity)
+@component("nn.models.velocity")
 class NeuralVelocityConfig(BaseNeuralFieldConfig):
     def build(self, dims: DataDimensions) -> NeuralVelocity:
         return NeuralVelocity(self, dims=dims)

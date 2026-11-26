@@ -81,7 +81,7 @@ class Model(NamedTuple):
         return model
 
 
-@component("model", builds=Model)
+@component("model")
 class ModelConfig(Component):
     """Everything portable about a model: what ``config.json`` holds."""
 

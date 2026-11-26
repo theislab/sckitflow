@@ -80,7 +80,7 @@ class ResNetConditioning(BaseConditioningLayer):
         return self._resnet.output_dim
 
 
-@component("nn.conditioning.resnet", builds=ResNetConditioning)
+@component("nn.conditioning.resnet")
 class ResNetConditioningConfig(BaseConditioningLayerConfig):
     resnet: ResNetConfig | None = None
 

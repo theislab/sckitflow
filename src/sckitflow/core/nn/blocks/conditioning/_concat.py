@@ -50,6 +50,6 @@ class ConcatConditioning(BaseConditioningLayer):
         return torch.cat([encoded_state, self._conditions(encoded_t, encoded_state, encoded_condition)], dim=-1)
 
 
-@component("nn.conditioning.concat", builds=ConcatConditioning)
+@component("nn.conditioning.concat")
 class ConcatConditioningConfig(BaseConditioningLayerConfig):
     layer: ClassVar[type[BaseConditioningLayer]] = ConcatConditioning

@@ -365,56 +365,6 @@ class TestLoaderDtypeAndDevice:
         assert loader._conform(torch.zeros(2, 2), streamed=False).device.type == "cpu"
 
 
-class TestCouplingLocs:
-    """`_get_coupling_locs` derives rep locs from the schema, one per configured term."""
-
-    def test_none_schema_yields_empty_locs(self):
-        from sckitflow.data._loader import _get_coupling_locs
-
-        assert _get_coupling_locs(None) == ({}, {})
-
-    def test_an_empty_schema_reads_nothing(self):
-        """No rep named, no coupling term: `rep_lin` has no default location."""
-        from sckitflow.data._loader import _get_coupling_locs
-
-        assert _get_coupling_locs(CouplingDataSchema()) == ({}, {})
-
-    def test_quads_without_rep_lin_are_refused_unless_pure_gw(self):
-        with pytest.raises(ValueError, match="needs `rep_lin`"):
-            CouplingDataSchema(source_rep_quad=A.obsm["X_src_quad"], target_rep_quad=A.obsm["X_tgt_quad"])
-
-    def test_linear_only_with_obsm_rep(self):
-        from sckitflow.data._loader import _get_coupling_locs
-
-        src, tgt = _get_coupling_locs(CouplingDataSchema(rep_lin=A.obsm["X_lin"]))
-        assert src == {A.obsm["X_lin"]: "source_coupling_lin"}
-        assert tgt == {A.obsm["X_lin"]: "target_coupling_lin"}
-
-    def test_fused_carries_shared_lin_and_per_side_quads(self):
-        from sckitflow.data._loader import _get_coupling_locs
-
-        schema = CouplingDataSchema(
-            rep_lin=A.obsm["X_lin"],
-            source_rep_quad=A.obsm["X_src_quad"],
-            target_rep_quad=A.obsm["X_tgt_quad"],
-        )
-        src, tgt = _get_coupling_locs(schema)
-        assert src == {A.obsm["X_lin"]: "source_coupling_lin", A.obsm["X_src_quad"]: "source_coupling_quad"}
-        assert tgt == {A.obsm["X_lin"]: "target_coupling_lin", A.obsm["X_tgt_quad"]: "target_coupling_quad"}
-
-    def test_pure_gw_has_no_linear_locs(self):
-        from sckitflow.data._loader import _get_coupling_locs
-
-        schema = CouplingDataSchema(
-            use_linear=False,
-            source_rep_quad=A.obsm["X_src_quad"],
-            target_rep_quad=A.obsm["X_tgt_quad"],
-        )
-        src, tgt = _get_coupling_locs(schema)
-        assert src == {A.obsm["X_src_quad"]: "source_coupling_quad"}
-        assert tgt == {A.obsm["X_tgt_quad"]: "target_coupling_quad"}
-
-
 class TestMergeReps:
     """`_merge_reps` dedupes reps -- e.g. a linear term named as the state rep itself."""
 
@@ -503,7 +453,6 @@ class TestLoaderCouplingStreaming:
 
     def test_pure_gw_omits_linear_on_both_sides(self, loader_adata):
         schema = CouplingDataSchema(
-            use_linear=False,
             source_rep_quad=A.obsm["X_src_quad"],
             target_rep_quad=A.obsm["X_tgt_quad"],
         )

@@ -49,7 +49,7 @@ class CouplingConfig(Component):
 
 @component("coupling.independent")
 class IndependentCouplingConfig(CouplingConfig):
-    """Random pairs."""
+    """Random pairs, needing no coupling rep: the Matcher hands it the states for their row counts."""
 
     fn = independent_coupling
 

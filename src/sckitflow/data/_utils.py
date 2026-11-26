@@ -49,6 +49,9 @@ def parse_rep(value: Any, *, allow_x: bool = True) -> Rep:
             raise ValueError(
                 "A.X is not allowed here: name an array keyed per observation, 'obsm.<k>' or 'layers.<k>'."
             )
+        case LayerAcc(k=k) | MultiAcc(dim="obs", k=k) if k is not None and (k == "" or "." in k):
+            # a saved config writes the key after a dot, so a dotted key would read back as something else
+            raise ValueError(f"{value!r}: a rep key must be non-empty and hold no '.', so it reads back from a config.")
         case LayerAcc() | MultiAcc(dim="obs"):
             return value
     raise ValueError(f"a rep is A.X, A.layers[k] or A.obsm[k] (or 'X', 'layers.<k>', 'obsm.<k>'), got {value!r}.")

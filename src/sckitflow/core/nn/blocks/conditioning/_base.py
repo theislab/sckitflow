@@ -2,7 +2,7 @@ import abc
 from typing import ClassVar
 
 import torch
-from scfit.registry import Component
+from modelbinder.registry import Component
 
 from sckitflow.core._utils import make_concatenation_possible
 

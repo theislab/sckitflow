@@ -3,8 +3,8 @@ from __future__ import annotations
 from typing import Any
 
 import torch
+from modelbinder.registry import component
 from pydantic import Field, PositiveInt, model_validator
-from scfit.registry import component
 
 from sckitflow.core._data_utils import (
     expand_conditioning,
@@ -135,7 +135,7 @@ class ODEInference(AbstractFlowMethod):
         return self._latent
 
 
-@component("inference_method.ode", builds=ODEInference)
+@component("inference_method.ode")
 class ODEInferenceConfig(FlowMethodConfig, InferenceMethodConfig):
     """ODE inference over a trained velocity field: the flow settings plus the solver's."""
 

@@ -1,7 +1,7 @@
 from typing import ClassVar
 
 import torch
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow.core.nn.blocks.conditioning._base import BaseConditioningLayer, BaseConditioningLayerConfig
 
@@ -124,11 +124,11 @@ class AdaLNZeroConditioning(FiLMConditioning):
         return self._modulate(self._conditions(encoded_t, encoded_state, encoded_condition), self._norm(encoded_state))
 
 
-@component("nn.conditioning.film", builds=FiLMConditioning)
+@component("nn.conditioning.film")
 class FiLMConditioningConfig(BaseConditioningLayerConfig):
     layer: ClassVar[type[BaseConditioningLayer]] = FiLMConditioning
 
 
-@component("nn.conditioning.adaln_zero", builds=AdaLNZeroConditioning)
+@component("nn.conditioning.adaln_zero")
 class AdaLNZeroConditioningConfig(BaseConditioningLayerConfig):
     layer: ClassVar[type[BaseConditioningLayer]] = AdaLNZeroConditioning

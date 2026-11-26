@@ -10,7 +10,7 @@ import inspect
 from typing import Any, Protocol, runtime_checkable
 
 import torch
-from scfit.registry import Component
+from modelbinder.registry import Component
 
 from sckitflow._samplers import (
     IsotropicGaussianNoiseSamplerConfig,

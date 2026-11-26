@@ -30,7 +30,7 @@ from types import SimpleNamespace
 
 import pytest
 import torch
-from scfit.registry import component, parse
+from modelbinder.registry import Component, component
 
 from sckitflow.core.nn._config import ModuleConfig
 
@@ -39,7 +39,7 @@ from sckitflow.core.nn._config import ModuleConfig
 # ---------------------------------------------------------------------------
 
 
-@component("test.nn.module_probe", builds=torch.nn.Linear)
+@component("test.nn.module_probe")
 class _ProbeConfig(ModuleConfig):
     output_dim: int = 16
 
@@ -67,7 +67,6 @@ class TestModuleConfigBase:
         ``@component`` decorator won't recognise descendants and pydantic
         field declaration (``output_dim: int``, ...) won't apply.
         """
-        from scfit.registry import Component
 
         assert issubclass(ModuleConfig, Component)
 
@@ -212,7 +211,7 @@ class TestModuleConfigRegistry:
         decorator).
         """
 
-        assert type(parse({"type": "test.nn.module_probe"})) is _ProbeConfig
+        assert type(Component.from_spec({"type": "test.nn.module_probe"})) is _ProbeConfig
 
     def test_subclass_round_trips_through_pydantic(self) -> None:
         """Pydantic's ``model_dump`` / ``model_validate`` must work through

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import torch
-from scfit.registry import component
+from modelbinder.registry import component
 
 from sckitflow.core.coupling._config import CouplingConfig
 from sckitflow.core.methods._base import MatchedTrainingMethod, Matcher, TrainingMethodConfig
@@ -10,7 +10,7 @@ from sckitflow.data._dims import DataDimensions
 __all__ = ["MatchedTrainingConfig"]
 
 
-@component("training_method.matched", builds=MatchedTrainingMethod)
+@component("training_method.matched")
 class MatchedTrainingConfig(TrainingMethodConfig):
     """Pairs each batch with ``coupling``, then trains ``method`` on the pairs."""
 

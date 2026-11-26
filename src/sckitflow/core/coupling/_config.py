@@ -39,6 +39,8 @@ class CouplingConfig(Component):
 
     fn: ClassVar[Callable[..., MatchFnOut]]
     method: ClassVar[str | None] = None
+    reads: ClassVar[tuple[str, ...]] = ()
+    """The `DataManagerConfig` coupling reps ``fn`` reads values from; an empty tuple reads only the row counts."""
 
     def build(self) -> MatchFn:
         kwargs = dict(self)
@@ -49,7 +51,7 @@ class CouplingConfig(Component):
 
 @component("coupling.independent")
 class IndependentCouplingConfig(CouplingConfig):
-    """Random pairs."""
+    """Random pairs, needing no coupling rep: the Matcher hands it the states for their row counts."""
 
     fn = independent_coupling
 
@@ -58,6 +60,7 @@ class _LinearCouplingConfig(CouplingConfig):
     """Linear optimal transport, see `ot_linear_coupling` for the fields."""
 
     fn = ot_linear_coupling
+    reads = ("rep_lin",)
 
     scale_cost: ScaleMethod = "mean"
     num_iter_max: int | None = None
@@ -104,6 +107,7 @@ class _QuadraticCouplingConfig(CouplingConfig):
     """Quadratic optimal transport, see `ot_quadratic_coupling` for the fields."""
 
     fn = ot_quadratic_coupling
+    reads = ("source_rep_quad", "target_rep_quad")
 
     # Scaled like the linear couplings: unscaled squared distances make the entropic solver underflow to an
     # all-zero plan on float32 data.
@@ -127,5 +131,6 @@ class FusedGromovWassersteinCouplingConfig(_QuadraticCouplingConfig):
     """Entropic fused Gromov-Wasserstein, POT's ``entropic_fused_gromov_wasserstein``."""
 
     method = "entropic_fused_gromov_wasserstein"
+    reads = ("rep_lin", "source_rep_quad", "target_rep_quad")
 
     alpha: float = 0.5

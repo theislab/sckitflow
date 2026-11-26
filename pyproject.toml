@@ -22,12 +22,12 @@ classifiers = [
 dynamic = [ "version" ]
 dependencies = [
   "anndata>=0.13",         # scfit streams via the anndata>=0.13 acc reference system
-  "lightning>=2.2",
-  "modelbinder>=0.1",      # the component registry and Hub save/load     # the training loop, optimizer stepping and logging
+  "lightning>=2.2",        # the training loop, optimizer stepping and logging
+  "modelbinder>=0.1",      # the component registry and Hub save/load
   "numpy>=1.26",
   "pandas>=2",
   "pot>=0.9",
-  "scfit>=0.0.12,<0.0.14", # annbatch-native streaming data layer; 0.0.14 changes array locations to anndata.acc references
+  "scfit>=0.0.12,<0.0.14", # annbatch-native streaming data layer
   "scikit-learn>=1.4",
   "scipy>=1.12",
   "torch>=2.2",

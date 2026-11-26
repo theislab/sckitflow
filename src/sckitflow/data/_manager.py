@@ -256,7 +256,7 @@ class DataManager:
             if len(set(widths.values())) > 1:
                 hint = {
                     "rep_lin": " It compares sources with targets directly; use an embedding both sides share, or "
-                    "match across spaces with the quadratic terms alone (no `rep_lin`).",
+                    "match across spaces with the quadratic terms alone.",
                     "target_sample_rep": " If the sources have their own state on purpose, name it with "
                     "`source_sample_rep`.",
                 }.get(field, "")
@@ -372,14 +372,7 @@ class DataManager:
         return parts
 
     def get_required_fields(self) -> tuple[list[Rep | AdRef], list[str]]:
-        """What this schema reads from an AnnData: :mod:`anndata.acc` references and ``uns`` keys.
-
-        The references are the state reps (``A.X``, ``A.layers[k]`` or ``A.obsm[k]``) of the targets and sources,
-        the coupling reps, the continuous conditions and responses, and the obs columns a batch groups or splits on. The
-        ``uns`` keys are the embedding tables of the categorical conditions and groups. A file of a multi-file
-        dataset may hold only some tables (see :meth:`get_data_dimensionalities`), so a reader opens the ones a
-        file has. Use it to open only what training reads, e.g. ``boundannbatch.open_adata(path, *refs, uns_keys=...)``.
-        """
+        """The :mod:`anndata.acc` references and ``uns`` keys this schema reads, e.g. for ``boundannbatch.open_adata(path, *refs, uns_keys=uns)``."""
         state = self._state_data_schema.sample_rep
         coupling = self._coupling_data_schema
         refs = dict.fromkeys((state, self.config.source_sample_rep or state))
@@ -643,7 +636,7 @@ class DataManager:
             Defaults to ``None`` (use the instance's).
         :type matched_keys: class: `Mapping[tuple, tuple] | None`
 
-        :param subsample: How ``max_per_group`` picks observations: ``"head"`` or ``"random"``.
+        :param subsample: How ``max_per_group`` picks observations: ``"head"``, ``"random"``, or a callable.
         :type subsample: class: `str`
 
         :param dtype: Torch dtype every emitted tensor is cast to; ``None`` leaves them as streamed.
@@ -732,17 +725,14 @@ class DataManagerConfig(Component):
     """
 
     target_sample_rep: RepField
-    """Required. The targets' state representation, the space the flow lives in: an :mod:`anndata.acc` reference
-    ``A.X``, ``A.layers[k]`` or ``A.obsm[k]``, or its config string ``"X"``, ``"layers.<k>"`` or ``"obsm.<k>"``
-    (written back as that string in a spec). A bare name such as ``"X_pca"`` is rejected. The sources read it too
-    unless they have their own (``source_sample_rep``)."""
+    """Required. The targets' state rep, the space the flow lives in: ``A.X``, ``A.layers[k]``, ``A.obsm[k]`` or its
+    config string ``"X"``, ``"layers.<k>"``, ``"obsm.<k>"``. The sources read it too unless ``source_sample_rep`` is set."""
 
     source_sample_rep: RepField | None = None
     """The sources' own state rep (a reference or config string, as ``target_sample_rep``), e.g. ATAC controls
     flowing into RNA targets. The files holding sources need only it, the files holding targets only
     ``target_sample_rep``; any width. A flow cannot start from it, so it needs ``generate_from_noise=True`` and a
-    source encoder (as GENOT). ``None`` (the default) declares that the sources share the targets' state space and
-    are read from ``target_sample_rep``."""
+    source encoder (as GENOT). ``None``: the sources' state is ``target_sample_rep`` too."""
 
     categorical_conditions: dict[str, tuple[str, ...]] | None = None
     """Mapping from each condition level to the corresponding columns, used to initialize the
@@ -796,8 +786,7 @@ class DataManagerConfig(Component):
     rep_lin: RepField | None = None
     """The linear coupling representation (a reference or config string, as ``target_sample_rep``), holding the
     features source and target share; used when matching distributions over partially incomparable states.
-    There is no default location: a linear coupling term is streamed only when this names one (``"X"`` for
-    ``.X``). ``None``: no linear term."""
+    ``None``: no linear term."""
 
     source_rep_quad: RepField | None = None
     """The quadratic coupling representation of the sources (a reference or config string), holding the features

@@ -33,8 +33,7 @@ class MatchedTrainingConfig(TrainingMethodConfig):
 def _check_coupling_reps(coupling: CouplingConfig, dims: DataDimensions) -> None:
     """Raise if the data manager does not name the reps ``coupling`` matches on.
 
-    Temporary, see theislab/sckitflow#237: once a coupling names its own reps as references and the model collects
-    the required fields of its data manager and its coupling, this goes.
+    Temporary until couplings name their own reps (theislab/sckitflow#237).
     """
     present = {}  # the independent coupling reads only the row counts, so needs none
     if isinstance(coupling, _LinearCouplingConfig | FusedGromovWassersteinCouplingConfig):

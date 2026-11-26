@@ -284,10 +284,7 @@ def test_match_unchanged_without_source_coupling():
 
 
 def test_match_unchanged_when_indices_none(coupled):
-    assert Matcher(lambda **_: (None, None)).match(coupled, generator=torch.Generator()) == (
-        coupled,
-        {},
-    )
+    assert Matcher(lambda **_: (None, None)).match(coupled, generator=torch.Generator()) == (coupled, {})
 
 
 def test_match_subscripts_and_passes_generator(coupled):

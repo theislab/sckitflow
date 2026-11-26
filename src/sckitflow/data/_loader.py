@@ -459,8 +459,7 @@ class _StepDataBridge:
                     f"{loc} ({' / '.join(self._rep_fields.get(loc, ['rep']))}) is {where}. The linear coupling "
                     "term compares sources with targets directly, so it needs one width in every file; align the "
                     "files to it (one PCA fitted over all of them, or an embedding both sides share when their states "
-                    "live in different spaces), or match across spaces with the quadratic terms alone "
-                    "(no `rep_lin`)."
+                    "live in different spaces), or match across spaces with the quadratic terms alone."
                 )
 
     def _files_holding(self, stream: Stream, role: str) -> list[AnnData]:

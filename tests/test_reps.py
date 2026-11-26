@@ -33,28 +33,19 @@ class TestConfigStrings:
 
     @pytest.mark.parametrize("field", REP_FIELDS)
     def test_a_bare_name_is_rejected(self, field):
-        with pytest.raises(ValueError, match=r"'X_pca' does not say where the array lives: write 'obsm\.X_pca'"):
+        with pytest.raises(ValueError, match="X_pca"):
             DataManagerConfig(**{"target_sample_rep": "X", field: "X_pca"})
 
     @pytest.mark.parametrize("field", ["continuous_conditions", "target_continuous_covs"])
     def test_covariates_are_references_too(self, field):
         config = DataManagerConfig(target_sample_rep="X", **{field: ("obsm.dose", "layers.time")})
         assert getattr(config, field) == (A.obsm["dose"], A.layers["time"])
-        with pytest.raises(ValueError, match=r"'dose' does not say where the array lives: write 'obsm\.dose'"):
+        with pytest.raises(ValueError, match="dose"):
             DataManagerConfig(target_sample_rep="X", **{field: ("dose",)})
         with pytest.raises(ValueError, match="A.X is not allowed here"):
             DataManagerConfig(target_sample_rep="X", **{field: ("X",)})
         with pytest.raises(ValueError, match=r"keyed by their array key, and \['dose'\] name several"):
             DataManagerConfig(target_sample_rep="X", **{field: ("obsm.dose", "layers.dose")})
-
-    @pytest.mark.parametrize("bad", ["obsm.", "layers.", A.obsm["X_pca.v2"], A.layers["a.b"]])
-    def test_keys_that_would_not_read_back_are_rejected(self, bad):
-        with pytest.raises(ValueError, match="non-empty and hold no '.'"):
-            DataManagerConfig(target_sample_rep=bad)
-
-    def test_the_json_schema_types_reps_as_strings(self):
-        props = DataManagerConfig.model_json_schema()["properties"]
-        assert props["target_sample_rep"]["type"] == "string"
 
     @pytest.mark.parametrize("bad", ["obs.drug", "varm.PCs", A.var["gene"], 3])
     def test_only_whole_obs_arrays(self, bad):

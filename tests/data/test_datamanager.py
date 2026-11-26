@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 from anndata import AnnData
+from anndata.acc import A
 from boundannbatch import open_adata
 from tests.data.shared import with_split
 
@@ -519,8 +520,6 @@ class TestGetRequiredFields:
     """get_required_fields: exactly the parts of an AnnData the loaders read."""
 
     def test_names_what_the_schema_reads(self):
-        from anndata.acc import A
-
         dm = _make_manager_with_continuous(control_values_dict={"drug": "control"}, split_by="split")
         refs, uns = dm.get_required_fields()
         assert refs == [A.X, A.obsm["X_repr"], A.obs["cell_line"], A.obs["drug"], A.obs["split"]]
@@ -540,14 +539,10 @@ class TestGetRequiredFields:
         assert next(iter(loaders["train"]))["target_state"] is not None
 
     def test_a_state_only_schema_reads_only_its_state(self):
-        from anndata.acc import A
-
         dm = DataManagerConfig(target_sample_rep="layers.counts").build()
         assert dm.get_required_fields() == ([A.layers["counts"]], [])
 
     def test_every_rep_role_is_named(self):
-        from anndata.acc import A
-
         dm = DataManagerConfig(
             target_sample_rep="X",
             source_sample_rep="obsm.src",

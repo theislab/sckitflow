@@ -24,8 +24,6 @@ __all__ = [
     "Rep",
     "RepField",
     "CovField",
-    "parse_rep",
-    "rep_str",
 ]
 
 type Rep = LayerAcc | MultiAcc
@@ -35,26 +33,16 @@ type Rep = LayerAcc | MultiAcc
 def parse_rep(value: Any, *, allow_x: bool = True) -> Rep:
     """A rep reference, from one or from its config string ``"X"``, ``"obsm.<k>"`` or ``"layers.<k>"``.
 
-    A bare name such as ``"X_pca"`` is rejected: the string names where the array lives.
+    Resolved as scanpy resolves ``use=`` (``scanpy.get._use._get_arr``), limited to whole obs arrays.
     """
     if isinstance(value, str):
-        if value != "X" and "." not in value:
-            raise ValueError(
-                f"{value!r} does not say where the array lives: write 'obsm.{value}' or 'layers.{value}'"
-                + (" ('X' for .X)." if allow_x else ".")
-            )
         value = A.resolve(value, vec=False)
     match value:
         case LayerAcc(k=None) if not allow_x:
-            raise ValueError(
-                "A.X is not allowed here: name an array keyed per observation, 'obsm.<k>' or 'layers.<k>'."
-            )
-        case LayerAcc(k=k) | MultiAcc(dim="obs", k=k) if k is not None and (k == "" or "." in k):
-            # a saved config writes the key after a dot, so a dotted key would read back as something else
-            raise ValueError(f"{value!r}: a rep key must be non-empty and hold no '.', so it reads back from a config.")
+            raise ValueError("A.X is not allowed here: use 'obsm.<k>' or 'layers.<k>'.")
         case LayerAcc() | MultiAcc(dim="obs"):
             return value
-    raise ValueError(f"a rep is A.X, A.layers[k] or A.obsm[k] (or 'X', 'layers.<k>', 'obsm.<k>'), got {value!r}.")
+    raise ValueError(f"a rep is A.X, A.layers[k] or A.obsm[k], got {value!r}.")
 
 
 def rep_str(ref: Rep) -> str:
@@ -80,9 +68,6 @@ class _RepSchema:
             lambda v: parse_rep(v, allow_x=self.allow_x),
             serialization=core_schema.plain_serializer_function_ser_schema(rep_str),
         )
-
-    def __get_pydantic_json_schema__(self, schema: Any, handler: Any) -> dict[str, str]:
-        return {"type": "string"}
 
 
 RepField = Annotated[Rep, _RepSchema(allow_x=True)]

@@ -20,8 +20,7 @@ everything lives; nothing is inferred from the data.
 ## Naming arrays
 
 The fields that name an array take an [`anndata.acc`](https://anndata.readthedocs.io/en/latest/generated/anndata.acc.html)
-reference in Python and, in a YAML or JSON config, its dotted string, which `A.resolve(text, vec=False)` turns
-into the reference:
+reference in Python and, in a YAML or JSON config, its dotted string:
 
 | Config string | Reference |
 | --- | --- |
@@ -29,10 +28,7 @@ into the reference:
 | `layers.counts` | `A.layers["counts"]` |
 | `obsm.X_pca` | `A.obsm["X_pca"]` |
 
-A bare name such as `X_pca` is rejected: write where the array lives. Nothing defaults to `A.X`: `target_sample_rep` is
-required, and `rep_lin` is set whenever there is a linear coupling rep, `X` included. The continuous
-covariates (`continuous_conditions`, `target_continuous_covs`) take `obsm.<key>` or `layers.<key>`, never `X`, and are
-keyed by `key`. A saved spec writes every reference back as its string.
+A bare name such as `X_pca` is rejected. Covariates take `obsm.<key>` or `layers.<key>`, never `X`.
 
 ```yaml
 data:

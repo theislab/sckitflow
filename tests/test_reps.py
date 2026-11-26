@@ -127,7 +127,7 @@ def test_a_layer_is_the_state_and_the_coupling_rep(tmp_path, adata: AnnData):
     widths, match_fn = [], model.training_method.matcher.match_fn
     method = MatchedTrainingMethod(
         model.training_method.method,
-        Matcher(lambda **kw: widths.append(kw["source_lin"].shape[1]) or match_fn(**kw)),
+        Matcher(lambda **kw: widths.append(kw["source_lin"].shape[1]) or match_fn(**kw), needs_reps=True),
     )
     plan = TrainingPlan(method, torch.optim.Adam(model.module.parameters(), lr=1e-4), val_names=datamodule.val_names)
     pl.Trainer(max_steps=3, accelerator="cpu", logger=False, enable_checkpointing=False, enable_progress_bar=False).fit(

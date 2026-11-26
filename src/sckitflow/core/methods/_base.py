@@ -257,7 +257,7 @@ class Matcher(BaseMatcher):
     device tensor, so checking it costs no host sync.
     """
 
-    def __init__(self, match_fn: MatchFn, *, needs_reps: bool = True) -> None:
+    def __init__(self, match_fn: MatchFn, *, needs_reps: bool) -> None:
         """Initializes the matcher.
 
         :param match_fn: Matches source and target populations from a batch.
@@ -319,7 +319,7 @@ class MatchedTrainingMethod:
 
         :param method: The training method to wrap around.
         :param matcher: The matcher pairing source and target, e.g.
-            ``Matcher(match_fn)``. Taken rather than built, so a `BaseMatcher`
+            ``Matcher(match_fn, needs_reps=True)``. Taken rather than built, so a `BaseMatcher`
             subclass can be used in its place.
         """
         self._method = method
